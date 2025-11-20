@@ -1,0 +1,5 @@
+{
+  "name": "Final 21.11 Hệ thống Quản lý Chung cư Q-Home V2.0",
+  "description": "Một ứng dụng web React hiện đại để quản lý vận hành chung cư, bao gồm quản lý cư dân, tính toán chi phí dịch vụ tự động bằng Gemini API, và tạo báo cáo chi tiết.",
+  "requestFramePermissions": []
+}
