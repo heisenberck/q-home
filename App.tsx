@@ -205,7 +205,23 @@ BQL Chung cư HUD3 Linh Đàm.`,
     // --- RBAC & AUTH ---
     const [currentUser, setCurrentUser] = useState<UserPermission | null>(() => {
         const saved = localStorage.getItem('hud3_current_user');
-        return saved ? JSON.parse(saved) : null;
+        if (!saved) return null;
+        try {
+            const parsedUser = JSON.parse(saved);
+            // Validation: Ensure user exists in the source of truth (users list) and is active
+            // Since we can't access 'users' state here easily (closure), we re-fetch from source
+            const savedUsersList = localStorage.getItem('hud3_users_v1');
+            const validUsers = savedUsersList ? JSON.parse(savedUsersList) : MOCK_USER_PERMISSIONS;
+            
+            const validUser = validUsers.find((u: UserPermission) => u.Email === parsedUser.Email);
+            
+            if (validUser && validUser.status === 'Active') {
+                return validUser; 
+            }
+        } catch (e) {
+            console.error("Auth validation failed", e);
+        }
+        return null;
     });
     
     const role: Role | null = currentUser?.Role || null;
@@ -223,21 +239,35 @@ BQL Chung cư HUD3 Linh Đàm.`,
     };
 
     const handleLoginAttempt = (password: string) => {
-        const isMasterOverride = userToSwitchTo?.Role === 'Admin' && password === MASTER_PASSWORD;
+        // Security Check: Validate against the current 'users' state to prevent using stale or fake user objects
+        const validUser = users.find(u => u.Email === userToSwitchTo?.Email);
+        
+        if (!validUser) {
+            setLoginError('Người dùng không tồn tại.');
+            return;
+        }
+        
+        if (validUser.status !== 'Active') {
+            setLoginError('Tài khoản này đã bị vô hiệu hóa.');
+            return;
+        }
 
-        if (userToSwitchTo && (userToSwitchTo.password === password || isMasterOverride)) {
-            setCurrentUser(userToSwitchTo);
-            localStorage.setItem('hud3_current_user', JSON.stringify(userToSwitchTo));
+        const isMasterOverride = validUser.Role === 'Admin' && password === MASTER_PASSWORD;
+
+        if (validUser.password === password || isMasterOverride) {
+            setCurrentUser(validUser);
+            localStorage.setItem('hud3_current_user', JSON.stringify(validUser));
             setIsLoginModalOpen(false);
             setUserToSwitchTo(null);
             setLoginError(null);
-            showToast(`Đã chuyển sang người dùng ${userToSwitchTo.Email}`, 'success');
+            showToast(`Đã chuyển sang người dùng ${validUser.Email}`, 'success');
         } else {
             setLoginError('Mật khẩu không đúng. Vui lòng thử lại.');
         }
     };
 
     const handleInitialLogin = (user: UserPermission) => {
+        // Validation happens inside LoginPage generally, but good to double check or trust if passed from there
         setCurrentUser(user);
         localStorage.setItem('hud3_current_user', JSON.stringify(user));
         showToast(`Chào mừng quay trở lại, ${user.Email.split('@')[0]}!`, 'success');
