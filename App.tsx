@@ -108,9 +108,24 @@ const App: React.FC = () => {
         water: MOCK_TARIFFS_WATER,
     });
     const [users, setUsers] = useState<UserPermission[]>(() => {
-        // Persist users list for password changes to work across reloads
-        const savedUsers = localStorage.getItem('hud3_users_v1');
-        return savedUsers ? JSON.parse(savedUsers) : MOCK_USER_PERMISSIONS;
+        // Robust initialization: Check if localStorage data is valid and contains at least one Admin
+        const savedUsersStr = localStorage.getItem('hud3_users_v1');
+        if (savedUsersStr) {
+            try {
+                const parsedUsers = JSON.parse(savedUsersStr);
+                if (Array.isArray(parsedUsers) && parsedUsers.length > 0) {
+                    // Check if default admin exists or any active admin exists
+                    const hasAdmin = parsedUsers.some(u => u.Role === 'Admin' && u.status === 'Active');
+                    if (hasAdmin) {
+                        return parsedUsers;
+                    }
+                }
+            } catch (e) {
+                console.error("Failed to parse saved users from localStorage", e);
+            }
+        }
+        // Fallback to MOCK if storage is empty, invalid, or missing Admin
+        return MOCK_USER_PERMISSIONS;
     });
 
     const [adjustments, setAdjustments] = useState<Adjustment[]>(MOCK_ADJUSTMENTS);
@@ -209,9 +224,16 @@ BQL Chung cư HUD3 Linh Đàm.`,
         try {
             const parsedUser = JSON.parse(saved);
             // Validation: Ensure user exists in the source of truth (users list) and is active
-            // Since we can't access 'users' state here easily (closure), we re-fetch from source
+            // Since we can't access 'users' state here easily (closure), we re-fetch from source or MOCK
             const savedUsersList = localStorage.getItem('hud3_users_v1');
-            const validUsers = savedUsersList ? JSON.parse(savedUsersList) : MOCK_USER_PERMISSIONS;
+            // Use stricter fallback to ensure we don't validate against an empty list if storage is bad
+            let validUsers = MOCK_USER_PERMISSIONS;
+            if (savedUsersList) {
+                const parsedList = JSON.parse(savedUsersList);
+                if (Array.isArray(parsedList) && parsedList.length > 0) {
+                    validUsers = parsedList;
+                }
+            }
             
             const validUser = validUsers.find((u: UserPermission) => u.Email === parsedUser.Email);
             
