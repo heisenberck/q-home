@@ -166,8 +166,28 @@ const App: React.FC = () => {
         setToasts(prevToasts => prevToasts.slice(1));
     }, []);
 
-    // --- DATA PERSISTENCE (with Firebase) ---
+    // --- DATA PERSISTENCE (with Firebase and Offline Fallback) ---
     useEffect(() => {
+        const loadAndSetMockData = (reason: string) => {
+            showToast(reason, "error");
+            const initialUnits = MOCK_UNITS;
+            patchKiosAreas(initialUnits);
+            setUnits(initialUnits);
+            setOwners(MOCK_OWNERS);
+            setVehicles(MOCK_VEHICLES);
+            setWaterReadings(MOCK_WATER_READINGS);
+            setCharges(MOCK_CALCULATED_CHARGES);
+            setTariffs({
+                service: MOCK_TARIFFS_SERVICE,
+                parking: MOCK_TARIFFS_PARKING,
+                water: MOCK_TARIFFS_WATER,
+            });
+            setUsers(MOCK_USER_PERMISSIONS);
+            setAdjustments(MOCK_ADJUSTMENTS);
+            setInvoiceSettings(initialInvoiceSettings);
+            setActivityLogs([]);
+        };
+
         const loadData = async () => {
             try {
                 const data = await getAllData();
@@ -180,7 +200,7 @@ const App: React.FC = () => {
                     setWaterReadings(data.waterReadings || []);
                     setCharges(data.charges || []);
                     setTariffs(data.tariffs || { service: MOCK_TARIFFS_SERVICE, parking: MOCK_TARIFFS_PARKING, water: MOCK_TARIFFS_WATER });
-                    setUsers(data.users || MOCK_USER_PERMISSIONS); // Fallback to mock if users are missing
+                    setUsers(data.users && data.users.length > 0 ? data.users : MOCK_USER_PERMISSIONS);
                     setAdjustments(data.adjustments || []);
                     setInvoiceSettings(data.invoiceSettings || initialInvoiceSettings);
                     setActivityLogs(data.activityLogs || []);
@@ -189,61 +209,26 @@ const App: React.FC = () => {
                         localStorage.setItem('lockedBillingPeriods', JSON.stringify(data.lockedPeriods));
                     }
                 } else {
-                    // No data found, initialize with mock data and save to Firestore
+                    // No data in Firestore (first run), initialize with mock data
+                    loadAndSetMockData("Không tìm thấy dữ liệu trên CSDL. Đang sử dụng dữ liệu mẫu.");
+                    
+                    // Try to save mock data to Firestore in the background
                     const initialUnits = MOCK_UNITS;
                     patchKiosAreas(initialUnits);
                     const initialData = {
-                        units: initialUnits,
-                        owners: MOCK_OWNERS,
-                        vehicles: MOCK_VEHICLES,
-                        waterReadings: MOCK_WATER_READINGS,
-                        charges: MOCK_CALCULATED_CHARGES,
-                        tariffs: {
-                            service: MOCK_TARIFFS_SERVICE,
-                            parking: MOCK_TARIFFS_PARKING,
-                            water: MOCK_TARIFFS_WATER,
-                        },
-                        users: MOCK_USER_PERMISSIONS,
-                        adjustments: MOCK_ADJUSTMENTS,
-                        invoiceSettings: initialInvoiceSettings,
-                        activityLogs: [],
+                        units: initialUnits, owners: MOCK_OWNERS, vehicles: MOCK_VEHICLES,
+                        waterReadings: MOCK_WATER_READINGS, charges: MOCK_CALCULATED_CHARGES,
+                        tariffs: { service: MOCK_TARIFFS_SERVICE, parking: MOCK_TARIFFS_PARKING, water: MOCK_TARIFFS_WATER },
+                        users: MOCK_USER_PERMISSIONS, adjustments: MOCK_ADJUSTMENTS,
+                        invoiceSettings: initialInvoiceSettings, activityLogs: [],
                     };
-
-                    setUnits(initialData.units);
-                    setOwners(initialData.owners);
-                    setVehicles(initialData.vehicles);
-                    setWaterReadings(initialData.waterReadings);
-                    setCharges(initialData.charges);
-                    setTariffs(initialData.tariffs);
-                    setUsers(initialData.users);
-                    setAdjustments(initialData.adjustments);
-                    setInvoiceSettings(initialData.invoiceSettings);
-                    setActivityLogs(initialData.activityLogs);
-
-                    await saveAllData(initialData);
-                    showToast('Khởi tạo dữ liệu mẫu và lưu vào Firebase.', 'success');
+                    saveAllData(initialData)
+                        .then(() => showToast('Khởi tạo và lưu dữ liệu mẫu lên Firebase thành công.', 'success'))
+                        .catch(err => console.warn("Could not save initial mock data to Firebase:", err));
                 }
             } catch (error) {
                 console.error("Failed to load or initialize data:", error);
-                showToast("Lỗi kết nối CSDL. Đang sử dụng dữ liệu mẫu (offline).", "error");
-                
-                // FALLBACK TO MOCK DATA ON FIREBASE ERROR
-                const initialUnits = MOCK_UNITS;
-                patchKiosAreas(initialUnits);
-                setUnits(initialUnits);
-                setOwners(MOCK_OWNERS);
-                setVehicles(MOCK_VEHICLES);
-                setWaterReadings(MOCK_WATER_READINGS);
-                setCharges(MOCK_CALCULATED_CHARGES);
-                setTariffs({
-                    service: MOCK_TARIFFS_SERVICE,
-                    parking: MOCK_TARIFFS_PARKING,
-                    water: MOCK_TARIFFS_WATER,
-                });
-                setUsers(MOCK_USER_PERMISSIONS); // <-- IMPORTANT PART
-                setAdjustments(MOCK_ADJUSTMENTS);
-                setInvoiceSettings(initialInvoiceSettings);
-                setActivityLogs([]);
+                loadAndSetMockData("Lỗi kết nối CSDL. Đang sử dụng dữ liệu mẫu (offline).");
             } finally {
                 setIsLoadingData(false);
             }
