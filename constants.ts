@@ -129,7 +129,6 @@ export function patchKiosAreas(units: Unit[]): void {
       }
     }
   }
-  console.log(`[patchKiosAreas] Patched: ${patched} KIOS areas.`);
 }
 // --- END: KIOS Area Patch ---
 

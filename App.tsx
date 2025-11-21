@@ -143,7 +143,7 @@ const App: React.FC = () => {
     const [theme, setTheme] = useState<'light' | 'dark'>(() => (localStorage.getItem('theme') as 'light' | 'dark') || 'light');
     const [toasts, setToasts] = useState<ToastMessage[]>([]);
     
-    // Data State (Centralized) - Initialized with mock data
+    // Data State (Centralized)
     const [units, setUnits] = useState<Unit[]>([]);
     const [owners, setOwners] = useState<Owner[]>([]);
     const [vehicles, setVehicles] = useState<Vehicle[]>([]);
@@ -164,26 +164,72 @@ const App: React.FC = () => {
         setToasts(prevToasts => prevToasts.slice(1));
     }, []);
 
-    // --- DATA PERSISTENCE (Reverted to Mock Data Only) ---
+    // --- DATA PERSISTENCE (Production Ready - Firestore Read-Only on Init) ---
     useEffect(() => {
-        const initialUnits = MOCK_UNITS;
-        patchKiosAreas(initialUnits);
-        setUnits(initialUnits);
-        setOwners(MOCK_OWNERS);
-        setVehicles(MOCK_VEHICLES);
-        setWaterReadings(MOCK_WATER_READINGS);
-        setCharges(MOCK_CALCULATED_CHARGES);
-        setTariffs({
-            service: MOCK_TARIFFS_SERVICE,
-            parking: MOCK_TARIFFS_PARKING,
-            water: MOCK_TARIFFS_WATER,
-        });
-        setUsers(MOCK_USER_PERMISSIONS);
-        setAdjustments(MOCK_ADJUSTMENTS);
-        setInvoiceSettings(initialInvoiceSettings);
-        setActivityLogs([]);
-        setIsLoadingData(false);
-    }, []);
+        const loadData = async () => {
+            // @ts-ignore
+            const { db, collection, getDocs } = window.FirebaseAPI;
+            if (!db) {
+                console.error("Firebase is not initialized.");
+                showToast("Lỗi kết nối CSDL. Dùng dữ liệu tạm.", "error");
+                setUsers(MOCK_USER_PERMISSIONS); // Fallback for login
+                setIsLoadingData(false);
+                return;
+            }
+
+            try {
+                const collectionsToFetch = [
+                    'units', 'owners', 'vehicles', 'waterReadings', 'charges', 
+                    'tariffs_service', 'tariffs_parking', 'tariffs_water',
+                    'users', 'adjustments', 'invoiceSettings', 'activityLogs'
+                ];
+
+                const promises = collectionsToFetch.map(coll => getDocs(collection(db, coll)));
+                const snapshots = await Promise.all(promises);
+                
+                const data: Record<string, any[]> = {};
+                snapshots.forEach((snapshot, index) => {
+                    const collName = collectionsToFetch[index];
+                    data[collName] = snapshot.docs.map(doc => ({ ...doc.data(), id: doc.id }));
+                });
+
+                // Set states from fetched data
+                const fetchedUnits = data.units as Unit[] || [];
+                patchKiosAreas(fetchedUnits); // Ensure KIOS areas are correct
+                setUnits(fetchedUnits);
+
+                setOwners(data.owners || []);
+                setVehicles(data.vehicles || []);
+                setWaterReadings(data.waterReadings || []);
+                setCharges(data.charges || []);
+                setTariffs({
+                    service: data.tariffs_service || [],
+                    parking: data.tariffs_parking || [],
+                    water: data.tariffs_water || [],
+                });
+                
+                // Fallback for users to ensure login is always possible
+                setUsers(data.users && data.users.length > 0 ? data.users : MOCK_USER_PERMISSIONS);
+                
+                setAdjustments(data.adjustments || []);
+                
+                // Invoice settings are a single document, handle accordingly
+                setInvoiceSettings(data.invoiceSettings && data.invoiceSettings.length > 0 ? data.invoiceSettings[0] as InvoiceSettings : initialInvoiceSettings);
+                
+                setActivityLogs(data.activityLogs || []);
+
+            } catch (error) {
+                console.error("Error loading data from Firestore. Falling back to empty/mock state.", error);
+                showToast("Không thể tải dữ liệu từ CSDL. Khởi động với trạng thái trống.", "error");
+                // IMPORTANT: In case of error, ensure login is still possible
+                setUsers(MOCK_USER_PERMISSIONS);
+            } finally {
+                setIsLoadingData(false);
+            }
+        };
+
+        loadData();
+    }, [showToast]);
 
     // --- RBAC & AUTH (Uses localStorage for session) ---
     const [currentUser, setCurrentUser] = useState<UserPermission | null>(() => {

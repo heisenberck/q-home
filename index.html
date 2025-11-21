@@ -633,8 +633,8 @@
         initializeFirestore,
         collection,
         getDocs,
-        addDoc,
-        onSnapshot
+        getDoc,
+        doc,
       } from "https://www.gstatic.com/firebasejs/12.6.0/firebase-firestore.js";
 
       // Cấu hình Firebase của bạn
@@ -651,50 +651,22 @@
       // Khởi tạo app
       const app = initializeApp(firebaseConfig);
 
-      // 🔧 FIX lỗi “client is offline”:
       // ép Firestore dùng long-polling, tránh các vấn đề với websockets/proxy
       const db = initializeFirestore(app, {
         experimentalAutoDetectLongPolling: true,
         useFetchStreams: false
       });
 
-      // ====== HÀM TEST ĐƠN GIẢN ======
+      // Export a single object to the window for the React app to use
+      window.FirebaseAPI = {
+        db,
+        collection,
+        getDocs,
+        getDoc,
+        doc
+      };
 
-      // Đọc toàn bộ collection "apartments"
-      async function testRead() {
-        console.log("🔥 testRead()...");
-        const snap = await getDocs(collection(db, "apartments"));
-        snap.forEach(doc => {
-          console.log(doc.id, doc.data());
-        });
-      }
-
-      // Thêm 1 căn hộ demo
-      async function testAdd() {
-        const ref = await addDoc(collection(db, "apartments"), {
-          name: "103",
-          area: 80,
-          owner: "Nguyễn Văn C",
-          createdAt: new Date()
-        });
-        console.log("Đã thêm document:", ref.id);
-      }
-
-      // Lắng nghe realtime
-      function testListen() {
-        onSnapshot(collection(db, "apartments"), snap => {
-          console.log("📡 Realtime update:");
-          snap.forEach(doc => console.log(doc.id, doc.data()));
-        });
-      }
-
-      // Export ra window để bạn gọi trong console
-      window.firestoreDB = db;
-      window.testRead = testRead;
-      window.testAdd = testAdd;
-      window.testListen = testListen;
-
-      console.log("✅ Firebase + Firestore đã init (long-polling bật).");
+      console.log("✅ Firebase + Firestore initialized for production.");
     </script>
   </body>
 </html>
