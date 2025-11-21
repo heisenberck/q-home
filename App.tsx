@@ -10,7 +10,6 @@ import LoginModal from './components/ui/LoginModal';
 import LoginPage from './components/pages/LoginPage';
 import Spinner from './components/ui/Spinner';
 import { processFooterHtml } from './utils/helpers';
-import { getAllData, saveAllData, saveData, saveMultipleDocs, type DocumentName } from './services/firebaseService';
 
 // Lazy load page components
 const OverviewPage = lazy(() => import('./components/pages/OverviewPage'));
@@ -24,7 +23,6 @@ const SettingsPage = lazy(() => import('./components/pages/SettingsPage'));
 const BackupRestorePage = lazy(() => import('./components/pages/BackupRestorePage'));
 const ActivityLogPage = lazy(() => import('./components/pages/ActivityLogPage'));
 
-// FIX: Define AppData type for backup/restore functionality as it was missing.
 type AppData = {
     units: Unit[];
     owners: Owner[];
@@ -145,7 +143,7 @@ const App: React.FC = () => {
     const [theme, setTheme] = useState<'light' | 'dark'>(() => (localStorage.getItem('theme') as 'light' | 'dark') || 'light');
     const [toasts, setToasts] = useState<ToastMessage[]>([]);
     
-    // Data State (Centralized) - Initialized as empty, will be populated from Firebase
+    // Data State (Centralized) - Initialized with mock data
     const [units, setUnits] = useState<Unit[]>([]);
     const [owners, setOwners] = useState<Owner[]>([]);
     const [vehicles, setVehicles] = useState<Vehicle[]>([]);
@@ -166,76 +164,26 @@ const App: React.FC = () => {
         setToasts(prevToasts => prevToasts.slice(1));
     }, []);
 
-    // --- DATA PERSISTENCE (with Firebase and Offline Fallback) ---
+    // --- DATA PERSISTENCE (Reverted to Mock Data Only) ---
     useEffect(() => {
-        const loadAndSetMockData = (reason: string) => {
-            showToast(reason, "error");
-            const initialUnits = MOCK_UNITS;
-            patchKiosAreas(initialUnits);
-            setUnits(initialUnits);
-            setOwners(MOCK_OWNERS);
-            setVehicles(MOCK_VEHICLES);
-            setWaterReadings(MOCK_WATER_READINGS);
-            setCharges(MOCK_CALCULATED_CHARGES);
-            setTariffs({
-                service: MOCK_TARIFFS_SERVICE,
-                parking: MOCK_TARIFFS_PARKING,
-                water: MOCK_TARIFFS_WATER,
-            });
-            setUsers(MOCK_USER_PERMISSIONS);
-            setAdjustments(MOCK_ADJUSTMENTS);
-            setInvoiceSettings(initialInvoiceSettings);
-            setActivityLogs([]);
-        };
-
-        const loadData = async () => {
-            try {
-                const data = await getAllData();
-                if (data) {
-                    // Data exists in Firestore, load it into state
-                    patchKiosAreas(data.units || []);
-                    setUnits(data.units || []);
-                    setOwners(data.owners || []);
-                    setVehicles(data.vehicles || []);
-                    setWaterReadings(data.waterReadings || []);
-                    setCharges(data.charges || []);
-                    setTariffs(data.tariffs || { service: MOCK_TARIFFS_SERVICE, parking: MOCK_TARIFFS_PARKING, water: MOCK_TARIFFS_WATER });
-                    setUsers(data.users && data.users.length > 0 ? data.users : MOCK_USER_PERMISSIONS);
-                    setAdjustments(data.adjustments || []);
-                    setInvoiceSettings(data.invoiceSettings || initialInvoiceSettings);
-                    setActivityLogs(data.activityLogs || []);
-                    
-                    if (data.lockedPeriods) {
-                        localStorage.setItem('lockedBillingPeriods', JSON.stringify(data.lockedPeriods));
-                    }
-                } else {
-                    // No data in Firestore (first run), initialize with mock data
-                    loadAndSetMockData("Không tìm thấy dữ liệu trên CSDL. Đang sử dụng dữ liệu mẫu.");
-                    
-                    // Try to save mock data to Firestore in the background
-                    const initialUnits = MOCK_UNITS;
-                    patchKiosAreas(initialUnits);
-                    const initialData = {
-                        units: initialUnits, owners: MOCK_OWNERS, vehicles: MOCK_VEHICLES,
-                        waterReadings: MOCK_WATER_READINGS, charges: MOCK_CALCULATED_CHARGES,
-                        tariffs: { service: MOCK_TARIFFS_SERVICE, parking: MOCK_TARIFFS_PARKING, water: MOCK_TARIFFS_WATER },
-                        users: MOCK_USER_PERMISSIONS, adjustments: MOCK_ADJUSTMENTS,
-                        invoiceSettings: initialInvoiceSettings, activityLogs: [],
-                    };
-                    saveAllData(initialData)
-                        .then(() => showToast('Khởi tạo và lưu dữ liệu mẫu lên Firebase thành công.', 'success'))
-                        .catch(err => console.warn("Could not save initial mock data to Firebase:", err));
-                }
-            } catch (error) {
-                console.error("Failed to load or initialize data:", error);
-                loadAndSetMockData("Lỗi kết nối CSDL. Đang sử dụng dữ liệu mẫu (offline).");
-            } finally {
-                setIsLoadingData(false);
-            }
-        };
-
-        loadData();
-    }, [showToast]);
+        const initialUnits = MOCK_UNITS;
+        patchKiosAreas(initialUnits);
+        setUnits(initialUnits);
+        setOwners(MOCK_OWNERS);
+        setVehicles(MOCK_VEHICLES);
+        setWaterReadings(MOCK_WATER_READINGS);
+        setCharges(MOCK_CALCULATED_CHARGES);
+        setTariffs({
+            service: MOCK_TARIFFS_SERVICE,
+            parking: MOCK_TARIFFS_PARKING,
+            water: MOCK_TARIFFS_WATER,
+        });
+        setUsers(MOCK_USER_PERMISSIONS);
+        setAdjustments(MOCK_ADJUSTMENTS);
+        setInvoiceSettings(initialInvoiceSettings);
+        setActivityLogs([]);
+        setIsLoadingData(false);
+    }, []);
 
     // --- RBAC & AUTH (Uses localStorage for session) ---
     const [currentUser, setCurrentUser] = useState<UserPermission | null>(() => {
@@ -249,7 +197,7 @@ const App: React.FC = () => {
     });
 
     useEffect(() => {
-        // Validate current user on startup against user list from DB
+        // Validate current user on startup against user list
         if (currentUser && users.length > 0) {
             const validUser = users.find(u => u.Email === currentUser.Email);
             if (!validUser || validUser.status !== 'Active') {
@@ -301,16 +249,12 @@ const App: React.FC = () => {
     }, [showToast]);
 
     const handleUpdateUser = useCallback((updatedUser: UserPermission) => {
-        setUsers(prev => {
-            const newUsers = prev.map(u => (currentUser && u.Email === currentUser.Email) ? updatedUser : u);
-            saveData('users', newUsers).catch(e => showToast('Lỗi lưu thông tin người dùng.', 'error'));
-            return newUsers;
-        });
+        setUsers(prev => prev.map(u => (currentUser && u.Email === currentUser.Email) ? updatedUser : u));
         if (currentUser && (currentUser.Email === updatedUser.Email)) {
              setCurrentUser(updatedUser);
              localStorage.setItem('hud3_current_user', JSON.stringify(updatedUser));
         }
-    }, [currentUser, showToast]);
+    }, [currentUser]);
 
 
     // --- THEME EFFECT ---
@@ -323,86 +267,56 @@ const App: React.FC = () => {
     
     const toggleTheme = () => setTheme(prev => (prev === 'light' ? 'dark' : 'light'));
 
-    // --- ACTIVITY LOGGING ---
+    // --- ACTIVITY LOGGING (In-memory only) ---
     const logAction = useCallback((payload: LogPayload) => {
         if (!currentUser) return;
-        const UNDOABLE_ACTIONS = ['IMPORT_RESIDENTS', 'RESET_RESIDENTS', 'UPDATE_TARIFFS', 'RESTORE_DATA', 'BULK_UPDATE_CHARGE_STATUS', 'BULK_UPDATE_WATER_READINGS', 'BULK_UPDATE_USERS'];
-        const isUndoable = UNDOABLE_ACTIONS.includes(payload.action);
         const logId = `log_${Date.now()}_${Math.random().toString(36).substring(2, 9)}`;
-        const newLog: ActivityLog = { id: logId, ts: new Date().toISOString(), actor_email: currentUser.Email, actor_role: currentUser.Role, undone: false, undo_token: isUndoable ? logId : null, undo_until: isUndoable ? new Date(Date.now() + 24 * 60 * 60 * 1000).toISOString() : null, ...payload };
+        const newLog: ActivityLog = { id: logId, ts: new Date().toISOString(), actor_email: currentUser.Email, actor_role: currentUser.Role, undone: false, undo_token: null, undo_until: null, ...payload };
         
-        setActivityLogs(prev => {
-            const newLogs = [newLog, ...prev].slice(0, 100);
-            saveData('activityLogs', newLogs);
-            return newLogs;
-        });
+        setActivityLogs(prev => [newLog, ...prev].slice(0, 100));
     }, [currentUser]);
 
     const handleUndoAction = useCallback((logId: string) => {
-        // This function is complex. For now, it updates local state. A full implementation would need to update Firebase as well.
-        // For simplicity, this is left as is but in a real app would need careful handling.
-        showToast('Chức năng hoàn tác chưa được hỗ trợ đầy đủ với Firebase.', 'warn');
+        showToast('Chức năng hoàn tác không được hỗ trợ ở chế độ dữ liệu tạm thời.', 'warn');
     }, [showToast]);
 
-    // --- DATA HANDLERS (with logging and Firebase persistence) ---
+    // --- DATA HANDLERS (In-memory only) ---
     const createDataHandler = <T,>(
-        stateSetter: React.Dispatch<React.SetStateAction<T>>,
-        docName: DocumentName,
-        errorMsg: string
+        stateSetter: React.Dispatch<React.SetStateAction<T>>
     ) => useCallback((updater: React.SetStateAction<T>, logPayload?: LogPayload) => {
-        stateSetter(prevState => {
-            const before_snapshot = { [docName]: prevState };
-            const newState = typeof updater === 'function' ? (updater as (prev: T) => T)(prevState) : updater;
-            
-            if (logPayload) {
-                logAction({ ...logPayload, before_snapshot });
-            }
-            saveData(docName, newState).catch(() => showToast(errorMsg, 'error'));
-            return newState;
-        });
-    }, [logAction, showToast]);
-
-    const handleSetCharges = createDataHandler(setCharges, 'charges', 'Lỗi lưu dữ liệu phí.');
-    // FIX: Replaced generic data handler with a specific one to match the expected signature from BillingPage.
+        stateSetter(updater);
+        if (logPayload) {
+            logAction(logPayload);
+        }
+    }, [logAction]);
+    
+    const handleSetCharges = createDataHandler(setCharges);
+    // FIX: The logAction payload requires a 'before_snapshot'. By using the functional form of setAdjustments, we can capture the previous state for the log.
     const handleSetAdjustments = useCallback((updater: React.SetStateAction<Adjustment[]>, details: string) => {
-        setAdjustments(prevState => {
-            const before_snapshot = { adjustments: prevState };
-            const newState = typeof updater === 'function' ? (updater as (prev: Adjustment[]) => Adjustment[])(prevState) : updater;
-
-            logAction({
-                module: 'Billing',
-                action: 'UPDATE_ADJUSTMENTS',
-                summary: details,
-                before_snapshot,
-            });
-
-            saveData('adjustments', newState).catch(() => showToast('Lỗi lưu điều chỉnh.', 'error'));
-            return newState;
-        });
-    }, [logAction, showToast]);
-    const handleSetTariffs = createDataHandler(setTariffs, 'tariffs', 'Lỗi lưu biểu phí.');
-    // FIX: Replaced generic data handler with a specific one to match the expected signature from WaterPage.
-    const handleSetWaterReadings = useCallback((updater: React.SetStateAction<WaterReading[]>, summary?: string) => {
-        setWaterReadings(prevState => {
-            const before_snapshot = { waterReadings: prevState };
-            const newState = typeof updater === 'function' ? (updater as (prev: WaterReading[]) => WaterReading[])(prevState) : updater;
-
-            if (summary) {
-                logAction({
-                    module: 'Water',
-                    action: 'BULK_UPDATE_WATER_READINGS',
-                    summary: summary,
-                    before_snapshot,
-                });
+        setAdjustments(prev => {
+            logAction({ module: 'Billing', action: 'UPDATE_ADJUSTMENTS', summary: details, before_snapshot: prev });
+            if (typeof updater === 'function') {
+                return (updater as (prevState: Adjustment[]) => Adjustment[])(prev);
             }
-
-            saveData('waterReadings', newState).catch(() => showToast('Lỗi lưu chỉ số nước.', 'error'));
-            return newState;
+            return updater;
         });
-    }, [logAction, showToast]);
-    const handleSetUsers = createDataHandler(setUsers, 'users', 'Lỗi lưu người dùng.');
-    const handleSetInvoiceSettings = createDataHandler(setInvoiceSettings, 'invoiceSettings', 'Lỗi lưu cài đặt.');
-    const handleSetVehicles = createDataHandler(setVehicles, 'vehicles', 'Lỗi lưu phương tiện.');
+    }, [logAction]);
+    const handleSetTariffs = createDataHandler(setTariffs);
+    // FIX: The logAction payload requires a 'before_snapshot'. By using the functional form of setWaterReadings, we can capture the previous state for the log.
+    const handleSetWaterReadings = useCallback((updater: React.SetStateAction<WaterReading[]>, summary?: string) => {
+        setWaterReadings(prev => {
+            if (summary) {
+                logAction({ module: 'Water', action: 'BULK_UPDATE_WATER_READINGS', summary: summary, before_snapshot: prev });
+            }
+            if (typeof updater === 'function') {
+                return (updater as (prevState: WaterReading[]) => WaterReading[])(prev);
+            }
+            return updater;
+        });
+    }, [logAction]);
+    const handleSetUsers = createDataHandler(setUsers);
+    const handleSetInvoiceSettings = createDataHandler(setInvoiceSettings);
+    const handleSetVehicles = createDataHandler(setVehicles);
     
     const handleSaveResident = useCallback((updatedData: { unit: Unit; owner: Owner; vehicles: Vehicle[] }) => {
         const { unit, owner, vehicles: draftVehicles } = updatedData;
@@ -415,47 +329,29 @@ const App: React.FC = () => {
             const processedVehicles = draftVehicles.map(v => ({...v, VehicleId: v.VehicleId.startsWith('VEH_NEW_') ? `VEH${Math.floor(1000 + Math.random() * 9000)}` : v.VehicleId, isActive: true, updatedAt: new Date().toISOString()}));
             const originalVehicles = prevVehicles.filter(v => v.UnitID === unit.UnitID);
             const softDeletedVehicles = originalVehicles.filter(v => !processedVehicles.some(p => p.VehicleId === v.VehicleId)).map(v => ({ ...v, isActive: false, updatedAt: new Date().toISOString() }));
-            const newVehicles = [...otherVehicles, ...processedVehicles, ...softDeletedVehicles];
-            
-            saveMultipleDocs({ units: units.map(u => u.UnitID === unit.UnitID ? unit : u), owners: owners.map(o => o.OwnerID === owner.OwnerID ? owner : o), vehicles: newVehicles }).catch(() => showToast('Lỗi lưu thông tin cư dân.', 'error'));
-            return newVehicles;
+            return [...otherVehicles, ...processedVehicles, ...softDeletedVehicles];
         });
 
-        showToast('Đã lưu thông tin vào hệ thống.', 'success');
-    }, [units, owners, showToast]);
+        showToast('Đã lưu thông tin (tạm thời).', 'success');
+    }, [showToast]);
 
     const handleResetResidents = useCallback((unitIds: Set<string>) => {
         const ownerIdsToReset = new Set<string>();
         
-        setUnits(prevUnits => {
-            const newUnits = prevUnits.map(u => {
+        setUnits(prev => {
+            const newUnits = prev.map(u => {
                 if (unitIds.has(u.UnitID)) {
                     ownerIdsToReset.add(u.OwnerID);
                     return { ...u, Status: 'Owner' as Unit['Status'] };
                 }
                 return u;
             });
-            
-            setOwners(prevOwners => {
-                const newOwners = prevOwners.map(o => 
-                    ownerIdsToReset.has(o.OwnerID) 
-                        ? { ...o, OwnerName: '[Trống]', Phone: '', Email: '' } 
-                        : o
-                );
-                
-                setVehicles(prevVehicles => {
-                    const newVehicles = prevVehicles.filter(v => !unitIds.has(v.UnitID));
-                    saveMultipleDocs({ units: newUnits, owners: newOwners, vehicles: newVehicles }).catch(() => showToast('Lỗi xoá thông tin cư dân.', 'error'));
-                    return newVehicles;
-                });
-                
-                return newOwners;
-            });
-            
+            setOwners(prev => prev.map(o => ownerIdsToReset.has(o.OwnerID) ? { ...o, OwnerName: '[Trống]', Phone: '', Email: '' } : o));
+            setVehicles(prev => prev.filter(v => !unitIds.has(v.UnitID)));
             return newUnits;
         });
 
-        showToast(`Đã xoá thông tin của ${unitIds.size} hồ sơ.`, 'success');
+        showToast(`Đã xoá thông tin của ${unitIds.size} hồ sơ (tạm thời).`, 'success');
     }, [showToast]);
 
     const handleImportData = useCallback((updates: any[]) => {
@@ -464,61 +360,40 @@ const App: React.FC = () => {
 
         setUnits(prevUnits => {
             const newUnits = [...prevUnits];
-            
             setOwners(prevOwners => {
                 const newOwners = [...prevOwners];
-
                 updates.forEach(update => {
                     const unitIndex = newUnits.findIndex(u => u.UnitID === update.unitId);
                     if (unitIndex !== -1) {
-                        if (update.status) {
-                            newUnits[unitIndex] = { ...newUnits[unitIndex], Status: update.status as Unit['Status'] };
-                        }
-                        
+                        if (update.status) newUnits[unitIndex] = { ...newUnits[unitIndex], Status: update.status as Unit['Status'] };
                         const ownerId = newUnits[unitIndex].OwnerID;
                         const ownerIndex = newOwners.findIndex(o => o.OwnerID === ownerId);
-                        
                         if (ownerIndex !== -1) {
-                            newOwners[ownerIndex] = { 
-                                ...newOwners[ownerIndex], 
-                                OwnerName: update.ownerName, 
-                                Phone: update.phone, 
-                                Email: update.email 
-                            };
+                            newOwners[ownerIndex] = { ...newOwners[ownerIndex], OwnerName: update.ownerName, Phone: update.phone, Email: update.email };
                             updatedCount++;
-                        } else {
-                           skippedCount++;
-                        }
-                    } else {
-                        skippedCount++;
-                    }
+                        } else { skippedCount++; }
+                    } else { skippedCount++; }
                 });
-                
-                saveMultipleDocs({ units: newUnits, owners: newOwners }).catch(() => showToast('Lỗi lưu dữ liệu nhập khẩu.', 'error'));
                 return newOwners;
             });
-            
             return newUnits;
         });
         
-        showToast(`Hoàn tất! Đã cập nhật ${updatedCount} cư dân. Bỏ qua ${skippedCount} dòng không hợp lệ.`, 'success');
+        showToast(`Hoàn tất! Đã cập nhật ${updatedCount} cư dân. Bỏ qua ${skippedCount} dòng.`, 'success');
     }, [showToast]);
     
     const handleRestoreAllData = useCallback((data: AppData) => {
-        saveAllData(data).then(() => {
-            // After successful save, update the local state to match
-            patchKiosAreas(data.units);
-            setUnits(data.units || []); 
-            setOwners(data.owners || []); 
-            setVehicles(data.vehicles || []);
-            setWaterReadings(data.waterReadings || []); 
-            setCharges(data.charges || []);
-            setTariffs(data.tariffs || { service: [], parking: [], water: [] }); 
-            setUsers(data.users || []);
-            setAdjustments(data.adjustments || []); 
-            setInvoiceSettings(data.invoiceSettings || initialInvoiceSettings);
-            showToast('Dữ liệu đã được phục hồi thành công!', 'success');
-        }).catch(() => showToast('Phục hồi dữ liệu thất bại.', 'error'));
+        patchKiosAreas(data.units);
+        setUnits(data.units || []); 
+        setOwners(data.owners || []); 
+        setVehicles(data.vehicles || []);
+        setWaterReadings(data.waterReadings || []); 
+        setCharges(data.charges || []);
+        setTariffs(data.tariffs || { service: [], parking: [], water: [] }); 
+        setUsers(data.users || []);
+        setAdjustments(data.adjustments || []); 
+        setInvoiceSettings(data.invoiceSettings || initialInvoiceSettings);
+        showToast('Dữ liệu đã được phục hồi (tạm thời)!', 'success');
     }, [showToast]);
 
     // --- PAGE RENDERING ---

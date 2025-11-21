@@ -616,10 +616,7 @@
     "react-dom/": "https://aistudiocdn.com/react-dom@^19.2.0/",
     "react/": "https://aistudiocdn.com/react@^19.2.0/",
     "@google/genai": "https://aistudiocdn.com/@google/genai@^1.27.0",
-    "recharts": "https://aistudiocdn.com/recharts@^3.3.0",
-    "firebase/app": "https://www.gstatic.com/firebasejs/10.12.2/firebase-app.js",
-    "firebase/firestore": "https://www.gstatic.com/firebasejs/10.12.2/firebase-firestore.js",
-    "firebase/": "https://aistudiocdn.com/firebase@^12.6.0/"
+    "recharts": "https://aistudiocdn.com/recharts@^3.3.0"
   }
 }
 </script>
@@ -627,5 +624,77 @@
   <body class="font-sans antialiased">
     <div id="root"></div>
     <script type="module" src="/index.tsx"></script>
+    <script type="module">
+      // Core Firebase
+      import { initializeApp } from "https://www.gstatic.com/firebasejs/12.6.0/firebase-app.js";
+
+      // Firestore (modular v12)
+      import {
+        initializeFirestore,
+        collection,
+        getDocs,
+        addDoc,
+        onSnapshot
+      } from "https://www.gstatic.com/firebasejs/12.6.0/firebase-firestore.js";
+
+      // Cấu hình Firebase của bạn
+      const firebaseConfig = {
+        apiKey: "AIzaSyDGOK3sa0n5VvNtWdjxau9gU1W0VfSJvo0",
+        authDomain: "q-home-8e308.firebaseapp.com",
+        projectId: "q-home-8e308",
+        storageBucket: "q-home-8e308.firebasestorage.app",
+        messagingSenderId: "384500171554",
+        appId: "1:384500171554:web:32d44fe7fa5a5d044bdb7b",
+        measurementId: "G-2W527EESGR"
+      };
+
+      // Khởi tạo app
+      const app = initializeApp(firebaseConfig);
+
+      // 🔧 FIX lỗi “client is offline”:
+      // ép Firestore dùng long-polling, tránh các vấn đề với websockets/proxy
+      const db = initializeFirestore(app, {
+        experimentalAutoDetectLongPolling: true,
+        useFetchStreams: false
+      });
+
+      // ====== HÀM TEST ĐƠN GIẢN ======
+
+      // Đọc toàn bộ collection "apartments"
+      async function testRead() {
+        console.log("🔥 testRead()...");
+        const snap = await getDocs(collection(db, "apartments"));
+        snap.forEach(doc => {
+          console.log(doc.id, doc.data());
+        });
+      }
+
+      // Thêm 1 căn hộ demo
+      async function testAdd() {
+        const ref = await addDoc(collection(db, "apartments"), {
+          name: "103",
+          area: 80,
+          owner: "Nguyễn Văn C",
+          createdAt: new Date()
+        });
+        console.log("Đã thêm document:", ref.id);
+      }
+
+      // Lắng nghe realtime
+      function testListen() {
+        onSnapshot(collection(db, "apartments"), snap => {
+          console.log("📡 Realtime update:");
+          snap.forEach(doc => console.log(doc.id, doc.data()));
+        });
+      }
+
+      // Export ra window để bạn gọi trong console
+      window.firestoreDB = db;
+      window.testRead = testRead;
+      window.testAdd = testAdd;
+      window.testListen = testListen;
+
+      console.log("✅ Firebase + Firestore đã init (long-polling bật).");
+    </script>
   </body>
 </html>
