@@ -2,8 +2,8 @@ import React, { useState, useCallback, useMemo, useEffect } from 'react';
 // FIX: The function calculateChargesBatch is exported from feeService, not geminiService.
 import { calculateChargesBatch } from '../services/feeService';
 import { MOCK_UNITS, MOCK_OWNERS, MOCK_VEHICLES, MOCK_WATER_READINGS, MOCK_TARIFFS_SERVICE, MOCK_TARIFFS_PARKING, MOCK_TARIFFS_WATER, MOCK_ADJUSTMENTS } from '../constants';
-// FIX: Add AllData to the import to correctly type the data object for the modal.
-import type { Unit, ChargeRaw, UnitType, Vehicle, WaterReading, Adjustment, Owner, AllData } from '../types';
+// FIX: Add AllData and InvoiceSettings to the import to correctly type the data object for the modal.
+import type { Unit, ChargeRaw, UnitType, Vehicle, WaterReading, Adjustment, Owner, AllData, InvoiceSettings } from '../types';
 import { useNotification, useAuth } from '../App';
 import NoticePreviewModal from './NoticePreviewModal';
 
@@ -13,13 +13,13 @@ interface ChargeWithStatus extends ChargeRaw {
     paymentStatus: PaymentStatus;
 }
 
-// NEW: Type for invoice settings
-interface InvoiceSettings {
-    logoUrl: string;
-    accountName: string;
-    accountNumber: string;
-    bankName: string;
-}
+// NEW: Type for invoice settings is now imported from types.ts
+// interface InvoiceSettings {
+//     logoUrl: string;
+//     accountName: string;
+//     accountNumber: string;
+//     bankName: string;
+// }
 
 const BATCH_SIZE = 50; // Process 50 units per API call for performance
 const LOCAL_STORAGE_KEY = 'apartmentManagementCharges';
@@ -45,11 +45,13 @@ const ChargeCalculation: React.FC = () => {
     const [paymentStatusFilter, setPaymentStatusFilter] = useState<'all' | PaymentStatus>('all');
     const [selectedUnits, setSelectedUnits] = useState<Set<string>>(new Set());
     
+    // FIX: Add `senderEmail` to satisfy the full InvoiceSettings type.
     const [invoiceSettings, setInvoiceSettings] = useState<InvoiceSettings>({
         logoUrl: saspLogoBase64,
         accountName: 'Công ty cổ phần cung cấp Dịch vụ và Giải pháp',
         accountNumber: '020704070042387',
         bankName: 'HDBank - Chi nhánh Hoàn Kiếm',
+        senderEmail: 'default@example.com',
     });
 
     // Load charges from localStorage on initial render

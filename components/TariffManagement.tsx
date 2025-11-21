@@ -49,7 +49,8 @@ const TariffForm: React.FC<{ tariff: any, type: 'service' | 'parking' | 'water',
     return (
         <form onSubmit={handleSubmit} className="space-y-4">
             {type === 'service' && <>
-                <label className={labelStyle}>Loại hình</label><input value={formData.UnitType} className={disabledInputStyle} disabled/>
+                {/* FIX: Use `LoaiHinh` instead of the non-existent `UnitType` property. */}
+                <label className={labelStyle}>Loại hình</label><input value={formData.LoaiHinh} className={disabledInputStyle} disabled/>
                 <label className={labelStyle}>Đơn giá / m²</label><input name="ServiceFee_per_m2" type="number" value={formData.ServiceFee_per_m2 ?? ''} onChange={handleChange} className={inputStyle}/>
             </>}
             {type === 'parking' && <>
@@ -130,7 +131,7 @@ const TariffManagement: React.FC = () => {
             });
     };
     
-    const activeApartmentServiceTariff = findActiveTariff(serviceTariffs, previewDate, t => t.UnitType === UnitType.APARTMENT);
+    const activeApartmentServiceTariff = findActiveTariff(serviceTariffs, previewDate, t => t.LoaiHinh === UnitType.APARTMENT);
 
     const handleOpenModal = (type: 'service' | 'parking' | 'water', item: any | null = null) => {
         if (!canEdit) {
@@ -153,7 +154,8 @@ const TariffManagement: React.FC = () => {
             if (tariffType === 'service') {
                 let tariffToUpdateFound = false;
                 const updatedTariffs = serviceTariffs.map(t => {
-                    if (t.UnitType === formData.UnitType && !t.ValidTo && new Date(t.ValidFrom) < newValidFrom) {
+                    // FIX: Use `LoaiHinh` instead of the non-existent `UnitType` property.
+                    if (t.LoaiHinh === formData.LoaiHinh && !t.ValidTo && new Date(t.ValidFrom) < newValidFrom) {
                         tariffToUpdateFound = true;
                         return { ...t, ValidTo: oldValidToStr };
                     }
@@ -165,7 +167,8 @@ const TariffManagement: React.FC = () => {
              // Add similar logic for parking and water if needed
         } else { // --- Update Logic for EDIT ---
              if (tariffType === 'service') {
-                setServiceTariffs(serviceTariffs.map(t => (t.ValidFrom === editingTariff.ValidFrom && t.UnitType === editingTariff.UnitType) ? { ...formData } : t));
+                // FIX: Use `LoaiHinh` instead of the non-existent `UnitType` property.
+                setServiceTariffs(serviceTariffs.map(t => (t.ValidFrom === editingTariff.ValidFrom && t.LoaiHinh === editingTariff.LoaiHinh) ? { ...formData } : t));
             }
             if (tariffType === 'parking') {
                 setParkingTariffs(parkingTariffs.map(t => (t.ValidFrom === editingTariff.ValidFrom && t.Tier === editingTariff.Tier) ? { ...formData } : t));
@@ -221,7 +224,7 @@ const TariffManagement: React.FC = () => {
                         const status = getStatus(item);
                         return (
                         <tr key={index}>
-                            <td className="px-4 py-4 whitespace-nowrap font-medium text-text-primary dark:text-dark-text-primary">{item.UnitType}</td>
+                            <td className="px-4 py-4 whitespace-nowrap font-medium text-text-primary dark:text-dark-text-primary">{item.LoaiHinh}</td>
                             <td className="px-4 py-4 whitespace-nowrap text-text-secondary dark:text-dark-text-secondary">{formatCurrency(item.ServiceFee_per_m2)}</td>
                             <td className="px-4 py-4 whitespace-nowrap text-text-secondary dark:text-dark-text-secondary">{item.VAT_percent}%</td>
                             <td className="px-4 py-4 whitespace-nowrap text-text-secondary dark:text-dark-text-secondary">{new Date(item.ValidFrom).toLocaleDateString('vi-VN')}</td>

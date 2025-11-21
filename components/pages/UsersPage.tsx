@@ -14,12 +14,11 @@ interface UsersPageProps {
     role: Role;
 }
 
-const UsersPage: React.FC<UsersPageProps> = ({ users: initialUsers, setUsers, role }) => {
+const UsersPage: React.FC<UsersPageProps> = ({ users, setUsers, role }) => {
     const { showToast } = useNotification();
     const { user: currentUser } = useAuth();
     const canManage = role === 'Admin';
 
-    const [users, setLocalUsers] = useState(initialUsers);
     const [selectedUsers, setSelectedUsers] = useState<Set<string>>(new Set());
     
     // Modal States
@@ -35,7 +34,6 @@ const UsersPage: React.FC<UsersPageProps> = ({ users: initialUsers, setUsers, ro
             module: 'System', action: 'UPDATE_USER', 
             summary: summary, ids: [updatedUser.Email]
         });
-        setLocalUsers(updater);
     };
 
     const handleStatusChange = (email: string, newStatus: UserPermission['status']) => {
@@ -132,7 +130,6 @@ const UsersPage: React.FC<UsersPageProps> = ({ users: initialUsers, setUsers, ro
                 module: 'System', action: 'DELETE_USERS', 
                 summary, count: selectedUsers.size, ids: Array.from(selectedUsers)
             });
-            setLocalUsers(updater);
             showToast(`${summary} thành công.`, 'success');
             setSelectedUsers(new Set());
             return;
@@ -156,7 +153,6 @@ const UsersPage: React.FC<UsersPageProps> = ({ users: initialUsers, setUsers, ro
             module: 'System', action: 'BULK_UPDATE_USERS', 
             summary, count: selectedUsers.size, ids: Array.from(selectedUsers)
         });
-        setLocalUsers(updater);
         showToast(`${summary} thành công.`, 'success');
         setSelectedUsers(new Set());
     };
@@ -305,7 +301,6 @@ const UsersPage: React.FC<UsersPageProps> = ({ users: initialUsers, setUsers, ro
              module: 'System', action: 'ADD_USER', 
              summary: `Thêm người dùng mới ${data.Email}`
         });
-        setLocalUsers(prev => [...prev, newUser]);
         setAddUserModalOpen(false);
         showToast(`Đã thêm người dùng ${data.Email}.`, 'success');
     }

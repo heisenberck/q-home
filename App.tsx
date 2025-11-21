@@ -1,4 +1,5 @@
 
+
 import React, { useState, useEffect, useCallback, createContext, useContext, useMemo, lazy, Suspense } from 'react';
 import type { Role, UserPermission, Unit, Owner, Vehicle, WaterReading, ChargeRaw, TariffService, TariffParking, TariffWater, Adjustment, InvoiceSettings, ActivityLog } from './types';
 import { MOCK_USER_PERMISSIONS, MOCK_UNITS, MOCK_OWNERS, MOCK_VEHICLES, MOCK_WATER_READINGS, MOCK_CALCULATED_CHARGES, MOCK_TARIFFS_SERVICE, MOCK_TARIFFS_PARKING, MOCK_TARIFFS_WATER, MOCK_ADJUSTMENTS, patchKiosAreas } from './constants';
@@ -532,7 +533,8 @@ BQL Chung cư HUD3 Linh Đàm.`,
     
             let hasUpdate = false;
             if (update.ownerName || update.phone || update.email || update.status || update.vehicles) { hasUpdate = true; }
-            if (update.status) { unit.Status = update.status; }
+            // FIX: Cast status to the correct type to resolve TypeScript error.
+            if (update.status) { unit.Status = update.status as Unit['Status']; }
     
             const owner = ownersMap.get(unit.OwnerID);
             if (owner) {

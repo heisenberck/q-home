@@ -1,4 +1,5 @@
 
+
 import React, { useState, useCallback, useMemo, useEffect, useRef } from 'react';
 import type { Unit, ChargeRaw, Vehicle, WaterReading, Adjustment, Owner, AllData, Role, PaymentStatus, InvoiceSettings, ActivityLog } from '../../types';
 import { UnitType, ParkingTariffTier } from '../../types';
@@ -752,11 +753,13 @@ const BillingPage: React.FC<BillingPageProps> = ({ charges, setCharges, allData,
         const updater = (prev: ChargeRaw[]) => prev.map(c => {
             if (c.Period === period && selectedUnits.has(c.UnitID)) {
                 if (targetStatus === 'unpaid') {
+                    // FIX: Explicitly cast string literals to PaymentStatus to satisfy TypeScript.
                     // When marking as unpaid, reset payment details to allow re-entry
-                    return { ...c, paymentStatus: 'unpaid', PaymentConfirmed: false, TotalPaid: c.TotalDue };
+                    return { ...c, paymentStatus: 'unpaid' as PaymentStatus, PaymentConfirmed: false, TotalPaid: c.TotalDue };
                 }
+                // FIX: Explicitly cast string literals to PaymentStatus to satisfy TypeScript.
                 // When marking as paid, confirm the full amount
-                return { ...c, paymentStatus: 'paid', PaymentConfirmed: true, TotalPaid: c.TotalDue };
+                return { ...c, paymentStatus: 'paid' as PaymentStatus, PaymentConfirmed: true, TotalPaid: c.TotalDue };
             }
             return c;
         });
@@ -1028,7 +1031,8 @@ const BillingPage: React.FC<BillingPageProps> = ({ charges, setCharges, allData,
 
         const chargeUpdater = (prev: ChargeRaw[]) => prev.map(c =>
             (c.UnitID === charge.UnitID && c.Period === period)
-                ? { ...c, TotalPaid: finalPaidAmount, PaymentConfirmed: true, paymentStatus: 'paid' }
+                // FIX: Explicitly cast 'paid' to PaymentStatus to satisfy TypeScript.
+                ? { ...c, TotalPaid: finalPaidAmount, PaymentConfirmed: true, paymentStatus: 'paid' as PaymentStatus }
                 : c
         );
         setCharges(chargeUpdater, {
@@ -1178,8 +1182,9 @@ const BillingPage: React.FC<BillingPageProps> = ({ charges, setCharges, allData,
                              ...charge,
                              TotalPaid: importedAmount,
                              PaymentConfirmed: true,
+                             // FIX: Explicitly cast 'paid' to PaymentStatus to satisfy TypeScript.
                              // Mark as 'paid' regardless of amount
-                             paymentStatus: 'paid'
+                             paymentStatus: 'paid' as PaymentStatus
                          };
                     }
                     return charge;

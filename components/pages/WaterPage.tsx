@@ -432,7 +432,14 @@ const WaterPage: React.FC<WaterPageProps> = ({ waterReadings, setWaterReadings, 
                                         <td className="font-medium py-3 px-4">{item.unit.UnitID}</td>
                                         <td className="text-right py-3 px-4">
                                             <input
-                                                ref={el => el ? (inputRefs.current[item.unit.UnitID] = el) : delete inputRefs.current[item.unit.UnitID]}
+                                                // FIX: Correctly implement the ref callback to not return a value.
+                                                ref={el => {
+                                                    if (el) {
+                                                        inputRefs.current[item.unit.UnitID] = el;
+                                                    } else {
+                                                        delete inputRefs.current[item.unit.UnitID];
+                                                    }
+                                                }}
                                                 type="number"
                                                 value={item.reading.CurrIndex}
                                                 onChange={e => handleReadingChange(item.unit.UnitID, e.target.value)}
