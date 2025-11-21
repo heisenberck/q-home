@@ -131,9 +131,12 @@ const BackupRestorePage: React.FC<BackupRestorePageProps> = ({ allData, onRestor
                 waterReadings: [],
                 charges: [],
                 adjustments: [],
-                // Keep tariffs and settings as is, or reset? Usually better to keep configs.
+                // IMPORTANT: Preserve configuration and users so the app remains usable
                 tariffs: allData.tariffs, 
                 invoiceSettings: allData.invoiceSettings,
+                users: allData.users, 
+                activityLogs: [],
+                lockedPeriods: [],
                 backupDate: new Date().toISOString()
             };
             onRestore(emptyData);
@@ -157,6 +160,9 @@ const BackupRestorePage: React.FC<BackupRestorePageProps> = ({ allData, onRestor
                     water: MOCK_TARIFFS_WATER
                 },
                 invoiceSettings: allData.invoiceSettings, // Keep settings
+                users: allData.users, // Keep current users
+                activityLogs: [],
+                lockedPeriods: [],
                 backupDate: new Date().toISOString()
             };
             onRestore(mockDataState);
@@ -181,7 +187,7 @@ const BackupRestorePage: React.FC<BackupRestorePageProps> = ({ allData, onRestor
             case 'restore_file':
                 return "Phục hồi dữ liệu từ file backup. Hành động này sẽ ghi đè toàn bộ dữ liệu hiện tại.";
             case 'delete_data':
-                return "XOÁ SẠCH DỮ LIỆU hệ thống (Cư dân, Xe, Nước, Phí...). Hành động này KHÔNG THỂ hoàn tác. Chỉ dùng khi bắt đầu vận hành chính thức.";
+                return "XOÁ SẠCH DỮ LIỆU hệ thống (Cư dân, Xe, Nước, Phí...). Tài khoản và Cài đặt sẽ được giữ nguyên. Hành động này KHÔNG THỂ hoàn tác.";
             case 'restore_mock':
                 return "Phục hồi lại bộ dữ liệu mẫu (Mock Data) ban đầu. Dữ liệu hiện tại sẽ bị mất.";
             default:

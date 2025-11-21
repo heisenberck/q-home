@@ -1,6 +1,4 @@
 
-
-
 import React, { useState, useMemo, useCallback } from 'react';
 import type { Vehicle, Unit, Owner, Role, VehicleDocument } from '../../types';
 import { VehicleTier } from '../../types';
@@ -399,10 +397,11 @@ const VehicleManagementPage: React.FC<VehiclesPageProps> = ({ vehicles, units, o
 
         if (parkingStatusFilter !== 'all' && v.parkingStatus !== (parkingStatusFilter === 'none' ? null : parkingStatusFilter)) return false;
         
+        // FIX: Safely handle undefined ownerName to prevent crashes
         if (searchTerm && !(
             v.PlateNumber.toLowerCase().includes(searchTerm.toLowerCase()) ||
             v.UnitID.toLowerCase().includes(searchTerm.toLowerCase()) ||
-            v.ownerName?.toLowerCase().includes(searchTerm.toLowerCase())
+            (v.ownerName || '').toLowerCase().includes(searchTerm.toLowerCase())
         )) return false;
         
         return true;

@@ -1,4 +1,3 @@
-
 import React, { useState, useMemo, useRef, useCallback, useEffect } from 'react';
 import type { Unit, Owner, Vehicle, Role, UserPermission } from '../../types';
 import { UnitType, VehicleTier } from '../../types';
@@ -7,14 +6,15 @@ import { useNotification } from '../../App';
 import { 
     EyeIcon, PencilSquareIcon, BuildingIcon, TagIcon, CheckCircleIcon, UploadIcon, UserGroupIcon, 
     UserIcon, KeyIcon, StoreIcon, CarIcon, PrinterIcon, TrashIcon,
-    MotorbikeIcon, DocumentArrowDownIcon, ActionViewIcon
+    MotorbikeIcon, DocumentArrowDownIcon, ActionViewIcon, TableCellsIcon
 } from '../ui/Icons';
 import { loadScript } from '../../utils/scriptLoader';
 
-// Re-declare since they are in index.html
+// Declare external libraries
 declare const jspdf: any;
 declare const html2canvas: any;
 declare const JSZip: any;
+declare const XLSX: any; // SheetJS
 
 const parseUnitCode = (code: string) => {
     const s = String(code).trim();
@@ -173,10 +173,7 @@ const ResidentViewModal: React.FC<{
 
             showToast("Đang tạo PDF...", "info");
             const { jsPDF } = jspdf;
-            // Scale 2 is enough for good print quality but keep it reasonable
             const canvas = await html2canvas(content, { scale: 2, backgroundColor: '#ffffff' });
-            
-            // USE JPEG COMPRESSION TO REDUCE FILE SIZE (0.8 quality)
             const imgData = canvas.toDataURL('image/jpeg', 0.8); 
             
             const pdf = new jsPDF('p', 'mm', 'a4');
@@ -207,15 +204,11 @@ const ResidentViewModal: React.FC<{
         <Modal title={`Hồ sơ Cư dân - Căn hộ ${resident.unit.UnitID}`} onClose={onClose} size="4xl">
             <div className="bg-gray-100 dark:bg-gray-900 p-4 overflow-auto max-h-[75vh]">
                 <div ref={printContentRef} className="p-8 bg-white text-gray-800 rounded-sm shadow-lg max-w-[210mm] mx-auto min-h-[297mm]">
-                    {/* Header */}
                     <div className="text-center mb-8 border-b-2 border-gray-200 pb-6">
                         <h2 className="text-3xl font-bold text-gray-900 uppercase tracking-tight">HỒ SƠ CƯ DÂN</h2>
                         <p className="text-lg text-gray-500 mt-1">Căn hộ: <span className="font-bold text-gray-700">{resident.unit.UnitID}</span></p>
                     </div>
-
-                    {/* Main Content */}
                     <div className="space-y-8">
-                        {/* Owner Info */}
                         <section>
                             <h3 className="text-lg font-bold text-primary border-b border-gray-200 pb-2 mb-4 uppercase tracking-wide">Thông tin Chủ hộ</h3>
                             <div className="grid grid-cols-1 md:grid-cols-2 gap-x-12 gap-y-3 text-sm">
@@ -224,8 +217,6 @@ const ResidentViewModal: React.FC<{
                                 <div className="flex justify-between border-b border-gray-100 py-2 md:col-span-2"><span className="font-medium text-gray-500">Email:</span><span className="font-semibold text-gray-800">{resident.owner.Email}</span></div>
                             </div>
                         </section>
-
-                        {/* Unit Info */}
                         <section>
                             <h3 className="text-lg font-bold text-primary border-b border-gray-200 pb-2 mb-4 uppercase tracking-wide">Thông tin Căn hộ</h3>
                             <div className="grid grid-cols-1 md:grid-cols-2 gap-x-12 gap-y-3 text-sm">
@@ -235,12 +226,8 @@ const ResidentViewModal: React.FC<{
                                 <div className="flex justify-between border-b border-gray-100 py-2"><span className="font-medium text-gray-500">Diện tích:</span><span className="font-semibold text-gray-800">{resident.unit.Area_m2} m²</span></div>
                             </div>
                         </section>
-                        
-                        {/* Vehicle Info */}
                         <section>
-                            <h3 className="text-lg font-bold text-primary border-b border-gray-200 pb-2 mb-4 uppercase tracking-wide">
-                                Danh sách Phương tiện ({activeVehicles.length})
-                            </h3>
+                            <h3 className="text-lg font-bold text-primary border-b border-gray-200 pb-2 mb-4 uppercase tracking-wide">Danh sách Phương tiện ({activeVehicles.length})</h3>
                             {activeVehicles.length > 0 ? (
                                 <div className="border border-gray-200 rounded-lg overflow-hidden">
                                     <table className="min-w-full divide-y divide-gray-200 text-sm">
@@ -273,7 +260,6 @@ const ResidentViewModal: React.FC<{
                     </div>
                 </div>
             </div>
-            
             <div className="flex justify-end gap-3 p-4 bg-light-bg dark:bg-dark-bg-secondary border-t dark:border-dark-border mt-auto">
                 <button onClick={handleExportPdf} className="flex items-center gap-2 px-4 py-2 bg-green-600 text-white font-semibold rounded-md shadow-sm hover:bg-green-700 transition-colors">
                     <DocumentArrowDownIcon /> Export PDF
@@ -309,7 +295,6 @@ const ResidentDetailModal: React.FC<{
         const carCount = formData.vehicles.filter(v => v.Type === VehicleTier.CAR || v.Type === VehicleTier.CAR_A).length;
         const motorbikeCount = formData.vehicles.filter(v => v.Type === VehicleTier.MOTORBIKE || v.Type === VehicleTier.EBIKE).length;
 
-        // An owner can have 1 car. A renter can have 0.
         const canAddCar = !isRenter && (!isOwner || carCount < 1);
 
         return {
@@ -368,12 +353,9 @@ const ResidentDetailModal: React.FC<{
         const isCar = vehicle.Type === VehicleTier.CAR || vehicle.Type === VehicleTier.CAR_A;
         
         let formattedPlate = value.trim().toUpperCase().replace(/\s/g, '');
-        
-        // Auto-add hyphen if it matches the structure
         if (isCar && /^\d{2}[A-Z]\d{5}$/.test(formattedPlate)) {
             formattedPlate = formattedPlate.slice(0, 3) + '-' + formattedPlate.slice(3);
         }
-        
         const updatedVehicles = [...formData.vehicles];
         updatedVehicles[index].PlateNumber = formattedPlate;
         setFormData(p => ({ ...p, vehicles: updatedVehicles }));
@@ -425,13 +407,11 @@ const ResidentDetailModal: React.FC<{
                 
                 <section>
                     <h3 className="text-lg font-medium border-b dark:border-dark-border pb-2 mb-4">Phương tiện</h3>
-                    
                     {vehicleLimits.showMotorbikeWarning && (
                         <div className="p-3 mb-3 bg-yellow-100 border-l-4 border-yellow-500 text-yellow-700 dark:bg-yellow-900/30 dark:text-yellow-300 rounded-r-md">
                             <p className="font-bold">Cảnh báo: Hộ chính chủ đã đăng ký quá 5 xe máy.</p>
                         </div>
                     )}
-                    
                     <div className="space-y-3 max-h-60 overflow-y-auto pr-2">
                         {formData.vehicles.map((vehicle, index) => (
                             <div key={vehicle.VehicleId || index} className="grid grid-cols-1 md:grid-cols-10 gap-2 items-start p-2 bg-light-bg dark:bg-dark-bg rounded-md border dark:border-dark-border">
@@ -460,194 +440,237 @@ const ResidentDetailModal: React.FC<{
     );
 };
 
-// --- CSV Import Modal ---
-const CsvImportModal: React.FC<{
-    allUnits: Unit[];
+// --- IMPROVED: Smart Data Import Modal ---
+const DataImportModal: React.FC<{
     onClose: () => void;
     onImport: (updates: any[]) => void;
-}> = ({ allUnits, onClose, onImport }) => {
+}> = ({ onClose, onImport }) => {
     const [file, setFile] = useState<File | null>(null);
     const [preview, setPreview] = useState<any[]>([]);
+    const [mappedHeaders, setMappedHeaders] = useState<string[]>([]);
     const [errors, setErrors] = useState<string[]>([]);
     const { showToast } = useNotification();
-    
-    // Sort units for consistent template export
-    const sortedUnits = useMemo(() => [...allUnits].sort((a, b) => {
-        const getFloor = (id: string) => id.startsWith('K') ? 99 : parseInt(id.slice(0, -2));
-        const getApt = (id: string) => parseInt(id.slice(-2));
-        return getFloor(a.UnitID) - getFloor(b.UnitID) || getApt(a.UnitID) - getApt(b.UnitID);
-    }), [allUnits]);
 
-    const handleDownloadTemplate = () => {
-        const headers = ['Mã căn hộ', 'Diện tích (m2)', 'Tên chủ hộ', 'Số điện thoại', 'Email', 'SL ô tô', 'SL xe máy', 'SL xe đạp', 'BS ô tô', 'BS xe máy'];
-        const rows = [headers.join(',')];
-
-        // Example for unit 202
-        const exampleUnit = sortedUnits.find(u => u.UnitID === '202');
-        if (exampleUnit) {
-            const exampleRow = [
-                '202',
-                exampleUnit.Area_m2,
-                'Nguyễn Văn A',
-                '0912345678',
-                'nguyenvana@example.com',
-                1, // SL ô tô
-                2, // SL xe máy
-                1, // SL xe đạp
-                '30K-12345', // BS ô tô
-                '"29A1-98765,29A1-54321"', // BS xe máy, quoted because it contains a comma
-            ];
-            rows.push(exampleRow.join(','));
-        }
-        
-        // Add other units
-        sortedUnits.forEach(unit => {
-            if (unit.UnitID === '202') return; // Already added example
-            const row = [
-                unit.UnitID,
-                unit.Area_m2,
-                '', '', '', '', '', '', '', '',
-            ];
-            rows.push(row.join(','));
-        });
-
-        const csvString = rows.join('\n');
-        const blob = new Blob([`\uFEFF${csvString}`], { type: 'text/csv;charset=utf-8;' });
-        const link = document.createElement("a");
-        link.href = URL.createObjectURL(blob);
-        link.download = `mau_nhap_lieu_cu_dan_v2.csv`;
-        link.click();
-        URL.revokeObjectURL(link.href);
+    // Mapping configuration: Field -> Keywords
+    const fieldKeywords: Record<string, string[]> = {
+        unitId: ['ma can', 'can ho', 'unit', 'room', 'phong', 'apartment'],
+        area: ['dien tich', 'm2', 'area', 'sqm'],
+        ownerName: ['chu ho', 'ho ten', 'owner', 'name', 'ten', 'full name'],
+        phone: ['sdt', 'so dien thoai', 'dien thoai', 'mobile', 'tel', 'phone'],
+        email: ['email', 'mail', 'thu dien tu'],
+        status: ['trang thai', 'status', 'loai', 'type'],
     };
-    
+
+    // Keywords to detect vehicle columns (e.g. "Biển số xe 1", "Xe máy", "Ô tô")
+    const vehicleKeywords = ['bien so', 'bs', 'plate', 'xe', 'car', 'oto', 'o to', 'moto'];
+
+    const normalizeHeader = (header: string) => {
+        if (!header) return '';
+        return String(header).toLowerCase().normalize("NFD").replace(/[\u0300-\u036f]/g, "").trim();
+    };
+
     const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
         const selectedFile = e.target.files?.[0];
         if (selectedFile) {
             setFile(selectedFile);
             const reader = new FileReader();
-            reader.onload = (event) => parseAndValidate(event.target?.result as string);
-            reader.readAsText(selectedFile, 'UTF-8');
+            reader.onload = (event) => {
+                const data = new Uint8Array(event.target?.result as ArrayBuffer);
+                processData(data);
+            };
+            reader.readAsArrayBuffer(selectedFile);
         }
     };
 
-    const parseAndValidate = (text: string) => {
-        const lines = text.split('\n').map(l => l.trim()).filter(Boolean);
-        if (lines.length < 2) {
-            showToast("File không có dữ liệu.", "error");
-            return;
-        }
-
-        const headerMap: { [key: string]: string } = {
-            'mã căn hộ': 'unitId',
-            'diện tích (m2)': 'area',
-            'tên chủ hộ': 'ownerName',
-            'số điện thoại': 'phone',
-            'email': 'email',
-            'sl ô tô': 'carCount',
-            'sl xe máy': 'motoCount',
-            'sl xe đạp': 'bicycleCount',
-            'bs ô tô': 'carPlates',
-            'bs xe máy': 'motoPlates',
-        };
-        const headers = lines[0].split(',').map(h => h.trim().toLowerCase());
-        const mappedHeaders = headers.map(h => headerMap[h] || h);
-
-        const newErrors: string[] = [];
-        const dataRows: any[] = [];
-        
-        for (let i = 1; i < lines.length; i++) {
-            // Regex to handle commas inside quoted fields
-            const values = lines[i].match(/(".*?"|[^",]+)(?=\s*,|\s*$)/g)?.map(v => v.replace(/^"|"$/g, '').replace(/""/g, '"')) || [];
+    const processData = (data: Uint8Array) => {
+        try {
+            const workbook = XLSX.read(data, { type: 'array' });
+            const sheetName = workbook.SheetNames[0];
+            const sheet = workbook.Sheets[sheetName];
             
-            const rowData: any = {};
-            mappedHeaders.forEach((key, index) => {
-                rowData[key] = values[index] || '';
+            // Convert to array of arrays to get headers first
+            const jsonData = XLSX.utils.sheet_to_json(sheet, { header: 1 });
+            
+            if (jsonData.length < 2) {
+                setErrors(["File không có dữ liệu."]);
+                setPreview([]);
+                return;
+            }
+
+            const headers = (jsonData[0] as string[]).map(h => String(h || '').trim());
+            const mapResult: Record<string, number> = {};
+            const vehicleCols: { index: number; header: string }[] = [];
+            const detectedFields: string[] = [];
+
+            // Smart Mapping
+            headers.forEach((header, index) => {
+                const normalized = normalizeHeader(header);
+                if (!normalized) return;
+                let matched = false;
+
+                // Check standard fields
+                for (const [field, keywords] of Object.entries(fieldKeywords)) {
+                    if (keywords.some(k => normalized.includes(k))) {
+                        if (mapResult[field] === undefined) { // Take first match
+                             mapResult[field] = index;
+                             detectedFields.push(`${header} -> ${field}`);
+                             matched = true;
+                        }
+                    }
+                }
+
+                // Check vehicle fields
+                if (vehicleKeywords.some(k => normalized.includes(k))) {
+                    vehicleCols.push({ index, header: normalized });
+                    if (!matched) detectedFields.push(`${header} -> Vehicle Info`);
+                }
             });
 
-            const vehicles: { Type: VehicleTier, PlateNumber: string, VehicleName: string }[] = [];
-            
-            if (rowData.carPlates) {
-                rowData.carPlates.split(',').forEach((plate: string) => {
-                    const trimmedPlate = plate.trim();
-                    if (trimmedPlate) {
-                        vehicles.push({ Type: VehicleTier.CAR, PlateNumber: trimmedPlate, VehicleName: '' });
-                    }
+            setMappedHeaders(detectedFields);
+
+            if (mapResult.unitId === undefined) {
+                setErrors(["Không tìm thấy cột 'Mã căn hộ' (Unit ID). Vui lòng kiểm tra lại file."]);
+                setPreview([]);
+                return;
+            }
+
+            // Process Rows
+            const processedRows: any[] = [];
+            const rows = jsonData.slice(1); // Skip header
+
+            rows.forEach((row: any[]) => {
+                if (!row || row.length === 0) return;
+                
+                const unitId = row[mapResult.unitId];
+                if (!unitId) return; // Skip empty unit IDs
+
+                const vehicles: { Type: VehicleTier, PlateNumber: string, VehicleName: string }[] = [];
+                
+                vehicleCols.forEach(col => {
+                    const cellVal = String(row[col.index] || '').trim();
+                    if (!cellVal || cellVal === '0' || cellVal.toLowerCase() === 'nan') return;
+
+                    const parts = cellVal.split(/[,;]/).map(s => s.trim()).filter(Boolean);
+                    parts.forEach(part => {
+                        let type: VehicleTier = VehicleTier.MOTORBIKE;
+                        if (col.header.includes('oto') || col.header.includes('car')) {
+                            type = VehicleTier.CAR;
+                        } else if (/^\d{2}[A-Z]-\d{4,5}$/.test(part)) { // Heuristic for car plate
+                            type = VehicleTier.CAR;
+                        }
+                        
+                        vehicles.push({ Type: type, PlateNumber: part, VehicleName: '' });
+                    });
                 });
-            }
 
-            if (rowData.motoPlates) {
-                rowData.motoPlates.split(',').forEach((plate: string) => {
-                    const trimmedPlate = plate.trim();
-                    if (trimmedPlate) {
-                        vehicles.push({ Type: VehicleTier.MOTORBIKE, PlateNumber: trimmedPlate, VehicleName: '' });
-                    }
+                processedRows.push({
+                    unitId: String(unitId),
+                    area: mapResult.area !== undefined ? row[mapResult.area] : undefined,
+                    ownerName: mapResult.ownerName !== undefined ? row[mapResult.ownerName] : undefined,
+                    phone: mapResult.phone !== undefined ? String(row[mapResult.phone]) : undefined,
+                    email: mapResult.email !== undefined ? row[mapResult.email] : undefined,
+                    status: mapResult.status !== undefined ? row[mapResult.status] : undefined,
+                    vehicles: vehicles
                 });
-            }
+            });
 
-            const bicycleCountNum = parseInt(rowData.bicycleCount, 10);
-            if (!isNaN(bicycleCountNum) && bicycleCountNum > 0) {
-                for (let j = 0; j < bicycleCountNum; j++) {
-                    vehicles.push({ Type: VehicleTier.BICYCLE, PlateNumber: 'N/A', VehicleName: 'Xe đạp' });
-                }
-            }
-            
-            rowData.vehicles = vehicles;
-            
-            delete rowData.carCount;
-            delete rowData.motoCount;
-            delete rowData.bicycleCount;
-            delete rowData.carPlates;
-            delete rowData.motoPlates;
-            delete rowData.area;
+            setPreview(processedRows);
+            setErrors([]);
 
-            const hasUpdates = rowData.ownerName || rowData.phone || rowData.email || rowData.vehicles.length > 0;
-            if (rowData.unitId && hasUpdates) {
-                 dataRows.push(rowData);
-            }
+        } catch (e: any) {
+            console.error(e);
+            setErrors([`Lỗi đọc file: ${e.message}`]);
         }
-        
-        setErrors(newErrors);
-        setPreview(dataRows);
     };
 
     const handleConfirmImport = () => {
-        if (errors.length > 0) {
-            showToast("Không thể nhập. Vui lòng sửa các lỗi được liệt kê.", 'error');
-            return;
-        }
+        if (errors.length > 0 || preview.length === 0) return;
         onImport(preview);
         onClose();
     };
 
     return (
-        <Modal title="Nhập dữ liệu Cư dân từ CSV" onClose={onClose} size="4xl">
+        <Modal title="Nhập dữ liệu từ Excel/CSV" onClose={onClose} size="4xl">
             <div className="space-y-4">
-                <div className="p-4 bg-blue-50 dark:bg-blue-900/20 border-l-4 border-blue-500 text-blue-800 dark:text-blue-200">
-                    <p><strong>Bước 1:</strong> Tải file mẫu. File sẽ chứa sẵn Mã căn hộ và Diện tích.</p>
-                    <p><strong>Bước 2:</strong> Điền thông tin vào các cột còn trống và lưu lại file.</p>
-                    <p><strong>Bước 3:</strong> Chọn file đã điền và bấm "Nhập dữ liệu".</p>
+                <div className="p-4 bg-blue-50 dark:bg-blue-900/20 border-l-4 border-blue-500 text-blue-800 dark:text-blue-200 text-sm">
+                    <p className="font-bold mb-1">Hướng dẫn:</p>
+                    <ul className="list-disc list-inside space-y-1">
+                        <li>Hệ thống sẽ <strong>tự động nhận diện</strong> các cột dựa trên tên tiêu đề.</li>
+                        <li>Các cột quan trọng: <strong>Mã căn hộ (bắt buộc)</strong>, Chủ hộ, SĐT, Email, Diện tích.</li>
+                        <li>Thông tin xe: Các cột chứa từ khoá "Biển số", "Xe", "Ô tô", "Car" sẽ được quét để lấy biển số xe.</li>
+                        <li>Hỗ trợ file <strong>.xlsx, .xls, .csv</strong>.</li>
+                    </ul>
                 </div>
-                <div className="flex gap-4 items-center">
-                    <button onClick={handleDownloadTemplate} className="px-4 py-2 bg-green-600 text-white font-semibold rounded-md">Tải file mẫu (Template)</button>
-                    <input type="file" accept=".csv" onChange={handleFileChange} />
+
+                <div className="flex flex-col gap-2">
+                    <label className="font-semibold text-sm">Chọn file dữ liệu:</label>
+                    <input 
+                        type="file" 
+                        accept=".csv, .xlsx, .xls" 
+                        onChange={handleFileChange} 
+                        className="block w-full text-sm text-gray-500 file:mr-4 file:py-2 file:px-4 file:rounded-md file:border-0 file:text-sm file:font-semibold file:bg-primary file:text-white hover:file:bg-primary-focus"
+                    />
                 </div>
+
+                {mappedHeaders.length > 0 && (
+                    <div className="bg-gray-50 dark:bg-gray-800 p-3 rounded border text-xs font-mono max-h-24 overflow-y-auto">
+                        <p className="font-bold text-gray-600 dark:text-gray-400 mb-1">Các trường đã nhận diện:</p>
+                        <div className="grid grid-cols-2 md:grid-cols-3 gap-x-4 gap-y-1">
+                            {mappedHeaders.map((h, i) => <div key={i}>✓ {h}</div>)}
+                        </div>
+                    </div>
+                )}
+
                 {errors.length > 0 && (
-                    <div className="bg-red-100 border-l-4 border-red-500 text-red-700 p-4 max-h-40 overflow-y-auto">
-                        <p className="font-bold">Lỗi xác thực:</p>
-                        <ul className="list-disc list-inside text-sm">{errors.slice(0, 10).map((e, i) => <li key={i}>{e}</li>)}</ul>
-                        {errors.length > 10 && <p>... và {errors.length - 10} lỗi khác.</p>}
+                    <div className="bg-red-100 border-l-4 border-red-500 text-red-700 p-4">
+                        <p className="font-bold">Lỗi:</p>
+                        <ul className="list-disc list-inside text-sm">{errors.map((e, i) => <li key={i}>{e}</li>)}</ul>
                     </div>
                 )}
+
                 {preview.length > 0 && (
-                    <div className="max-h-60 overflow-y-auto border rounded-lg">
-                        <table className="min-w-full text-xs">
-                            <thead className="bg-gray-100 dark:bg-gray-700 sticky top-0"><tr>{Object.keys(preview[0]).map(h => <th key={h} className="p-2">{h}</th>)}</tr></thead>
-                            <tbody>{preview.slice(0, 10).map((row, i) => (<tr key={i} className="border-t">{Object.values(row).map((val: any, j) => <td key={j} className="p-2 truncate max-w-[100px]">{typeof val === 'object' ? JSON.stringify(val) : String(val)}</td>)}</tr>))}</tbody>
-                        </table>
-                        {preview.length > 10 && <p className="p-2 text-center text-sm">... và {preview.length-10} dòng khác.</p>}
+                    <div className="border rounded-lg overflow-hidden">
+                        <div className="bg-gray-100 dark:bg-gray-700 px-4 py-2 border-b font-semibold text-sm flex justify-between items-center">
+                            <span>Xem trước ({preview.length} dòng)</span>
+                        </div>
+                        <div className="max-h-60 overflow-y-auto">
+                            <table className="min-w-full text-xs divide-y divide-gray-200 dark:divide-gray-700">
+                                <thead className="bg-gray-50 dark:bg-gray-800 sticky top-0">
+                                    <tr>
+                                        <th className="px-3 py-2 text-left">Căn hộ</th>
+                                        <th className="px-3 py-2 text-left">Chủ hộ</th>
+                                        <th className="px-3 py-2 text-left">SĐT</th>
+                                        <th className="px-3 py-2 text-left">Xe (detected)</th>
+                                    </tr>
+                                </thead>
+                                <tbody className="bg-white dark:bg-gray-900 divide-y divide-gray-200 dark:divide-gray-800">
+                                    {preview.slice(0, 20).map((row, i) => (
+                                        <tr key={i}>
+                                            <td className="px-3 py-2 font-medium">{row.unitId}</td>
+                                            <td className="px-3 py-2">{row.ownerName || '-'}</td>
+                                            <td className="px-3 py-2">{row.phone || '-'}</td>
+                                            <td className="px-3 py-2 text-gray-500">
+                                                {row.vehicles.map((v: any) => `${v.PlateNumber} (${v.Type})`).join(', ')}
+                                            </td>
+                                        </tr>
+                                    ))}
+                                </tbody>
+                            </table>
+                            {preview.length > 20 && <div className="p-2 text-center text-xs text-gray-500 font-style-italic">... và {preview.length - 20} dòng khác</div>}
+                        </div>
                     </div>
                 )}
-                <div className="flex justify-end pt-4"><button onClick={handleConfirmImport} disabled={errors.length > 0 || preview.length === 0} className="px-6 py-2 bg-primary text-white rounded-md disabled:bg-gray-400">Nhập dữ liệu</button></div>
+
+                <div className="flex justify-end pt-4 border-t dark:border-dark-border gap-3">
+                    <button onClick={onClose} className="px-4 py-2 bg-gray-200 dark:bg-gray-600 text-gray-800 dark:text-white rounded-md hover:bg-gray-300">Hủy</button>
+                    <button 
+                        onClick={handleConfirmImport} 
+                        disabled={errors.length > 0 || preview.length === 0} 
+                        className="px-6 py-2 bg-primary text-white font-semibold rounded-md shadow-sm hover:bg-primary-focus disabled:bg-gray-400 disabled:cursor-not-allowed"
+                    >
+                        Xác nhận Nhập
+                    </button>
+                </div>
             </div>
         </Modal>
     );
@@ -732,7 +755,8 @@ const ResidentsPage: React.FC<ResidentsPageProps> = ({ units, owners, vehicles, 
             }
 
             const s = searchTerm.toLowerCase();
-            if (s && !(res.unit.UnitID.toLowerCase().includes(s) || res.owner.OwnerName.toLowerCase().includes(s) || res.owner.Phone.includes(s))) return false;
+            // FIX: Handle undefined OwnerName safely to prevent crashes during search
+            if (s && !(res.unit.UnitID.toLowerCase().includes(s) || (res.owner.OwnerName || '').toLowerCase().includes(s) || (res.owner.Phone || '').includes(s))) return false;
             return true;
         }).sort((a, b) => {
             const pa = parseUnitCode(a.unit.UnitID);
@@ -893,7 +917,7 @@ const ResidentsPage: React.FC<ResidentsPageProps> = ({ units, owners, vehicles, 
         <div className="h-full flex flex-col space-y-4">
             {editingResident && <ResidentDetailModal resident={editingResident} onSave={onSaveResident} onClose={() => setEditingResident(null)} />}
             {viewingResident && <ResidentViewModal resident={viewingResident} onClose={() => setViewingResident(null)} />}
-            {isImportModalOpen && <CsvImportModal allUnits={units} onClose={() => setIsImportModalOpen(false)} onImport={onImportData} />}
+            {isImportModalOpen && <DataImportModal onClose={() => setIsImportModalOpen(false)} onImport={onImportData} />}
 
             {/* KPI Bar */}
             <div className="stats-row mt-6">
@@ -911,7 +935,7 @@ const ResidentsPage: React.FC<ResidentsPageProps> = ({ units, owners, vehicles, 
                 <select value={floorFilter} onChange={e => setFloorFilter(e.target.value)} className="p-2 border rounded-lg bg-light-bg dark:bg-dark-bg" title="Lọc theo tầng"><option value="all">All Floors</option>{floors.slice(1).map(f => <option key={f} value={f}>{f}</option>)}<option value="KIOS">KIOS</option></select>
                 <select value={typeFilter} onChange={e => setTypeFilter(e.target.value)} className="p-2 border rounded-lg bg-light-bg dark:bg-dark-bg" title="Lọc theo loại căn"><option value="all">All Types</option><option value="Owner">Chính chủ</option><option value="Rent">Hộ thuê</option><option value="Business">Kinh doanh</option></select>
                 <select value={statusFilter} onChange={e => setStatusFilter(e.target.value)} className="p-2 border rounded-lg bg-light-bg dark:bg-dark-bg" title="Trạng thái"><option value="all">All Status</option><option value="Normal">Normal</option><option value="Missing data">Missing</option><option value="Locked">Locked</option></select>
-                <div className="ml-auto"><button onClick={() => setIsImportModalOpen(true)} disabled={!canEdit} className="px-4 py-2 bg-primary text-white font-semibold rounded-md flex items-center gap-2 disabled:bg-gray-400"><UploadIcon /> Import CSV</button></div>
+                <div className="ml-auto"><button onClick={() => setIsImportModalOpen(true)} disabled={!canEdit} className="px-4 py-2 bg-primary text-white font-semibold rounded-md flex items-center gap-2 disabled:bg-gray-400"><UploadIcon /> Import Excel/CSV</button></div>
             </div>
             
             {/* Action Bar */}

@@ -1,5 +1,6 @@
 
 
+
 import React, { useState, useCallback, useMemo, useEffect, useRef } from 'react';
 import type { Unit, ChargeRaw, Vehicle, WaterReading, Adjustment, Owner, AllData, Role, PaymentStatus, InvoiceSettings, ActivityLog } from '../../types';
 import { UnitType, ParkingTariffTier } from '../../types';
@@ -223,10 +224,7 @@ const generateEmailHtmlForCharge = (charge: ChargeRaw, allData: AllData, invoice
                         <p style="font-size: 16px; font-weight: bold; margin-bottom: 8px;">Thông tin thanh toán:</p>
                         <p><strong>Chủ TK:</strong> ${invoiceSettings.accountName}</p>
                         <p><strong>Số TK:</strong> ${invoiceSettings.accountNumber} tại ${invoiceSettings.bankName}</p>
-                        <div style="margin-top: 8px;">
-                            <strong>Nội dung:</strong>
-                            <div style="background-color: #dbeafe; padding: 6px; border-radius: 4px; font-family: monospace; word-wrap: break-word; margin-top: 4px; line-height: 1.4; word-break: break-all;">${paymentContent}</div>
-                        </div>
+                        <p style="margin-top: 8px;"><strong>Nội dung:</strong> <code style="background-color: #dbeafe; padding: 4px; border-radius: 4px; font-family: monospace; word-break: break-all;">${paymentContent}</code></p>
                     </div>
                     <div class="qr-code">
                         <img src="${qrCodeUrl}" alt="QR Code" />
@@ -377,10 +375,7 @@ const renderInvoiceHTML = (charge: ChargeRaw, allData: AllData, invoiceSettings:
                 <p style="font-weight: bold; font-size: 13px; margin-bottom: 0.5rem; color: #0b3b6f;">Thông tin thanh toán:</p>
                 <div style="color: #0b3b6f;"><strong style="color: #0b3b6f;">Chủ TK:</strong> ${invoiceSettings.accountName}</div>
                 <div style="color: #0b3b6f;"><strong style="color: #0b3b6f;">Số TK:</strong> ${invoiceSettings.accountNumber} tại ${invoiceSettings.bankName}</div>
-                <div style="margin-top: 0.5rem; color: #0b3b6f;">
-                    <strong style="color: #0b3b6f;">Nội dung:</strong>
-                    <div style="font-family: monospace; background: #e2e8f0; padding: 6px; border-radius: 4px; color: #0b3b6f; word-wrap: break-word; line-height: 1.4; margin-top: 4px;">${paymentContent}</div>
-                </div>
+                <p style="color: #0b3b6f;"><strong style="color: #0b3b6f;">Nội dung:</strong> <span style="font-family: monospace; background: #e2e8f0; padding: 4px; border-radius: 4px; color: #0b3b6f; word-break: break-all;">${paymentContent}</span></p>
             </div>
             <div style="flex: 0 0 90px; text-align: center; ${textStyle}">
                 <img src="${qrCodeUrl}" alt="QR Code" style="width: 90px; height: 90px; object-fit: contain;" />
@@ -618,7 +613,8 @@ const BillingPage: React.FC<BillingPageProps> = ({ charges, setCharges, allData,
             }
 
             const s = searchTerm.toLowerCase();
-            if (s && !(c.UnitID.toLowerCase().includes(s) || c.OwnerName.toLowerCase().includes(s))) return false;
+            // FIX: Handle undefined OwnerName safely
+            if (s && !(c.UnitID.toLowerCase().includes(s) || (c.OwnerName || '').toLowerCase().includes(s))) return false;
             return true;
         });
     }, [charges, period, searchTerm, statusFilter, typeFilter, floorFilter, allData.units]);

@@ -633,8 +633,6 @@
         initializeFirestore,
         collection,
         getDocs,
-        getDoc, // Added for reading single documents
-        doc,    // Added for creating document references
         addDoc,
         onSnapshot
       } from "https://www.gstatic.com/firebasejs/12.6.0/firebase-firestore.js";
@@ -654,21 +652,15 @@
       const app = initializeApp(firebaseConfig);
 
       // 🔧 FIX lỗi “client is offline”:
+      // ép Firestore dùng long-polling, tránh các vấn đề với websockets/proxy
       const db = initializeFirestore(app, {
         experimentalAutoDetectLongPolling: true,
         useFetchStreams: false
       });
 
-      // Expose main Firebase objects for the React app to use
-      window.Firebase = {
-        db,
-        collection,
-        getDocs,
-        getDoc,
-        doc
-      };
+      // ====== HÀM TEST ĐƠN GIẢN ======
 
-      // ====== HÀM TEST ĐƠN GIẢN (Giữ lại để user debug) ======
+      // Đọc toàn bộ collection "apartments"
       async function testRead() {
         console.log("🔥 testRead()...");
         const snap = await getDocs(collection(db, "apartments"));
@@ -676,11 +668,33 @@
           console.log(doc.id, doc.data());
         });
       }
-      
-      // Export ra window để bạn gọi trong console
-      window.testRead = testRead;
 
-      console.log("✅ Firebase + Firestore đã init (long-polling bật). App can use window.Firebase now.");
+      // Thêm 1 căn hộ demo
+      async function testAdd() {
+        const ref = await addDoc(collection(db, "apartments"), {
+          name: "103",
+          area: 80,
+          owner: "Nguyễn Văn C",
+          createdAt: new Date()
+        });
+        console.log("Đã thêm document:", ref.id);
+      }
+
+      // Lắng nghe realtime
+      function testListen() {
+        onSnapshot(collection(db, "apartments"), snap => {
+          console.log("📡 Realtime update:");
+          snap.forEach(doc => console.log(doc.id, doc.data()));
+        });
+      }
+
+      // Export ra window để bạn gọi trong console
+      window.firestoreDB = db;
+      window.testRead = testRead;
+      window.testAdd = testAdd;
+      window.testListen = testListen;
+
+      console.log("✅ Firebase + Firestore đã init (long-polling bật).");
     </script>
   </body>
 </html>

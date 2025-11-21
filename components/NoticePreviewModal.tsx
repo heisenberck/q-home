@@ -105,10 +105,7 @@ const NoticePreviewModal: React.FC<NoticePreviewModalProps> = ({ charge, onClose
                 <p class="font-bold text-base mb-2">Thông tin thanh toán:</p>
                 <p><strong>Chủ TK:</strong> ${invoiceSettings.accountName}</p>
                 <p><strong>Số TK:</strong> ${invoiceSettings.accountNumber} tại ${invoiceSettings.bankName}</p>
-                <div class="mt-4">
-                    <strong>Nội dung:</strong>
-                    <div class="mt-1 p-2 rounded bg-blue-200 dark:bg-blue-800/50 font-mono break-words" style="line-height: 1.5;">${paymentContent}</div>
-                </div>
+                <p class="mt-2"><strong>Nội dung:</strong> <code class="bg-blue-200 dark:bg-blue-800/50 p-1 rounded font-mono break-all">${paymentContent}</code></p>
             </div>
             <div class="flex-shrink-0 text-center">
                 <img src="${qrCodeUrl}" alt="QR Code" class="w-24 h-24" />

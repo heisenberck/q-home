@@ -1,6 +1,5 @@
-
 import React, { useState, useEffect, useCallback, createContext, useContext, useMemo, lazy, Suspense } from 'react';
-import type { Role, UserPermission, Unit, Owner, Vehicle, WaterReading, ChargeRaw, TariffService, TariffParking, TariffWater, Adjustment, InvoiceSettings, ActivityLog } from './types';
+import type { Role, UserPermission, Unit, Owner, Vehicle, WaterReading, ChargeRaw, TariffService, TariffParking, TariffWater, Adjustment, InvoiceSettings, ActivityLog, VehicleTier } from './types';
 import { MOCK_USER_PERMISSIONS, MOCK_UNITS, MOCK_OWNERS, MOCK_VEHICLES, MOCK_WATER_READINGS, MOCK_CALCULATED_CHARGES, MOCK_TARIFFS_SERVICE, MOCK_TARIFFS_PARKING, MOCK_TARIFFS_WATER, MOCK_ADJUSTMENTS, patchKiosAreas } from './constants';
 
 import Header from './components/layout/Header';
@@ -41,12 +40,6 @@ type AppData = {
     lockedPeriods?: string[];
 };
 
-// Add this to provide type info for the global Firebase object from index.html
-declare global {
-  interface Window {
-    Firebase: any;
-  }
-}
 
 const saspLogoBase64 = 'data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNkYAAAAAYAAjCB0C8AAAAASUVORK5CYII=';
 const initialInvoiceSettings: InvoiceSettings = {
@@ -149,7 +142,7 @@ const App: React.FC = () => {
     const [theme, setTheme] = useState<'light' | 'dark'>(() => (localStorage.getItem('theme') as 'light' | 'dark') || 'light');
     const [toasts, setToasts] = useState<ToastMessage[]>([]);
     
-    // Data State (Centralized)
+    // Data State (Centralized) - Initialized with mock data
     const [units, setUnits] = useState<Unit[]>([]);
     const [owners, setOwners] = useState<Owner[]>([]);
     const [vehicles, setVehicles] = useState<Vehicle[]>([]);
@@ -170,97 +163,26 @@ const App: React.FC = () => {
         setToasts(prevToasts => prevToasts.slice(1));
     }, []);
 
-    // --- DATA PERSISTENCE (Read from Firestore on Load) ---
+    // --- DATA PERSISTENCE (Reverted to Mock Data Only) ---
     useEffect(() => {
-        const loadDataFromFirestore = async () => {
-            setIsLoadingData(true);
-            try {
-                if (!window.Firebase?.db) {
-                    throw new Error("Firebase is not initialized on the window object.");
-                }
-                const { db, getDoc, doc } = window.Firebase;
-
-                // Fetch main data document
-                const mainDocRef = doc(db, 'data', 'main');
-                const mainDocSnap = await getDoc(mainDocRef);
-
-                if (mainDocSnap.exists()) {
-                    console.log("Found 'data/main' document, loading data from Firestore.");
-                    const data = mainDocSnap.data() as AppData;
-                    
-                    setUnits(data.units || []);
-                    setOwners(data.owners || []);
-                    setVehicles(data.vehicles || []);
-                    setWaterReadings(data.waterReadings || []);
-                    setCharges(data.charges || []);
-                    setTariffs(data.tariffs || { service: [], parking: [], water: [] });
-                    setAdjustments(data.adjustments || []);
-                    setInvoiceSettings(data.invoiceSettings || initialInvoiceSettings);
-                } else {
-                    console.warn("Firestore document 'data/main' not found. Starting with an empty data set.");
-                    showToast("Không tìm thấy dữ liệu chính, bắt đầu với trạng thái trống.", "warn");
-                    setUnits([]);
-                    setOwners([]);
-                    setVehicles([]);
-                    setWaterReadings([]);
-                    setCharges([]);
-                    setTariffs({ service: MOCK_TARIFFS_SERVICE, parking: MOCK_TARIFFS_PARKING, water: MOCK_TARIFFS_WATER });
-                    setAdjustments([]);
-                    setInvoiceSettings(initialInvoiceSettings);
-                }
-                
-                // Fetch users document separately
-                const usersDocRef = doc(db, 'data', 'users');
-                const usersDocSnap = await getDoc(usersDocRef);
-                if (usersDocSnap.exists()) {
-                     const data = usersDocSnap.data();
-                     if (data.users && data.users.length > 0) {
-                        console.log(`Loaded ${data.users.length} users from Firestore.`);
-                        setUsers(data.users);
-                     } else {
-                        console.log("Firestore 'users' document is empty, falling back to mock users for login.");
-                        setUsers(MOCK_USER_PERMISSIONS);
-                     }
-                } else {
-                    console.warn("Firestore document 'data/users' not found. Falling back to mock users to allow login.");
-                    showToast("Không tìm thấy dữ liệu người dùng, sử dụng danh sách mặc định.", "info");
-                    setUsers(MOCK_USER_PERMISSIONS);
-                }
-
-                // Fetch activity logs document separately
-                const logsDocRef = doc(db, 'data', 'activityLogs');
-                const logsDocSnap = await getDoc(logsDocRef);
-                if (logsDocSnap.exists()) {
-                    const data = logsDocSnap.data();
-                    setActivityLogs(data.activityLogs || []);
-                } else {
-                    setActivityLogs([]);
-                }
-
-            } catch (error) {
-                console.error("Error loading data from Firestore. Falling back to empty/mock state.", error);
-                showToast("Lỗi tải dữ liệu CSDL. Chạy ở chế độ dữ liệu tạm.", "error");
-                
-                // Fallback state on error
-                setUnits([]);
-                setOwners([]);
-                setVehicles([]);
-                setWaterReadings([]);
-                setCharges([]);
-                setTariffs({ service: MOCK_TARIFFS_SERVICE, parking: MOCK_TARIFFS_PARKING, water: MOCK_TARIFFS_WATER });
-                setUsers(MOCK_USER_PERMISSIONS); // Use mock users to allow login
-                setAdjustments([]);
-                setInvoiceSettings(initialInvoiceSettings);
-                setActivityLogs([]);
-            } finally {
-                setIsLoadingData(false);
-            }
-        };
-
-        // A short delay to ensure the script in index.html has run and populated window.Firebase
-        setTimeout(loadDataFromFirestore, 100);
-    }, [showToast]);
-
+        const initialUnits = MOCK_UNITS;
+        patchKiosAreas(initialUnits);
+        setUnits(initialUnits);
+        setOwners(MOCK_OWNERS);
+        setVehicles(MOCK_VEHICLES);
+        setWaterReadings(MOCK_WATER_READINGS);
+        setCharges(MOCK_CALCULATED_CHARGES);
+        setTariffs({
+            service: MOCK_TARIFFS_SERVICE,
+            parking: MOCK_TARIFFS_PARKING,
+            water: MOCK_TARIFFS_WATER,
+        });
+        setUsers(MOCK_USER_PERMISSIONS);
+        setAdjustments(MOCK_ADJUSTMENTS);
+        setInvoiceSettings(initialInvoiceSettings);
+        setActivityLogs([]);
+        setIsLoadingData(false);
+    }, []);
 
     // --- RBAC & AUTH (Uses localStorage for session) ---
     const [currentUser, setCurrentUser] = useState<UserPermission | null>(() => {
@@ -368,7 +290,6 @@ const App: React.FC = () => {
     }, [logAction]);
     
     const handleSetCharges = createDataHandler(setCharges);
-    // FIX: The logAction payload requires a 'before_snapshot'. By using the functional form of setAdjustments, we can capture the previous state for the log.
     const handleSetAdjustments = useCallback((updater: React.SetStateAction<Adjustment[]>, details: string) => {
         setAdjustments(prev => {
             logAction({ module: 'Billing', action: 'UPDATE_ADJUSTMENTS', summary: details, before_snapshot: prev });
@@ -379,7 +300,6 @@ const App: React.FC = () => {
         });
     }, [logAction]);
     const handleSetTariffs = createDataHandler(setTariffs);
-    // FIX: The logAction payload requires a 'before_snapshot'. By using the functional form of setWaterReadings, we can capture the previous state for the log.
     const handleSetWaterReadings = useCallback((updater: React.SetStateAction<WaterReading[]>, summary?: string) => {
         setWaterReadings(prev => {
             if (summary) {
@@ -432,35 +352,95 @@ const App: React.FC = () => {
     }, [showToast]);
 
     const handleImportData = useCallback((updates: any[]) => {
-        let updatedCount = 0;
-        let skippedCount = 0;
-
+        // Use nested functional updates to avoid stale state
         setUnits(prevUnits => {
             const newUnits = [...prevUnits];
+            const unitMap = new Map(newUnits.map((u, i) => [u.UnitID, i]));
+
             setOwners(prevOwners => {
                 const newOwners = [...prevOwners];
-                updates.forEach(update => {
-                    const unitIndex = newUnits.findIndex(u => u.UnitID === update.unitId);
-                    if (unitIndex !== -1) {
-                        if (update.status) newUnits[unitIndex] = { ...newUnits[unitIndex], Status: update.status as Unit['Status'] };
-                        const ownerId = newUnits[unitIndex].OwnerID;
-                        const ownerIndex = newOwners.findIndex(o => o.OwnerID === ownerId);
-                        if (ownerIndex !== -1) {
-                            newOwners[ownerIndex] = { ...newOwners[ownerIndex], OwnerName: update.ownerName, Phone: update.phone, Email: update.email };
-                            updatedCount++;
-                        } else { skippedCount++; }
-                    } else { skippedCount++; }
+                const ownerMap = new Map(newOwners.map((o, i) => [o.OwnerID, i]));
+
+                setVehicles(prevVehicles => {
+                    const newVehicles = [...prevVehicles];
+                    let updatedCount = 0;
+                    let skippedCount = 0;
+                    let vehicleCount = 0;
+
+                    updates.forEach(update => {
+                        const unitIdx = unitMap.get(update.unitId);
+                        if (unitIdx !== undefined) {
+                            // Update Unit
+                            if (update.status) {
+                                newUnits[unitIdx] = { ...newUnits[unitIdx], Status: update.status };
+                            }
+
+                            // Update Owner
+                            const ownerId = newUnits[unitIdx].OwnerID;
+                            const ownerIdx = ownerMap.get(ownerId);
+                            if (ownerIdx !== undefined) {
+                                newOwners[ownerIdx] = {
+                                    ...newOwners[ownerIdx],
+                                    OwnerName: update.ownerName !== undefined ? update.ownerName : newOwners[ownerIdx].OwnerName,
+                                    Phone: update.phone !== undefined ? update.phone : newOwners[ownerIdx].Phone,
+                                    Email: update.email !== undefined ? update.email : newOwners[ownerIdx].Email,
+                                };
+                                updatedCount++;
+                            }
+
+                            // Update/Add Vehicles
+                            if (update.vehicles && update.vehicles.length > 0) {
+                                update.vehicles.forEach((vImport: { PlateNumber: string; Type: VehicleTier; VehicleName: string }) => {
+                                    // Normalize plate for check: remove spaces, lowercase
+                                    const normPlate = vImport.PlateNumber ? String(vImport.PlateNumber).replace(/\s/g, '').toLowerCase() : '';
+                                    if(!normPlate) return;
+
+                                    const existingIdx = newVehicles.findIndex(v => v.PlateNumber.replace(/\s/g, '').toLowerCase() === normPlate);
+                                    
+                                    if (existingIdx !== -1) {
+                                        // Update existing vehicle (e.g. re-assign to this unit if moved, or just ensure it's active)
+                                        newVehicles[existingIdx] = {
+                                            ...newVehicles[existingIdx],
+                                            UnitID: update.unitId, // Update unit link
+                                            isActive: true,
+                                            Type: vImport.Type || newVehicles[existingIdx].Type,
+                                            VehicleName: vImport.VehicleName || newVehicles[existingIdx].VehicleName
+                                        };
+                                    } else {
+                                        // Add new vehicle
+                                        newVehicles.push({
+                                            VehicleId: `VEH_IMP_${Date.now()}_${Math.random().toString(36).substr(2, 5)}`,
+                                            UnitID: update.unitId,
+                                            PlateNumber: vImport.PlateNumber,
+                                            Type: vImport.Type,
+                                            VehicleName: vImport.VehicleName || '',
+                                            StartDate: new Date().toISOString().split('T')[0],
+                                            isActive: true,
+                                            documents: {}
+                                        });
+                                    }
+                                    vehicleCount++;
+                                });
+                            }
+
+                        } else {
+                            skippedCount++;
+                        }
+                    });
+                    
+                    showToast(`Hoàn tất! Cập nhật ${updatedCount} hộ, ${vehicleCount} xe. Bỏ qua ${skippedCount} dòng.`, 'success');
+                    return newVehicles;
                 });
                 return newOwners;
             });
             return newUnits;
         });
-        
-        showToast(`Hoàn tất! Đã cập nhật ${updatedCount} cư dân. Bỏ qua ${skippedCount} dòng.`, 'success');
     }, [showToast]);
     
     const handleRestoreAllData = useCallback((data: AppData) => {
-        patchKiosAreas(data.units);
+        if (data.units && Array.isArray(data.units)) {
+            patchKiosAreas(data.units);
+        }
         setUnits(data.units || []); 
         setOwners(data.owners || []); 
         setVehicles(data.vehicles || []);
@@ -470,6 +450,11 @@ const App: React.FC = () => {
         setUsers(data.users || []);
         setAdjustments(data.adjustments || []); 
         setInvoiceSettings(data.invoiceSettings || initialInvoiceSettings);
+        
+        if (data.lockedPeriods) {
+            localStorage.setItem('lockedBillingPeriods', JSON.stringify(data.lockedPeriods));
+        }
+
         showToast('Dữ liệu đã được phục hồi (tạm thời)!', 'success');
     }, [showToast]);
 
