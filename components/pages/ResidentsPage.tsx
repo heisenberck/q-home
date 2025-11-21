@@ -451,24 +451,24 @@ const DataImportModal: React.FC<{
     const [errors, setErrors] = useState<string[]>([]);
     const { showToast } = useNotification();
 
-    // Mapping configuration: Field -> Keywords
     const fieldKeywords: Record<string, string[]> = {
-        unitId: ['can ho', 'ma can', 'phong'],
-        ownerName: ['ho ten', 'chu ho'],
+        unitId: ['can ho', 'so can ho', 'phong'],
+        ownerName: ['ho ten chu ho', 'ho ten', 'ho va ten', 'chu ho'],
         area: ['dien tich', 'dt'],
         phone: ['dien thoai', 'sdt'],
         email: ['email'],
         status: ['trang thai', 'loai'],
     };
 
-    // Keywords to detect vehicle columns
-    const vehicleKeywords = {
-        [VehicleTier.CAR]: ['o to', 'oto', '860'],
-        [VehicleTier.CAR_A]: ['o to', 'oto', '800'],
-        [VehicleTier.MOTORBIKE]: ['xe may', 'xm'],
-        [VehicleTier.EBIKE]: ['xe dien'],
-        [VehicleTier.BICYCLE]: ['xe dap', 'xd'],
-    };
+    const vehicleKeywords: { keywords: string[], type: VehicleTier }[] = [
+        { keywords: ['o to 860', 'oto 860', 'o to thuong'], type: VehicleTier.CAR },
+        { keywords: ['o to 800', 'oto 800', 'o to hang a'], type: VehicleTier.CAR_A },
+        { keywords: ['xe may', 'xm'], type: VehicleTier.MOTORBIKE },
+        { keywords: ['xe dien'], type: VehicleTier.EBIKE },
+        { keywords: ['xe dap', 'xd'], type: VehicleTier.BICYCLE },
+        // General fallback
+        { keywords: ['bien so', 'bien so xe', 'bsx'], type: VehicleTier.MOTORBIKE }, // Default to motorbike if unspecified
+    ];
 
     const normalizeHeader = (header: string) => {
         if (!header) return '';
@@ -494,7 +494,7 @@ const DataImportModal: React.FC<{
             const sheetName = workbook.SheetNames[0];
             const sheet = workbook.Sheets[sheetName];
             
-            const jsonData = XLSX.utils.sheet_to_json(sheet, { header: 1 });
+            const jsonData: any[][] = XLSX.utils.sheet_to_json(sheet, { header: 1 });
             
             if (jsonData.length < 2) {
                 setErrors(["File không có dữ liệu."]);
@@ -502,42 +502,58 @@ const DataImportModal: React.FC<{
                 return;
             }
 
-            const headers = (jsonData[0] as string[]).map(h => String(h || '').trim());
+            const headers = (jsonData[0] as any[]).map(h => String(h || '').trim());
             const mapResult: Record<string, number> = {};
             const vehicleCols: { index: number; type: VehicleTier }[] = [];
             const detectedFields: string[] = [];
+            const usedIndexes = new Set<number>();
 
             // Smart Mapping
-            headers.forEach((header, index) => {
-                const normalized = normalizeHeader(header);
-                if (!normalized) return;
-                let matched = false;
+            const mappingOrder: (keyof typeof fieldKeywords)[] = ['ownerName', 'unitId', 'area', 'phone', 'email', 'status'];
+            
+            mappingOrder.forEach(field => {
+                 for (let i = 0; i < headers.length; i++) {
+                    if (usedIndexes.has(i)) continue;
 
-                for (const [field, keywords] of Object.entries(fieldKeywords)) {
-                    if (keywords.some(k => normalized.includes(k))) {
-                        if (mapResult[field] === undefined) {
-                             mapResult[field] = index;
-                             detectedFields.push(`${header} -> ${field}`);
-                             matched = true;
+                    const header = headers[i];
+                    const normalized = normalizeHeader(header);
+                    if (!normalized) continue;
+                    
+                    if (fieldKeywords[field].some(k => normalized.includes(k))) {
+                        // CRITICAL FIX: Prevent 'ho ten chu can ho' from matching 'can ho' for unitId
+                        if (field === 'unitId' && fieldKeywords.ownerName.some(ownerK => normalized.includes(ownerK))) {
+                            continue;
                         }
-                    }
-                }
-
-                if(!matched) {
-                    for (const [type, keywords] of Object.entries(vehicleKeywords)) {
-                        if (keywords.some(k => normalized.includes(k))) {
-                            vehicleCols.push({ index, type: type as VehicleTier });
-                            detectedFields.push(`${header} -> Vehicle (${type})`);
-                            break;
-                        }
+                        
+                        mapResult[field] = i;
+                        detectedFields.push(`${header} -> ${field}`);
+                        usedIndexes.add(i);
+                        break; // Move to next field once one is found
                     }
                 }
             });
 
+            // Vehicle mapping
+            headers.forEach((header, index) => {
+                if (usedIndexes.has(index)) return;
+                const normalized = normalizeHeader(header);
+                if (!normalized) return;
+
+                for (const vk of vehicleKeywords) {
+                    if (vk.keywords.some(k => normalized.includes(k))) {
+                        vehicleCols.push({ index, type: vk.type });
+                        detectedFields.push(`${header} -> Vehicle (${vk.type})`);
+                        usedIndexes.add(index);
+                        break;
+                    }
+                }
+            });
+
+
             setMappedHeaders(detectedFields);
 
             if (mapResult.unitId === undefined) {
-                setErrors(["Không tìm thấy cột 'Mã căn hộ' (Unit ID). Vui lòng kiểm tra lại file."]);
+                setErrors(["Không tìm thấy cột 'Căn hộ' hoặc 'Số căn hộ'. Đây là cột bắt buộc."]);
                 setPreview([]);
                 return;
             }
@@ -546,7 +562,7 @@ const DataImportModal: React.FC<{
             const rows = jsonData.slice(1);
 
             rows.forEach((row: any[]) => {
-                if (!row || row.length === 0) return;
+                if (!row || row.length === 0 || !row[mapResult.unitId]) return;
                 
                 const unitId = String(row[mapResult.unitId] || '').trim();
                 if (!unitId) return;
@@ -563,13 +579,19 @@ const DataImportModal: React.FC<{
                     });
                 });
 
-                const getVal = (field: string) => (mapResult[field] !== undefined && row[mapResult[field]] !== undefined) ? row[mapResult[field]] : undefined;
+                const getVal = (field: string) => {
+                    const idx = mapResult[field];
+                    if (idx !== undefined && row[idx] !== undefined && row[idx] !== null) {
+                        return String(row[idx]).trim();
+                    }
+                    return undefined;
+                }
 
                 processedRows.push({
                     unitId,
                     area: getVal('area'),
                     ownerName: getVal('ownerName'),
-                    phone: getVal('phone') ? String(getVal('phone')) : undefined,
+                    phone: getVal('phone'),
                     email: getVal('email'),
                     status: getVal('status'),
                     vehicles,
