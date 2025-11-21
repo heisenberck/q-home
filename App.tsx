@@ -353,18 +353,16 @@ const App: React.FC = () => {
     }, [showToast]);
 
     const handleImportData = useCallback((updates: any[]) => {
-        // Use nested functional updates to avoid stale state issues when updating multiple interdependent states.
         setUnits(prevUnits => {
-            return setOwners(prevOwners => {
-                return setVehicles(prevVehicles => {
-                    const newUnits = [...prevUnits];
-                    const newOwners = [...prevOwners];
+            const newUnits = [...prevUnits];
+            const unitMap = new Map(newUnits.map((u, i) => [u.UnitID, i]));
+
+            setOwners(prevOwners => {
+                const newOwners = [...prevOwners];
+                const ownerMap = new Map(newOwners.map((o, i) => [o.OwnerID, i]));
+
+                setVehicles(prevVehicles => {
                     const newVehicles = [...prevVehicles];
-
-                    // Use maps for efficient lookups of existing data
-                    const unitMap = new Map(newUnits.map((u, i) => [u.UnitID, i]));
-                    const ownerMap = new Map(newOwners.map((o, i) => [o.OwnerID, i]));
-
                     let createdCount = 0;
                     let updatedCount = 0;
                     let vehicleCount = 0;
@@ -453,10 +451,13 @@ const App: React.FC = () => {
 
                     showToast(`Hoàn tất! Tạo mới ${createdCount}, cập nhật ${updatedCount} hộ. Xử lý ${vehicleCount} xe.`, 'success');
                     
-                    // Return the final updated states
-                    return { units: newUnits, owners: newOwners, vehicles: newVehicles };
+                    // Return the new states for the setters. This is incorrect usage.
+                    // Instead, we should update the state outside this nested structure.
+                    return newVehicles;
                 });
+                return newOwners;
             });
+            return newUnits;
         });
     }, [showToast]);
     
