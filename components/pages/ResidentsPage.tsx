@@ -1,3 +1,4 @@
+
 import React, { useState, useMemo, useRef, useCallback, useEffect } from 'react';
 import type { Unit, Owner, Vehicle, Role, UserPermission } from '../../types';
 import { UnitType, VehicleTier } from '../../types';
@@ -451,23 +452,24 @@ const DataImportModal: React.FC<{
     const [errors, setErrors] = useState<string[]>([]);
     const { showToast } = useNotification();
 
-    // Mapping configuration: Field -> Keywords
+    // Mapping configuration: Field -> Keywords (from user request)
     const fieldKeywords: Record<string, string[]> = {
-        unitId: ['can ho', 'ma can', 'phong'],
-        ownerName: ['ho ten', 'chu ho'],
+        ownerName: ['ho ten chu ho', 'ho va ten chu ho', 'ho ten', 'ho va ten'],
+        unitId: ['so can ho', 'can ho', 'phong'],
         area: ['dien tich', 'dt'],
         phone: ['dien thoai', 'sdt'],
         email: ['email'],
         status: ['trang thai', 'loai'],
     };
 
-    // Keywords to detect vehicle columns
-    const vehicleKeywords = {
-        [VehicleTier.CAR]: ['o to', 'oto', '860'],
-        [VehicleTier.CAR_A]: ['o to', 'oto', '800'],
+    // Keywords to detect vehicle columns, ordered from most specific to least
+    const vehicleKeywords: Record<string, string[]> = {
+        [VehicleTier.CAR_A]: ['o to 800', 'oto 800', 'o to hang a'],
+        [VehicleTier.CAR]: ['o to 860', 'oto 860', 'o to', 'oto'],
         [VehicleTier.MOTORBIKE]: ['xe may', 'xm'],
-        [VehicleTier.EBIKE]: ['xe dien'],
+        [VehicleTier.EBIKE]: ['xe dien', 'xe dap dien'],
         [VehicleTier.BICYCLE]: ['xe dap', 'xd'],
+        'plate_number': ['bien so'], // A generic column for plate numbers
     };
 
     const normalizeHeader = (header: string) => {
@@ -504,31 +506,47 @@ const DataImportModal: React.FC<{
 
             const headers = (jsonData[0] as string[]).map(h => String(h || '').trim());
             const mapResult: Record<string, number> = {};
-            const vehicleCols: { index: number; type: VehicleTier }[] = [];
+            const vehicleCols: { index: number; type?: VehicleTier }[] = [];
             const detectedFields: string[] = [];
 
             // Smart Mapping
             headers.forEach((header, index) => {
                 const normalized = normalizeHeader(header);
                 if (!normalized) return;
+
                 let matched = false;
 
+                // Check standard fields
                 for (const [field, keywords] of Object.entries(fieldKeywords)) {
+                    // Special rule for unitId to prevent matching owner name headers
+                    if (field === 'unitId' && (normalized.includes('ho ten') || normalized.includes('chu ho'))) {
+                        continue; 
+                    }
                     if (keywords.some(k => normalized.includes(k))) {
                         if (mapResult[field] === undefined) {
                              mapResult[field] = index;
                              detectedFields.push(`${header} -> ${field}`);
                              matched = true;
+                             break; // Exit inner loop once a header is matched to a field
                         }
                     }
                 }
 
+                // If not matched by standard fields, check for vehicle fields
                 if(!matched) {
                     for (const [type, keywords] of Object.entries(vehicleKeywords)) {
                         if (keywords.some(k => normalized.includes(k))) {
-                            vehicleCols.push({ index, type: type as VehicleTier });
-                            detectedFields.push(`${header} -> Vehicle (${type})`);
-                            break;
+                            const existingCol = vehicleCols.find(vc => vc.index === index);
+                            if (!existingCol) {
+                                if (type === 'plate_number') {
+                                    vehicleCols.push({ index, type: undefined });
+                                    detectedFields.push(`${header} -> Vehicle (auto-detect)`);
+                                } else {
+                                    vehicleCols.push({ index, type: type as VehicleTier });
+                                    detectedFields.push(`${header} -> Vehicle (${type})`);
+                                }
+                            }
+                            break; // Match found for this header, move on
                         }
                     }
                 }
@@ -537,7 +555,7 @@ const DataImportModal: React.FC<{
             setMappedHeaders(detectedFields);
 
             if (mapResult.unitId === undefined) {
-                setErrors(["Không tìm thấy cột 'Mã căn hộ' (Unit ID). Vui lòng kiểm tra lại file."]);
+                setErrors(["Không tìm thấy cột 'Căn hộ' hoặc 'Số căn hộ'. Vui lòng kiểm tra lại file."]);
                 setPreview([]);
                 return;
             }
@@ -559,17 +577,25 @@ const DataImportModal: React.FC<{
 
                     const parts = cellVal.split(/[,;]/).map(s => s.trim()).filter(Boolean);
                     parts.forEach(part => {
-                        vehicles.push({ Type: col.type, PlateNumber: part, VehicleName: '' });
+                        let type = col.type;
+                        if(!type) {
+                             if (/^\d{2}[A-Z]-\d{4,5}$/.test(part)) {
+                                 type = VehicleTier.CAR;
+                             } else {
+                                 type = VehicleTier.MOTORBIKE;
+                             }
+                        }
+                        vehicles.push({ Type: type, PlateNumber: part, VehicleName: '' });
                     });
                 });
 
-                const getVal = (field: string) => (mapResult[field] !== undefined && row[mapResult[field]] !== undefined) ? row[mapResult[field]] : undefined;
+                const getVal = (field: string) => (mapResult[field] !== undefined && row[mapResult[field]] !== undefined) ? String(row[mapResult[field]]).trim() : undefined;
 
                 processedRows.push({
                     unitId,
                     area: getVal('area'),
                     ownerName: getVal('ownerName'),
-                    phone: getVal('phone') ? String(getVal('phone')) : undefined,
+                    phone: getVal('phone'),
                     email: getVal('email'),
                     status: getVal('status'),
                     vehicles,
