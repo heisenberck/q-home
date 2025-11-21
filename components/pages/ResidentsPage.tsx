@@ -464,10 +464,10 @@ const DataImportModal: React.FC<{
         { keywords: ['o to 860', 'oto 860', 'o to thuong'], type: VehicleTier.CAR },
         { keywords: ['o to 800', 'oto 800', 'o to hang a'], type: VehicleTier.CAR_A },
         { keywords: ['xe may', 'xm'], type: VehicleTier.MOTORBIKE },
-        { keywords: ['xe dien'], type: VehicleTier.EBIKE },
+        { keywords: ['xe dien', 'xe dap dien'], type: VehicleTier.EBIKE },
         { keywords: ['xe dap', 'xd'], type: VehicleTier.BICYCLE },
-        // General fallback
-        { keywords: ['bien so', 'bien so xe', 'bsx'], type: VehicleTier.MOTORBIKE }, // Default to motorbike if unspecified
+        { keywords: ['o to', 'oto'], type: VehicleTier.CAR },
+        { keywords: ['bien so', 'bien so xe', 'bsx', 'xe'], type: VehicleTier.MOTORBIKE },
     ];
 
     const normalizeHeader = (header: string) => {
@@ -508,30 +508,35 @@ const DataImportModal: React.FC<{
             const detectedFields: string[] = [];
             const usedIndexes = new Set<number>();
 
-            // Smart Mapping
-            const mappingOrder: (keyof typeof fieldKeywords)[] = ['ownerName', 'unitId', 'area', 'phone', 'email', 'status'];
-            
-            mappingOrder.forEach(field => {
-                 for (let i = 0; i < headers.length; i++) {
+            // --- SMART MAPPING ALGORITHM ---
+            const findAndMapField = (field: keyof typeof fieldKeywords) => {
+                for (let i = 0; i < headers.length; i++) {
                     if (usedIndexes.has(i)) continue;
-
                     const header = headers[i];
                     const normalized = normalizeHeader(header);
                     if (!normalized) continue;
                     
                     if (fieldKeywords[field].some(k => normalized.includes(k))) {
-                        // CRITICAL FIX: Prevent 'ho ten chu can ho' from matching 'can ho' for unitId
+                        // CRITICAL FIX: Add exclusion rule for 'unitId'
                         if (field === 'unitId' && fieldKeywords.ownerName.some(ownerK => normalized.includes(ownerK))) {
-                            continue;
+                            continue; // This header contains owner keywords, so it's not the unitId. Skip.
                         }
                         
                         mapResult[field] = i;
                         detectedFields.push(`${header} -> ${field}`);
                         usedIndexes.add(i);
-                        break; // Move to next field once one is found
+                        return; // Found, exit inner loop and function for this field
                     }
                 }
-            });
+            };
+            
+            // Prioritize specific fields to reduce ambiguity
+            findAndMapField('unitId');
+            findAndMapField('ownerName');
+            findAndMapField('area');
+            findAndMapField('phone');
+            findAndMapField('email');
+            findAndMapField('status');
 
             // Vehicle mapping
             headers.forEach((header, index) => {

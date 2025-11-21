@@ -1,7 +1,9 @@
 import React, { useState, useEffect, useCallback, createContext, useContext, useMemo, lazy, Suspense } from 'react';
 import type { Role, UserPermission, Unit, Owner, Vehicle, WaterReading, ChargeRaw, TariffService, TariffParking, TariffWater, Adjustment, InvoiceSettings, ActivityLog, VehicleTier } from './types';
-import { MOCK_USER_PERMISSIONS, MOCK_UNITS, MOCK_OWNERS, MOCK_VEHICLES, MOCK_WATER_READINGS, MOCK_CALCULATED_CHARGES, MOCK_TARIFFS_SERVICE, MOCK_TARIFFS_PARKING, MOCK_TARIFFS_WATER, MOCK_ADJUSTMENTS, patchKiosAreas } from './constants';
+import { MOCK_USER_PERMISSIONS, MOCK_TARIFFS_SERVICE, MOCK_TARIFFS_PARKING, MOCK_TARIFFS_WATER, patchKiosAreas } from './constants';
 import { UnitType } from './types';
+
+import { db, getDocs, collection, getDoc, doc } from './firebaseConfig';
 
 import Header from './components/layout/Header';
 import Sidebar from './components/layout/Sidebar';
@@ -169,12 +171,6 @@ const App: React.FC = () => {
         const loadData = async () => {
             setIsLoadingData(true);
             try {
-                const firestore = (window as any).firestore;
-                if (!firestore) {
-                    throw new Error("Firestore is not initialized");
-                }
-                const { db, getDocs, collection, getDoc, doc } = firestore;
-
                 const collectionsToFetch = ['units', 'owners', 'vehicles', 'waterReadings', 'charges', 'adjustments', 'users', 'activityLogs'];
                 const promises = collectionsToFetch.map(c => getDocs(collection(db, c)));
                 const [
@@ -227,9 +223,7 @@ const App: React.FC = () => {
                 setIsLoadingData(false);
             }
         };
-
-        // Delay slightly to ensure Firestore is initialized
-        setTimeout(loadData, 500);
+        loadData();
     }, [showToast]);
 
     // --- RBAC & AUTH (Uses localStorage for session) ---

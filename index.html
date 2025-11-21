@@ -618,7 +618,8 @@
     "@google/genai": "https://aistudiocdn.com/@google/genai@^1.27.0",
     "recharts": "https://aistudiocdn.com/recharts@^3.3.0",
     "firebase/app": "https://www.gstatic.com/firebasejs/12.6.0/firebase-app.js",
-    "firebase/firestore": "https://www.gstatic.com/firebasejs/12.6.0/firebase-firestore.js"
+    "firebase/firestore": "https://www.gstatic.com/firebasejs/12.6.0/firebase-firestore.js",
+    "firebase/": "https://aistudiocdn.com/firebase@^12.6.0/"
   }
 }
 </script>
@@ -626,50 +627,6 @@
   <body class="font-sans antialiased">
     <div id="root"></div>
     <script type="module" src="/index.tsx"></script>
-    <script type="module">
-      // Core Firebase
-      import { initializeApp } from "firebase/app";
-
-      // Firestore (modular v12)
-      import {
-        initializeFirestore,
-        collection,
-        getDocs,
-        getDoc,
-        doc
-      } from "firebase/firestore";
-
-      // Cấu hình Firebase của bạn
-      const firebaseConfig = {
-        apiKey: "AIzaSyDGOK3sa0n5VvNtWdjxau9gU1W0VfSJvo0",
-        authDomain: "q-home-8e308.firebaseapp.com",
-        projectId: "q-home-8e308",
-        storageBucket: "q-home-8e308.firebasestorage.app",
-        messagingSenderId: "384500171554",
-        appId: "1:384500171554:web:32d44fe7fa5a5d044bdb7b",
-        measurementId: "G-2W527EESGR"
-      };
-
-      // Khởi tạo app
-      const app = initializeApp(firebaseConfig);
-
-      // 🔧 FIX lỗi “client is offline”:
-      // ép Firestore dùng long-polling, tránh các vấn đề với websockets/proxy
-      const db = initializeFirestore(app, {
-        experimentalAutoDetectLongPolling: true,
-        useFetchStreams: false
-      });
-
-      // Export ra window để App.tsx có thể sử dụng
-      window.firestore = {
-        db,
-        collection,
-        getDocs,
-        getDoc,
-        doc
-      };
-
-      console.log("✅ Firebase + Firestore đã init (long-polling bật).");
-    </script>
+    
   </body>
 </html>
