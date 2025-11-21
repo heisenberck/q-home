@@ -1,6 +1,7 @@
 import React, { useState, useEffect, useCallback, createContext, useContext, useMemo, lazy, Suspense } from 'react';
 import type { Role, UserPermission, Unit, Owner, Vehicle, WaterReading, ChargeRaw, TariffService, TariffParking, TariffWater, Adjustment, InvoiceSettings, ActivityLog, VehicleTier } from './types';
 import { MOCK_USER_PERMISSIONS, MOCK_UNITS, MOCK_OWNERS, MOCK_VEHICLES, MOCK_WATER_READINGS, MOCK_CALCULATED_CHARGES, MOCK_TARIFFS_SERVICE, MOCK_TARIFFS_PARKING, MOCK_TARIFFS_WATER, MOCK_ADJUSTMENTS, patchKiosAreas } from './constants';
+import { UnitType } from './types';
 
 import Header from './components/layout/Header';
 import Sidebar from './components/layout/Sidebar';
@@ -352,88 +353,110 @@ const App: React.FC = () => {
     }, [showToast]);
 
     const handleImportData = useCallback((updates: any[]) => {
-        // Use nested functional updates to avoid stale state
+        // Use nested functional updates to avoid stale state issues when updating multiple interdependent states.
         setUnits(prevUnits => {
-            const newUnits = [...prevUnits];
-            const unitMap = new Map(newUnits.map((u, i) => [u.UnitID, i]));
-
-            setOwners(prevOwners => {
-                const newOwners = [...prevOwners];
-                const ownerMap = new Map(newOwners.map((o, i) => [o.OwnerID, i]));
-
-                setVehicles(prevVehicles => {
+            return setOwners(prevOwners => {
+                return setVehicles(prevVehicles => {
+                    const newUnits = [...prevUnits];
+                    const newOwners = [...prevOwners];
                     const newVehicles = [...prevVehicles];
+
+                    // Use maps for efficient lookups of existing data
+                    const unitMap = new Map(newUnits.map((u, i) => [u.UnitID, i]));
+                    const ownerMap = new Map(newOwners.map((o, i) => [o.OwnerID, i]));
+
+                    let createdCount = 0;
                     let updatedCount = 0;
-                    let skippedCount = 0;
                     let vehicleCount = 0;
 
                     updates.forEach(update => {
-                        const unitIdx = unitMap.get(update.unitId);
-                        if (unitIdx !== undefined) {
-                            // Update Unit
-                            if (update.status) {
-                                newUnits[unitIdx] = { ...newUnits[unitIdx], Status: update.status };
-                            }
+                        const unitId = String(update.unitId).trim();
+                        if (!unitId) return;
 
-                            // Update Owner
-                            const ownerId = newUnits[unitIdx].OwnerID;
-                            const ownerIdx = ownerMap.get(ownerId);
-                            if (ownerIdx !== undefined) {
-                                newOwners[ownerIdx] = {
-                                    ...newOwners[ownerIdx],
-                                    OwnerName: update.ownerName !== undefined ? update.ownerName : newOwners[ownerIdx].OwnerName,
-                                    Phone: update.phone !== undefined ? update.phone : newOwners[ownerIdx].Phone,
-                                    Email: update.email !== undefined ? update.email : newOwners[ownerIdx].Email,
+                        let unitIndex = unitMap.get(unitId);
+
+                        // --- CREATE OR UPDATE UNIT & OWNER ---
+                        if (unitIndex === undefined) { // CREATE NEW unit and owner
+                            const newOwnerId = `OWN_IMP_${Date.now()}_${Math.random().toString(36).substring(2, 7)}`;
+                            
+                            const newOwner: Owner = {
+                                OwnerID: newOwnerId,
+                                OwnerName: update.ownerName || '[Chưa có tên]',
+                                Phone: update.phone || '',
+                                Email: update.email || '',
+                            };
+                            newOwners.push(newOwner);
+                            ownerMap.set(newOwnerId, newOwners.length - 1);
+                            
+                            const newUnit: Unit = {
+                                UnitID: unitId,
+                                OwnerID: newOwnerId,
+                                UnitType: unitId.startsWith('K') ? UnitType.KIOS : UnitType.APARTMENT,
+                                Area_m2: update.area || 0,
+                                Status: update.status || 'Owner',
+                            };
+                            newUnits.push(newUnit);
+                            unitIndex = newUnits.length - 1;
+                            unitMap.set(unitId, unitIndex);
+
+                            createdCount++;
+
+                        } else { // UPDATE EXISTING unit and owner
+                            if (update.status) newUnits[unitIndex].Status = update.status;
+                            if (update.area) newUnits[unitIndex].Area_m2 = update.area;
+
+                            const ownerId = newUnits[unitIndex].OwnerID;
+                            const ownerIndex = ownerMap.get(ownerId);
+                            if (ownerIndex !== undefined) {
+                                newOwners[ownerIndex] = {
+                                    ...newOwners[ownerIndex],
+                                    OwnerName: update.ownerName !== undefined ? update.ownerName : newOwners[ownerIndex].OwnerName,
+                                    Phone: update.phone !== undefined ? update.phone : newOwners[ownerIndex].Phone,
+                                    Email: update.email !== undefined ? update.email : newOwners[ownerIndex].Email,
                                 };
                                 updatedCount++;
                             }
+                        }
 
-                            // Update/Add Vehicles
-                            if (update.vehicles && update.vehicles.length > 0) {
-                                update.vehicles.forEach((vImport: { PlateNumber: string; Type: VehicleTier; VehicleName: string }) => {
-                                    // Normalize plate for check: remove spaces, lowercase
-                                    const normPlate = vImport.PlateNumber ? String(vImport.PlateNumber).replace(/\s/g, '').toLowerCase() : '';
-                                    if(!normPlate) return;
+                        // --- CREATE OR UPDATE VEHICLES ---
+                        if (update.vehicles && Array.isArray(update.vehicles)) {
+                            update.vehicles.forEach((vImport: { PlateNumber: string; Type: VehicleTier; VehicleName: string }) => {
+                                const normPlate = String(vImport.PlateNumber || '').replace(/\s/g, '').toLowerCase();
+                                if (!normPlate) return;
 
-                                    const existingIdx = newVehicles.findIndex(v => v.PlateNumber.replace(/\s/g, '').toLowerCase() === normPlate);
-                                    
-                                    if (existingIdx !== -1) {
-                                        // Update existing vehicle (e.g. re-assign to this unit if moved, or just ensure it's active)
-                                        newVehicles[existingIdx] = {
-                                            ...newVehicles[existingIdx],
-                                            UnitID: update.unitId, // Update unit link
-                                            isActive: true,
-                                            Type: vImport.Type || newVehicles[existingIdx].Type,
-                                            VehicleName: vImport.VehicleName || newVehicles[existingIdx].VehicleName
-                                        };
-                                    } else {
-                                        // Add new vehicle
-                                        newVehicles.push({
-                                            VehicleId: `VEH_IMP_${Date.now()}_${Math.random().toString(36).substr(2, 5)}`,
-                                            UnitID: update.unitId,
-                                            PlateNumber: vImport.PlateNumber,
-                                            Type: vImport.Type,
-                                            VehicleName: vImport.VehicleName || '',
-                                            StartDate: new Date().toISOString().split('T')[0],
-                                            isActive: true,
-                                            documents: {}
-                                        });
-                                    }
-                                    vehicleCount++;
-                                });
-                            }
-
-                        } else {
-                            skippedCount++;
+                                const existingIdx = newVehicles.findIndex(v => v.PlateNumber.replace(/\s/g, '').toLowerCase() === normPlate);
+                                
+                                if (existingIdx !== -1) { // Vehicle exists, update it
+                                    newVehicles[existingIdx] = {
+                                        ...newVehicles[existingIdx],
+                                        UnitID: unitId,
+                                        isActive: true,
+                                        Type: vImport.Type || newVehicles[existingIdx].Type,
+                                        VehicleName: vImport.VehicleName || newVehicles[existingIdx].VehicleName,
+                                    };
+                                } else { // New vehicle, create it
+                                    newVehicles.push({
+                                        VehicleId: `VEH_IMP_${Date.now()}_${Math.random().toString(36).substring(2, 7)}`,
+                                        UnitID: unitId,
+                                        PlateNumber: vImport.PlateNumber,
+                                        Type: vImport.Type,
+                                        VehicleName: vImport.VehicleName || '',
+                                        StartDate: new Date().toISOString().split('T')[0],
+                                        isActive: true,
+                                        documents: {},
+                                    });
+                                }
+                                vehicleCount++;
+                            });
                         }
                     });
+
+                    showToast(`Hoàn tất! Tạo mới ${createdCount}, cập nhật ${updatedCount} hộ. Xử lý ${vehicleCount} xe.`, 'success');
                     
-                    showToast(`Hoàn tất! Cập nhật ${updatedCount} hộ, ${vehicleCount} xe. Bỏ qua ${skippedCount} dòng.`, 'success');
-                    return newVehicles;
+                    // Return the final updated states
+                    return { units: newUnits, owners: newOwners, vehicles: newVehicles };
                 });
-                return newOwners;
             });
-            return newUnits;
         });
     }, [showToast]);
     

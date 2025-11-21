@@ -564,7 +564,7 @@ const DataImportModal: React.FC<{
                 });
 
                 processedRows.push({
-                    unitId: String(unitId),
+                    unitId: String(unitId).trim(),
                     area: mapResult.area !== undefined ? row[mapResult.area] : undefined,
                     ownerName: mapResult.ownerName !== undefined ? row[mapResult.ownerName] : undefined,
                     phone: mapResult.phone !== undefined ? String(row[mapResult.phone]) : undefined,
