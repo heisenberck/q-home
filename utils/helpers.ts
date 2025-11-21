@@ -1,3 +1,4 @@
+
 import { UnitType, ParkingTariffTier } from '../types';
 import type { ChargeRaw, AllData, Adjustment } from '../types';
 
@@ -28,6 +29,13 @@ export const parseUnitCode = (code: string) => {
         apt = parseInt(s.slice(2), 10);
     }
     return { floor, apt };
+};
+
+export const sortUnitsComparator = (a: { UnitID: string }, b: { UnitID: string }) => {
+    const pa = parseUnitCode(a.UnitID) || { floor: 999, apt: 999 };
+    const pb = parseUnitCode(b.UnitID) || { floor: 999, apt: 999 };
+    if (pa.floor !== pb.floor) return pa.floor - pb.floor;
+    return pa.apt - pb.apt;
 };
 
 export const processFooterHtml = (

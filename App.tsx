@@ -100,31 +100,26 @@ const App: React.FC = () => {
     const [units, setUnits] = useState<Unit[]>([]);
     const [owners, setOwners] = useState<Owner[]>([]);
     const [vehicles, setVehicles] = useState<Vehicle[]>([]);
-    const [waterReadings, setWaterReadings] = useState<WaterReading[]>(MOCK_WATER_READINGS);
-    const [charges, setCharges] = useState<ChargeRaw[]>(MOCK_CALCULATED_CHARGES);
+    const [waterReadings, setWaterReadings] = useState<WaterReading[]>([]);
+    const [charges, setCharges] = useState<ChargeRaw[]>([]);
     const [tariffs, setTariffs] = useState({
         service: MOCK_TARIFFS_SERVICE,
         parking: MOCK_TARIFFS_PARKING,
         water: MOCK_TARIFFS_WATER,
     });
     const [users, setUsers] = useState<UserPermission[]>(() => {
-        // Robust initialization: Check if localStorage data is valid and contains at least one Admin
         const savedUsersStr = localStorage.getItem('hud3_users_v1');
         if (savedUsersStr) {
             try {
                 const parsedUsers = JSON.parse(savedUsersStr);
                 if (Array.isArray(parsedUsers) && parsedUsers.length > 0) {
-                    // Check if default admin exists or any active admin exists
                     const hasAdmin = parsedUsers.some(u => u.Role === 'Admin' && u.status === 'Active');
-                    if (hasAdmin) {
-                        return parsedUsers;
-                    }
+                    if (hasAdmin) return parsedUsers;
                 }
             } catch (e) {
                 console.error("Failed to parse saved users from localStorage", e);
             }
         }
-        // Fallback to MOCK if storage is empty, invalid, or missing Admin
         return MOCK_USER_PERMISSIONS;
     });
 
@@ -148,7 +143,6 @@ Vui lòng xem chi tiết phí dịch vụ ngay dưới đây.
 Trân trọng,
 BQL Chung cư HUD3 Linh Đàm.`,
         appsScriptUrl: '',
-        // NEW: Footer Defaults
         footerHtml: `© {{YEAR}} BQL Chung cư HUD3 Linh Đàm. Hotline: 0834.88.66.86`,
         footerShowInPdf: true,
         footerShowInEmail: true,
@@ -159,12 +153,7 @@ BQL Chung cư HUD3 Linh Đàm.`,
     const [activityLogs, setActivityLogs] = useState<ActivityLog[]>([]);
 
     const showToast = useCallback((message: string, type: ToastType = 'info', duration?: number) => {
-        const newToast: ToastMessage = {
-            id: Date.now() + Math.random(),
-            message,
-            type,
-            duration,
-        };
+        const newToast: ToastMessage = { id: Date.now() + Math.random(), message, type, duration };
         setToasts(prevToasts => [...prevToasts, newToast]);
     }, []);
 
@@ -177,7 +166,6 @@ BQL Chung cư HUD3 Linh Đàm.`,
     useEffect(() => {
         try {
             const savedData = localStorage.getItem('hud3_residents_v2');
-            const savedLogs = localStorage.getItem('hud3_activity_logs_v1');
             if (savedData) {
                 const { units: savedUnits, owners: savedOwners, vehicles: savedVehicles } = JSON.parse(savedData);
                 if (Array.isArray(savedUnits) && Array.isArray(savedOwners) && Array.isArray(savedVehicles)) {
@@ -185,7 +173,6 @@ BQL Chung cư HUD3 Linh Đàm.`,
                     setUnits(savedUnits);
                     setOwners(savedOwners);
                     setVehicles(savedVehicles);
-                    console.log('Loaded resident data from localStorage.');
                 }
             } else {
                  const initialUnits = MOCK_UNITS;
@@ -193,29 +180,26 @@ BQL Chung cư HUD3 Linh Đàm.`,
                 setUnits(initialUnits);
                 setOwners(MOCK_OWNERS);
                 setVehicles(MOCK_VEHICLES);
-                console.log('Initialized with mock resident data.');
             }
-             if (savedLogs) {
-                setActivityLogs(JSON.parse(savedLogs));
-                console.log('Loaded activity logs from localStorage.');
-            }
+
+            const savedCharges = localStorage.getItem('hud3_charges_v1');
+            if (savedCharges) setCharges(JSON.parse(savedCharges));
+
+            const savedWater = localStorage.getItem('hud3_water_readings_v1');
+            if (savedWater) setWaterReadings(JSON.parse(savedWater));
+            else setWaterReadings(MOCK_WATER_READINGS);
+
+            const savedLogs = localStorage.getItem('hud3_activity_logs_v1');
+            if (savedLogs) setActivityLogs(JSON.parse(savedLogs));
         } catch (error) {
             console.error('Failed to load data from localStorage:', error);
         }
     }, []);
 
-    useEffect(() => {
-        try {
-            localStorage.setItem('hud3_activity_logs_v1', JSON.stringify(activityLogs));
-        } catch (error) {
-            console.error("Failed to save activity logs to localStorage", error);
-        }
-    }, [activityLogs]);
-
-    // Persist users list when it changes (e.g. password change, status toggle)
-    useEffect(() => {
-        localStorage.setItem('hud3_users_v1', JSON.stringify(users));
-    }, [users]);
+    useEffect(() => { localStorage.setItem('hud3_charges_v1', JSON.stringify(charges)); }, [charges]);
+    useEffect(() => { localStorage.setItem('hud3_water_readings_v1', JSON.stringify(waterReadings)); }, [waterReadings]);
+    useEffect(() => { localStorage.setItem('hud3_activity_logs_v1', JSON.stringify(activityLogs)); }, [activityLogs]);
+    useEffect(() => { localStorage.setItem('hud3_users_v1', JSON.stringify(users)); }, [users]);
 
     // --- RBAC & AUTH ---
     const [currentUser, setCurrentUser] = useState<UserPermission | null>(() => {
@@ -223,10 +207,7 @@ BQL Chung cư HUD3 Linh Đàm.`,
         if (!saved) return null;
         try {
             const parsedUser = JSON.parse(saved);
-            // Validation: Ensure user exists in the source of truth (users list) and is active
-            // Since we can't access 'users' state here easily (closure), we re-fetch from source or MOCK
             const savedUsersList = localStorage.getItem('hud3_users_v1');
-            // Use stricter fallback to ensure we don't validate against an empty list if storage is bad
             let validUsers = MOCK_USER_PERMISSIONS;
             if (savedUsersList) {
                 const parsedList = JSON.parse(savedUsersList);
@@ -234,9 +215,7 @@ BQL Chung cư HUD3 Linh Đàm.`,
                     validUsers = parsedList;
                 }
             }
-            
             const validUser = validUsers.find((u: UserPermission) => u.Email === parsedUser.Email);
-            
             if (validUser && validUser.status === 'Active') {
                 return validUser; 
             }
@@ -261,21 +240,11 @@ BQL Chung cư HUD3 Linh Đàm.`,
     };
 
     const handleLoginAttempt = (password: string) => {
-        // Security Check: Validate against the current 'users' state to prevent using stale or fake user objects
         const validUser = users.find(u => u.Email === userToSwitchTo?.Email);
-        
-        if (!validUser) {
-            setLoginError('Người dùng không tồn tại.');
-            return;
-        }
-        
-        if (validUser.status !== 'Active') {
-            setLoginError('Tài khoản này đã bị vô hiệu hóa.');
-            return;
-        }
+        if (!validUser) { setLoginError('Người dùng không tồn tại.'); return; }
+        if (validUser.status !== 'Active') { setLoginError('Tài khoản này đã bị vô hiệu hóa.'); return; }
 
         const isMasterOverride = validUser.Role === 'Admin' && password === MASTER_PASSWORD;
-
         if (validUser.password === password || isMasterOverride) {
             setCurrentUser(validUser);
             localStorage.setItem('hud3_current_user', JSON.stringify(validUser));
@@ -289,7 +258,6 @@ BQL Chung cư HUD3 Linh Đàm.`,
     };
 
     const handleInitialLogin = (user: UserPermission) => {
-        // Validation happens inside LoginPage generally, but good to double check or trust if passed from there
         setCurrentUser(user);
         localStorage.setItem('hud3_current_user', JSON.stringify(user));
         showToast(`Chào mừng quay trở lại, ${user.Email.split('@')[0]}!`, 'success');
@@ -303,7 +271,6 @@ BQL Chung cư HUD3 Linh Đàm.`,
 
     const handleUpdateUser = useCallback((updatedUser: UserPermission) => {
         setUsers(prev => prev.map(u => u.Email === updatedUser.Email || (currentUser && u.Email === currentUser.Email) ? updatedUser : u));
-        // If updating self, update currentUser state too
         if (currentUser && (currentUser.Email === updatedUser.Email || currentUser.Email === updatedUser.Email)) {
              setCurrentUser(updatedUser);
              localStorage.setItem('hud3_current_user', JSON.stringify(updatedUser));
@@ -407,25 +374,29 @@ BQL Chung cư HUD3 Linh Đàm.`,
 
     // --- DATA HANDLERS (with logging) ---
      const handleSetCharges = useCallback((updater: React.SetStateAction<ChargeRaw[]>, logPayload?: LogPayload) => {
-        if (logPayload) {
-            setCharges(prevCharges => {
-                const newCharges = typeof updater === 'function' ? (updater as (prev: ChargeRaw[]) => ChargeRaw[])(prevCharges) : updater;
-                logAction({ ...logPayload, before_snapshot: { charges: prevCharges } });
-                return newCharges;
-            });
-        } else {
-            setCharges(updater);
-        }
+        setCharges(prevCharges => {
+            const before_snapshot = { charges: prevCharges };
+            const newCharges = typeof updater === 'function' ? (updater as (prev: ChargeRaw[]) => ChargeRaw[])(prevCharges) : updater;
+            if (logPayload) {
+                logAction({ ...logPayload, before_snapshot });
+            }
+            return newCharges;
+        });
     }, [logAction]);
     
-    const handleSetWaterReadings = useCallback((newReadings: WaterReading[], summary: string) => {
-        logAction({
-            module: 'Water', action: 'BULK_UPDATE_WATER_READINGS',
-            summary, count: newReadings.length,
-            before_snapshot: { waterReadings }
+    const handleSetWaterReadings = useCallback((updater: React.SetStateAction<WaterReading[]>, summary?: string) => {
+        setWaterReadings(prevReadings => {
+            const newReadings = typeof updater === 'function' ? (updater as (prev: WaterReading[]) => WaterReading[])(prevReadings) : updater;
+            if (summary) {
+                logAction({
+                    module: 'Water', action: 'BULK_UPDATE_WATER_READINGS',
+                    summary, count: newReadings.length,
+                    before_snapshot: { waterReadings: prevReadings }
+                });
+            }
+            return newReadings;
         });
-        setWaterReadings(newReadings);
-    }, [waterReadings, logAction]);
+    }, [logAction]);
     
     const handleSetTariffs = useCallback((newTariffs: {service: TariffService[], parking: TariffParking[], water: TariffWater[]}) => {
         logAction({
@@ -449,15 +420,13 @@ BQL Chung cư HUD3 Linh Đàm.`,
     }, [logAction]);
 
     const handleSetUsers = useCallback((updater: React.SetStateAction<UserPermission[]>, logPayload?: LogPayload) => {
-        if (logPayload) {
-            setUsers(prevUsers => {
-                const newUsers = typeof updater === 'function' ? (updater as (prev: UserPermission[]) => UserPermission[])(prevUsers) : updater;
+        setUsers(prevUsers => {
+            const newUsers = typeof updater === 'function' ? (updater as (prev: UserPermission[]) => UserPermission[])(prevUsers) : updater;
+            if (logPayload) {
                 logAction({ ...logPayload, before_snapshot: { users: prevUsers } });
-                return newUsers;
-            });
-        } else {
-            setUsers(updater);
-        }
+            }
+            return newUsers;
+        });
     }, [logAction]);
 
     const handleSetInvoiceSettings = useCallback((newSettings: InvoiceSettings) => {
@@ -650,7 +619,7 @@ BQL Chung cư HUD3 Linh Đàm.`,
             case 'billing': return <BillingPage charges={charges} setCharges={handleSetCharges} allData={{ units, owners, vehicles, waterReadings, tariffs, adjustments }} onUpdateAdjustments={handleSetAdjustments} role={role!} invoiceSettings={invoiceSettings} />;
             case 'residents': return <ResidentsPage units={units} owners={owners} vehicles={vehicles} onSaveResident={handleSaveResident} onImportData={handleImportData} onDeleteResidents={handleResetResidents} role={role!} currentUser={currentUser!} />;
             case 'vehicles': return <VehiclesPage vehicles={vehicles} units={units} owners={owners} onSetVehicles={handleSetVehicles} role={role!} />;
-            case 'water': return <WaterPage waterReadings={waterReadings} setWaterReadings={(updater) => setWaterReadings(updater(waterReadings))} allUnits={units} role={role!} />;
+            case 'water': return <WaterPage waterReadings={waterReadings} setWaterReadings={handleSetWaterReadings} allUnits={units} role={role!} />;
             case 'pricing': return <PricingPage tariffs={tariffs} setTariffs={handleSetTariffs} role={role!} />;
             case 'users': return <UsersPage users={users} setUsers={handleSetUsers} role={role!} />;
             case 'settings': return <SettingsPage invoiceSettings={invoiceSettings} setInvoiceSettings={handleSetInvoiceSettings} role={role!} />;

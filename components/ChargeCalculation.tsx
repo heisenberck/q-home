@@ -1,6 +1,6 @@
 import React, { useState, useCallback, useMemo, useEffect } from 'react';
-// FIX: Corrected the import name to match the exported function in geminiService.
-import { calculateChargesBatch } from '../services/geminiService';
+// FIX: The function calculateChargesBatch is exported from feeService, not geminiService.
+import { calculateChargesBatch } from '../services/feeService';
 import { MOCK_UNITS, MOCK_OWNERS, MOCK_VEHICLES, MOCK_WATER_READINGS, MOCK_TARIFFS_SERVICE, MOCK_TARIFFS_PARKING, MOCK_TARIFFS_WATER, MOCK_ADJUSTMENTS } from '../constants';
 // FIX: Add AllData to the import to correctly type the data object for the modal.
 import type { Unit, ChargeRaw, UnitType, Vehicle, WaterReading, Adjustment, Owner, AllData } from '../types';

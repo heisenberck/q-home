@@ -1,10 +1,10 @@
-
 import React, { useMemo } from 'react';
 import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer, PieChart, Pie, Cell, LabelList } from 'recharts';
 import type { Unit, Owner, Vehicle, WaterReading, ChargeRaw } from '../../types';
 import { UnitType, VehicleTier } from '../../types';
-import DashboardCard from '../ui/DashboardCard';
-import { BuildingIcon, CarIcon, MotorbikeIcon, ResidentIcon, RevenueIcon, WarningIcon, WaterIcon } from '../ui/Icons';
+import StatCard from '../ui/StatCard';
+import { BuildingIcon, CarIcon, MotorbikeIcon, RevenueIcon, WarningIcon, WaterIcon } from '../ui/Icons';
+import { getPreviousPeriod } from '../../utils/helpers';
 
 const formatCurrency = (value: number) => new Intl.NumberFormat('vi-VN').format(Math.round(value));
 
@@ -15,13 +15,6 @@ interface OverviewPageProps {
     allWaterReadings: WaterReading[];
     charges: ChargeRaw[];
 }
-
-const getPreviousPeriod = (p: string) => {
-    const [year, month] = p.split('-').map(Number);
-    const d = new Date(year, month - 1, 1);
-    d.setMonth(d.getMonth() - 1);
-    return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`;
-};
 
 const formatYAxisLabel = (value: number): string => {
     if (value >= 1_000_000) {
@@ -119,10 +112,10 @@ const OverviewPage: React.FC<OverviewPageProps> = ({ allUnits, allOwners, allVeh
     return (
         <div className="space-y-6">
             <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-6">
-                <DashboardCard title="Căn hộ / Kios" value={`${dashboardStats.totalApartments} / ${dashboardStats.totalKios}`} icon={<BuildingIcon />} />
-                <DashboardCard title={`Doanh thu T${new Date('2025-11-01').getMonth() + 1}`} value={dashboardStats.latestRevenue} icon={<RevenueIcon />} />
-                <DashboardCard title="Ô tô & Xe máy" value={`${dashboardStats.totalCars} / ${dashboardStats.totalMotorbikes}`} icon={<CarIcon />} />
-                <DashboardCard title={`Nước T${new Date(getPreviousPeriod('2025-11')).getMonth() + 1}`} value={dashboardStats.totalWaterConsumption} suffix=" m³" icon={<WaterIcon />} />
+                <StatCard label="Căn hộ / Kios" value={`${dashboardStats.totalApartments} / ${dashboardStats.totalKios}`} icon={<BuildingIcon />} />
+                <StatCard label={`Doanh thu T${new Date('2025-11-01').getMonth() + 1}`} value={formatCurrency(dashboardStats.latestRevenue)} icon={<RevenueIcon />} />
+                <StatCard label="Ô tô & Xe máy" value={`${dashboardStats.totalCars} / ${dashboardStats.totalMotorbikes}`} icon={<CarIcon />} />
+                <StatCard label={`Nước T${new Date(getPreviousPeriod('2025-11')).getMonth() + 1}`} value={`${dashboardStats.totalWaterConsumption} m³`} icon={<WaterIcon />} />
             </div>
 
             <div className="grid grid-cols-1 lg:grid-cols-5 gap-6">

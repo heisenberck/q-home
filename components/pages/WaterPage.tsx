@@ -4,31 +4,10 @@ import { UnitType } from '../../types';
 import { useNotification } from '../../App';
 import { HomeIcon, StoreIcon, TrendingUpIcon, DropletsIcon, ChevronLeftIcon, ChevronRightIcon, CalendarDaysIcon, SearchIcon, BuildingIcon, UploadIcon, DocumentArrowDownIcon } from '../ui/Icons';
 import { LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer } from 'recharts';
-import { parseUnitCode, getPreviousPeriod } from '../../utils/helpers';
-
-// --- START: Helper Functions ---
-const sortUnitsComparator = (a: { UnitID: string }, b: { UnitID: string }) => {
-    const pa = parseUnitCode(a.UnitID) || { floor: 999, apt: 999 };
-    const pb = parseUnitCode(b.UnitID) || { floor: 999, apt: 999 };
-    if (pa.floor !== pb.floor) return pa.floor - pb.floor;
-    return pa.apt - pb.apt;
-};
-// --- END: Helper Functions ---
-
+import { parseUnitCode, getPreviousPeriod, sortUnitsComparator } from '../../utils/helpers';
+import StatCard from '../ui/StatCard';
 
 // --- START: Child Components ---
-const KpiCard: React.FC<{ title: string; tooltip: string; value: string | number; icon: React.ReactNode; onClick?: () => void; isActive: boolean }> = ({ title, tooltip, value, icon, onClick, isActive }) => (
-    <div
-        className={`stat-card cursor-pointer ${isActive ? 'ring-2 ring-primary' : ''}`}
-        data-tooltip={tooltip}
-        onClick={onClick}
-    >
-        <div className="stat-icon">{icon}</div>
-        <p className="stat-value">{value}</p>
-        <span className="stat-label">{title}</span>
-    </div>
-);
-
 const MonthPickerPopover: React.FC<{
     currentPeriod: string;
     onSelectPeriod: (period: string) => void;
@@ -84,7 +63,7 @@ const MonthPickerPopover: React.FC<{
 
 interface WaterPageProps {
     waterReadings: WaterReading[];
-    setWaterReadings: (updater: (readings: WaterReading[]) => WaterReading[]) => void;
+    setWaterReadings: (updater: React.SetStateAction<WaterReading[]>, summary?: string) => void;
     allUnits: Unit[];
     role: Role;
 }
@@ -330,9 +309,11 @@ const WaterPage: React.FC<WaterPageProps> = ({ waterReadings, setWaterReadings, 
                 let updatedCount = 0;
                 let skippedCount = 0;
                 const errors: string[] = [];
-
-                const currentPeriodReadingsMap = new Map<string, WaterReading>();
-                waterReadings.filter(r => r.Period === period).forEach(r => currentPeriodReadingsMap.set(r.UnitID, r));
+                
+                const updatedReadings = [...waterReadings];
+                const readingsForPeriodMap = new Map<string, WaterReading>(
+                    updatedReadings.filter(r => r.Period === period).map(r => [r.UnitID, r])
+                );
 
                 for (let i = 1; i < lines.length; i++) {
                     const values = lines[i].split(',');
@@ -345,7 +326,7 @@ const WaterPage: React.FC<WaterPageProps> = ({ waterReadings, setWaterReadings, 
                     }
 
                     const currIndex = parseInt(currIndexStr, 10);
-                    const existingReading = currentPeriodReadingsMap.get(unitId);
+                    const existingReading = readingsForPeriodMap.get(unitId);
 
                     if (!existingReading) {
                         skippedCount++;
@@ -365,15 +346,15 @@ const WaterPage: React.FC<WaterPageProps> = ({ waterReadings, setWaterReadings, 
                         continue;
                     }
                     
-                    currentPeriodReadingsMap.set(unitId, { ...existingReading, CurrIndex: currIndex });
+                    // Update in map
+                    readingsForPeriodMap.set(unitId, { ...existingReading, CurrIndex: currIndex });
                     updatedCount++;
                 }
 
-                setWaterReadings(prevReadings => {
-                    const otherPeriodReadings = prevReadings.filter(r => r.Period !== period);
-                    const updatedPeriodReadings = Array.from(currentPeriodReadingsMap.values());
-                    return [...otherPeriodReadings, ...updatedPeriodReadings];
-                });
+                setWaterReadings(prev => [
+                    ...prev.filter(r => r.Period !== period), 
+                    ...Array.from(readingsForPeriodMap.values())
+                ], `Nhập ${updatedCount} chỉ số nước từ CSV cho kỳ ${period}`);
 
                 if (errors.length > 0) {
                      showToast(`Hoàn tất: ${updatedCount} cập nhật, ${skippedCount} bỏ qua. Một số dòng có lỗi.`, 'warn', 8000);
@@ -406,10 +387,10 @@ const WaterPage: React.FC<WaterPageProps> = ({ waterReadings, setWaterReadings, 
             <div className="sticky top-0 z-10 bg-light-bg dark:bg-dark-bg -mx-4 sm:-mx-6 lg:-mx-8 px-4 sm:px-6 lg:-mx-8 pt-4 pb-2 space-y-3">
                 {/* KPI Bar */}
                 <div className="stats-row">
-                    <KpiCard title="Total m³" tooltip="Tổng tiêu thụ (m³) toàn bộ toà trong kỳ" value={kpiStats.totalM3} icon={<DropletsIcon className="h-5 w-5 text-cyan-500" />} isActive={!kpiFilter} onClick={() => setKpiFilter(null)} />
-                    <KpiCard title="Residential Liters" tooltip="Tổng nước sinh hoạt (lít) – chỉ căn hộ thường" value={kpiStats.totalLitersResidential} icon={<HomeIcon className="h-5 w-5 text-sky-500" />} isActive={kpiFilter === 'residential'} onClick={() => setKpiFilter('residential')} />
-                    <KpiCard title="Business m³" tooltip="Tổng tiêu thụ (m³) áp giá kinh doanh" value={kpiStats.totalM3Business} icon={<StoreIcon className="h-5 w-5 text-amber-500" />} isActive={kpiFilter === 'business'} onClick={() => setKpiFilter('business')} />
-                    <KpiCard title="Avg Apartment m³" tooltip="M³ bình quân – chỉ khối căn hộ thường" value={kpiStats.avgM3Apts} icon={<TrendingUpIcon className="h-5 w-5 text-lime-500" />} isActive={false} />
+                    <StatCard label="Total m³" value={kpiStats.totalM3} icon={<DropletsIcon className="h-5 w-5 text-cyan-500" />} isActive={!kpiFilter} onClick={() => setKpiFilter(null)} />
+                    <StatCard label="Residential Liters" value={kpiStats.totalLitersResidential} icon={<HomeIcon className="h-5 w-5 text-sky-500" />} isActive={kpiFilter === 'residential'} onClick={() => setKpiFilter('residential')} />
+                    <StatCard label="Business m³" value={kpiStats.totalM3Business} icon={<StoreIcon className="h-5 w-5 text-amber-500" />} isActive={kpiFilter === 'business'} onClick={() => setKpiFilter('business')} />
+                    <StatCard label="Avg Apartment m³" value={kpiStats.avgM3Apts} icon={<TrendingUpIcon className="h-5 w-5 text-lime-500" />} isActive={false} />
                 </div>
                 {/* Toolbar */}
                 <div className="flex flex-wrap items-center gap-4 p-2 bg-light-bg-secondary dark:bg-dark-bg-secondary rounded-xl border dark:border-dark-border shadow-sm">
