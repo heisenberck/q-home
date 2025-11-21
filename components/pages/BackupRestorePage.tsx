@@ -1,4 +1,3 @@
-
 import React, { useRef, useState } from 'react';
 import type { Role } from '../../types';
 import { ArrowDownTrayIcon, ArrowUpTrayIcon, WarningIcon, TrashIcon, CircularArrowRefreshIcon } from '../ui/Icons';
@@ -123,7 +122,7 @@ const BackupRestorePage: React.FC<BackupRestorePageProps> = ({ allData, onRestor
         if (confirmAction === 'restore_file' && restorePendingData) {
             onRestore(restorePendingData);
         } else if (confirmAction === 'delete_data') {
-            // Create empty state
+            // Create empty state for operational data, preserving settings
             const emptyData = {
                 units: [],
                 owners: [],
@@ -131,19 +130,18 @@ const BackupRestorePage: React.FC<BackupRestorePageProps> = ({ allData, onRestor
                 waterReadings: [],
                 charges: [],
                 adjustments: [],
+                activityLogs: [],
+                lockedPeriods: [],
                 // IMPORTANT: Preserve configuration and users so the app remains usable
                 tariffs: allData.tariffs, 
                 invoiceSettings: allData.invoiceSettings,
                 users: allData.users, 
-                activityLogs: [],
-                lockedPeriods: [],
                 backupDate: new Date().toISOString()
             };
             onRestore(emptyData);
-            showToast('Đã xoá toàn bộ dữ liệu thành công.', 'success');
+            showToast('Đã xoá sạch dữ liệu nghiệp vụ. Cài đặt được giữ nguyên.', 'success');
         } else if (confirmAction === 'restore_mock') {
             // Construct fresh mock data state
-            // Note: We need to ensure we re-run any patches like patchKiosAreas
             const freshUnits = JSON.parse(JSON.stringify(MOCK_UNITS));
             patchKiosAreas(freshUnits);
 
@@ -187,7 +185,7 @@ const BackupRestorePage: React.FC<BackupRestorePageProps> = ({ allData, onRestor
             case 'restore_file':
                 return "Phục hồi dữ liệu từ file backup. Hành động này sẽ ghi đè toàn bộ dữ liệu hiện tại.";
             case 'delete_data':
-                return "XOÁ SẠCH DỮ LIỆU hệ thống (Cư dân, Xe, Nước, Phí...). Tài khoản và Cài đặt sẽ được giữ nguyên. Hành động này KHÔNG THỂ hoàn tác.";
+                return "XOÁ SẠCH DỮ LIỆU nghiệp vụ (Cư dân, Xe, Nước, Phí...). Biểu giá, Cài đặt và Tài khoản sẽ được giữ nguyên. Hành động này KHÔNG THỂ hoàn tác.";
             case 'restore_mock':
                 return "Phục hồi lại bộ dữ liệu mẫu (Mock Data) ban đầu. Dữ liệu hiện tại sẽ bị mất.";
             default:

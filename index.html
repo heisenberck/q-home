@@ -634,7 +634,7 @@
         collection,
         getDocs,
         getDoc,
-        doc,
+        doc
       } from "https://www.gstatic.com/firebasejs/12.6.0/firebase-firestore.js";
 
       // Cấu hình Firebase của bạn
@@ -651,14 +651,15 @@
       // Khởi tạo app
       const app = initializeApp(firebaseConfig);
 
+      // 🔧 FIX lỗi “client is offline”:
       // ép Firestore dùng long-polling, tránh các vấn đề với websockets/proxy
       const db = initializeFirestore(app, {
         experimentalAutoDetectLongPolling: true,
         useFetchStreams: false
       });
 
-      // Export a single object to the window for the React app to use
-      window.FirebaseAPI = {
+      // Export ra window để App.tsx có thể sử dụng
+      window.firestore = {
         db,
         collection,
         getDocs,
@@ -666,7 +667,7 @@
         doc
       };
 
-      console.log("✅ Firebase + Firestore initialized for production.");
+      console.log("✅ Firebase + Firestore đã init (long-polling bật).");
     </script>
   </body>
 </html>

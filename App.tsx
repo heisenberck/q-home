@@ -164,71 +164,72 @@ const App: React.FC = () => {
         setToasts(prevToasts => prevToasts.slice(1));
     }, []);
 
-    // --- DATA PERSISTENCE (Production Ready - Firestore Read-Only on Init) ---
+    // --- DATA PERSISTENCE (Firestore) ---
     useEffect(() => {
         const loadData = async () => {
-            // @ts-ignore
-            const { db, collection, getDocs } = window.FirebaseAPI;
-            if (!db) {
-                console.error("Firebase is not initialized.");
-                showToast("Lỗi kết nối CSDL. Dùng dữ liệu tạm.", "error");
-                setUsers(MOCK_USER_PERMISSIONS); // Fallback for login
-                setIsLoadingData(false);
-                return;
-            }
-
+            setIsLoadingData(true);
             try {
-                const collectionsToFetch = [
-                    'units', 'owners', 'vehicles', 'waterReadings', 'charges', 
-                    'tariffs_service', 'tariffs_parking', 'tariffs_water',
-                    'users', 'adjustments', 'invoiceSettings', 'activityLogs'
+                const firestore = (window as any).firestore;
+                if (!firestore) {
+                    throw new Error("Firestore is not initialized");
+                }
+                const { db, getDocs, collection, getDoc, doc } = firestore;
+
+                const collectionsToFetch = ['units', 'owners', 'vehicles', 'waterReadings', 'charges', 'adjustments', 'users', 'activityLogs'];
+                const promises = collectionsToFetch.map(c => getDocs(collection(db, c)));
+                const [
+                    unitsSnap, ownersSnap, vehiclesSnap, waterReadingsSnap, chargesSnap, adjustmentsSnap, usersSnap, activityLogsSnap
+                ] = await Promise.all(promises);
+                
+                const loadedUnits = unitsSnap.docs.map((d: any) => d.data() as Unit);
+                patchKiosAreas(loadedUnits); // Ensure KIOS areas are correct
+                
+                setUnits(loadedUnits);
+                setOwners(ownersSnap.docs.map((d: any) => d.data() as Owner));
+                setVehicles(vehiclesSnap.docs.map((d: any) => d.data() as Vehicle));
+                setWaterReadings(waterReadingsSnap.docs.map((d: any) => d.data() as WaterReading));
+                setCharges(chargesSnap.docs.map((d: any) => d.data() as ChargeRaw));
+                setAdjustments(adjustmentsSnap.docs.map((d: any) => d.data() as Adjustment));
+                
+                const loadedUsers = usersSnap.docs.map((d: any) => d.data() as UserPermission);
+                setUsers(loadedUsers.length > 0 ? loadedUsers : MOCK_USER_PERMISSIONS); // Fallback for users
+
+                setActivityLogs(activityLogsSnap.docs.map((d: any) => d.data() as ActivityLog).sort((a,b) => b.ts.localeCompare(a.ts)));
+
+                // Fetch single-doc settings
+                const settingsPromises = [
+                    getDoc(doc(db, 'settings', 'invoice')),
+                    getDoc(doc(db, 'settings', 'tariffs'))
                 ];
+                const [invoiceSettingsSnap, tariffsSnap] = await Promise.all(settingsPromises);
+                
+                setInvoiceSettings(invoiceSettingsSnap.exists() ? invoiceSettingsSnap.data() as InvoiceSettings : initialInvoiceSettings);
+                setTariffs(tariffsSnap.exists() ? tariffsSnap.data() : { service: MOCK_TARIFFS_SERVICE, parking: MOCK_TARIFFS_PARKING, water: MOCK_TARIFFS_WATER });
 
-                const promises = collectionsToFetch.map(coll => getDocs(collection(db, coll)));
-                const snapshots = await Promise.all(promises);
-                
-                const data: Record<string, any[]> = {};
-                snapshots.forEach((snapshot, index) => {
-                    const collName = collectionsToFetch[index];
-                    data[collName] = snapshot.docs.map(doc => ({ ...doc.data(), id: doc.id }));
-                });
-
-                // Set states from fetched data
-                const fetchedUnits = data.units as Unit[] || [];
-                patchKiosAreas(fetchedUnits); // Ensure KIOS areas are correct
-                setUnits(fetchedUnits);
-
-                setOwners(data.owners || []);
-                setVehicles(data.vehicles || []);
-                setWaterReadings(data.waterReadings || []);
-                setCharges(data.charges || []);
-                setTariffs({
-                    service: data.tariffs_service || [],
-                    parking: data.tariffs_parking || [],
-                    water: data.tariffs_water || [],
-                });
-                
-                // Fallback for users to ensure login is always possible
-                setUsers(data.users && data.users.length > 0 ? data.users : MOCK_USER_PERMISSIONS);
-                
-                setAdjustments(data.adjustments || []);
-                
-                // Invoice settings are a single document, handle accordingly
-                setInvoiceSettings(data.invoiceSettings && data.invoiceSettings.length > 0 ? data.invoiceSettings[0] as InvoiceSettings : initialInvoiceSettings);
-                
-                setActivityLogs(data.activityLogs || []);
+                console.log("Successfully loaded data from Firestore.");
 
             } catch (error) {
                 console.error("Error loading data from Firestore. Falling back to empty/mock state.", error);
-                showToast("Không thể tải dữ liệu từ CSDL. Khởi động với trạng thái trống.", "error");
-                // IMPORTANT: In case of error, ensure login is still possible
-                setUsers(MOCK_USER_PERMISSIONS);
+                showToast("Không thể tải dữ liệu từ server. Dữ liệu có thể không được lưu.", 'error');
+                // Fallback to a safe state, NO automatic seeding.
+                setUnits([]);
+                setOwners([]);
+                setVehicles([]);
+                setWaterReadings([]);
+                setCharges([]);
+                setAdjustments([]);
+                setActivityLogs([]);
+                // Fallback to mock for critical data to keep app usable
+                setUsers(MOCK_USER_PERMISSIONS); 
+                setTariffs({ service: MOCK_TARIFFS_SERVICE, parking: MOCK_TARIFFS_PARKING, water: MOCK_TARIFFS_WATER });
+                setInvoiceSettings(initialInvoiceSettings);
             } finally {
                 setIsLoadingData(false);
             }
         };
 
-        loadData();
+        // Delay slightly to ensure Firestore is initialized
+        setTimeout(loadData, 500);
     }, [showToast]);
 
     // --- RBAC & AUTH (Uses localStorage for session) ---
