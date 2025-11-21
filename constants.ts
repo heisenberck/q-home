@@ -117,7 +117,6 @@ const KIOS_AREAS: { [key: string]: number } = {
 // Adapted to match TypeScript types and data structure
 // FIX: Export 'patchKiosAreas' to make it available for import in other modules.
 export function patchKiosAreas(units: Unit[]): void {
-  let patched = 0;
   for (const u of units) {
     if (u.UnitType === UnitType.KIOS) {
       // The generated UnitID is e.g. "K01", "K12". We need to convert it to "Kios 1", "Kios 12" to match the map keys.
@@ -125,11 +124,9 @@ export function patchKiosAreas(units: Unit[]): void {
       const key = `Kios ${kiosNum}`;
       if (KIOS_AREAS[key] != null) {
         u.Area_m2 = KIOS_AREAS[key];
-        patched++;
       }
     }
   }
-  console.log(`[patchKiosAreas] Patched: ${patched} KIOS areas.`);
 }
 // --- END: KIOS Area Patch ---
 

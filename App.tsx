@@ -41,6 +41,12 @@ type AppData = {
     lockedPeriods?: string[];
 };
 
+// Add this to provide type info for the global Firebase object from index.html
+declare global {
+  interface Window {
+    Firebase: any;
+  }
+}
 
 const saspLogoBase64 = 'data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNkYAAAAAYAAjCB0C8AAAAASUVORK5CYII=';
 const initialInvoiceSettings: InvoiceSettings = {
@@ -143,7 +149,7 @@ const App: React.FC = () => {
     const [theme, setTheme] = useState<'light' | 'dark'>(() => (localStorage.getItem('theme') as 'light' | 'dark') || 'light');
     const [toasts, setToasts] = useState<ToastMessage[]>([]);
     
-    // Data State (Centralized) - Initialized with mock data
+    // Data State (Centralized)
     const [units, setUnits] = useState<Unit[]>([]);
     const [owners, setOwners] = useState<Owner[]>([]);
     const [vehicles, setVehicles] = useState<Vehicle[]>([]);
@@ -164,26 +170,97 @@ const App: React.FC = () => {
         setToasts(prevToasts => prevToasts.slice(1));
     }, []);
 
-    // --- DATA PERSISTENCE (Reverted to Mock Data Only) ---
+    // --- DATA PERSISTENCE (Read from Firestore on Load) ---
     useEffect(() => {
-        const initialUnits = MOCK_UNITS;
-        patchKiosAreas(initialUnits);
-        setUnits(initialUnits);
-        setOwners(MOCK_OWNERS);
-        setVehicles(MOCK_VEHICLES);
-        setWaterReadings(MOCK_WATER_READINGS);
-        setCharges(MOCK_CALCULATED_CHARGES);
-        setTariffs({
-            service: MOCK_TARIFFS_SERVICE,
-            parking: MOCK_TARIFFS_PARKING,
-            water: MOCK_TARIFFS_WATER,
-        });
-        setUsers(MOCK_USER_PERMISSIONS);
-        setAdjustments(MOCK_ADJUSTMENTS);
-        setInvoiceSettings(initialInvoiceSettings);
-        setActivityLogs([]);
-        setIsLoadingData(false);
-    }, []);
+        const loadDataFromFirestore = async () => {
+            setIsLoadingData(true);
+            try {
+                if (!window.Firebase?.db) {
+                    throw new Error("Firebase is not initialized on the window object.");
+                }
+                const { db, getDoc, doc } = window.Firebase;
+
+                // Fetch main data document
+                const mainDocRef = doc(db, 'data', 'main');
+                const mainDocSnap = await getDoc(mainDocRef);
+
+                if (mainDocSnap.exists()) {
+                    console.log("Found 'data/main' document, loading data from Firestore.");
+                    const data = mainDocSnap.data() as AppData;
+                    
+                    setUnits(data.units || []);
+                    setOwners(data.owners || []);
+                    setVehicles(data.vehicles || []);
+                    setWaterReadings(data.waterReadings || []);
+                    setCharges(data.charges || []);
+                    setTariffs(data.tariffs || { service: [], parking: [], water: [] });
+                    setAdjustments(data.adjustments || []);
+                    setInvoiceSettings(data.invoiceSettings || initialInvoiceSettings);
+                } else {
+                    console.warn("Firestore document 'data/main' not found. Starting with an empty data set.");
+                    showToast("Không tìm thấy dữ liệu chính, bắt đầu với trạng thái trống.", "warn");
+                    setUnits([]);
+                    setOwners([]);
+                    setVehicles([]);
+                    setWaterReadings([]);
+                    setCharges([]);
+                    setTariffs({ service: MOCK_TARIFFS_SERVICE, parking: MOCK_TARIFFS_PARKING, water: MOCK_TARIFFS_WATER });
+                    setAdjustments([]);
+                    setInvoiceSettings(initialInvoiceSettings);
+                }
+                
+                // Fetch users document separately
+                const usersDocRef = doc(db, 'data', 'users');
+                const usersDocSnap = await getDoc(usersDocRef);
+                if (usersDocSnap.exists()) {
+                     const data = usersDocSnap.data();
+                     if (data.users && data.users.length > 0) {
+                        console.log(`Loaded ${data.users.length} users from Firestore.`);
+                        setUsers(data.users);
+                     } else {
+                        console.log("Firestore 'users' document is empty, falling back to mock users for login.");
+                        setUsers(MOCK_USER_PERMISSIONS);
+                     }
+                } else {
+                    console.warn("Firestore document 'data/users' not found. Falling back to mock users to allow login.");
+                    showToast("Không tìm thấy dữ liệu người dùng, sử dụng danh sách mặc định.", "info");
+                    setUsers(MOCK_USER_PERMISSIONS);
+                }
+
+                // Fetch activity logs document separately
+                const logsDocRef = doc(db, 'data', 'activityLogs');
+                const logsDocSnap = await getDoc(logsDocRef);
+                if (logsDocSnap.exists()) {
+                    const data = logsDocSnap.data();
+                    setActivityLogs(data.activityLogs || []);
+                } else {
+                    setActivityLogs([]);
+                }
+
+            } catch (error) {
+                console.error("Error loading data from Firestore. Falling back to empty/mock state.", error);
+                showToast("Lỗi tải dữ liệu CSDL. Chạy ở chế độ dữ liệu tạm.", "error");
+                
+                // Fallback state on error
+                setUnits([]);
+                setOwners([]);
+                setVehicles([]);
+                setWaterReadings([]);
+                setCharges([]);
+                setTariffs({ service: MOCK_TARIFFS_SERVICE, parking: MOCK_TARIFFS_PARKING, water: MOCK_TARIFFS_WATER });
+                setUsers(MOCK_USER_PERMISSIONS); // Use mock users to allow login
+                setAdjustments([]);
+                setInvoiceSettings(initialInvoiceSettings);
+                setActivityLogs([]);
+            } finally {
+                setIsLoadingData(false);
+            }
+        };
+
+        // A short delay to ensure the script in index.html has run and populated window.Firebase
+        setTimeout(loadDataFromFirestore, 100);
+    }, [showToast]);
+
 
     // --- RBAC & AUTH (Uses localStorage for session) ---
     const [currentUser, setCurrentUser] = useState<UserPermission | null>(() => {
