@@ -353,113 +353,101 @@ const App: React.FC = () => {
     }, [showToast]);
 
     const handleImportData = useCallback((updates: any[]) => {
+        // Use functional updates to prevent stale state issues with multiple setters
         setUnits(prevUnits => {
-            const newUnits = [...prevUnits];
-            const unitMap = new Map(newUnits.map((u, i) => [u.UnitID, i]));
-
-            setOwners(prevOwners => {
-                const newOwners = [...prevOwners];
-                const ownerMap = new Map(newOwners.map((o, i) => [o.OwnerID, i]));
-
-                setVehicles(prevVehicles => {
-                    const newVehicles = [...prevVehicles];
-                    let createdCount = 0;
-                    let updatedCount = 0;
-                    let vehicleCount = 0;
-
-                    updates.forEach(update => {
-                        const unitId = String(update.unitId).trim();
-                        if (!unitId) return;
-
-                        let unitIndex = unitMap.get(unitId);
-
-                        // --- CREATE OR UPDATE UNIT & OWNER ---
-                        if (unitIndex === undefined) { // CREATE NEW unit and owner
-                            const newOwnerId = `OWN_IMP_${Date.now()}_${Math.random().toString(36).substring(2, 7)}`;
-                            
-                            const newOwner: Owner = {
-                                OwnerID: newOwnerId,
-                                OwnerName: update.ownerName || '[Chưa có tên]',
-                                Phone: update.phone || '',
-                                Email: update.email || '',
-                            };
-                            newOwners.push(newOwner);
-                            ownerMap.set(newOwnerId, newOwners.length - 1);
-                            
-                            const newUnit: Unit = {
+            let newUnits = [...prevUnits];
+            let newOwners = [...owners];
+            let newVehicles = [...vehicles];
+    
+            let createdCount = 0;
+            let updatedCount = 0;
+            let vehicleCount = 0;
+    
+            updates.forEach(update => {
+                const unitId = String(update.unitId).trim();
+                if (!unitId) return;
+    
+                let unit = newUnits.find(u => u.UnitID === unitId);
+    
+                if (!unit) { // CREATE NEW unit and owner
+                    const newOwnerId = `OWN_IMP_${Date.now()}_${Math.random().toString(36).substring(2, 7)}`;
+                    const newOwner: Owner = {
+                        OwnerID: newOwnerId,
+                        OwnerName: update.ownerName || '[Chưa có tên]',
+                        Phone: update.phone || '',
+                        Email: update.email || '',
+                    };
+                    newOwners.push(newOwner);
+    
+                    const newUnit: Unit = {
+                        UnitID: unitId,
+                        OwnerID: newOwnerId,
+                        UnitType: unitId.startsWith('K') ? UnitType.KIOS : UnitType.APARTMENT,
+                        Area_m2: update.area || 0,
+                        Status: update.status || 'Owner',
+                    };
+                    newUnits.push(newUnit);
+                    unit = newUnit; // for vehicle processing below
+                    createdCount++;
+                } else { // UPDATE EXISTING unit and owner
+                    const unitIndex = newUnits.findIndex(u => u.UnitID === unitId);
+                    if (update.status) newUnits[unitIndex].Status = update.status;
+                    if (update.area) newUnits[unitIndex].Area_m2 = update.area;
+    
+                    const ownerIndex = newOwners.findIndex(o => o.OwnerID === unit!.OwnerID);
+                    if (ownerIndex !== -1) {
+                        newOwners[ownerIndex] = {
+                            ...newOwners[ownerIndex],
+                            OwnerName: update.ownerName !== undefined ? update.ownerName : newOwners[ownerIndex].OwnerName,
+                            Phone: update.phone !== undefined ? update.phone : newOwners[ownerIndex].Phone,
+                            Email: update.email !== undefined ? update.email : newOwners[ownerIndex].Email,
+                        };
+                        updatedCount++;
+                    }
+                }
+    
+                // --- CREATE OR UPDATE VEHICLES ---
+                if (update.vehicles && Array.isArray(update.vehicles)) {
+                    update.vehicles.forEach((vImport: { PlateNumber: string; Type: VehicleTier; VehicleName: string }) => {
+                        const normPlate = String(vImport.PlateNumber || '').replace(/\s/g, '').toLowerCase();
+                        if (!normPlate) return;
+    
+                        const existingIdx = newVehicles.findIndex(v => v.PlateNumber.replace(/\s/g, '').toLowerCase() === normPlate);
+                        
+                        if (existingIdx !== -1) { // Vehicle exists, update it
+                            newVehicles[existingIdx] = {
+                                ...newVehicles[existingIdx],
                                 UnitID: unitId,
-                                OwnerID: newOwnerId,
-                                UnitType: unitId.startsWith('K') ? UnitType.KIOS : UnitType.APARTMENT,
-                                Area_m2: update.area || 0,
-                                Status: update.status || 'Owner',
+                                isActive: true,
+                                Type: vImport.Type || newVehicles[existingIdx].Type,
+                                VehicleName: vImport.VehicleName || newVehicles[existingIdx].VehicleName,
                             };
-                            newUnits.push(newUnit);
-                            unitIndex = newUnits.length - 1;
-                            unitMap.set(unitId, unitIndex);
-
-                            createdCount++;
-
-                        } else { // UPDATE EXISTING unit and owner
-                            if (update.status) newUnits[unitIndex].Status = update.status;
-                            if (update.area) newUnits[unitIndex].Area_m2 = update.area;
-
-                            const ownerId = newUnits[unitIndex].OwnerID;
-                            const ownerIndex = ownerMap.get(ownerId);
-                            if (ownerIndex !== undefined) {
-                                newOwners[ownerIndex] = {
-                                    ...newOwners[ownerIndex],
-                                    OwnerName: update.ownerName !== undefined ? update.ownerName : newOwners[ownerIndex].OwnerName,
-                                    Phone: update.phone !== undefined ? update.phone : newOwners[ownerIndex].Phone,
-                                    Email: update.email !== undefined ? update.email : newOwners[ownerIndex].Email,
-                                };
-                                updatedCount++;
-                            }
-                        }
-
-                        // --- CREATE OR UPDATE VEHICLES ---
-                        if (update.vehicles && Array.isArray(update.vehicles)) {
-                            update.vehicles.forEach((vImport: { PlateNumber: string; Type: VehicleTier; VehicleName: string }) => {
-                                const normPlate = String(vImport.PlateNumber || '').replace(/\s/g, '').toLowerCase();
-                                if (!normPlate) return;
-
-                                const existingIdx = newVehicles.findIndex(v => v.PlateNumber.replace(/\s/g, '').toLowerCase() === normPlate);
-                                
-                                if (existingIdx !== -1) { // Vehicle exists, update it
-                                    newVehicles[existingIdx] = {
-                                        ...newVehicles[existingIdx],
-                                        UnitID: unitId,
-                                        isActive: true,
-                                        Type: vImport.Type || newVehicles[existingIdx].Type,
-                                        VehicleName: vImport.VehicleName || newVehicles[existingIdx].VehicleName,
-                                    };
-                                } else { // New vehicle, create it
-                                    newVehicles.push({
-                                        VehicleId: `VEH_IMP_${Date.now()}_${Math.random().toString(36).substring(2, 7)}`,
-                                        UnitID: unitId,
-                                        PlateNumber: vImport.PlateNumber,
-                                        Type: vImport.Type,
-                                        VehicleName: vImport.VehicleName || '',
-                                        StartDate: new Date().toISOString().split('T')[0],
-                                        isActive: true,
-                                        documents: {},
-                                    });
-                                }
-                                vehicleCount++;
+                        } else { // New vehicle, create it
+                            newVehicles.push({
+                                VehicleId: `VEH_IMP_${Date.now()}_${Math.random().toString(36).substring(2, 7)}`,
+                                UnitID: unitId,
+                                PlateNumber: vImport.PlateNumber,
+                                Type: vImport.Type,
+                                VehicleName: vImport.VehicleName || '',
+                                StartDate: new Date().toISOString().split('T')[0],
+                                isActive: true,
+                                documents: {},
                             });
                         }
+                        vehicleCount++;
                     });
-
-                    showToast(`Hoàn tất! Tạo mới ${createdCount}, cập nhật ${updatedCount} hộ. Xử lý ${vehicleCount} xe.`, 'success');
-                    
-                    // Return the new states for the setters. This is incorrect usage.
-                    // Instead, we should update the state outside this nested structure.
-                    return newVehicles;
-                });
-                return newOwners;
+                }
             });
-            return newUnits;
+    
+            // Set all states at once after processing all updates
+            setOwners(newOwners);
+            setVehicles(newVehicles);
+            
+            showToast(`Hoàn tất! Tạo mới ${createdCount}, cập nhật ${updatedCount} hộ. Xử lý ${vehicleCount} xe.`, 'success');
+            
+            return newUnits; // Return the final state for this setter
         });
-    }, [showToast]);
+    }, [showToast, owners, vehicles]); // Add dependencies to get latest state
     
     const handleRestoreAllData = useCallback((data: AppData) => {
         if (data.units && Array.isArray(data.units)) {

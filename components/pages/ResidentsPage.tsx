@@ -453,16 +453,22 @@ const DataImportModal: React.FC<{
 
     // Mapping configuration: Field -> Keywords
     const fieldKeywords: Record<string, string[]> = {
-        unitId: ['ma can', 'can ho', 'unit', 'room', 'phong', 'apartment'],
-        area: ['dien tich', 'm2', 'area', 'sqm'],
-        ownerName: ['chu ho', 'ho ten', 'owner', 'name', 'ten', 'full name'],
-        phone: ['sdt', 'so dien thoai', 'dien thoai', 'mobile', 'tel', 'phone'],
-        email: ['email', 'mail', 'thu dien tu'],
-        status: ['trang thai', 'status', 'loai', 'type'],
+        unitId: ['can ho', 'ma can', 'phong'],
+        ownerName: ['ho ten', 'chu ho'],
+        area: ['dien tich', 'dt'],
+        phone: ['dien thoai', 'sdt'],
+        email: ['email'],
+        status: ['trang thai', 'loai'],
     };
 
-    // Keywords to detect vehicle columns (e.g. "Biển số xe 1", "Xe máy", "Ô tô")
-    const vehicleKeywords = ['bien so', 'bs', 'plate', 'xe', 'car', 'oto', 'o to', 'moto'];
+    // Keywords to detect vehicle columns
+    const vehicleKeywords = {
+        [VehicleTier.CAR]: ['o to', 'oto', '860'],
+        [VehicleTier.CAR_A]: ['o to', 'oto', '800'],
+        [VehicleTier.MOTORBIKE]: ['xe may', 'xm'],
+        [VehicleTier.EBIKE]: ['xe dien'],
+        [VehicleTier.BICYCLE]: ['xe dap', 'xd'],
+    };
 
     const normalizeHeader = (header: string) => {
         if (!header) return '';
@@ -488,7 +494,6 @@ const DataImportModal: React.FC<{
             const sheetName = workbook.SheetNames[0];
             const sheet = workbook.Sheets[sheetName];
             
-            // Convert to array of arrays to get headers first
             const jsonData = XLSX.utils.sheet_to_json(sheet, { header: 1 });
             
             if (jsonData.length < 2) {
@@ -499,7 +504,7 @@ const DataImportModal: React.FC<{
 
             const headers = (jsonData[0] as string[]).map(h => String(h || '').trim());
             const mapResult: Record<string, number> = {};
-            const vehicleCols: { index: number; header: string }[] = [];
+            const vehicleCols: { index: number; type: VehicleTier }[] = [];
             const detectedFields: string[] = [];
 
             // Smart Mapping
@@ -508,10 +513,9 @@ const DataImportModal: React.FC<{
                 if (!normalized) return;
                 let matched = false;
 
-                // Check standard fields
                 for (const [field, keywords] of Object.entries(fieldKeywords)) {
                     if (keywords.some(k => normalized.includes(k))) {
-                        if (mapResult[field] === undefined) { // Take first match
+                        if (mapResult[field] === undefined) {
                              mapResult[field] = index;
                              detectedFields.push(`${header} -> ${field}`);
                              matched = true;
@@ -519,10 +523,14 @@ const DataImportModal: React.FC<{
                     }
                 }
 
-                // Check vehicle fields
-                if (vehicleKeywords.some(k => normalized.includes(k))) {
-                    vehicleCols.push({ index, header: normalized });
-                    if (!matched) detectedFields.push(`${header} -> Vehicle Info`);
+                if(!matched) {
+                    for (const [type, keywords] of Object.entries(vehicleKeywords)) {
+                        if (keywords.some(k => normalized.includes(k))) {
+                            vehicleCols.push({ index, type: type as VehicleTier });
+                            detectedFields.push(`${header} -> Vehicle (${type})`);
+                            break;
+                        }
+                    }
                 }
             });
 
@@ -534,15 +542,14 @@ const DataImportModal: React.FC<{
                 return;
             }
 
-            // Process Rows
             const processedRows: any[] = [];
-            const rows = jsonData.slice(1); // Skip header
+            const rows = jsonData.slice(1);
 
             rows.forEach((row: any[]) => {
                 if (!row || row.length === 0) return;
                 
-                const unitId = row[mapResult.unitId];
-                if (!unitId) return; // Skip empty unit IDs
+                const unitId = String(row[mapResult.unitId] || '').trim();
+                if (!unitId) return;
 
                 const vehicles: { Type: VehicleTier, PlateNumber: string, VehicleName: string }[] = [];
                 
@@ -552,25 +559,20 @@ const DataImportModal: React.FC<{
 
                     const parts = cellVal.split(/[,;]/).map(s => s.trim()).filter(Boolean);
                     parts.forEach(part => {
-                        let type: VehicleTier = VehicleTier.MOTORBIKE;
-                        if (col.header.includes('oto') || col.header.includes('car')) {
-                            type = VehicleTier.CAR;
-                        } else if (/^\d{2}[A-Z]-\d{4,5}$/.test(part)) { // Heuristic for car plate
-                            type = VehicleTier.CAR;
-                        }
-                        
-                        vehicles.push({ Type: type, PlateNumber: part, VehicleName: '' });
+                        vehicles.push({ Type: col.type, PlateNumber: part, VehicleName: '' });
                     });
                 });
 
+                const getVal = (field: string) => (mapResult[field] !== undefined && row[mapResult[field]] !== undefined) ? row[mapResult[field]] : undefined;
+
                 processedRows.push({
-                    unitId: String(unitId).trim(),
-                    area: mapResult.area !== undefined ? row[mapResult.area] : undefined,
-                    ownerName: mapResult.ownerName !== undefined ? row[mapResult.ownerName] : undefined,
-                    phone: mapResult.phone !== undefined ? String(row[mapResult.phone]) : undefined,
-                    email: mapResult.email !== undefined ? row[mapResult.email] : undefined,
-                    status: mapResult.status !== undefined ? row[mapResult.status] : undefined,
-                    vehicles: vehicles
+                    unitId,
+                    area: getVal('area'),
+                    ownerName: getVal('ownerName'),
+                    phone: getVal('phone') ? String(getVal('phone')) : undefined,
+                    email: getVal('email'),
+                    status: getVal('status'),
+                    vehicles,
                 });
             });
 
