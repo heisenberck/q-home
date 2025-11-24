@@ -10,7 +10,6 @@ import {
     VehicleTier,
     TariffWater,
     Adjustment,
-    Payment,
     ChargeRaw,
     ParkingTariffTier
 } from './types';
@@ -247,7 +246,3 @@ export const MOCK_TARIFFS_WATER: TariffWater[] = [
 export const MOCK_ADJUSTMENTS: Adjustment[] = [
     { UnitID: '204', Period: '2025-10', Amount: -50000, Description: 'Hoàn tiền sửa chữa' },
 ];
-
-export const MOCK_PAYMENTS: Payment[] = [];
-
-export const MOCK_CALCULATED_CHARGES: ChargeRaw[] = [];

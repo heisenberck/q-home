@@ -1,14 +1,15 @@
 // firebaseConfig.ts
 import { initializeApp } from "firebase/app";
 import {
-  initializeFirestore,
+  getFirestore,
   collection,
   getDocs,
   getDoc,
   doc,
   setDoc,
   deleteDoc,
-  writeBatch
+  writeBatch,
+  enableIndexedDbPersistence
 } from "firebase/firestore";
 
 // Cấu hình Firebase của bạn
@@ -25,14 +26,23 @@ const firebaseConfig = {
 // Khởi tạo app
 const app = initializeApp(firebaseConfig);
 
-// 🔧 FIX lỗi “client is offline”:
-// ép Firestore dùng long-polling, tránh các vấn đề với websockets/proxy
-const db = initializeFirestore(app, {
-  experimentalAutoDetectLongPolling: true,
-  useFetchStreams: false
-});
+// 🔧 FIX for Vercel deployment:
+// Removed experimentalForceLongPolling and reverted to standard initialization.
+// This allows Firebase to use WebSockets for a stable connection on Vercel.
+const db = getFirestore(app);
 
-console.log("✅ Firebase + Firestore Module Initialized (long-polling enabled).");
+// Bật tính năng offline persistence (good for production)
+enableIndexedDbPersistence(db)
+  .catch((err) => {
+    if (err.code === 'failed-precondition') {
+      console.warn("Firebase persistence couldn't be enabled. It's likely another tab is open with persistence enabled.");
+    } else if (err.code === 'unimplemented') {
+      console.warn("The browser doesn't support all of the features required to enable persistence.");
+    }
+  });
+
+
+console.log("✅ Firebase + Firestore Initialized (standard connection, offline persistence).");
 
 // Export các hàm và đối tượng cần thiết
 export { db, collection, getDocs, getDoc, doc, setDoc, deleteDoc, writeBatch };

@@ -1,4 +1,3 @@
-
 // types.ts
 
 export type Role = 'Admin' | 'Accountant' | 'Operator' | 'Viewer';
@@ -154,15 +153,6 @@ export interface ChargeRaw {
     CreatedAt: string; // ISO 8601
     Locked: boolean;
     paymentStatus: PaymentStatus;
-}
-
-export interface Payment {
-    PaymentID: string;
-    UnitID: string;
-    Period: string; // 'YYYY-MM'
-    Amount: number;
-    PaymentDate: string; // 'YYYY-MM-DD'
-    Method: 'Bank Transfer' | 'Cash';
 }
 
 // FIX: Add TariffCollection and AllData interfaces to be shared across components.

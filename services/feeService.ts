@@ -1,5 +1,6 @@
 import type { ChargeRaw, Unit, Owner, Vehicle, WaterReading, Adjustment, AllData, PaymentStatus } from '../types';
 import { UnitType, VehicleTier, ParkingTariffTier } from '../types';
+import { getPreviousPeriod } from '../utils/helpers';
 
 interface CalculationInput {
     unit: Unit;
@@ -69,7 +70,7 @@ const calcVehicleFee = (vehicles: Vehicle[], period: string, tariffs: AllData['t
 };
 
 const calcWaterFee = (unit: Unit, period: string, allData: AllData) => {
-    const prevPeriod = `${new Date(period + '-02').getFullYear()}-${String(new Date(period + '-02').getMonth()).padStart(2, '0')}`;
+    const prevPeriod = getPreviousPeriod(period);
     const usage = getWaterUsage(unit.UnitID, prevPeriod, allData.waterReadings);
     if (usage <= 0) return { usage, ...applyVAT(0, 0) };
 

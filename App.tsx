@@ -204,9 +204,16 @@ const App: React.FC = () => {
 
                 console.log("Successfully loaded data from Firestore.");
 
-            } catch (error) {
+            } catch (error: any) {
                 console.error("Error loading data from Firestore. Falling back to empty/mock state.", error);
-                showToast("Không thể tải dữ liệu từ server. Dữ liệu có thể không được lưu.", 'error');
+                 // Provide a more specific error message for offline scenarios
+                const isOfflineError = error.code === 'unavailable' || (error.message && (error.message.includes('offline') || error.message.includes('Failed to fetch')));
+                if (isOfflineError) {
+                    showToast("Không thể kết nối đến server. Đang chạy ở chế độ offline.", 'warn');
+                } else {
+                    showToast("Không thể tải dữ liệu từ server. Dữ liệu có thể không được lưu.", 'error');
+                }
+                
                 // Fallback to a safe state, NO automatic seeding.
                 setUnits([]);
                 setOwners([]);

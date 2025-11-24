@@ -451,30 +451,6 @@ const DataImportModal: React.FC<{
     const [errors, setErrors] = useState<string[]>([]);
     const { showToast } = useNotification();
 
-    const fieldKeywords: Record<string, string[]> = {
-        unitId: ['can ho', 'so can ho', 'phong'],
-        ownerName: ['ho ten chu ho', 'ho ten', 'ho va ten', 'chu ho'],
-        area: ['dien tich', 'dt'],
-        phone: ['dien thoai', 'sdt'],
-        email: ['email'],
-        status: ['trang thai', 'loai'],
-    };
-
-    const vehicleKeywords: { keywords: string[], type: VehicleTier }[] = [
-        { keywords: ['o to 860', 'oto 860', 'o to thuong'], type: VehicleTier.CAR },
-        { keywords: ['o to 800', 'oto 800', 'o to hang a'], type: VehicleTier.CAR_A },
-        { keywords: ['xe may', 'xm'], type: VehicleTier.MOTORBIKE },
-        { keywords: ['xe dien', 'xe dap dien'], type: VehicleTier.EBIKE },
-        { keywords: ['xe dap', 'xd'], type: VehicleTier.BICYCLE },
-        { keywords: ['o to', 'oto'], type: VehicleTier.CAR },
-        { keywords: ['bien so', 'bien so xe', 'bsx', 'xe'], type: VehicleTier.MOTORBIKE },
-    ];
-
-    const normalizeHeader = (header: string) => {
-        if (!header) return '';
-        return String(header).toLowerCase().normalize("NFD").replace(/[\u0300-\u036f]/g, "").trim();
-    };
-
     const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
         const selectedFile = e.target.files?.[0];
         if (selectedFile) {
@@ -493,7 +469,6 @@ const DataImportModal: React.FC<{
             const workbook = XLSX.read(data, { type: 'array' });
             const sheetName = workbook.SheetNames[0];
             const sheet = workbook.Sheets[sheetName];
-            
             const jsonData: any[][] = XLSX.utils.sheet_to_json(sheet, { header: 1 });
             
             if (jsonData.length < 2) {
@@ -503,40 +478,76 @@ const DataImportModal: React.FC<{
             }
 
             const headers = (jsonData[0] as any[]).map(h => String(h || '').trim());
+            
+            const fieldKeywords: Record<string, string[]> = {
+                unitId: ['can ho', 'so can ho', 'phong'],
+                ownerName: ['ho ten chu ho', 'ho ten', 'ho va ten', 'chu ho'],
+                area: ['dien tich', 'dt'],
+                phone: ['dien thoai', 'sdt'],
+                email: ['email'],
+                status: ['trang thai', 'loai'],
+            };
+
+            const vehicleKeywords: { keywords: string[], type: VehicleTier }[] = [
+                { keywords: ['o to 860', 'oto 860', 'o to thuong'], type: VehicleTier.CAR },
+                { keywords: ['o to 800', 'oto 800', 'o to hang a'], type: VehicleTier.CAR_A },
+                { keywords: ['xe may', 'xm'], type: VehicleTier.MOTORBIKE },
+                { keywords: ['xe dien', 'xe dap dien'], type: VehicleTier.EBIKE },
+                { keywords: ['xe dap', 'xd'], type: VehicleTier.BICYCLE },
+                { keywords: ['o to', 'oto'], type: VehicleTier.CAR }, // General car as fallback
+                { keywords: ['bien so', 'bien so xe', 'bsx', 'xe'], type: VehicleTier.MOTORBIKE }, // General vehicle as fallback
+            ];
+
+            const normalizeHeader = (header: string): string => {
+                if (!header) return '';
+                return header.toLowerCase().normalize("NFD").replace(/[\u0300-\u036f]/g, "").trim();
+            };
+
             const mapResult: Record<string, number> = {};
             const vehicleCols: { index: number; type: VehicleTier }[] = [];
             const detectedFields: string[] = [];
             const usedIndexes = new Set<number>();
 
-            // --- SMART MAPPING ALGORITHM ---
-            const findAndMapField = (field: keyof typeof fieldKeywords) => {
+            // --- SMART MAPPING ALGORITHM V2 ---
+            const findHeaderIndex = (keywords: string[], exclusionKeywords: string[] = []): number | undefined => {
+                let bestMatch = -1;
+                let longestKeyword = 0;
+
                 for (let i = 0; i < headers.length; i++) {
                     if (usedIndexes.has(i)) continue;
-                    const header = headers[i];
-                    const normalized = normalizeHeader(header);
+                    const normalized = normalizeHeader(headers[i]);
                     if (!normalized) continue;
-                    
-                    if (fieldKeywords[field].some(k => normalized.includes(k))) {
-                        // CRITICAL FIX: Add exclusion rule for 'unitId'
-                        if (field === 'unitId' && fieldKeywords.ownerName.some(ownerK => normalized.includes(ownerK))) {
-                            continue; // This header contains owner keywords, so it's not the unitId. Skip.
+
+                    const isExcluded = exclusionKeywords.some(ex => normalized.includes(ex));
+                    if (isExcluded) continue;
+
+                    for (const kw of keywords) {
+                        if (normalized.includes(kw) && kw.length > longestKeyword) {
+                            bestMatch = i;
+                            longestKeyword = kw.length;
                         }
-                        
-                        mapResult[field] = i;
-                        detectedFields.push(`${header} -> ${field}`);
-                        usedIndexes.add(i);
-                        return; // Found, exit inner loop and function for this field
                     }
                 }
+                return bestMatch !== -1 ? bestMatch : undefined;
             };
             
-            // Prioritize specific fields to reduce ambiguity
-            findAndMapField('unitId');
-            findAndMapField('ownerName');
-            findAndMapField('area');
-            findAndMapField('phone');
-            findAndMapField('email');
-            findAndMapField('status');
+            // Find unitId: must match unitId keywords, must NOT match ownerName keywords
+            const unitIdIndex = findHeaderIndex(fieldKeywords.unitId, fieldKeywords.ownerName);
+            if (unitIdIndex !== undefined) {
+                mapResult.unitId = unitIdIndex;
+                usedIndexes.add(unitIdIndex);
+                detectedFields.push(`${headers[unitIdIndex]} -> unitId`);
+            }
+
+            // Find other fields
+            for (const field of ['ownerName', 'area', 'phone', 'email', 'status'] as const) {
+                const index = findHeaderIndex(fieldKeywords[field]);
+                 if (index !== undefined) {
+                    mapResult[field] = index;
+                    usedIndexes.add(index);
+                    detectedFields.push(`${headers[index]} -> ${field}`);
+                }
+            }
 
             // Vehicle mapping
             headers.forEach((header, index) => {
@@ -553,8 +564,7 @@ const DataImportModal: React.FC<{
                     }
                 }
             });
-
-
+            
             setMappedHeaders(detectedFields);
 
             if (mapResult.unitId === undefined) {
@@ -567,7 +577,7 @@ const DataImportModal: React.FC<{
             const rows = jsonData.slice(1);
 
             rows.forEach((row: any[]) => {
-                if (!row || row.length === 0 || !row[mapResult.unitId]) return;
+                if (!row || row.length === 0) return;
                 
                 const unitId = String(row[mapResult.unitId] || '').trim();
                 if (!unitId) return;
@@ -584,12 +594,10 @@ const DataImportModal: React.FC<{
                     });
                 });
 
-                const getVal = (field: string) => {
+                const getVal = (field: keyof typeof fieldKeywords) => {
                     const idx = mapResult[field];
-                    if (idx !== undefined && row[idx] !== undefined && row[idx] !== null) {
-                        return String(row[idx]).trim();
-                    }
-                    return undefined;
+                    const cellValue = (idx !== undefined && row[idx] !== undefined && row[idx] !== null) ? String(row[idx]).trim() : undefined;
+                    return cellValue || undefined;
                 }
 
                 processedRows.push({
