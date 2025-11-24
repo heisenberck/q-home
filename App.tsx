@@ -1,4 +1,5 @@
 
+
 import React, { useState, useEffect, useCallback, createContext, useContext, useMemo, lazy, Suspense } from 'react';
 import type { Role, UserPermission, Unit, Owner, Vehicle, WaterReading, ChargeRaw, TariffService, TariffParking, TariffWater, Adjustment, InvoiceSettings, ActivityLog, VehicleTier } from './types';
 import { 
@@ -541,7 +542,7 @@ const App: React.FC = () => {
             }
             
             if (update.vehicles && Array.isArray(update.vehicles)) {
-                update.vehicles.forEach((vImport: { PlateNumber: string; Type: VehicleTier; VehicleName: string }) => {
+                update.vehicles.forEach((vImport: { PlateNumber: string; Type: VehicleTier; VehicleName: string; parkingStatus?: Vehicle['parkingStatus'] }) => {
                     const normPlate = String(vImport.PlateNumber || '').replace(/\s/g, '').toLowerCase();
                     if (!normPlate) return;
     
@@ -549,16 +550,19 @@ const App: React.FC = () => {
                     
                     if (existingVehicle) {
                         const vehicleRef = doc(db, "vehicles", existingVehicle.VehicleId);
-                        const vehicleChanges = {
+                        const vehicleChanges: Partial<Vehicle> = {
                             UnitID: unitId,
                             isActive: true,
                             Type: vImport.Type || existingVehicle.Type,
                             VehicleName: vImport.VehicleName || existingVehicle.VehicleName,
                         };
+                        if (vImport.parkingStatus) {
+                            vehicleChanges.parkingStatus = vImport.parkingStatus;
+                        }
                         batch.update(vehicleRef, vehicleChanges);
     
                         const vIndex = nextVehicles.findIndex(v => v.VehicleId === existingVehicle.VehicleId);
-                        if (vIndex !== -1) nextVehicles[vIndex] = { ...nextVehicles[vIndex], ...vehicleChanges };
+                        if (vIndex !== -1) nextVehicles[vIndex] = { ...nextVehicles[vIndex], ...vehicleChanges as Vehicle };
     
                     } else {
                         const newVehicleId = `VEH_IMP_${Date.now()}_${Math.random().toString(36).substring(2, 7)}`;
@@ -571,6 +575,7 @@ const App: React.FC = () => {
                             StartDate: new Date().toISOString().split('T')[0],
                             isActive: true,
                             documents: {},
+                            parkingStatus: vImport.parkingStatus || null,
                         };
                         const vehicleRef = doc(db, "vehicles", newVehicleId);
                         batch.set(vehicleRef, newVehicle);

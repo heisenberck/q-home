@@ -479,23 +479,14 @@ const DataImportModal: React.FC<{
 
             const headers = (jsonData[0] as any[]).map(h => String(h || '').trim());
             
-            // Define keywords based on user request
+            // Define keywords for mapping
             const unitIdKeywords = ['can ho', 'so phong', 'ma can', 'phong', 'unit', 'room', 'apartment'];
             const ownerNameKeywords = ['chu ho', 'ho ten', 'ten', 'name', 'owner', 'resident'];
-            // Keywords that disqualify a header from being a unitId
-            const ownerExclusionKeywordsForUnitId = ['chu', 'ho ten', 'name', 'owner', 'resident'];
-
-            const vehicleKeywords: { keywords: string[], type: VehicleTier }[] = [
-                { keywords: ['bien so o to', 'bsx oto', 'bien o to'], type: VehicleTier.CAR },
-                { keywords: ['bien so xe may', 'bsx xe may', 'bien xe may'], type: VehicleTier.MOTORBIKE },
-                { keywords: ['bien so xe dien', 'bsx xe dien'], type: VehicleTier.EBIKE },
-                { keywords: ['bien so xe dap', 'bsx xe dap'], type: VehicleTier.BICYCLE },
-                { keywords: ['bien so', 'bien xe', 'bsx'], type: VehicleTier.MOTORBIKE }, // General fallback
-            ];
+            const ownerExclusionKeywordsForUnitId = ['chu', 'ho ten', 'name', 'owner', 'resident']; // Don't map "Chủ hộ" to unitId
             
             const otherFields = {
                 area: ['dien tich', 'dt'],
-                phone: ['dien thoai', 'sdt'],
+                phone: ['so dien thoai', 'dien thoai', 'sdt', 'tel', 'mobile', 'phone'],
                 email: ['email'],
                 status: ['trang thai', 'loai'],
             };
@@ -506,7 +497,6 @@ const DataImportModal: React.FC<{
             };
 
             const mapResult: Record<string, number> = {};
-            const vehicleCols: { index: number; type: VehicleTier }[] = [];
             const detectedFields: string[] = [];
             const usedIndexes = new Set<number>();
 
@@ -533,7 +523,7 @@ const DataImportModal: React.FC<{
                 return bestMatch !== -1 ? bestMatch : undefined;
             };
             
-            // Map unitId first with the exclusion rule
+            // Map unitId first, excluding owner-related keywords
             const unitIdIndex = findHeaderIndex(unitIdKeywords, ownerExclusionKeywordsForUnitId);
             if (unitIdIndex !== undefined) {
                 mapResult['unitId'] = unitIdIndex;
@@ -549,7 +539,7 @@ const DataImportModal: React.FC<{
                 detectedFields.push(`${headers[ownerNameIndex]} -> ownerName`);
             }
             
-            // Map the rest of the fields
+            // Map other standard fields
             for (const field of ['area', 'phone', 'email', 'status'] as const) {
                 const index = findHeaderIndex(otherFields[field]);
                  if (index !== undefined) {
@@ -559,31 +549,59 @@ const DataImportModal: React.FC<{
                 }
             }
 
+            // ** NEW VEHICLE MAPPING LOGIC **
+            const vehicleCols: { index: number; type: VehicleTier, parkingStatus?: Vehicle['parkingStatus'] }[] = [];
             headers.forEach((header, index) => {
                 if (usedIndexes.has(index)) return;
                 const normalized = normalizeHeader(header);
                 if (!normalized) return;
 
-                const isQuantityColumn = ['sl', 'so luong'].some(kw => normalized.includes(kw));
-                if (isQuantityColumn) {
+                // Rule 1: Hạng A Car (Highest priority)
+                if (['hang a'].some(kw => normalized.includes(kw))) {
+                    vehicleCols.push({ index, type: VehicleTier.CAR_A, parkingStatus: 'Lốt chính' });
+                    detectedFields.push(`${header} -> Vehicle (${VehicleTier.CAR_A})`);
+                    usedIndexes.add(index);
+                    return; // Continue to next header
+                }
+
+                // Rule 2: Standard Car
+                if (['o to', 'oto', 'car'].some(kw => normalized.includes(kw))) {
+                    vehicleCols.push({ index, type: VehicleTier.CAR, parkingStatus: 'Lốt chính' });
+                    detectedFields.push(`${header} -> Vehicle (${VehicleTier.CAR})`);
                     usedIndexes.add(index);
                     return;
                 }
 
-                for (const vk of vehicleKeywords) {
-                    if (vk.keywords.some(k => normalized.includes(k))) {
-                        vehicleCols.push({ index, type: vk.type });
-                        detectedFields.push(`${header} -> Vehicle (${vk.type})`);
-                        usedIndexes.add(index);
-                        break;
-                    }
+                // Rule 3: Bicycle
+                if (['xe dap', 'bicycle'].some(kw => normalized.includes(kw))) {
+                    vehicleCols.push({ index, type: VehicleTier.BICYCLE });
+                    detectedFields.push(`${header} -> Vehicle (${VehicleTier.BICYCLE})`);
+                    usedIndexes.add(index);
+                    return;
+                }
+
+                // Rule 4: Electric Bike/Scooter -> Motorbike
+                if (['xe dien', 'electric', 'xe dap dien'].some(kw => normalized.includes(kw))) {
+                    vehicleCols.push({ index, type: VehicleTier.MOTORBIKE });
+                    detectedFields.push(`${header} -> Vehicle (electric -> ${VehicleTier.MOTORBIKE})`);
+                    usedIndexes.add(index);
+                    return;
+                }
+
+                // Rule 5: Motorbike / Default "Biển số"
+                if (['xe may', 'motorbike'].some(kw => normalized.includes(kw)) || normalized.startsWith('bien so')) {
+                    vehicleCols.push({ index, type: VehicleTier.MOTORBIKE });
+                    detectedFields.push(`${header} -> Vehicle (${VehicleTier.MOTORBIKE})`);
+                    usedIndexes.add(index);
+                    return;
                 }
             });
+            // ** END NEW VEHICLE LOGIC **
             
             setMappedHeaders(detectedFields);
 
             if (mapResult.unitId === undefined) {
-                setErrors(["Không tìm thấy cột 'Căn hộ' hoặc 'Số căn hộ'. Đây là cột bắt buộc."]);
+                setErrors(["Không tìm thấy cột 'Căn hộ' hoặc 'Số phòng'. Đây là cột bắt buộc."]);
                 setPreview([]);
                 return;
             }
@@ -597,7 +615,7 @@ const DataImportModal: React.FC<{
                 const unitId = String(row[mapResult.unitId] || '').trim();
                 if (!unitId) return;
 
-                const vehicles: { Type: VehicleTier, PlateNumber: string, VehicleName: string }[] = [];
+                const vehicles: { Type: VehicleTier, PlateNumber: string, VehicleName: string, parkingStatus?: Vehicle['parkingStatus'] }[] = [];
                 
                 vehicleCols.forEach(col => {
                     const cellVal = String(row[col.index] || '').trim();
@@ -605,7 +623,12 @@ const DataImportModal: React.FC<{
 
                     const parts = cellVal.split(/[,;]/).map(s => s.trim()).filter(Boolean);
                     parts.forEach(part => {
-                        vehicles.push({ Type: col.type, PlateNumber: part, VehicleName: '' });
+                        vehicles.push({ 
+                            Type: col.type, 
+                            PlateNumber: part, 
+                            VehicleName: '',
+                            parkingStatus: col.parkingStatus // Pass parkingStatus here
+                        });
                     });
                 });
 

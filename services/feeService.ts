@@ -41,7 +41,7 @@ const calcVehicleFee = (vehicles: Vehicle[], period: string, tariffs: AllData['t
     
     const carCount = activeVehicles.filter(v => v.Type === VehicleTier.CAR).length;
     const carACount = activeVehicles.filter(v => v.Type === VehicleTier.CAR_A).length;
-    const motoCount = activeVehicles.filter(v => v.Type === VehicleTier.MOTORBIKE || v.Type === VehicleTier.EBIKE).length;
+    const motoCount = activeVehicles.filter(v => v.Type === VehicleTier.MOTORBIKE).length;
     const bicycleCount = activeVehicles.filter(v => v.Type === VehicleTier.BICYCLE).length;
     
     const carTariff = tariffs.parking.find(t => t.Tier === ParkingTariffTier.CAR);
