@@ -1,6 +1,10 @@
+
 import React, { useState, useEffect, useCallback, createContext, useContext, useMemo, lazy, Suspense } from 'react';
 import type { Role, UserPermission, Unit, Owner, Vehicle, WaterReading, ChargeRaw, TariffService, TariffParking, TariffWater, Adjustment, InvoiceSettings, ActivityLog, VehicleTier } from './types';
-import { MOCK_USER_PERMISSIONS, MOCK_TARIFFS_SERVICE, MOCK_TARIFFS_PARKING, MOCK_TARIFFS_WATER, patchKiosAreas } from './constants';
+import { 
+    MOCK_USER_PERMISSIONS, MOCK_TARIFFS_SERVICE, MOCK_TARIFFS_PARKING, MOCK_TARIFFS_WATER, 
+    patchKiosAreas, MOCK_UNITS, MOCK_OWNERS, MOCK_VEHICLES, MOCK_WATER_READINGS, MOCK_ADJUSTMENTS 
+} from './constants';
 import { UnitType } from './types';
 
 import { db, getDocs, collection, getDoc, doc } from './firebaseConfig';
@@ -166,12 +170,30 @@ const App: React.FC = () => {
         setToasts(prevToasts => prevToasts.slice(1));
     }, []);
 
-    // --- DATA PERSISTENCE (Firestore) ---
+    const loadMockData = useCallback(() => {
+        console.warn("[Q-Home] Đang dùng dữ liệu giả lập (do lỗi kết nối hoặc DB trống).");
+        showToast("Đang dùng dữ liệu giả lập.", 'warn');
+
+        const patchedUnits = [...MOCK_UNITS];
+        patchKiosAreas(patchedUnits);
+
+        setUnits(patchedUnits);
+        setOwners(MOCK_OWNERS);
+        setVehicles(MOCK_VEHICLES);
+        setWaterReadings(MOCK_WATER_READINGS);
+        setCharges([]);
+        setAdjustments(MOCK_ADJUSTMENTS);
+        setActivityLogs([]);
+        setUsers(MOCK_USER_PERMISSIONS);
+        setTariffs({ service: MOCK_TARIFFS_SERVICE, parking: MOCK_TARIFFS_PARKING, water: MOCK_TARIFFS_WATER });
+        setInvoiceSettings(initialInvoiceSettings);
+    }, [showToast]);
+
+    // --- DATA PERSISTENCE (Firestore with Mock Fallback) ---
     useEffect(() => {
         const loadData = async () => {
             setIsLoadingData(true);
             try {
-                console.log("--- [Q-Home] Starting data load from Firestore ---");
                 const collectionsToFetch = ['units', 'owners', 'vehicles', 'waterReadings', 'charges', 'adjustments', 'users', 'activityLogs'];
                 const promises = collectionsToFetch.map(c => getDocs(collection(db, c)));
                 
@@ -180,10 +202,13 @@ const App: React.FC = () => {
                     unitsSnap, ownersSnap, vehiclesSnap, waterReadingsSnap, chargesSnap, adjustmentsSnap, usersSnap, activityLogsSnap
                 ] = snapshots;
                 
-                // Log counts for each collection to help debug
-                collectionsToFetch.forEach((name, index) => {
-                    console.log(`[Q-Home] Collection '${name}': Found ${snapshots[index].docs.length} documents.`);
-                });
+                // If the database is empty, fall back to mock data
+                if (unitsSnap.docs.length === 0) {
+                    loadMockData();
+                    return;
+                }
+                
+                console.log("[Q-Home] Đang dùng dữ liệu thật từ Firestore.");
 
                 const loadedUnits = unitsSnap.docs.map((d: any) => d.data() as Unit);
                 patchKiosAreas(loadedUnits);
@@ -206,57 +231,19 @@ const App: React.FC = () => {
                     getDoc(doc(db, 'settings', 'tariffs'))
                 ];
                 const [invoiceSettingsSnap, tariffsSnap] = await Promise.all(settingsPromises);
-                
-                console.log(`[Q-Home] Settings 'invoice': ${invoiceSettingsSnap.exists() ? 'Found' : 'Not Found'}.`);
-                console.log(`[Q-Home] Settings 'tariffs': ${tariffsSnap.exists() ? 'Found' : 'Not Found'}.`);
 
                 setInvoiceSettings(invoiceSettingsSnap.exists() ? invoiceSettingsSnap.data() as InvoiceSettings : initialInvoiceSettings);
                 setTariffs(tariffsSnap.exists() ? tariffsSnap.data() : { service: MOCK_TARIFFS_SERVICE, parking: MOCK_TARIFFS_PARKING, water: MOCK_TARIFFS_WATER });
-                
-                console.log("[Q-Home] Data processed (counts):", {
-                    units: loadedUnits.length,
-                    owners: ownersSnap.docs.length,
-                    vehicles: vehiclesSnap.docs.length,
-                    waterReadings: waterReadingsSnap.docs.length,
-                    charges: chargesSnap.docs.length,
-                    adjustments: adjustmentsSnap.docs.length,
-                    users: usersSnap.docs.length,
-                    activityLogs: activityLogsSnap.docs.length
-                });
-
-                if (loadedUnits.length === 0) {
-                     showToast('Dữ liệu trống. Vui lòng import ở trang Cư dân.', 'warn');
-                }
-
-                console.log("--- [Q-Home] Successfully loaded data from Firestore. ---");
 
             } catch (error: any) {
-                console.error("Error loading data from Firestore. Falling back to empty/mock state.", error);
-                const isOfflineError = error.code === 'unavailable' || (error.message && (error.message.includes('offline') || error.message.includes('Failed to fetch')));
-                if (isOfflineError) {
-                    showToast("Không thể kết nối đến server. Đang chạy ở chế độ offline.", 'warn');
-                } else {
-                    showToast("Không thể tải dữ liệu từ server. Dữ liệu có thể không được lưu.", 'error');
-                }
-                
-                // Fallback to a safe state, NO automatic seeding.
-                setUnits([]);
-                setOwners([]);
-                setVehicles([]);
-                setWaterReadings([]);
-                setCharges([]);
-                setAdjustments([]);
-                setActivityLogs([]);
-                // Fallback to mock for critical data to keep app usable
-                setUsers(MOCK_USER_PERMISSIONS); 
-                setTariffs({ service: MOCK_TARIFFS_SERVICE, parking: MOCK_TARIFFS_PARKING, water: MOCK_TARIFFS_WATER });
-                setInvoiceSettings(initialInvoiceSettings);
+                console.error("Error loading data from Firestore. Falling back to mock data.", error);
+                loadMockData();
             } finally {
                 setIsLoadingData(false);
             }
         };
         loadData();
-    }, [showToast]);
+    }, [loadMockData]);
 
     // --- RBAC & AUTH (Uses localStorage for session) ---
     const [currentUser, setCurrentUser] = useState<UserPermission | null>(() => {
