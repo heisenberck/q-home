@@ -1,6 +1,7 @@
 
 
 
+
 import React, { useState, useCallback, useMemo, useEffect, useRef } from 'react';
 import type { Unit, ChargeRaw, Vehicle, WaterReading, Adjustment, Owner, AllData, Role, PaymentStatus, InvoiceSettings, ActivityLog } from '../../types';
 import { UnitType, ParkingTariffTier } from '../../types';
@@ -1399,7 +1400,7 @@ const BillingPage: React.FC<BillingPageProps> = ({ charges, setCharges, allData,
                         </tr></thead>
                         <tbody className="text-sm">
                             {isLoading && primaryActionState !== 'recalculate' ? ( Array.from({ length: 10 }).map((_, i) => ( <tr key={i}><td colSpan={8} className="p-1"><div className="skeleton-row"></div></td></tr> )) )
-                            : sortedAndFilteredCharges.length === 0 ? ( <tr><td colSpan={8} className="text-center p-8">No data available. {charges.filter(c=>c.Period===period).length > 0 ? 'Try different filters.' : 'Please "Refresh" then "Calculate" to view data.'}</td></tr> ) 
+                            : sortedAndFilteredCharges.length === 0 ? ( <tr><td colSpan={8} className="text-center p-8 text-gray-500">{charges.filter(c=>c.Period===period).length > 0 ? 'Không có dữ liệu nào khớp với bộ lọc.' : 'Chưa có dữ liệu cho kỳ này. Vui lòng bấm "Calculate".'}</td></tr> ) 
                             : ( sortedAndFilteredCharges.map(charge => {
                                     const finalPaidAmount = editedPayments[charge.UnitID] ?? charge.TotalPaid;
                                     const difference = finalPaidAmount - charge.TotalDue;

@@ -171,14 +171,22 @@ const App: React.FC = () => {
         const loadData = async () => {
             setIsLoadingData(true);
             try {
+                console.log("--- [Q-Home] Starting data load from Firestore ---");
                 const collectionsToFetch = ['units', 'owners', 'vehicles', 'waterReadings', 'charges', 'adjustments', 'users', 'activityLogs'];
                 const promises = collectionsToFetch.map(c => getDocs(collection(db, c)));
+                
+                const snapshots = await Promise.all(promises);
                 const [
                     unitsSnap, ownersSnap, vehiclesSnap, waterReadingsSnap, chargesSnap, adjustmentsSnap, usersSnap, activityLogsSnap
-                ] = await Promise.all(promises);
+                ] = snapshots;
                 
+                // Log counts for each collection to help debug
+                collectionsToFetch.forEach((name, index) => {
+                    console.log(`[Q-Home] Collection '${name}': Found ${snapshots[index].docs.length} documents.`);
+                });
+
                 const loadedUnits = unitsSnap.docs.map((d: any) => d.data() as Unit);
-                patchKiosAreas(loadedUnits); // Ensure KIOS areas are correct
+                patchKiosAreas(loadedUnits);
                 
                 setUnits(loadedUnits);
                 setOwners(ownersSnap.docs.map((d: any) => d.data() as Owner));
@@ -199,14 +207,31 @@ const App: React.FC = () => {
                 ];
                 const [invoiceSettingsSnap, tariffsSnap] = await Promise.all(settingsPromises);
                 
+                console.log(`[Q-Home] Settings 'invoice': ${invoiceSettingsSnap.exists() ? 'Found' : 'Not Found'}.`);
+                console.log(`[Q-Home] Settings 'tariffs': ${tariffsSnap.exists() ? 'Found' : 'Not Found'}.`);
+
                 setInvoiceSettings(invoiceSettingsSnap.exists() ? invoiceSettingsSnap.data() as InvoiceSettings : initialInvoiceSettings);
                 setTariffs(tariffsSnap.exists() ? tariffsSnap.data() : { service: MOCK_TARIFFS_SERVICE, parking: MOCK_TARIFFS_PARKING, water: MOCK_TARIFFS_WATER });
+                
+                console.log("[Q-Home] Data processed (counts):", {
+                    units: loadedUnits.length,
+                    owners: ownersSnap.docs.length,
+                    vehicles: vehiclesSnap.docs.length,
+                    waterReadings: waterReadingsSnap.docs.length,
+                    charges: chargesSnap.docs.length,
+                    adjustments: adjustmentsSnap.docs.length,
+                    users: usersSnap.docs.length,
+                    activityLogs: activityLogsSnap.docs.length
+                });
 
-                console.log("Successfully loaded data from Firestore.");
+                if (loadedUnits.length === 0) {
+                     showToast('Dữ liệu trống. Vui lòng import ở trang Cư dân.', 'warn');
+                }
+
+                console.log("--- [Q-Home] Successfully loaded data from Firestore. ---");
 
             } catch (error: any) {
                 console.error("Error loading data from Firestore. Falling back to empty/mock state.", error);
-                 // Provide a more specific error message for offline scenarios
                 const isOfflineError = error.code === 'unavailable' || (error.message && (error.message.includes('offline') || error.message.includes('Failed to fetch')));
                 if (isOfflineError) {
                     showToast("Không thể kết nối đến server. Đang chạy ở chế độ offline.", 'warn');
