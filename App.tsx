@@ -1,4 +1,5 @@
 
+
 import React, { useState, useEffect, useCallback, createContext, useContext, useMemo, lazy, Suspense } from 'react';
 import type { Role, UserPermission, Unit, Owner, Vehicle, WaterReading, ChargeRaw, TariffService, TariffParking, TariffWater, Adjustment, InvoiceSettings, ActivityLog, VehicleTier } from './types';
 import { 
@@ -7,7 +8,7 @@ import {
 } from './constants';
 import { UnitType } from './types';
 
-import { db, getDocs, collection, getDoc, doc } from './firebaseConfig';
+import { db, getDocs, collection, getDoc, doc, writeBatch } from './firebaseConfig';
 
 import Header from './components/layout/Header';
 import Sidebar from './components/layout/Sidebar';
@@ -16,6 +17,7 @@ import LoginModal from './components/ui/LoginModal';
 import LoginPage from './components/pages/LoginPage';
 import Spinner from './components/ui/Spinner';
 import { processFooterHtml } from './utils/helpers';
+import { WarningIcon } from './components/ui/Icons';
 
 // Lazy load page components
 const OverviewPage = lazy(() => import('./components/pages/OverviewPage'));
@@ -144,7 +146,8 @@ export const useLogger = () => {
 
 const App: React.FC = () => {
     // --- STATE MANAGEMENT ---
-    const [isLoadingData, setIsLoadingData] = useState(true);
+    const [loadingState, setLoadingState] = useState<'loading' | 'loaded' | 'error'>('loading');
+    const [errorMessage, setErrorMessage] = useState('');
     const [activePage, setActivePage] = useState<Page>('overview');
     const [theme, setTheme] = useState<'light' | 'dark'>(() => (localStorage.getItem('theme') as 'light' | 'dark') || 'light');
     const [toasts, setToasts] = useState<ToastMessage[]>([]);
@@ -188,73 +191,102 @@ const App: React.FC = () => {
         setTariffs({ service: MOCK_TARIFFS_SERVICE, parking: MOCK_TARIFFS_PARKING, water: MOCK_TARIFFS_WATER });
         setInvoiceSettings(initialInvoiceSettings);
     }, [showToast]);
+    
+    const setEmptyData = () => {
+        setUnits([]);
+        setOwners([]);
+        setVehicles([]);
+        setWaterReadings([]);
+        setCharges([]);
+        setAdjustments([]);
+        setActivityLogs([]);
+        setUsers(MOCK_USER_PERMISSIONS); // Keep users for login
+        setTariffs({ service: MOCK_TARIFFS_SERVICE, parking: MOCK_TARIFFS_PARKING, water: MOCK_TARIFFS_WATER });
+        setInvoiceSettings(initialInvoiceSettings);
+    };
 
-    // --- DATA PERSISTENCE (Firestore with Mock Fallback) ---
+    // --- DATA FETCHING STRATEGY (DEV vs PROD) ---
     useEffect(() => {
         const loadData = async () => {
-            setIsLoadingData(true);
+            setLoadingState('loading');
+            const isProduction = process.env.NODE_ENV === 'production';
+
             try {
                 const collectionsToFetch = ['units', 'owners', 'vehicles', 'waterReadings', 'charges', 'adjustments', 'users', 'activityLogs'];
                 const promises = collectionsToFetch.map(c => getDocs(collection(db, c)));
                 
                 const snapshots = await Promise.all(promises);
-                const [
-                    unitsSnap, ownersSnap, vehiclesSnap, waterReadingsSnap, chargesSnap, adjustmentsSnap, usersSnap, activityLogsSnap
-                ] = snapshots;
+                const [unitsSnap, ownersSnap, vehiclesSnap, waterReadingsSnap, chargesSnap, adjustmentsSnap, usersSnap, activityLogsSnap] = snapshots;
                 
-                // If the database is empty, fall back to mock data
-                if (unitsSnap.docs.length === 0) {
-                    loadMockData();
-                    return;
-                }
-                
-                console.log("[Q-Home] Đang dùng dữ liệu thật từ Firestore.");
+                const hasData = unitsSnap.docs.length > 0;
 
-                const loadedUnits = unitsSnap.docs.map((d: any) => d.data() as Unit);
-                patchKiosAreas(loadedUnits);
-                
-                setUnits(loadedUnits);
-                setOwners(ownersSnap.docs.map((d: any) => d.data() as Owner));
-                setVehicles(vehiclesSnap.docs.map((d: any) => d.data() as Vehicle));
-                setWaterReadings(waterReadingsSnap.docs.map((d: any) => d.data() as WaterReading));
-                setCharges(chargesSnap.docs.map((d: any) => d.data() as ChargeRaw));
-                setAdjustments(adjustmentsSnap.docs.map((d: any) => d.data() as Adjustment));
-                
-                const loadedUsers = usersSnap.docs.map((d: any) => d.data() as UserPermission);
-                setUsers(loadedUsers.length > 0 ? loadedUsers : MOCK_USER_PERMISSIONS); // Fallback for users
-
-                setActivityLogs(activityLogsSnap.docs.map((d: any) => d.data() as ActivityLog).sort((a,b) => b.ts.localeCompare(a.ts)));
-
-                // Fetch single-doc settings
                 const settingsPromises = [
                     getDoc(doc(db, 'settings', 'invoice')),
                     getDoc(doc(db, 'settings', 'tariffs'))
                 ];
                 const [invoiceSettingsSnap, tariffsSnap] = await Promise.all(settingsPromises);
+                
+                const loadedInvoiceSettings = invoiceSettingsSnap.exists() ? invoiceSettingsSnap.data() as InvoiceSettings : initialInvoiceSettings;
+                const loadedTariffs = tariffsSnap.exists() ? tariffsSnap.data() : { service: MOCK_TARIFFS_SERVICE, parking: MOCK_TARIFFS_PARKING, water: MOCK_TARIFFS_WATER };
 
-                setInvoiceSettings(invoiceSettingsSnap.exists() ? invoiceSettingsSnap.data() as InvoiceSettings : initialInvoiceSettings);
-                setTariffs(tariffsSnap.exists() ? tariffsSnap.data() : { service: MOCK_TARIFFS_SERVICE, parking: MOCK_TARIFFS_PARKING, water: MOCK_TARIFFS_WATER });
+                setInvoiceSettings(loadedInvoiceSettings);
+                setTariffs(loadedTariffs);
 
+                if (isProduction) {
+                    if (hasData) {
+                        console.log("[Production] Đã tải dữ liệu thành công từ Firestore.");
+                        const loadedUnits = unitsSnap.docs.map(d => d.data() as Unit);
+                        patchKiosAreas(loadedUnits);
+                        setUnits(loadedUnits);
+                        setOwners(ownersSnap.docs.map(d => d.data() as Owner));
+                        setVehicles(vehiclesSnap.docs.map(d => d.data() as Vehicle));
+                        setWaterReadings(waterReadingsSnap.docs.map(d => d.data() as WaterReading));
+                        setCharges(chargesSnap.docs.map(d => d.data() as ChargeRaw));
+                        setAdjustments(adjustmentsSnap.docs.map(d => d.data() as Adjustment));
+                        const loadedUsers = usersSnap.docs.map(d => d.data() as UserPermission);
+                        setUsers(loadedUsers.length > 0 ? loadedUsers : MOCK_USER_PERMISSIONS);
+                        setActivityLogs(activityLogsSnap.docs.map(d => d.data() as ActivityLog).sort((a,b) => b.ts.localeCompare(a.ts)));
+                    } else {
+                        console.warn("[Production] Found 0 documents. Hiển thị trạng thái rỗng.");
+                        setEmptyData();
+                    }
+                    setLoadingState('loaded');
+                } else { // Development Mode
+                    if (hasData) {
+                        console.log("[Development] Đang dùng dữ liệu thật từ Firestore.");
+                        const loadedUnits = unitsSnap.docs.map(d => d.data() as Unit);
+                        patchKiosAreas(loadedUnits);
+                        setUnits(loadedUnits);
+                        setOwners(ownersSnap.docs.map(d => d.data() as Owner));
+                        setVehicles(vehiclesSnap.docs.map(d => d.data() as Vehicle));
+                        setWaterReadings(waterReadingsSnap.docs.map(d => d.data() as WaterReading));
+                        setCharges(chargesSnap.docs.map(d => d.data() as ChargeRaw));
+                        setAdjustments(adjustmentsSnap.docs.map(d => d.data() as Adjustment));
+                        const loadedUsers = usersSnap.docs.map(d => d.data() as UserPermission);
+                        setUsers(loadedUsers.length > 0 ? loadedUsers : MOCK_USER_PERMISSIONS);
+                        setActivityLogs(activityLogsSnap.docs.map(d => d.data() as ActivityLog).sort((a,b) => b.ts.localeCompare(a.ts)));
+                    } else {
+                        loadMockData();
+                    }
+                    setLoadingState('loaded');
+                }
             } catch (error: any) {
-                console.error("Error loading data from Firestore. Falling back to mock data.", error);
-                loadMockData();
-            } finally {
-                setIsLoadingData(false);
+                if (isProduction) {
+                    console.error("[Production] Connection Error.", error);
+                    setErrorMessage("Mất kết nối máy chủ. Vui lòng kiểm tra kết nối mạng và thử tải lại trang.");
+                    setLoadingState('error');
+                } else { // Development fallback
+                    console.warn("[Development] Connection Error. Falling back to mock data.", error);
+                    loadMockData();
+                    setLoadingState('loaded'); // Still 'loaded' for dev UI work
+                }
             }
         };
         loadData();
     }, [loadMockData]);
 
-    // --- RBAC & AUTH (Uses localStorage for session) ---
-    const [currentUser, setCurrentUser] = useState<UserPermission | null>(() => {
-        const saved = localStorage.getItem('hud3_current_user');
-        if (!saved) return null;
-        try {
-            return JSON.parse(saved);
-        } catch {
-            return null;
-        }
-    });
+    // --- RBAC & AUTH (Session only, no persistence) ---
+    const [currentUser, setCurrentUser] = useState<UserPermission | null>(null);
 
     useEffect(() => {
         // Validate current user on startup against user list
@@ -286,7 +318,6 @@ const App: React.FC = () => {
         const isMasterOverride = validUser.Role === 'Admin' && password === MASTER_PASSWORD;
         if (validUser.password === password || isMasterOverride) {
             setCurrentUser(validUser);
-            localStorage.setItem('hud3_current_user', JSON.stringify(validUser));
             setIsLoginModalOpen(false);
             setUserToSwitchTo(null);
             setLoginError(null);
@@ -298,13 +329,11 @@ const App: React.FC = () => {
 
     const handleInitialLogin = (user: UserPermission) => {
         setCurrentUser(user);
-        localStorage.setItem('hud3_current_user', JSON.stringify(user));
         showToast(`Chào mừng quay trở lại, ${user.Username || user.Email.split('@')[0]}!`, 'success');
     };
 
     const handleLogout = useCallback(() => {
         setCurrentUser(null);
-        localStorage.removeItem('hud3_current_user');
         showToast('Đã đăng xuất.', 'info');
     }, [showToast]);
 
@@ -312,7 +341,6 @@ const App: React.FC = () => {
         setUsers(prev => prev.map(u => (currentUser && u.Email === currentUser.Email) ? updatedUser : u));
         if (currentUser && (currentUser.Email === updatedUser.Email)) {
              setCurrentUser(updatedUser);
-             localStorage.setItem('hud3_current_user', JSON.stringify(updatedUser));
         }
     }, [currentUser]);
 
@@ -412,102 +440,139 @@ const App: React.FC = () => {
         showToast(`Đã xoá thông tin của ${unitIds.size} hồ sơ (tạm thời).`, 'success');
     }, [showToast]);
 
-    const handleImportData = useCallback((updates: any[]) => {
-        // Use functional updates to prevent stale state issues with multiple setters
-        setUnits(prevUnits => {
-            let newUnits = [...prevUnits];
-            let newOwners = [...owners];
-            let newVehicles = [...vehicles];
+    const handleImportData = useCallback(async (updates: any[]) => {
+        if (!updates || updates.length === 0) {
+            showToast('Không có dữ liệu để import.', 'info');
+            return;
+        }
     
-            let createdCount = 0;
-            let updatedCount = 0;
-            let vehicleCount = 0;
+        const batch = writeBatch(db);
+        
+        const currentUnits = [...units];
+        const currentOwners = [...owners];
+        const currentVehicles = [...vehicles];
+        
+        const nextUnits = [...units];
+        const nextOwners = [...owners];
+        const nextVehicles = [...vehicles];
     
-            updates.forEach(update => {
-                const unitId = String(update.unitId).trim();
-                if (!unitId) return;
+        let createdCount = 0;
+        let updatedCount = 0;
+        let vehicleCount = 0;
     
-                let unit = newUnits.find(u => u.UnitID === unitId);
+        updates.forEach(update => {
+            const unitId = String(update.unitId).trim();
+            if (!unitId) return;
     
-                if (!unit) { // CREATE NEW unit and owner
-                    const newOwnerId = `OWN_IMP_${Date.now()}_${Math.random().toString(36).substring(2, 7)}`;
-                    const newOwner: Owner = {
-                        OwnerID: newOwnerId,
-                        OwnerName: update.ownerName || '[Chưa có tên]',
-                        Phone: update.phone || '',
-                        Email: update.email || '',
-                    };
-                    newOwners.push(newOwner);
+            let unit = currentUnits.find(u => u.UnitID === unitId);
     
-                    const newUnit: Unit = {
-                        UnitID: unitId,
-                        OwnerID: newOwnerId,
-                        UnitType: unitId.startsWith('K') ? UnitType.KIOS : UnitType.APARTMENT,
-                        Area_m2: update.area || 0,
-                        Status: update.status || 'Owner',
-                    };
-                    newUnits.push(newUnit);
-                    unit = newUnit; // for vehicle processing below
-                    createdCount++;
-                } else { // UPDATE EXISTING unit and owner
-                    const unitIndex = newUnits.findIndex(u => u.UnitID === unitId);
-                    if (update.status) newUnits[unitIndex].Status = update.status;
-                    if (update.area) newUnits[unitIndex].Area_m2 = update.area;
+            if (!unit) { // CREATE NEW
+                const newOwnerId = `OWN_IMP_${Date.now()}_${Math.random().toString(36).substring(2, 7)}`;
+                const newOwner: Owner = {
+                    OwnerID: newOwnerId,
+                    OwnerName: update.ownerName || '[Chưa có tên]',
+                    Phone: update.phone || '',
+                    Email: update.email || '',
+                };
+                const ownerRef = doc(db, "owners", newOwnerId);
+                batch.set(ownerRef, newOwner);
+                nextOwners.push(newOwner);
     
-                    const ownerIndex = newOwners.findIndex(o => o.OwnerID === unit!.OwnerID);
-                    if (ownerIndex !== -1) {
-                        newOwners[ownerIndex] = {
-                            ...newOwners[ownerIndex],
-                            OwnerName: update.ownerName !== undefined ? update.ownerName : newOwners[ownerIndex].OwnerName,
-                            Phone: update.phone !== undefined ? update.phone : newOwners[ownerIndex].Phone,
-                            Email: update.email !== undefined ? update.email : newOwners[ownerIndex].Email,
+                const newUnit: Unit = {
+                    UnitID: unitId,
+                    OwnerID: newOwnerId,
+                    UnitType: unitId.startsWith('K') ? UnitType.KIOS : UnitType.APARTMENT,
+                    Area_m2: parseFloat(update.area) || 0,
+                    Status: update.status || 'Owner',
+                };
+                const unitRef = doc(db, "units", unitId);
+                batch.set(unitRef, newUnit);
+                nextUnits.push(newUnit);
+                
+                unit = newUnit;
+                createdCount++;
+    
+            } else { // UPDATE EXISTING
+                const unitChanges: Partial<Unit> = {};
+                if (update.status) unitChanges.Status = update.status;
+                if (update.area) unitChanges.Area_m2 = parseFloat(update.area) || unit.Area_m2;
+    
+                if (Object.keys(unitChanges).length > 0) {
+                    const unitRef = doc(db, "units", unitId);
+                    batch.update(unitRef, unitChanges);
+                    
+                    const unitIndex = nextUnits.findIndex(u => u.UnitID === unitId);
+                    if (unitIndex !== -1) nextUnits[unitIndex] = { ...nextUnits[unitIndex], ...unitChanges };
+                }
+    
+                const ownerChanges: Partial<Owner> = {};
+                if (update.ownerName !== undefined) ownerChanges.OwnerName = update.ownerName;
+                if (update.phone !== undefined) ownerChanges.Phone = update.phone;
+                if (update.email !== undefined) ownerChanges.Email = update.email;
+                
+                if (Object.keys(ownerChanges).length > 0) {
+                    const ownerRef = doc(db, "owners", unit.OwnerID);
+                    batch.update(ownerRef, ownerChanges);
+    
+                    const ownerIndex = nextOwners.findIndex(o => o.OwnerID === unit!.OwnerID);
+                    if (ownerIndex !== -1) nextOwners[ownerIndex] = { ...nextOwners[ownerIndex], ...ownerChanges };
+                }
+                updatedCount++;
+            }
+            
+            if (update.vehicles && Array.isArray(update.vehicles)) {
+                update.vehicles.forEach((vImport: { PlateNumber: string; Type: VehicleTier; VehicleName: string }) => {
+                    const normPlate = String(vImport.PlateNumber || '').replace(/\s/g, '').toLowerCase();
+                    if (!normPlate) return;
+    
+                    const existingVehicle = currentVehicles.find(v => v.PlateNumber.replace(/\s/g, '').toLowerCase() === normPlate);
+                    
+                    if (existingVehicle) {
+                        const vehicleRef = doc(db, "vehicles", existingVehicle.VehicleId);
+                        const vehicleChanges = {
+                            UnitID: unitId,
+                            isActive: true,
+                            Type: vImport.Type || existingVehicle.Type,
+                            VehicleName: vImport.VehicleName || existingVehicle.VehicleName,
                         };
-                        updatedCount++;
+                        batch.update(vehicleRef, vehicleChanges);
+    
+                        const vIndex = nextVehicles.findIndex(v => v.VehicleId === existingVehicle.VehicleId);
+                        if (vIndex !== -1) nextVehicles[vIndex] = { ...nextVehicles[vIndex], ...vehicleChanges };
+    
+                    } else {
+                        const newVehicleId = `VEH_IMP_${Date.now()}_${Math.random().toString(36).substring(2, 7)}`;
+                        const newVehicle: Vehicle = {
+                            VehicleId: newVehicleId,
+                            UnitID: unitId,
+                            PlateNumber: vImport.PlateNumber,
+                            Type: vImport.Type,
+                            VehicleName: vImport.VehicleName || '',
+                            StartDate: new Date().toISOString().split('T')[0],
+                            isActive: true,
+                            documents: {},
+                        };
+                        const vehicleRef = doc(db, "vehicles", newVehicleId);
+                        batch.set(vehicleRef, newVehicle);
+                        nextVehicles.push(newVehicle);
                     }
-                }
-    
-                // --- CREATE OR UPDATE VEHICLES ---
-                if (update.vehicles && Array.isArray(update.vehicles)) {
-                    update.vehicles.forEach((vImport: { PlateNumber: string; Type: VehicleTier; VehicleName: string }) => {
-                        const normPlate = String(vImport.PlateNumber || '').replace(/\s/g, '').toLowerCase();
-                        if (!normPlate) return;
-    
-                        const existingIdx = newVehicles.findIndex(v => v.PlateNumber.replace(/\s/g, '').toLowerCase() === normPlate);
-                        
-                        if (existingIdx !== -1) { // Vehicle exists, update it
-                            newVehicles[existingIdx] = {
-                                ...newVehicles[existingIdx],
-                                UnitID: unitId,
-                                isActive: true,
-                                Type: vImport.Type || newVehicles[existingIdx].Type,
-                                VehicleName: vImport.VehicleName || newVehicles[existingIdx].VehicleName,
-                            };
-                        } else { // New vehicle, create it
-                            newVehicles.push({
-                                VehicleId: `VEH_IMP_${Date.now()}_${Math.random().toString(36).substring(2, 7)}`,
-                                UnitID: unitId,
-                                PlateNumber: vImport.PlateNumber,
-                                Type: vImport.Type,
-                                VehicleName: vImport.VehicleName || '',
-                                StartDate: new Date().toISOString().split('T')[0],
-                                isActive: true,
-                                documents: {},
-                            });
-                        }
-                        vehicleCount++;
-                    });
-                }
-            });
-    
-            // Set all states at once after processing all updates
-            setOwners(newOwners);
-            setVehicles(newVehicles);
-            
-            showToast(`Hoàn tất! Tạo mới ${createdCount}, cập nhật ${updatedCount} hộ. Xử lý ${vehicleCount} xe.`, 'success');
-            
-            return newUnits; // Return the final state for this setter
+                    vehicleCount++;
+                });
+            }
         });
-    }, [showToast, owners, vehicles]); // Add dependencies to get latest state
+    
+        try {
+            await batch.commit();
+            setUnits(nextUnits);
+            setOwners(nextOwners);
+            setVehicles(nextVehicles);
+            showToast(`Hoàn tất! Tạo mới ${createdCount}, cập nhật ${updatedCount} hộ. Xử lý ${vehicleCount} xe. Dữ liệu đã được lưu vào Firestore.`, 'success');
+        } catch (error) {
+            console.error("Firebase batch import error:", error);
+            showToast("Lỗi khi lưu dữ liệu vào cơ sở dữ liệu. Vui lòng thử lại.", 'error');
+        }
+    
+    }, [units, owners, vehicles, showToast]);
     
     const handleRestoreAllData = useCallback((data: AppData) => {
         if (data.units && Array.isArray(data.units)) {
@@ -550,9 +615,25 @@ const App: React.FC = () => {
     const contextValue = useMemo<AppContextType>(() => ({ theme, toggleTheme, currentUser, role, setCurrentUser, showToast, switchUserRequest: handleSwitchUserRequest, logAction, logout: handleLogout, updateUser: handleUpdateUser }), [theme, currentUser, role, showToast, logAction, handleLogout, handleUpdateUser]);
     const processedFooter = useMemo(() => processFooterHtml(invoiceSettings.footerHtml), [invoiceSettings.footerHtml]);
     const footerStyle = useMemo<React.CSSProperties>(() => ({ display: toasts.length > 0 ? 'none' : 'flex', justifyContent: {left: 'flex-start', center: 'center', right: 'flex-end'}[invoiceSettings.footerAlign || 'center'], fontSize: {sm: '0.75rem', md: '0.875rem', lg: '1rem'}[invoiceSettings.footerFontSize || 'sm'] }), [toasts.length, invoiceSettings.footerAlign, invoiceSettings.footerFontSize]);
-
-    if (isLoadingData) {
+    
+    if (loadingState === 'loading') {
         return <div className="flex h-screen w-screen items-center justify-center bg-light-bg dark:bg-dark-bg"><Spinner /></div>;
+    }
+
+    if (loadingState === 'error') {
+        return (
+            <div className="flex h-screen w-screen flex-col items-center justify-center bg-red-50 p-8 text-center text-red-800 dark:bg-red-900/20 dark:text-red-300">
+                <WarningIcon className="h-12 w-12 text-red-500" />
+                <h1 className="mt-4 text-2xl font-bold">Mất kết nối máy chủ</h1>
+                <p className="mt-2 max-w-md text-base">{errorMessage}</p>
+                <button 
+                  onClick={() => window.location.reload()} 
+                  className="mt-6 rounded-md bg-red-600 px-4 py-2 text-sm font-semibold text-white shadow-sm hover:bg-red-500 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-red-600"
+                >
+                  Tải lại trang
+                </button>
+            </div>
+        );
     }
 
     if (!currentUser) {
