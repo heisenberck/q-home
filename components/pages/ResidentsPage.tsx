@@ -1,3 +1,4 @@
+
 import React, { useState, useMemo, useRef, useCallback, useEffect } from 'react';
 import type { Unit, Owner, Vehicle, Role, UserPermission } from '../../types';
 import { UnitType, VehicleTier } from '../../types';
@@ -489,13 +490,11 @@ const DataImportModal: React.FC<{
             };
 
             const vehicleKeywords: { keywords: string[], type: VehicleTier }[] = [
-                { keywords: ['o to 860', 'oto 860', 'o to thuong'], type: VehicleTier.CAR },
-                { keywords: ['o to 800', 'oto 800', 'o to hang a'], type: VehicleTier.CAR_A },
-                { keywords: ['xe may', 'xm'], type: VehicleTier.MOTORBIKE },
-                { keywords: ['xe dien', 'xe dap dien'], type: VehicleTier.EBIKE },
-                { keywords: ['xe dap', 'xd'], type: VehicleTier.BICYCLE },
-                { keywords: ['o to', 'oto'], type: VehicleTier.CAR }, // General car as fallback
-                { keywords: ['bien so', 'bien so xe', 'bsx', 'xe'], type: VehicleTier.MOTORBIKE }, // General vehicle as fallback
+                { keywords: ['bien so o to', 'bsx oto', 'bien o to'], type: VehicleTier.CAR },
+                { keywords: ['bien so xe may', 'bsx xe may', 'bien xe may'], type: VehicleTier.MOTORBIKE },
+                { keywords: ['bien so xe dien', 'bsx xe dien'], type: VehicleTier.EBIKE },
+                { keywords: ['bien so xe dap', 'bsx xe dap'], type: VehicleTier.BICYCLE },
+                { keywords: ['bien so', 'bien xe', 'bsx'], type: VehicleTier.MOTORBIKE }, // General fallback
             ];
 
             const normalizeHeader = (header: string): string => {
@@ -508,8 +507,7 @@ const DataImportModal: React.FC<{
             const detectedFields: string[] = [];
             const usedIndexes = new Set<number>();
 
-            // --- SMART MAPPING ALGORITHM V2 ---
-            const findHeaderIndex = (keywords: string[], exclusionKeywords: string[] = []): number | undefined => {
+            const findHeaderIndex = (keywords: string[]): number | undefined => {
                 let bestMatch = -1;
                 let longestKeyword = 0;
 
@@ -517,9 +515,6 @@ const DataImportModal: React.FC<{
                     if (usedIndexes.has(i)) continue;
                     const normalized = normalizeHeader(headers[i]);
                     if (!normalized) continue;
-
-                    const isExcluded = exclusionKeywords.some(ex => normalized.includes(ex));
-                    if (isExcluded) continue;
 
                     for (const kw of keywords) {
                         if (normalized.includes(kw) && kw.length > longestKeyword) {
@@ -531,16 +526,7 @@ const DataImportModal: React.FC<{
                 return bestMatch !== -1 ? bestMatch : undefined;
             };
             
-            // Find unitId: must match unitId keywords, must NOT match ownerName keywords
-            const unitIdIndex = findHeaderIndex(fieldKeywords.unitId, fieldKeywords.ownerName);
-            if (unitIdIndex !== undefined) {
-                mapResult.unitId = unitIdIndex;
-                usedIndexes.add(unitIdIndex);
-                detectedFields.push(`${headers[unitIdIndex]} -> unitId`);
-            }
-
-            // Find other fields
-            for (const field of ['ownerName', 'area', 'phone', 'email', 'status'] as const) {
+            for (const field of ['unitId', 'ownerName', 'area', 'phone', 'email', 'status'] as const) {
                 const index = findHeaderIndex(fieldKeywords[field]);
                  if (index !== undefined) {
                     mapResult[field] = index;
@@ -549,11 +535,16 @@ const DataImportModal: React.FC<{
                 }
             }
 
-            // Vehicle mapping
             headers.forEach((header, index) => {
                 if (usedIndexes.has(index)) return;
                 const normalized = normalizeHeader(header);
                 if (!normalized) return;
+
+                const isQuantityColumn = ['sl', 'so luong'].some(kw => normalized.includes(kw));
+                if (isQuantityColumn) {
+                    usedIndexes.add(index);
+                    return;
+                }
 
                 for (const vk of vehicleKeywords) {
                     if (vk.keywords.some(k => normalized.includes(k))) {
