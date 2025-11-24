@@ -7,7 +7,9 @@ import {
 } from './constants';
 import { UnitType } from './types';
 
-import { db, getDocs, collection, getDoc, doc, writeBatch } from './firebaseConfig';
+import { db } from './firebaseConfig';
+import { getDocs, collection, getDoc, doc, writeBatch } from "firebase/firestore";
+
 
 import Header from './components/layout/Header';
 import Sidebar from './components/layout/Sidebar';
