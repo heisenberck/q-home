@@ -1,4 +1,3 @@
-
 import React, { useState, useMemo, useRef, useCallback, useEffect } from 'react';
 import type { Unit, Owner, Vehicle, Role, UserPermission } from '../../types';
 import { UnitType, VehicleTier } from '../../types';
@@ -480,14 +479,11 @@ const DataImportModal: React.FC<{
 
             const headers = (jsonData[0] as any[]).map(h => String(h || '').trim());
             
-            const fieldKeywords: Record<string, string[]> = {
-                unitId: ['can ho', 'so can ho', 'phong'],
-                ownerName: ['ho ten chu ho', 'ho ten', 'ho va ten', 'chu ho'],
-                area: ['dien tich', 'dt'],
-                phone: ['dien thoai', 'sdt'],
-                email: ['email'],
-                status: ['trang thai', 'loai'],
-            };
+            // Define keywords based on user request
+            const unitIdKeywords = ['can ho', 'so phong', 'ma can', 'phong', 'unit', 'room', 'apartment'];
+            const ownerNameKeywords = ['chu ho', 'ho ten', 'ten', 'name', 'owner', 'resident'];
+            // Keywords that disqualify a header from being a unitId
+            const ownerExclusionKeywordsForUnitId = ['chu', 'ho ten', 'name', 'owner', 'resident'];
 
             const vehicleKeywords: { keywords: string[], type: VehicleTier }[] = [
                 { keywords: ['bien so o to', 'bsx oto', 'bien o to'], type: VehicleTier.CAR },
@@ -496,6 +492,13 @@ const DataImportModal: React.FC<{
                 { keywords: ['bien so xe dap', 'bsx xe dap'], type: VehicleTier.BICYCLE },
                 { keywords: ['bien so', 'bien xe', 'bsx'], type: VehicleTier.MOTORBIKE }, // General fallback
             ];
+            
+            const otherFields = {
+                area: ['dien tich', 'dt'],
+                phone: ['dien thoai', 'sdt'],
+                email: ['email'],
+                status: ['trang thai', 'loai'],
+            };
 
             const normalizeHeader = (header: string): string => {
                 if (!header) return '';
@@ -507,7 +510,7 @@ const DataImportModal: React.FC<{
             const detectedFields: string[] = [];
             const usedIndexes = new Set<number>();
 
-            const findHeaderIndex = (keywords: string[]): number | undefined => {
+            const findHeaderIndex = (keywords: string[], exclusionKeywords: string[] = []): number | undefined => {
                 let bestMatch = -1;
                 let longestKeyword = 0;
 
@@ -515,6 +518,10 @@ const DataImportModal: React.FC<{
                     if (usedIndexes.has(i)) continue;
                     const normalized = normalizeHeader(headers[i]);
                     if (!normalized) continue;
+
+                    if (exclusionKeywords.length > 0 && exclusionKeywords.some(kw => normalized.includes(kw))) {
+                        continue;
+                    }
 
                     for (const kw of keywords) {
                         if (normalized.includes(kw) && kw.length > longestKeyword) {
@@ -526,8 +533,25 @@ const DataImportModal: React.FC<{
                 return bestMatch !== -1 ? bestMatch : undefined;
             };
             
-            for (const field of ['unitId', 'ownerName', 'area', 'phone', 'email', 'status'] as const) {
-                const index = findHeaderIndex(fieldKeywords[field]);
+            // Map unitId first with the exclusion rule
+            const unitIdIndex = findHeaderIndex(unitIdKeywords, ownerExclusionKeywordsForUnitId);
+            if (unitIdIndex !== undefined) {
+                mapResult['unitId'] = unitIdIndex;
+                usedIndexes.add(unitIdIndex);
+                detectedFields.push(`${headers[unitIdIndex]} -> unitId`);
+            }
+
+            // Then map ownerName
+            const ownerNameIndex = findHeaderIndex(ownerNameKeywords);
+            if (ownerNameIndex !== undefined) {
+                mapResult['ownerName'] = ownerNameIndex;
+                usedIndexes.add(ownerNameIndex);
+                detectedFields.push(`${headers[ownerNameIndex]} -> ownerName`);
+            }
+            
+            // Map the rest of the fields
+            for (const field of ['area', 'phone', 'email', 'status'] as const) {
+                const index = findHeaderIndex(otherFields[field]);
                  if (index !== undefined) {
                     mapResult[field] = index;
                     usedIndexes.add(index);
@@ -585,7 +609,7 @@ const DataImportModal: React.FC<{
                     });
                 });
 
-                const getVal = (field: keyof typeof fieldKeywords) => {
+                const getVal = (field: keyof typeof otherFields | 'ownerName') => {
                     const idx = mapResult[field];
                     const cellValue = (idx !== undefined && row[idx] !== undefined && row[idx] !== null) ? String(row[idx]).trim() : undefined;
                     return cellValue || undefined;
