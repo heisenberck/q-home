@@ -1,5 +1,4 @@
 
-
 import React, { useState, useEffect, useCallback, createContext, useContext, useMemo, lazy, Suspense } from 'react';
 import type { Role, UserPermission, Unit, Owner, Vehicle, WaterReading, ChargeRaw, TariffService, TariffParking, TariffWater, Adjustment, InvoiceSettings, ActivityLog, VehicleTier } from './types';
 import { 
@@ -146,7 +145,8 @@ export const useLogger = () => {
 
 const App: React.FC = () => {
     // --- STATE MANAGEMENT ---
-    const [loadingState, setLoadingState] = useState<'loading' | 'loaded' | 'error'>('loading');
+    // Default to 'loaded' so the Login screen shows up immediately without waiting for data
+    const [loadingState, setLoadingState] = useState<'loading' | 'loaded' | 'error'>('loaded');
     const [errorMessage, setErrorMessage] = useState('');
     const [activePage, setActivePage] = useState<Page>('overview');
     const [theme, setTheme] = useState<'light' | 'dark'>(() => (localStorage.getItem('theme') as 'light' | 'dark') || 'light');
@@ -159,10 +159,14 @@ const App: React.FC = () => {
     const [waterReadings, setWaterReadings] = useState<WaterReading[]>([]);
     const [charges, setCharges] = useState<ChargeRaw[]>([]);
     const [tariffs, setTariffs] = useState<any>({ service: [], parking: [], water: [] });
-    const [users, setUsers] = useState<UserPermission[]>([]);
+    // Initialize users with Mock data so login works immediately
+    const [users, setUsers] = useState<UserPermission[]>(MOCK_USER_PERMISSIONS);
     const [adjustments, setAdjustments] = useState<Adjustment[]>([]);
     const [invoiceSettings, setInvoiceSettings] = useState<InvoiceSettings>(initialInvoiceSettings);
     const [activityLogs, setActivityLogs] = useState<ActivityLog[]>([]);
+
+    // --- RBAC & AUTH (Session only, no persistence) ---
+    const [currentUser, setCurrentUser] = useState<UserPermission | null>(null);
 
     const showToast = useCallback((message: string, type: ToastType = 'info', duration?: number) => {
         const newToast: ToastMessage = { id: Date.now() + Math.random(), message, type, duration };
@@ -187,7 +191,8 @@ const App: React.FC = () => {
         setCharges([]);
         setAdjustments(MOCK_ADJUSTMENTS);
         setActivityLogs([]);
-        setUsers(MOCK_USER_PERMISSIONS);
+        // Preserve users if they have been loaded/modified
+        setUsers(prev => prev.length > 0 ? prev : MOCK_USER_PERMISSIONS);
         setTariffs({ service: MOCK_TARIFFS_SERVICE, parking: MOCK_TARIFFS_PARKING, water: MOCK_TARIFFS_WATER });
         setInvoiceSettings(initialInvoiceSettings);
     }, [showToast]);
@@ -200,14 +205,20 @@ const App: React.FC = () => {
         setCharges([]);
         setAdjustments([]);
         setActivityLogs([]);
-        setUsers(MOCK_USER_PERMISSIONS); // Keep users for login
+        // Keep users for login/management
+        setUsers(prev => prev.length > 0 ? prev : MOCK_USER_PERMISSIONS);
         setTariffs({ service: MOCK_TARIFFS_SERVICE, parking: MOCK_TARIFFS_PARKING, water: MOCK_TARIFFS_WATER });
         setInvoiceSettings(initialInvoiceSettings);
     };
 
     // --- DATA FETCHING STRATEGY (DEV vs PROD) ---
     useEffect(() => {
-        const loadData = async () => {
+        // 🛡️ PROTECT DATA FLOW: Only fetch if user is logged in
+        if (!currentUser) {
+            return;
+        }
+
+        const loadData = async (retryCount = 0) => {
             setLoadingState('loading');
             const isProduction = process.env.NODE_ENV === 'production';
 
@@ -244,7 +255,8 @@ const App: React.FC = () => {
                         setCharges(chargesSnap.docs.map(d => d.data() as ChargeRaw));
                         setAdjustments(adjustmentsSnap.docs.map(d => d.data() as Adjustment));
                         const loadedUsers = usersSnap.docs.map(d => d.data() as UserPermission);
-                        setUsers(loadedUsers.length > 0 ? loadedUsers : MOCK_USER_PERMISSIONS);
+                        // If DB users exist, use them. Otherwise fallback to mock/initial to prevent lockout
+                        if (loadedUsers.length > 0) setUsers(loadedUsers);
                         setActivityLogs(activityLogsSnap.docs.map(d => d.data() as ActivityLog).sort((a,b) => b.ts.localeCompare(a.ts)));
                     } else {
                         console.warn("[Production] Found 0 documents. Hiển thị trạng thái rỗng.");
@@ -263,7 +275,7 @@ const App: React.FC = () => {
                         setCharges(chargesSnap.docs.map(d => d.data() as ChargeRaw));
                         setAdjustments(adjustmentsSnap.docs.map(d => d.data() as Adjustment));
                         const loadedUsers = usersSnap.docs.map(d => d.data() as UserPermission);
-                        setUsers(loadedUsers.length > 0 ? loadedUsers : MOCK_USER_PERMISSIONS);
+                        if (loadedUsers.length > 0) setUsers(loadedUsers);
                         setActivityLogs(activityLogsSnap.docs.map(d => d.data() as ActivityLog).sort((a,b) => b.ts.localeCompare(a.ts)));
                     } else {
                         loadMockData();
@@ -271,6 +283,15 @@ const App: React.FC = () => {
                     setLoadingState('loaded');
                 }
             } catch (error: any) {
+                // 🛡️ RETRY LOGIC: If offline, retry once after 1 second
+                const isOffline = error.message?.includes('offline') || error.code === 'unavailable' || error.message?.includes('client is offline');
+                
+                if (isOffline && retryCount < 1) {
+                    console.warn("Connection failed (offline), retrying in 1s...");
+                    setTimeout(() => loadData(retryCount + 1), 1000);
+                    return;
+                }
+
                 if (isProduction) {
                     console.error("[Production] Connection Error.", error);
                     setErrorMessage("Mất kết nối máy chủ. Vui lòng kiểm tra kết nối mạng và thử tải lại trang.");
@@ -278,15 +299,12 @@ const App: React.FC = () => {
                 } else { // Development fallback
                     console.warn("[Development] Connection Error. Falling back to mock data.", error);
                     loadMockData();
-                    setLoadingState('loaded'); // Still 'loaded' for dev UI work
+                    setLoadingState('loaded');
                 }
             }
         };
         loadData();
-    }, [loadMockData]);
-
-    // --- RBAC & AUTH (Session only, no persistence) ---
-    const [currentUser, setCurrentUser] = useState<UserPermission | null>(null);
+    }, [loadMockData, currentUser]); // Add currentUser to dependency array
 
     useEffect(() => {
         // Validate current user on startup against user list

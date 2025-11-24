@@ -1,3 +1,4 @@
+
 // firebaseConfig.ts
 import { initializeApp } from "firebase/app";
 import {
@@ -8,8 +9,7 @@ import {
   doc,
   setDoc,
   deleteDoc,
-  writeBatch,
-  enableIndexedDbPersistence
+  writeBatch
 } from "firebase/firestore";
 
 // Cấu hình Firebase của bạn
@@ -27,22 +27,10 @@ const firebaseConfig = {
 const app = initializeApp(firebaseConfig);
 
 // 🔧 FIX for Vercel deployment:
-// Removed experimentalForceLongPolling and reverted to standard initialization.
-// This allows Firebase to use WebSockets for a stable connection on Vercel.
+// Only use standard getFirestore. Removed enableIndexedDbPersistence to avoid cache conflicts causing false offline errors.
 const db = getFirestore(app);
 
-// Bật tính năng offline persistence (good for production)
-enableIndexedDbPersistence(db)
-  .catch((err) => {
-    if (err.code === 'failed-precondition') {
-      console.warn("Firebase persistence couldn't be enabled. It's likely another tab is open with persistence enabled.");
-    } else if (err.code === 'unimplemented') {
-      console.warn("The browser doesn't support all of the features required to enable persistence.");
-    }
-  });
-
-
-console.log("✅ Firebase + Firestore Initialized (standard connection, offline persistence).");
+console.log("✅ Firebase + Firestore Initialized (Standard Mode - No Persistence).");
 
 // Export các hàm và đối tượng cần thiết
 export { db, collection, getDocs, getDoc, doc, setDoc, deleteDoc, writeBatch };
