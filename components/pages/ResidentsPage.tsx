@@ -44,7 +44,7 @@ interface ResidentsPageProps {
     units: Unit[];
     owners: Owner[];
     vehicles: Vehicle[];
-    onSaveResident: (data: { unit: Unit, owner: Owner, vehicles: Vehicle[] }) => void;
+    onSaveResident: (data: { unit: Unit, owner: Owner, vehicles: Vehicle[] }) => Promise<void>;
     onImportData: (updates: any[]) => void;
     onDeleteResidents: (unitIds: Set<string>) => void;
     role: Role;
@@ -265,7 +265,7 @@ const ResidentViewModal: React.FC<{
 const ResidentDetailModal: React.FC<{
     resident: ResidentData;
     onClose: () => void;
-    onSave: (updatedData: { unit: Unit, owner: Owner, vehicles: Vehicle[] }) => void;
+    onSave: (updatedData: { unit: Unit, owner: Owner, vehicles: Vehicle[] }) => Promise<void>;
 }> = ({ resident, onClose, onSave }) => {
     const { showToast } = useNotification();
     
@@ -354,15 +354,22 @@ const ResidentDetailModal: React.FC<{
     
     const handleRemoveVehicle = (index: number) => setFormData(p => ({ ...p, vehicles: p.vehicles.filter((_, i) => i !== index) }));
     
-    const handleSubmit = (e: React.FormEvent) => {
+    const handleSubmit = async (e: React.FormEvent) => {
         e.preventDefault();
         if (Object.keys(errors).length > 0) {
             showToast('Vui lòng sửa các lỗi trong biểu mẫu trước khi lưu.', 'error');
             return;
         }
         setIsSaving(true);
-        onSave(formData);
-        onClose();
+        try {
+            await onSave(formData);
+            onClose(); // Only close on successful save
+        } catch (error) {
+            // Error toast is shown in the parent `handleSaveResident` function.
+            // The modal remains open for the user to retry or cancel.
+        } finally {
+            setIsSaving(false);
+        }
     };
 
     const handleOwnerFileUpload = async (e: React.ChangeEvent<HTMLInputElement>, docType: 'nationalId' | 'title') => {

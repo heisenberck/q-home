@@ -1,0 +1,29 @@
+// services/index.ts
+import * as firebaseAPI from './firebaseAPI';
+import * as mockAPI from './mockAPI';
+import { isProduction } from '../utils/env';
+
+const IS_PROD = isProduction();
+
+const api = IS_PROD ? firebaseAPI : mockAPI;
+
+console.log(`[System] Running in ${IS_PROD ? 'PRODUCTION' : 'DEVELOPMENT (Mock Mode)'}`);
+
+// Re-export all functions from the selected API
+export const {
+    loadAllData,
+    updateFeeSettings,
+    saveChargesBatch,
+    updateChargeStatuses,
+    updateChargePayments,
+    confirmSinglePayment,
+    updatePaymentStatusBatch,
+    updateResidentData,
+    wipeAllBusinessData,
+    saveUsers,
+    saveTariffs,
+    saveAdjustments,
+    saveWaterReadings,
+    saveVehicles,
+    importResidentsBatch
+} = api;

@@ -2,16 +2,15 @@
 
 import React, { useState, useEffect, useCallback, createContext, useContext, useMemo, lazy, Suspense } from 'react';
 import type { Role, UserPermission, Unit, Owner, Vehicle, WaterReading, ChargeRaw, TariffService, TariffParking, TariffWater, Adjustment, InvoiceSettings, ActivityLog, VehicleTier } from './types';
-import { 
-    MOCK_USER_PERMISSIONS, MOCK_TARIFFS_SERVICE, MOCK_TARIFFS_PARKING, MOCK_TARIFFS_WATER, 
-    patchKiosAreas, MOCK_UNITS, MOCK_OWNERS, MOCK_VEHICLES, MOCK_WATER_READINGS, MOCK_ADJUSTMENTS 
-} from './constants';
+import { patchKiosAreas } from './constants';
 import { UnitType } from './types';
 
-import { db } from './firebaseConfig';
-import { getDocs, collection, getDoc, doc, writeBatch } from "firebase/firestore";
+import { 
+    loadAllData, updateFeeSettings, updateResidentData, saveChargesBatch, 
+    updateChargeStatuses, updateChargePayments, confirmSinglePayment, 
+    updatePaymentStatusBatch, wipeAllBusinessData, saveUsers, saveTariffs, saveAdjustments, saveWaterReadings, saveVehicles, importResidentsBatch
+} from './services'; // Import from the new service factory
 
-import { getFeeSettings, updateFeeSettings } from './services/feeSettingsService';
 import Header from './components/layout/Header';
 import Sidebar from './components/layout/Sidebar';
 import FooterToast, { type ToastMessage, type ToastType } from './components/ui/Toast';
@@ -20,6 +19,7 @@ import LoginPage from './components/pages/LoginPage';
 import Spinner from './components/ui/Spinner';
 import { processFooterHtml } from './utils/helpers';
 import { WarningIcon } from './components/ui/Icons';
+import { isProduction } from './utils/env';
 
 // Lazy load page components
 const OverviewPage = lazy(() => import('./components/pages/OverviewPage'));
@@ -148,7 +148,6 @@ export const useLogger = () => {
 
 const App: React.FC = () => {
     // --- STATE MANAGEMENT ---
-    // Default to 'loaded' so the Login screen shows up immediately without waiting for data
     const [loadingState, setLoadingState] = useState<'loading' | 'loaded' | 'error'>('loaded');
     const [errorMessage, setErrorMessage] = useState('');
     const [activePage, setActivePage] = useState<Page>('overview');
@@ -162,14 +161,15 @@ const App: React.FC = () => {
     const [waterReadings, setWaterReadings] = useState<WaterReading[]>([]);
     const [charges, setCharges] = useState<ChargeRaw[]>([]);
     const [tariffs, setTariffs] = useState<any>({ service: [], parking: [], water: [] });
-    // Initialize users with Mock data so login works immediately
-    const [users, setUsers] = useState<UserPermission[]>(MOCK_USER_PERMISSIONS);
+    const [users, setUsers] = useState<UserPermission[]>([]);
     const [adjustments, setAdjustments] = useState<Adjustment[]>([]);
     const [invoiceSettings, setInvoiceSettings] = useState<InvoiceSettings>(initialInvoiceSettings);
     const [activityLogs, setActivityLogs] = useState<ActivityLog[]>([]);
 
-    // --- RBAC & AUTH (Session only, no persistence) ---
+    // --- RBAC & AUTH ---
     const [currentUser, setCurrentUser] = useState<UserPermission | null>(null);
+    const [usersLoaded, setUsersLoaded] = useState(false); // For pre-loading users
+    const IS_PROD = isProduction();
 
     const showToast = useCallback((message: string, type: ToastType = 'info', duration?: number) => {
         const newToast: ToastMessage = { id: Date.now() + Math.random(), message, type, duration };
@@ -180,133 +180,63 @@ const App: React.FC = () => {
         setToasts(prevToasts => prevToasts.slice(1));
     }, []);
 
-    const loadMockData = useCallback(() => {
-        console.warn("[Q-Home] Đang dùng dữ liệu giả lập (do lỗi kết nối hoặc DB trống).");
-        showToast("Đang dùng dữ liệu giả lập.", 'warn');
+    // --- DATA FETCHING ---
 
-        const patchedUnits = [...MOCK_UNITS];
-        patchKiosAreas(patchedUnits);
-
-        setUnits(patchedUnits);
-        setOwners(MOCK_OWNERS);
-        setVehicles(MOCK_VEHICLES);
-        setWaterReadings(MOCK_WATER_READINGS);
-        setCharges([]);
-        setAdjustments(MOCK_ADJUSTMENTS);
-        setActivityLogs([]);
-        // Preserve users if they have been loaded/modified
-        setUsers(prev => prev.length > 0 ? prev : MOCK_USER_PERMISSIONS);
-        setTariffs({ service: MOCK_TARIFFS_SERVICE, parking: MOCK_TARIFFS_PARKING, water: MOCK_TARIFFS_WATER });
-        setInvoiceSettings(initialInvoiceSettings);
-    }, [showToast]);
-    
-    const setEmptyData = () => {
-        setUnits([]);
-        setOwners([]);
-        setVehicles([]);
-        setWaterReadings([]);
-        setCharges([]);
-        setAdjustments([]);
-        setActivityLogs([]);
-        // Keep users for login/management
-        setUsers(prev => prev.length > 0 ? prev : MOCK_USER_PERMISSIONS);
-        setTariffs({ service: MOCK_TARIFFS_SERVICE, parking: MOCK_TARIFFS_PARKING, water: MOCK_TARIFFS_WATER });
-        setInvoiceSettings(initialInvoiceSettings);
-    };
-
-    // --- DATA FETCHING STRATEGY (DEV vs PROD) ---
+    // Pre-load users to enable login screen validation
     useEffect(() => {
-        // 🛡️ PROTECT DATA FLOW: Only fetch if user is logged in
-        if (!currentUser) {
-            return;
-        }
-
-        const loadData = async (retryCount = 0) => {
-            setLoadingState('loading');
-            const isProduction = process.env.NODE_ENV === 'production';
-
+        const fetchInitialUsers = async () => {
             try {
-                const collectionsToFetch = ['units', 'owners', 'vehicles', 'waterReadings', 'charges', 'adjustments', 'users', 'activityLogs'];
-                const promises = collectionsToFetch.map(c => getDocs(collection(db, c)));
-                
-                const snapshots = await Promise.all(promises);
-                const [unitsSnap, ownersSnap, vehiclesSnap, waterReadingsSnap, chargesSnap, adjustmentsSnap, usersSnap, activityLogsSnap] = snapshots;
-                
-                const hasData = unitsSnap.docs.length > 0;
-
-                const [loadedInvoiceSettingsResult, tariffsSnap] = await Promise.all([
-                    getFeeSettings(),
-                    getDoc(doc(db, 'settings', 'tariffs'))
-                ]);
-                
-                const loadedInvoiceSettings = loadedInvoiceSettingsResult ?? initialInvoiceSettings;
-                const loadedTariffs = tariffsSnap.exists() ? tariffsSnap.data() : { service: MOCK_TARIFFS_SERVICE, parking: MOCK_TARIFFS_PARKING, water: MOCK_TARIFFS_WATER };
-
-                setInvoiceSettings(loadedInvoiceSettings);
-                setTariffs(loadedTariffs);
-
-                if (isProduction) {
-                    if (hasData) {
-                        console.log("[Production] Đã tải dữ liệu thành công từ Firestore.");
-                        const loadedUnits = unitsSnap.docs.map(d => d.data() as Unit);
-                        patchKiosAreas(loadedUnits);
-                        setUnits(loadedUnits);
-                        setOwners(ownersSnap.docs.map(d => d.data() as Owner));
-                        setVehicles(vehiclesSnap.docs.map(d => d.data() as Vehicle));
-                        setWaterReadings(waterReadingsSnap.docs.map(d => d.data() as WaterReading));
-                        setCharges(chargesSnap.docs.map(d => d.data() as ChargeRaw));
-                        setAdjustments(adjustmentsSnap.docs.map(d => d.data() as Adjustment));
-                        const loadedUsers = usersSnap.docs.map(d => d.data() as UserPermission);
-                        // If DB users exist, use them. Otherwise fallback to mock/initial to prevent lockout
-                        if (loadedUsers.length > 0) setUsers(loadedUsers);
-                        setActivityLogs(activityLogsSnap.docs.map(d => d.data() as ActivityLog).sort((a,b) => b.ts.localeCompare(a.ts)));
-                    } else {
-                        console.warn("[Production] Found 0 documents. Hiển thị trạng thái rỗng.");
-                        setEmptyData();
-                    }
-                    setLoadingState('loaded');
-                } else { // Development Mode
-                    if (hasData) {
-                        console.log("[Development] Đang dùng dữ liệu thật từ Firestore.");
-                        const loadedUnits = unitsSnap.docs.map(d => d.data() as Unit);
-                        patchKiosAreas(loadedUnits);
-                        setUnits(loadedUnits);
-                        setOwners(ownersSnap.docs.map(d => d.data() as Owner));
-                        setVehicles(vehiclesSnap.docs.map(d => d.data() as Vehicle));
-                        setWaterReadings(waterReadingsSnap.docs.map(d => d.data() as WaterReading));
-                        setCharges(chargesSnap.docs.map(d => d.data() as ChargeRaw));
-                        setAdjustments(adjustmentsSnap.docs.map(d => d.data() as Adjustment));
-                        const loadedUsers = usersSnap.docs.map(d => d.data() as UserPermission);
-                        if (loadedUsers.length > 0) setUsers(loadedUsers);
-                        setActivityLogs(activityLogsSnap.docs.map(d => d.data() as ActivityLog).sort((a,b) => b.ts.localeCompare(a.ts)));
-                    } else {
-                        loadMockData();
-                    }
-                    setLoadingState('loaded');
-                }
-            } catch (error: any) {
-                // 🛡️ RETRY LOGIC: If offline, retry once after 1 second
-                const isOffline = error.message?.includes('offline') || error.code === 'unavailable' || error.message?.includes('client is offline');
-                
-                if (isOffline && retryCount < 1) {
-                    console.warn("Connection failed (offline), retrying in 1s...");
-                    setTimeout(() => loadData(retryCount + 1), 1000);
-                    return;
-                }
-
-                if (isProduction) {
-                    console.error("[Production] Connection Error.", error);
-                    setErrorMessage("Mất kết nối máy chủ. Vui lòng kiểm tra kết nối mạng và thử tải lại trang.");
-                    setLoadingState('error');
-                } else { // Development fallback
-                    console.warn("[Development] Connection Error. Falling back to mock data.", error);
-                    loadMockData();
-                    setLoadingState('loaded');
-                }
+                const data = await loadAllData();
+                setUsers(data.users || []);
+            } catch (error) {
+                console.error("Failed to pre-load users for login:", error);
+                setErrorMessage("Không thể tải danh sách người dùng. Vui lòng thử lại.");
+                setLoadingState('error');
+            } finally {
+                setUsersLoaded(true);
             }
         };
-        loadData();
-    }, [loadMockData, currentUser]); // Add currentUser to dependency array
+        fetchInitialUsers();
+    }, []);
+
+    // Main data fetching after user logs in
+    useEffect(() => {
+        if (!currentUser) return;
+
+        const fetchData = async () => {
+            setLoadingState('loading');
+            try {
+                const data = await loadAllData();
+                
+                const loadedUnits = data.units || [];
+                patchKiosAreas(loadedUnits);
+                
+                setUnits(loadedUnits);
+                setOwners(data.owners || []);
+                setVehicles(data.vehicles || []);
+                setWaterReadings(data.waterReadings || []);
+                setCharges(data.charges || []);
+                setAdjustments(data.adjustments || []);
+                setUsers(data.users || []);
+                setActivityLogs(data.activityLogs || []);
+                setTariffs(data.tariffs);
+                setInvoiceSettings(data.invoiceSettings || initialInvoiceSettings);
+                
+                if (!IS_PROD && !data.hasData) {
+                    showToast("Using Mock Data.", 'warn');
+                }
+
+                setLoadingState('loaded');
+            } catch (error: any) {
+                console.error("Failed to load data:", error);
+                setErrorMessage("Không thể tải dữ liệu. Vui lòng kiểm tra kết nối và thử lại.");
+                setLoadingState('error');
+            }
+        };
+
+        fetchData();
+    }, [currentUser, showToast, IS_PROD]);
+
 
     useEffect(() => {
         // Validate current user on startup against user list
@@ -349,7 +279,11 @@ const App: React.FC = () => {
 
     const handleInitialLogin = (user: UserPermission) => {
         setCurrentUser(user);
-        showToast(`Chào mừng quay trở lại, ${user.Username || user.Email.split('@')[0]}!`, 'success');
+        if (!IS_PROD) {
+            showToast('Đăng nhập chế độ Mock thành công', 'success');
+        } else {
+            showToast(`Chào mừng quay trở lại, ${user.Username || user.Email.split('@')[0]}!`, 'success');
+        }
     };
 
     const handleLogout = useCallback(() => {
@@ -375,52 +309,44 @@ const App: React.FC = () => {
     
     const toggleTheme = () => setTheme(prev => (prev === 'light' ? 'dark' : 'light'));
 
-    // --- ACTIVITY LOGGING (In-memory only) ---
+    // --- ACTIVITY LOGGING ---
     const logAction = useCallback((payload: LogPayload) => {
         if (!currentUser) return;
         const logId = `log_${Date.now()}_${Math.random().toString(36).substring(2, 9)}`;
         const newLog: ActivityLog = { id: logId, ts: new Date().toISOString(), actor_email: currentUser.Email, actor_role: currentUser.Role, undone: false, undo_token: null, undo_until: null, ...payload };
         
         setActivityLogs(prev => [newLog, ...prev].slice(0, 100));
+        // Note: In a real app, this would also call a service to save the log
     }, [currentUser]);
 
     const handleUndoAction = useCallback((logId: string) => {
-        showToast('Chức năng hoàn tác không được hỗ trợ ở chế độ dữ liệu tạm thời.', 'warn');
+        showToast('Chức năng hoàn tác chưa được hỗ trợ.', 'warn');
     }, [showToast]);
 
-    // --- DATA HANDLERS (In-memory only) ---
-    const createDataHandler = <T,>(
-        stateSetter: React.Dispatch<React.SetStateAction<T>>
-    ) => useCallback((updater: React.SetStateAction<T>, logPayload?: LogPayload) => {
-        stateSetter(updater);
-        if (logPayload) {
-            logAction(logPayload);
+    // --- DATA HANDLERS (Simplified with Service Factory) ---
+    const createDataHandler = <T, S extends (...args: any[]) => Promise<any>>(
+        stateSetter: React.Dispatch<React.SetStateAction<T>>,
+        saveFunction: S
+    ) => useCallback(async (updater: React.SetStateAction<T>, logPayload?: LogPayload) => {
+        const newState = typeof updater === 'function' ? (updater as (prevState: T) => T)(await Promise.resolve(stateSetter(s => s))) : updater;
+        try {
+            await saveFunction(newState);
+            stateSetter(newState);
+            if (logPayload) logAction(logPayload);
+            showToast('Dữ liệu đã được lưu.', 'success');
+        } catch (error) {
+            console.error("Save failed:", error);
+            showToast('Lưu dữ liệu thất bại.', 'error');
+            throw error; // Re-throw to allow UI to handle it
         }
-    }, [logAction]);
-    
-    const handleSetCharges = createDataHandler(setCharges);
-    const handleSetAdjustments = useCallback((updater: React.SetStateAction<Adjustment[]>, details: string) => {
-        setAdjustments(prev => {
-            logAction({ module: 'Billing', action: 'UPDATE_ADJUSTMENTS', summary: details, before_snapshot: prev });
-            if (typeof updater === 'function') {
-                return (updater as (prevState: Adjustment[]) => Adjustment[])(prev);
-            }
-            return updater;
-        });
-    }, [logAction]);
-    const handleSetTariffs = createDataHandler(setTariffs);
-    const handleSetWaterReadings = useCallback((updater: React.SetStateAction<WaterReading[]>, summary?: string) => {
-        setWaterReadings(prev => {
-            if (summary) {
-                logAction({ module: 'Water', action: 'BULK_UPDATE_WATER_READINGS', summary: summary, before_snapshot: prev });
-            }
-            if (typeof updater === 'function') {
-                return (updater as (prevState: WaterReading[]) => WaterReading[])(prev);
-            }
-            return updater;
-        });
-    }, [logAction]);
-    const handleSetUsers = createDataHandler(setUsers);
+    }, [logAction, showToast]);
+
+    const handleSetCharges = createDataHandler(setCharges, saveChargesBatch as any);
+    const handleSetAdjustments = createDataHandler(setAdjustments, saveAdjustments);
+    const handleSetTariffs = createDataHandler(setTariffs, saveTariffs);
+    const handleSetWaterReadings = createDataHandler(setWaterReadings, saveWaterReadings);
+    const handleSetUsers = createDataHandler(setUsers, saveUsers);
+    const handleSetVehicles = createDataHandler(setVehicles, saveVehicles);
     
     const handleSetInvoiceSettings = useCallback(async (newSettings: InvoiceSettings) => {
         try {
@@ -432,36 +358,51 @@ const App: React.FC = () => {
                 summary: 'Cập nhật Cài đặt Phiếu báo',
                 before_snapshot: invoiceSettings,
             });
-            showToast('Đã lưu cài đặt vào cơ sở dữ liệu.', 'success');
+            showToast('Đã lưu cài đặt.', 'success');
         } catch (error) {
             console.error("Error saving invoice settings:", error);
-            showToast('Lưu cài đặt thất bại. Vui lòng thử lại.', 'error');
+            showToast('Lưu cài đặt thất bại.', 'error');
             throw error;
         }
     }, [invoiceSettings, logAction, showToast]);
-
-    const handleSetVehicles = createDataHandler(setVehicles);
     
-    const handleSaveResident = useCallback((updatedData: { unit: Unit; owner: Owner; vehicles: Vehicle[] }) => {
-        const { unit, owner, vehicles: draftVehicles } = updatedData;
-        
-        setUnits(prev => prev.map(u => u.UnitID === unit.UnitID ? unit : u));
-        setOwners(prev => prev.map(o => o.OwnerID === owner.OwnerID ? owner : o));
-        
-        setVehicles(prevVehicles => {
-            const otherVehicles = prevVehicles.filter(v => v.UnitID !== unit.UnitID);
-            const processedVehicles = draftVehicles.map(v => ({...v, VehicleId: v.VehicleId.startsWith('VEH_NEW_') ? `VEH${Math.floor(1000 + Math.random() * 9000)}` : v.VehicleId, isActive: true, updatedAt: new Date().toISOString()}));
-            const originalVehicles = prevVehicles.filter(v => v.UnitID === unit.UnitID);
-            const softDeletedVehicles = originalVehicles.filter(v => !processedVehicles.some(p => p.VehicleId === v.VehicleId)).map(v => ({ ...v, isActive: false, updatedAt: new Date().toISOString() }));
-            return [...otherVehicles, ...processedVehicles, ...softDeletedVehicles];
-        });
+    const handleSaveResident = useCallback(async (updatedData: { unit: Unit; owner: Owner; vehicles: Vehicle[] }) => {
+        try {
+            const result = await updateResidentData(units, owners, vehicles, updatedData);
+            setUnits(result.units);
+            setOwners(result.owners);
+            setVehicles(result.vehicles);
+            showToast(`Đã lưu thông tin cho căn hộ ${updatedData.unit.UnitID}.`, 'success');
+            logAction({
+                module: 'Residents',
+                action: 'UPDATE_RESIDENT',
+                summary: `Cập nhật hồ sơ căn hộ ${updatedData.unit.UnitID}`,
+                ids: [updatedData.unit.UnitID],
+                before_snapshot: { units, owners, vehicles }
+            });
+        } catch (error) {
+            console.error("Failed to save resident data:", error);
+            showToast('Lỗi: Không thể lưu dữ liệu.', 'error');
+            throw error;
+        }
+    }, [vehicles, owners, units, showToast, logAction]);
 
-        showToast('Đã lưu thông tin (tạm thời).', 'success');
-    }, [showToast]);
-
+    const handleImportData = useCallback(async (updates: any[]) => {
+        try {
+            const result = await importResidentsBatch(units, owners, vehicles, updates);
+            setUnits(result.units);
+            setOwners(result.owners);
+            setVehicles(result.vehicles);
+            showToast(`Hoàn tất! Tạo mới ${result.createdCount}, cập nhật ${result.updatedCount} hộ. Xử lý ${result.vehicleCount} xe.`, 'success');
+        } catch (error) {
+            console.error("Import error:", error);
+            showToast("Lỗi khi nhập dữ liệu.", 'error');
+        }
+    }, [units, owners, vehicles, showToast]);
+    
     const handleResetResidents = useCallback((unitIds: Set<string>) => {
+        // This is a mock-only/temporary operation, so no service call needed.
         const ownerIdsToReset = new Set<string>();
-        
         setUnits(prev => {
             const newUnits = prev.map(u => {
                 if (unitIds.has(u.UnitID)) {
@@ -474,180 +415,60 @@ const App: React.FC = () => {
             setVehicles(prev => prev.filter(v => !unitIds.has(v.UnitID)));
             return newUnits;
         });
-
         showToast(`Đã xoá thông tin của ${unitIds.size} hồ sơ (tạm thời).`, 'success');
     }, [showToast]);
 
-    const handleImportData = useCallback(async (updates: any[]) => {
-        if (!updates || updates.length === 0) {
-            showToast('Không có dữ liệu để import.', 'info');
-            return;
-        }
-    
-        const batch = writeBatch(db);
-        
-        const currentUnits = [...units];
-        const currentOwners = [...owners];
-        const currentVehicles = [...vehicles];
-        
-        const nextUnits = [...units];
-        const nextOwners = [...owners];
-        const nextVehicles = [...vehicles];
-    
-        let createdCount = 0;
-        let updatedCount = 0;
-        let vehicleCount = 0;
-    
-        updates.forEach(update => {
-            const unitId = String(update.unitId).trim();
-            if (!unitId) return;
-    
-            let unit = currentUnits.find(u => u.UnitID === unitId);
-    
-            if (!unit) { // CREATE NEW
-                const newOwnerId = `OWN_IMP_${Date.now()}_${Math.random().toString(36).substring(2, 7)}`;
-                const newOwner: Owner = {
-                    OwnerID: newOwnerId,
-                    OwnerName: update.ownerName || '[Chưa có tên]',
-                    Phone: update.phone || '',
-                    Email: update.email || '',
-                };
-                const ownerRef = doc(db, "owners", newOwnerId);
-                batch.set(ownerRef, newOwner);
-                nextOwners.push(newOwner);
-    
-                const newUnit: Unit = {
-                    UnitID: unitId,
-                    OwnerID: newOwnerId,
-                    UnitType: update.unitType || (unitId.startsWith('K') ? UnitType.KIOS : UnitType.APARTMENT),
-                    Area_m2: parseFloat(update.area) || 0,
-                    Status: update.status || 'Owner',
-                };
-                const unitRef = doc(db, "units", unitId);
-                batch.set(unitRef, newUnit);
-                nextUnits.push(newUnit);
-                
-                unit = newUnit;
-                createdCount++;
-    
-            } else { // UPDATE EXISTING
-                const unitChanges: Partial<Unit> = {};
-                if (update.status) unitChanges.Status = update.status;
-                if (update.area) unitChanges.Area_m2 = parseFloat(update.area) || unit.Area_m2;
-                if (update.unitType) unitChanges.UnitType = update.unitType;
-    
-                if (Object.keys(unitChanges).length > 0) {
-                    const unitRef = doc(db, "units", unitId);
-                    batch.update(unitRef, unitChanges);
-                    
-                    const unitIndex = nextUnits.findIndex(u => u.UnitID === unitId);
-                    if (unitIndex !== -1) nextUnits[unitIndex] = { ...nextUnits[unitIndex], ...unitChanges };
-                }
-    
-                const ownerChanges: Partial<Owner> = {};
-                if (update.ownerName !== undefined) ownerChanges.OwnerName = update.ownerName;
-                if (update.phone !== undefined) ownerChanges.Phone = update.phone;
-                if (update.email !== undefined) ownerChanges.Email = update.email;
-                
-                if (Object.keys(ownerChanges).length > 0) {
-                    const ownerRef = doc(db, "owners", unit.OwnerID);
-                    batch.update(ownerRef, ownerChanges);
-    
-                    const ownerIndex = nextOwners.findIndex(o => o.OwnerID === unit!.OwnerID);
-                    if (ownerIndex !== -1) nextOwners[ownerIndex] = { ...nextOwners[ownerIndex], ...ownerChanges };
-                }
-                updatedCount++;
-            }
-            
-            if (update.vehicles && Array.isArray(update.vehicles)) {
-                update.vehicles.forEach((vImport: { PlateNumber: string; Type: VehicleTier; VehicleName: string; parkingStatus?: Vehicle['parkingStatus'] }) => {
-                    const normPlate = String(vImport.PlateNumber || '').replace(/\s/g, '').toLowerCase();
-                    if (!normPlate) return;
-    
-                    const existingVehicle = currentVehicles.find(v => v.PlateNumber.replace(/\s/g, '').toLowerCase() === normPlate);
-                    
-                    if (existingVehicle) {
-                        const vehicleRef = doc(db, "vehicles", existingVehicle.VehicleId);
-                        const vehicleChanges: Partial<Vehicle> = {
-                            UnitID: unitId,
-                            isActive: true,
-                            Type: vImport.Type || existingVehicle.Type,
-                            VehicleName: vImport.VehicleName || existingVehicle.VehicleName,
-                        };
-                        if (vImport.parkingStatus) {
-                            vehicleChanges.parkingStatus = vImport.parkingStatus;
-                        }
-                        batch.update(vehicleRef, vehicleChanges);
-    
-                        const vIndex = nextVehicles.findIndex(v => v.VehicleId === existingVehicle.VehicleId);
-                        if (vIndex !== -1) nextVehicles[vIndex] = { ...nextVehicles[vIndex], ...vehicleChanges as Vehicle };
-    
-                    } else {
-                        const newVehicleId = `VEH_IMP_${Date.now()}_${Math.random().toString(36).substring(2, 7)}`;
-                        const newVehicle: Vehicle = {
-                            VehicleId: newVehicleId,
-                            UnitID: unitId,
-                            PlateNumber: vImport.PlateNumber,
-                            Type: vImport.Type,
-                            VehicleName: vImport.VehicleName || '',
-                            StartDate: new Date().toISOString().split('T')[0],
-                            isActive: true,
-                            documents: {},
-                            parkingStatus: vImport.parkingStatus || null,
-                        };
-                        const vehicleRef = doc(db, "vehicles", newVehicleId);
-                        batch.set(vehicleRef, newVehicle);
-                        nextVehicles.push(newVehicle);
-                    }
-                    vehicleCount++;
-                });
-            }
-        });
-    
+    const handleRestoreAllData = useCallback(async (data: AppData) => {
         try {
-            await batch.commit();
-            setUnits(nextUnits);
-            setOwners(nextOwners);
-            setVehicles(nextVehicles);
-            showToast(`Hoàn tất! Tạo mới ${createdCount}, cập nhật ${updatedCount} hộ. Xử lý ${vehicleCount} xe. Dữ liệu đã được lưu vào Firestore.`, 'success');
-        } catch (error) {
-            console.error("Firebase batch import error:", error);
-            showToast("Lỗi khi lưu dữ liệu vào cơ sở dữ liệu. Vui lòng thử lại.", 'error');
-        }
-    
-    }, [units, owners, vehicles, showToast]);
-    
-    const handleRestoreAllData = useCallback((data: AppData) => {
-        if (data.units && Array.isArray(data.units)) {
-            patchKiosAreas(data.units);
-        }
-        setUnits(data.units || []); 
-        setOwners(data.owners || []); 
-        setVehicles(data.vehicles || []);
-        setWaterReadings(data.waterReadings || []); 
-        setCharges(data.charges || []);
-        setTariffs(data.tariffs || { service: [], parking: [], water: [] }); 
-        setUsers(data.users || []);
-        setAdjustments(data.adjustments || []); 
-        setInvoiceSettings(data.invoiceSettings || initialInvoiceSettings);
-        
-        if (data.lockedPeriods) {
-            localStorage.setItem('lockedBillingPeriods', JSON.stringify(data.lockedPeriods));
-        }
+            await wipeAllBusinessData(() => {}); // Perform wipe in the service
+            // Now, batch-write the new data
+            const batchPromises = [
+                importResidentsBatch([], [], [], data.units.map(u => {
+                    const owner = data.owners.find(o => o.OwnerID === u.OwnerID);
+                    return { unitId: u.UnitID, ownerName: owner?.OwnerName, phone: owner?.Phone, email: owner?.Email, status: u.Status, area: u.Area_m2, unitType: u.UnitType, vehicles: [] };
+                })),
+                saveVehicles(data.vehicles),
+                saveWaterReadings(data.waterReadings),
+                saveChargesBatch(data.charges as any),
+                saveTariffs(data.tariffs),
+                saveUsers(data.users),
+                saveAdjustments(data.adjustments),
+                updateFeeSettings(data.invoiceSettings)
+            ];
+            await Promise.all(batchPromises);
 
-        showToast('Dữ liệu đã được phục hồi (tạm thời)!', 'success');
+            // Set state after successful save
+            if (data.units && Array.isArray(data.units)) patchKiosAreas(data.units);
+            setUnits(data.units || []); 
+            setOwners(data.owners || []); 
+            setVehicles(data.vehicles || []);
+            setWaterReadings(data.waterReadings || []); 
+            setCharges(data.charges || []);
+            setTariffs(data.tariffs || { service: [], parking: [], water: [] }); 
+            setUsers(data.users || []);
+            setAdjustments(data.adjustments || []); 
+            setInvoiceSettings(data.invoiceSettings || initialInvoiceSettings);
+            
+            if (data.lockedPeriods) {
+                localStorage.setItem('lockedBillingPeriods', JSON.stringify(data.lockedPeriods));
+            }
+            showToast('Dữ liệu đã được phục hồi thành công!', 'success');
+        } catch (error) {
+            console.error("Restore failed:", error);
+            showToast('Phục hồi dữ liệu thất bại!', 'error');
+        }
     }, [showToast]);
 
     // --- PAGE RENDERING ---
     const renderPage = () => {
         switch (activePage) {
             case 'overview': return <OverviewPage allUnits={units} allOwners={owners} allVehicles={vehicles} allWaterReadings={waterReadings} charges={charges} />;
-            case 'billing': return <BillingPage charges={charges} setCharges={handleSetCharges} allData={{ units, owners, vehicles, waterReadings, tariffs, adjustments }} onUpdateAdjustments={handleSetAdjustments} role={role!} invoiceSettings={invoiceSettings} />;
+            case 'billing': return <BillingPage charges={charges} setCharges={handleSetCharges as any} allData={{ units, owners, vehicles, waterReadings, tariffs, adjustments }} onUpdateAdjustments={handleSetAdjustments as any} role={role!} invoiceSettings={invoiceSettings} />;
             case 'residents': return <ResidentsPage units={units} owners={owners} vehicles={vehicles} onSaveResident={handleSaveResident} onImportData={handleImportData} onDeleteResidents={handleResetResidents} role={role!} currentUser={currentUser!} />;
-            case 'vehicles': return <VehiclesPage vehicles={vehicles} units={units} owners={owners} onSetVehicles={handleSetVehicles} role={role!} />;
-            case 'water': return <WaterPage waterReadings={waterReadings} setWaterReadings={handleSetWaterReadings} allUnits={units} role={role!} />;
-            case 'pricing': return <PricingPage tariffs={tariffs} setTariffs={handleSetTariffs} role={role!} />;
-            case 'users': return <UsersPage users={users} setUsers={handleSetUsers} role={role!} />;
+            case 'vehicles': return <VehiclesPage vehicles={vehicles} units={units} owners={owners} onSetVehicles={handleSetVehicles as any} role={role!} />;
+            case 'water': return <WaterPage waterReadings={waterReadings} setWaterReadings={handleSetWaterReadings as any} allUnits={units} role={role!} />;
+            case 'pricing': return <PricingPage tariffs={tariffs} setTariffs={handleSetTariffs as any} role={role!} />;
+            case 'users': return <UsersPage users={users} setUsers={handleSetUsers as any} role={role!} />;
             case 'settings': return <SettingsPage invoiceSettings={invoiceSettings} setInvoiceSettings={handleSetInvoiceSettings} role={role!} />;
             case 'backup': return <BackupRestorePage allData={{ units, owners, vehicles, waterReadings, charges, tariffs, users, adjustments, invoiceSettings }} onRestore={handleRestoreAllData} role={role!} />;
             case 'activityLog': return <ActivityLogPage logs={activityLogs} onUndo={handleUndoAction} role={role!} />;
@@ -659,7 +480,7 @@ const App: React.FC = () => {
     const processedFooter = useMemo(() => processFooterHtml(invoiceSettings.footerHtml), [invoiceSettings.footerHtml]);
     const footerStyle = useMemo<React.CSSProperties>(() => ({ display: toasts.length > 0 ? 'none' : 'flex', justifyContent: {left: 'flex-start', center: 'center', right: 'flex-end'}[invoiceSettings.footerAlign || 'center'], fontSize: {sm: '0.75rem', md: '0.875rem', lg: '1rem'}[invoiceSettings.footerFontSize || 'sm'] }), [toasts.length, invoiceSettings.footerAlign, invoiceSettings.footerFontSize]);
     
-    if (loadingState === 'loading') {
+    if (!usersLoaded || (currentUser && loadingState === 'loading')) {
         return <div className="flex h-screen w-screen items-center justify-center bg-light-bg dark:bg-dark-bg"><Spinner /></div>;
     }
 
@@ -698,6 +519,11 @@ const App: React.FC = () => {
                     <FooterToast toast={toasts[0] || null} onClose={handleCloseToast} />
                 </div>
             </div>
+            {!IS_PROD && (
+              <div className="fixed bottom-2 left-2 z-50 px-2 py-0.5 bg-red-600 text-white text-[10px] font-bold rounded shadow-sm opacity-70 hover:opacity-100 pointer-events-none">
+                DEV
+              </div>
+            )}
             <LoginModal isOpen={isLoginModalOpen} onClose={() => setIsLoginModalOpen(false)} onLogin={handleLoginAttempt} userToSwitchTo={userToSwitchTo} error={loginError} />
         </AppContext.Provider>
     );

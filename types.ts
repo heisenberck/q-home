@@ -2,7 +2,8 @@
 
 export type Role = 'Admin' | 'Accountant' | 'Operator' | 'Viewer';
 
-export type PaymentStatus = 'pending' | 'unpaid' | 'paid';
+// UPDATED: Added 'reconciling' status for bank statement imports
+export type PaymentStatus = 'pending' | 'unpaid' | 'paid' | 'reconciling';
 
 export interface UserPermission {
     Email: string;
@@ -156,6 +157,9 @@ export interface ChargeRaw {
     CreatedAt: string; // ISO 8601
     Locked: boolean;
     paymentStatus: PaymentStatus;
+    // NEW: Added for delivery status tracking
+    isPrinted?: boolean;
+    isSent?: boolean;
 }
 
 // FIX: Add TariffCollection and AllData interfaces to be shared across components.

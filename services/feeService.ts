@@ -143,7 +143,8 @@ export const calculateChargesBatch = async (
             WaterFee_Total: waterFee.gross,
             Adjustments: adjustmentsTotal,
             TotalDue: money(totalDue),
-            TotalPaid: money(totalDue), // Default to full amount
+            // UPDATED LOGIC: Pre-fill paid amount but set status to pending
+            TotalPaid: money(totalDue),
             PaymentConfirmed: false,
             paymentStatus: 'pending' as PaymentStatus,
         };

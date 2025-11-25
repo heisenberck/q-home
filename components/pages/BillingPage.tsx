@@ -4,6 +4,13 @@ import type { Unit, ChargeRaw, Vehicle, WaterReading, Adjustment, Owner, AllData
 import { UnitType, ParkingTariffTier } from '../../types';
 import NoticePreviewModal from '../NoticePreviewModal';
 import { calculateChargesBatch } from '../../services/feeService';
+import { 
+    saveChargesBatch as saveChargesBatchAPI, 
+    updateChargeStatuses, 
+    updateChargePayments,
+    confirmSinglePayment,
+    updatePaymentStatusBatch
+} from '../../services';
 import { useNotification } from '../../App';
 import { 
     RefreshIcon, SearchIcon, TagIcon, BuildingIcon, ChevronLeftIcon, 
@@ -536,7 +543,7 @@ const BillingPage: React.FC<BillingPageProps> = ({ charges, setCharges, allData,
     const [progress, setProgress] = useState({ current: 0, total: 0 });
     const [previewCharge, setPreviewCharge] = useState<ChargeRaw | null>(null);
     const [searchTerm, setSearchTerm] = useState('');
-    const [statusFilter, setStatusFilter] = useState<'all' | PaymentStatus>('all');
+    const [statusFilter, setStatusFilter] = useState('all');
     const [typeFilter, setTypeFilter] = useState<'all' | UnitType>('all');
     const [selectedUnits, setSelectedUnits] = useState<Set<string>>(new Set());
     
@@ -623,7 +630,6 @@ const BillingPage: React.FC<BillingPageProps> = ({ charges, setCharges, allData,
             }
 
             const s = searchTerm.toLowerCase();
-            // FIX: Handle undefined OwnerName safely
             if (s && !(c.UnitID.toLowerCase().includes(s) || (c.OwnerName || '').toLowerCase().includes(s))) return false;
             return true;
         });
@@ -684,16 +690,20 @@ const BillingPage: React.FC<BillingPageProps> = ({ charges, setCharges, allData,
                 return { unit, owner, vehicles: allData.vehicles.filter(v => v.UnitID === unit.UnitID), waterReading, adjustments: allData.adjustments.filter(a => a.UnitID === unit.UnitID && a.Period === period) };
             });
 
-            const newCharges = await calculateChargesBatch(period, calculationInputs, allData);
-            const updater = (prev: ChargeRaw[]) => [...prev.filter(c => c.Period !== period), ...newCharges.map(c => ({...c, CreatedAt: new Date().toISOString(), Locked: false, paymentStatus: 'pending' as PaymentStatus}))];
+            const newChargesFromCalc = await calculateChargesBatch(period, calculationInputs, allData);
+            const newChargesWithMeta = newChargesFromCalc.map(c => ({...c, CreatedAt: new Date().toISOString(), Locked: false }));
+            
+            await saveChargesBatchAPI(newChargesWithMeta);
+
+            const updater = (prev: ChargeRaw[]) => [...prev.filter(c => c.Period !== period), ...newChargesWithMeta];
             setCharges(updater, {
                 module: 'Billing',
                 action: 'CALCULATE_CHARGES',
-                summary: `Tính phí cho kỳ ${period} - ${newCharges.length} căn hộ`,
-                count: newCharges.length
+                summary: `Tính phí cho kỳ ${period} - ${newChargesWithMeta.length} căn hộ`,
+                count: newChargesWithMeta.length
             });
 
-            showToast(`Tính phí hoàn tất cho ${newCharges.length} căn hộ.`, 'success');
+            showToast(`Tính phí hoàn tất cho ${newChargesWithMeta.length} căn hộ.`, 'success');
         } catch (error) {
             console.error("Calculation failed", error);
             showToast('Quá trình tính phí xảy ra lỗi.', 'error');
@@ -758,20 +768,24 @@ const BillingPage: React.FC<BillingPageProps> = ({ charges, setCharges, allData,
         }
     }, [primaryActionState, period, role, showToast, runInitialCalculation, runRecalculation, isDataStale]);
 
-    const handleBulkSetStatus = useCallback((targetStatus: 'paid' | 'unpaid') => {
+    const handleBulkSetStatus = useCallback(async (targetStatus: 'paid' | 'unpaid') => {
         if (selectedUnits.size === 0) return;
         if (role === 'Operator') { showToast('Bạn không có quyền.', 'error'); return; }
+        
+        const unitIds = Array.from(selectedUnits);
+        await updatePaymentStatusBatch(period, unitIds, targetStatus, charges);
     
         const updater = (prev: ChargeRaw[]) => prev.map(c => {
             if (c.Period === period && selectedUnits.has(c.UnitID)) {
-                if (targetStatus === 'unpaid') {
-                    // FIX: Explicitly cast string literals to PaymentStatus to satisfy TypeScript.
-                    // When marking as unpaid, reset payment details to allow re-entry
-                    return { ...c, paymentStatus: 'unpaid' as PaymentStatus, PaymentConfirmed: false, TotalPaid: c.TotalDue };
+                const updatedCharge = { ...c, paymentStatus: targetStatus };
+                if (targetStatus === 'paid') {
+                    updatedCharge.PaymentConfirmed = true;
+                    updatedCharge.TotalPaid = c.TotalDue; // Assume paid in full for bulk action
+                } else { // unpaid
+                    updatedCharge.PaymentConfirmed = false;
+                    updatedCharge.TotalPaid = 0; // Reset paid amount
                 }
-                // FIX: Explicitly cast string literals to PaymentStatus to satisfy TypeScript.
-                // When marking as paid, confirm the full amount
-                return { ...c, paymentStatus: 'paid' as PaymentStatus, PaymentConfirmed: true, TotalPaid: c.TotalDue };
+                return updatedCharge;
             }
             return c;
         });
@@ -781,12 +795,13 @@ const BillingPage: React.FC<BillingPageProps> = ({ charges, setCharges, allData,
             action: 'BULK_UPDATE_CHARGE_STATUS',
             summary: `Đánh dấu '${targetStatus}' cho ${selectedUnits.size} căn hộ kỳ ${period}`,
             count: selectedUnits.size,
-            ids: Array.from(selectedUnits)
+            ids: unitIds
         });
     
         showToast(`Đã đánh dấu ${targetStatus} cho ${selectedUnits.size} căn`, 'success');
         setSelectedUnits(new Set());
-    }, [period, role, selectedUnits, setCharges, showToast]);
+    }, [period, role, selectedUnits, setCharges, showToast, charges]);
+
 
     const handleExportReport = useCallback(() => {
         if (primaryActionState === 'calculate') { showToast('Vui lòng tính phí trước khi xuất báo cáo.', 'error'); return; }
@@ -794,7 +809,6 @@ const BillingPage: React.FC<BillingPageProps> = ({ charges, setCharges, allData,
         const targets = selectedUnits.size > 0 ? charges.filter(c => c.Period === period && selectedUnits.has(c.UnitID)) : sortedAndFilteredCharges;
         if (targets.length === 0) { showToast('Không có dữ liệu để xuất báo cáo.', 'info'); return; }
 
-        // BOM for Excel to read UTF-8 correctly
         const BOM = "\uFEFF";
         const headers = [
             'Kỳ', 'Căn hộ', 'Chủ hộ', 'Diện tích (m2)', 
@@ -806,24 +820,15 @@ const BillingPage: React.FC<BillingPageProps> = ({ charges, setCharges, allData,
 
         targets.forEach(c => {
             const diff = c.TotalDue - c.TotalPaid;
-            const statusText = c.paymentStatus === 'paid' ? 'Đã nộp' : c.paymentStatus === 'unpaid' ? 'Chưa nộp' : 'Chờ xử lý';
+            let statusText = 'Chờ xử lý';
+            if (c.paymentStatus === 'paid') statusText = 'Đã nộp';
+            if (c.paymentStatus === 'unpaid') statusText = 'Chưa nộp';
+            if (c.paymentStatus === 'reconciling') statusText = 'Chờ đối soát';
             
             const line = [
-                `"${c.Period}"`,
-                `"${c.UnitID}"`,
-                `"${c.OwnerName}"`,
-                c.Area_m2,
-                c.ServiceFee_Total,
-                c['#CAR'] + c['#CAR_A'],
-                c['#MOTORBIKE'],
-                c.ParkingFee_Total,
-                c.Water_m3,
-                c.WaterFee_Total,
-                c.Adjustments,
-                c.TotalDue,
-                c.TotalPaid,
-                diff,
-                `"${statusText}"`
+                `"${c.Period}"`, `"${c.UnitID}"`, `"${c.OwnerName}"`, c.Area_m2,
+                c.ServiceFee_Total, c['#CAR'] + c['#CAR_A'], c['#MOTORBIKE'], c.ParkingFee_Total,
+                c.Water_m3, c.WaterFee_Total, c.Adjustments, c.TotalDue, c.TotalPaid, diff, `"${statusText}"`
             ];
             rows.push(line.join(','));
         });
@@ -847,11 +852,7 @@ const BillingPage: React.FC<BillingPageProps> = ({ charges, setCharges, allData,
         if (targets.length === 0) { showToast('Không có dữ liệu để xuất file.', 'info'); return; }
     
         try {
-            await Promise.all([
-                loadScript('jspdf'),
-                loadScript('html2canvas'),
-                loadScript('jszip')
-            ]);
+            await Promise.all([ loadScript('jspdf'), loadScript('html2canvas'), loadScript('jszip') ]);
         } catch (error) {
             showToast('Không thể tải thư viện xuất file. Vui lòng thử lại.', 'error');
             return;
@@ -889,8 +890,14 @@ const BillingPage: React.FC<BillingPageProps> = ({ charges, setCharges, allData,
             const zip = new JSZip(); files.forEach(f => zip.file(f.name, f.blob));
             downloadBlob(await zip.generateAsync({ type: 'blob' }), `Invoices_${period}.zip`);
         }
-        if (files.length > 0) { showToast(`Successfully downloaded ${files.length} invoices.`, 'success'); }
-    }, [primaryActionState, period, selectedUnits, charges, sortedAndFilteredCharges, allData, invoiceSettings, showToast]);
+        
+        if (files.length > 0) {
+            showToast(`Successfully downloaded ${files.length} invoices.`, 'success');
+            const unitIds = targets.map(t => t.UnitID);
+            await updateChargeStatuses(period, unitIds, { isPrinted: true });
+            setCharges(prev => prev.map(c => unitIds.includes(c.UnitID) && c.Period === period ? {...c, isPrinted: true} : c));
+        }
+    }, [primaryActionState, period, selectedUnits, charges, sortedAndFilteredCharges, allData, invoiceSettings, showToast, setCharges]);
     
     const handleBulkSendEmail = useCallback(async () => {
         const recipients = charges.filter(c => c.Period === period && selectedUnits.has(c.UnitID) && c.Email);
@@ -902,12 +909,10 @@ const BillingPage: React.FC<BillingPageProps> = ({ charges, setCharges, allData,
         showToast(`Bắt đầu gửi email tới ${recipients.length} người nhận...`, 'info');
         let successCount = 0;
         let failCount = 0;
+        const sentUnitIds: string[] = [];
 
         try {
-            await Promise.all([
-                loadScript('jspdf'),
-                loadScript('html2canvas'),
-            ]);
+            await Promise.all([ loadScript('jspdf'), loadScript('html2canvas'), ]);
         } catch(error) {
             showToast('Không thể tải thư viện PDF để đính kèm. Vui lòng thử lại.', 'error');
             return;
@@ -915,8 +920,6 @@ const BillingPage: React.FC<BillingPageProps> = ({ charges, setCharges, allData,
 
         for (const [index, charge] of recipients.entries()) {
             showToast(`[${index + 1}/${recipients.length}] Đang tạo PDF cho ${charge.UnitID}...`, 'info', 3000);
-
-            // 1. Generate PDF in memory
             let attachment: Attachment | undefined;
             try {
                 const host = document.createElement('div');
@@ -931,10 +934,7 @@ const BillingPage: React.FC<BillingPageProps> = ({ charges, setCharges, allData,
                 host.remove();
                 
                 const base64Data = pdf.output('datauristring').split(',')[1];
-                attachment = {
-                    name: `PhieuBaoPhi_${charge.UnitID}_${charge.Period}.pdf`,
-                    data: base64Data
-                };
+                attachment = { name: `PhieuBaoPhi_${charge.UnitID}_${charge.Period}.pdf`, data: base64Data };
             } catch (e) {
                 console.error(`Failed to generate PDF for ${charge.UnitID}`, e);
                 showToast(`Lỗi tạo PDF cho ${charge.UnitID}, bỏ qua...`, 'error');
@@ -943,30 +943,32 @@ const BillingPage: React.FC<BillingPageProps> = ({ charges, setCharges, allData,
             }
 
             showToast(`[${index + 1}/${recipients.length}] Đang gửi mail cho ${charge.UnitID}...`, 'info', 3000);
-            
-            // 2. Personalize Subject and generate HTML Body
             const subjectTemplate = invoiceSettings.emailSubject || '[BQL HUD3] Thông báo phí dịch vụ kỳ {{period}} cho căn hộ {{unit_id}}';
             const personalizedSubject = subjectTemplate.replace(/{{unit_id}}/g, charge.UnitID).replace(/{{owner_name}}/g, charge.OwnerName).replace(/{{period}}/g, charge.Period).replace(/{{total_due}}/g, formatCurrency(charge.TotalDue));
-
             const bodyTemplate = invoiceSettings.emailBody || '';
             const personalizedBody = bodyTemplate.replace(/{{unit_id}}/g, charge.UnitID).replace(/{{owner_name}}/g, charge.OwnerName).replace(/{{period}}/g, charge.Period).replace(/{{total_due}}/g, formatCurrency(charge.TotalDue));
             const emailBodyHtml = generateEmailHtmlForCharge(charge, allData, invoiceSettings, personalizedBody);
-
             const result = await sendEmailAPI(charge.Email, personalizedSubject, emailBodyHtml, invoiceSettings, attachment);
 
             if (result.success) {
                 successCount++;
+                sentUnitIds.push(charge.UnitID);
             } else {
                 failCount++;
                 showToast(`Gửi mail thất bại cho ${charge.UnitID}: ${result.error}`, 'error', 8000);
             }
             
-            await new Promise(resolve => setTimeout(resolve, 500)); // Small delay between emails
+            await new Promise(resolve => setTimeout(resolve, 500));
+        }
+
+        if (sentUnitIds.length > 0) {
+            await updateChargeStatuses(period, sentUnitIds, { isSent: true });
+            setCharges(prev => prev.map(c => sentUnitIds.includes(c.UnitID) && c.Period === period ? {...c, isSent: true} : c));
         }
 
         showToast(`Hoàn tất gửi mail: ${successCount} thành công, ${failCount} thất bại.`, failCount > 0 ? 'warn' : 'success', 10000);
         setSelectedUnits(new Set());
-    }, [charges, period, selectedUnits, allData, invoiceSettings, showToast]);
+    }, [charges, period, selectedUnits, allData, invoiceSettings, showToast, setCharges]);
 
     const handleSendSingleEmail = useCallback(async (charge: ChargeRaw) => {
         if (!charge.Email) {
@@ -976,16 +978,12 @@ const BillingPage: React.FC<BillingPageProps> = ({ charges, setCharges, allData,
         showToast(`Đang chuẩn bị email cho căn hộ ${charge.UnitID}...`, 'info');
         
         try {
-            await Promise.all([
-                loadScript('jspdf'),
-                loadScript('html2canvas'),
-            ]);
+            await Promise.all([ loadScript('jspdf'), loadScript('html2canvas'), ]);
         } catch(error) {
             showToast('Không thể tải thư viện PDF để đính kèm. Vui lòng thử lại.', 'error');
             return;
         }
 
-        // 1. Generate PDF in memory
         let attachment: Attachment | undefined;
         try {
             const host = document.createElement('div');
@@ -1000,101 +998,80 @@ const BillingPage: React.FC<BillingPageProps> = ({ charges, setCharges, allData,
             host.remove();
             
             const base64Data = pdf.output('datauristring').split(',')[1];
-            attachment = {
-                name: `PhieuBaoPhi_${charge.UnitID}_${charge.Period}.pdf`,
-                data: base64Data
-            };
+            attachment = { name: `PhieuBaoPhi_${charge.UnitID}_${charge.Period}.pdf`, data: base64Data };
         } catch (e) {
             console.error(`Failed to generate PDF for ${charge.UnitID}`, e);
             showToast(`Lỗi tạo PDF cho ${charge.UnitID}, email sẽ được gửi không có đính kèm.`, 'error');
         }
 
-        // 2. Personalize Subject and generate HTML Body
         const subjectTemplate = invoiceSettings.emailSubject || '[BQL HUD3] Thông báo phí dịch vụ kỳ {{period}} cho căn hộ {{unit_id}}';
         const personalizedSubject = subjectTemplate.replace(/{{unit_id}}/g, charge.UnitID).replace(/{{owner_name}}/g, charge.OwnerName).replace(/{{period}}/g, charge.Period).replace(/{{total_due}}/g, formatCurrency(charge.TotalDue));
-        
         const bodyTemplate = invoiceSettings.emailBody || '';
         const personalizedBody = bodyTemplate.replace(/{{unit_id}}/g, charge.UnitID).replace(/{{owner_name}}/g, charge.OwnerName).replace(/{{period}}/g, charge.Period).replace(/{{total_due}}/g, formatCurrency(charge.TotalDue));
         const emailBodyHtml = generateEmailHtmlForCharge(charge, allData, invoiceSettings, personalizedBody);
-
         const result = await sendEmailAPI(charge.Email, personalizedSubject, emailBodyHtml, invoiceSettings, attachment);
 
         if (result.success) {
             showToast(`Yêu cầu gửi email đã được thực hiện cho ${charge.UnitID}.`, 'success');
+            await updateChargeStatuses(period, [charge.UnitID], { isSent: true });
+            setCharges(prev => prev.map(c => (c.UnitID === charge.UnitID && c.Period === period) ? {...c, isSent: true} : c));
         } else {
             showToast(`Gửi mail thất bại cho ${charge.UnitID}: ${result.error}`, 'error', 10000);
         }
-    }, [allData, invoiceSettings, showToast]);
+    }, [allData, invoiceSettings, showToast, period, setCharges]);
     
     const handlePaymentChange = (unitId: string, value: string) => {
         const digits = value.replace(/\D/g, '');
         const amount = parseInt(digits, 10);
-        
-        if (digits.length > 9) {
-            return;
-        }
-
+        if (digits.length > 9) return;
         setEditedPayments(prev => ({ ...prev, [unitId]: isNaN(amount) ? 0 : amount }));
     };
     
-    const handleConfirmPayment = (charge: ChargeRaw) => {
+    const handleConfirmPayment = async (charge: ChargeRaw) => {
         const finalPaidAmount = editedPayments[charge.UnitID] ?? charge.TotalPaid;
-        const difference = finalPaidAmount - charge.TotalDue;
+        
+        await confirmSinglePayment(charge, finalPaidAmount);
 
+        // Update local state for charge
         const chargeUpdater = (prev: ChargeRaw[]) => prev.map(c =>
             (c.UnitID === charge.UnitID && c.Period === period)
-                // FIX: Explicitly cast 'paid' to PaymentStatus to satisfy TypeScript.
                 ? { ...c, TotalPaid: finalPaidAmount, PaymentConfirmed: true, paymentStatus: 'paid' as PaymentStatus }
                 : c
         );
         setCharges(chargeUpdater, {
-            module: 'Billing',
-            action: 'CONFIRM_PAYMENT',
+            module: 'Billing', action: 'CONFIRM_PAYMENT',
             summary: `Xác nhận thanh toán ${formatNumber(finalPaidAmount)} cho ${charge.UnitID}`,
-            count: 1,
-            ids: [charge.UnitID]
+            count: 1, ids: [charge.UnitID]
         });
 
+        // Update local state for adjustment if created
+        const difference = finalPaidAmount - charge.TotalDue;
         if (difference !== 0) {
             const nextPeriodDate = new Date(period + '-02');
             nextPeriodDate.setMonth(nextPeriodDate.getMonth() + 1);
             const nextPeriod = nextPeriodDate.toISOString().slice(0, 7);
-
-            const newAdjustment: Adjustment = {
-                UnitID: charge.UnitID,
-                Period: nextPeriod,
-                Amount: -difference,
-                Description: `Công nợ kỳ trước`,
-                SourcePeriod: period,
-            };
-
-            const adjustmentUpdater = (prev: Adjustment[]) => [...prev.filter(a => !(a.UnitID === newAdjustment.UnitID && a.SourcePeriod === newAdjustment.SourcePeriod)), newAdjustment];
-            onUpdateAdjustments(adjustmentUpdater, `Created adjustment for ${charge.UnitID} from period ${period}`);
+            const newAdjustment: Adjustment = { UnitID: charge.UnitID, Period: nextPeriod, Amount: -difference, Description: `Công nợ kỳ trước`, SourcePeriod: period };
+            onUpdateAdjustments(prev => [...prev.filter(a => !(a.UnitID === newAdjustment.UnitID && a.SourcePeriod === newAdjustment.SourcePeriod)), newAdjustment], `Created adjustment for ${charge.UnitID} from period ${period}`);
             showToast(`Đã tạo khoản điều chỉnh ${formatNumber(-difference)} cho kỳ sau.`, 'info');
         } else {
              showToast(`Đã xác nhận thanh toán đủ cho căn hộ ${charge.UnitID}.`, 'success');
         }
         
-        setEditedPayments(prev => {
-            const next = { ...prev };
-            delete next[charge.UnitID];
-            return next;
-        });
+        setEditedPayments(prev => { const next = { ...prev }; delete next[charge.UnitID]; return next; });
     };
     
     // --- START: Bank Statement Import Handler ---
-    const handleStatementFileChange = (event: React.ChangeEvent<HTMLInputElement>) => {
+    const handleStatementFileChange = async (event: React.ChangeEvent<HTMLInputElement>) => {
         const file = event.target.files?.[0];
         if (!file) return;
         
-        // Only allow Admins and Accountants
         if (role === 'Operator' || role === 'Viewer') {
             showToast('Bạn không có quyền thực hiện hành động này.', 'error');
             return;
         }
 
         const reader = new FileReader();
-        reader.onload = (e) => {
+        reader.onload = async (e) => {
             try {
                 const data = new Uint8Array(e.target?.result as ArrayBuffer);
                 const workbook = XLSX.read(data, { type: 'array' });
@@ -1102,126 +1079,82 @@ const BillingPage: React.FC<BillingPageProps> = ({ charges, setCharges, allData,
                 const sheet = workbook.Sheets[sheetName];
                 const json: any[][] = XLSX.utils.sheet_to_json(sheet, { header: 1 });
 
-                // Find header row
-                let headerIndex = -1;
-                let colCredit = -1;
-                let colDesc = -1;
-
+                let headerIndex = -1, colCredit = -1, colDesc = -1;
                 for (let i = 0; i < Math.min(20, json.length); i++) {
-                    const row = json[i].map(cell => String(cell).toLowerCase());
-                    const cIdx = row.findIndex(cell => cell.includes('so tien ghi co') || cell.includes('credit amount'));
-                    const dIdx = row.findIndex(cell => cell.includes('noi dung') || cell.includes('transaction detail') || cell.includes('description'));
-                    
-                    if (cIdx !== -1 && dIdx !== -1) {
-                        headerIndex = i;
-                        colCredit = cIdx;
-                        colDesc = dIdx;
-                        break;
+                    if (Array.isArray(json[i])) {
+                        const row = json[i].map(cell => String(cell).toLowerCase());
+                        const cIdx = row.findIndex(cell => cell.includes('so tien ghi co') || cell.includes('credit amount'));
+                        const dIdx = row.findIndex(cell => cell.includes('noi dung') || cell.includes('transaction detail') || cell.includes('description'));
+                        if (cIdx !== -1 && dIdx !== -1) { headerIndex = i; colCredit = cIdx; colDesc = dIdx; break; }
                     }
                 }
+                if (headerIndex === -1) throw new Error('Không tìm thấy cột "Số tiền ghi có" hoặc "Nội dung".');
 
-                if (headerIndex === -1) {
-                    showToast('Không tìm thấy cột "Số tiền ghi có" hoặc "Nội dung" trong 20 dòng đầu.', 'error');
-                    return;
-                }
-
-                // 1. Aggregate amounts by UnitID to handle multiple transactions per unit
                 const amountMap = new Map<string, number>();
                 const validUnitSet = new Set(allData.units.map(u => u.UnitID));
-                // Regex to find potential IDs: 3 or 4 digits, optionally prefixed by P/C/Can/Phong, surrounded by non-digits
                 const unitRegex = /(?:^|[^a-zA-Z0-9])(?:P|Ph|Phong|Can|C|Apt|Căn)?\s*([0-9]{3,4})(?=[^0-9]|$)/gi;
 
                 for (let i = headerIndex + 1; i < json.length; i++) {
-                    const row = json[i];
+                    if (!Array.isArray(json[i])) continue;
+                    const row = json[i] as any[];
                     if (!row[colCredit]) continue;
-
-                    const rawAmount = row[colCredit];
-                    const amount = typeof rawAmount === 'number' ? rawAmount : parseFloat(String(rawAmount).replace(/,/g, ''));
-                    const description = String(row[colDesc] || '');
-                    
+                    const amount = parseFloat(String(row[colCredit]).replace(/,/g, ''));
                     if (isNaN(amount) || amount <= 0) continue;
 
+                    const description = String(row[colDesc] || '');
                     let matchedUnitID = '';
                     let match;
                     unitRegex.lastIndex = 0;
-
                     while ((match = unitRegex.exec(description)) !== null) {
-                        const potentialID = match[1];
-                        if (validUnitSet.has(potentialID)) {
-                            matchedUnitID = potentialID;
-                            break; 
-                        }
+                        if (validUnitSet.has(match[1])) { matchedUnitID = match[1]; break; }
                     }
-                    
-                    // Fallback for Kiosks if no numeric match found
                     if (!matchedUnitID) {
                          const kioskRegex = /(?:^|[^0-9])(K\d{2})(?=[^0-9]|$)/gi;
-                         while ((match = kioskRegex.exec(description)) !== null) {
-                            if (validUnitSet.has(match[1])) {
-                                matchedUnitID = match[1];
-                                break;
-                            }
-                         }
+                         if ((match = kioskRegex.exec(description)) && validUnitSet.has(match[1])) { matchedUnitID = match[1]; }
                     }
 
-                    if (matchedUnitID) {
-                         const current = amountMap.get(matchedUnitID) || 0;
-                         amountMap.set(matchedUnitID, current + amount);
-                    }
+                    if (matchedUnitID) amountMap.set(matchedUnitID, (amountMap.get(matchedUnitID) || 0) + amount);
                 }
-
-                // 2. Apply aggregated amounts to charges
-                let reconciledCount = 0;
+                
+                // Only keep updates for units that exist in the current period's charges
+                const currentPeriodCharges = new Set(charges.filter(c => c.Period === period).map(c => c.UnitID));
+                const updatesToApply = new Map<string, number>();
                 let totalReconciledAmount = 0;
-                const matchedUnits: string[] = [];
-                let changesMade = false;
-
-                const updatedCharges = charges.map(charge => {
-                    if (charge.Period !== period) return charge;
-
-                    const importedAmount = amountMap.get(charge.UnitID);
-                    
-                    // Only apply if we found an amount AND the charge hasn't been confirmed yet.
-                    // If it's already confirmed, we skip it to avoid overwriting manual work or duplicates
-                    if (importedAmount !== undefined && !charge.PaymentConfirmed) {
-                         reconciledCount++;
-                         totalReconciledAmount += importedAmount;
-                         matchedUnits.push(charge.UnitID);
-                         changesMade = true;
-
-                         // Logic: Overwrite placeholder TotalPaid with actual imported amount
-                         return {
-                             ...charge,
-                             TotalPaid: importedAmount,
-                             PaymentConfirmed: true,
-                             // FIX: Explicitly cast 'paid' to PaymentStatus to satisfy TypeScript.
-                             // Mark as 'paid' regardless of amount
-                             paymentStatus: 'paid' as PaymentStatus
-                         };
+                
+                amountMap.forEach((amount, unitId) => {
+                    if (currentPeriodCharges.has(unitId)) {
+                        updatesToApply.set(unitId, amount);
+                        totalReconciledAmount += amount;
                     }
-                    return charge;
                 });
 
-                if (changesMade) {
-                    setCharges(updatedCharges, {
-                        module: 'Billing',
-                        action: 'IMPORT_BANK_STATEMENT',
-                        summary: `Đối soát ${reconciledCount} giao dịch, tổng: ${formatCurrency(totalReconciledAmount)}`,
-                        count: reconciledCount,
-                        ids: matchedUnits
+                if (updatesToApply.size > 0) {
+                    await updateChargePayments(period, updatesToApply);
+                    
+                    const updater = (prev: ChargeRaw[]) => prev.map(charge => {
+                        if (charge.Period === period && updatesToApply.has(charge.UnitID)) {
+                            return {
+                                ...charge,
+                                TotalPaid: updatesToApply.get(charge.UnitID)!,
+                                paymentStatus: 'reconciling' as PaymentStatus,
+                                PaymentConfirmed: false,
+                            };
+                        }
+                        return charge;
                     });
-                    showToast(`Đã đối soát thành công ${reconciledCount} giao dịch. Tổng tiền: ${formatCurrency(totalReconciledAmount)}`, 'success');
+                    
+                    setCharges(updater, {
+                        module: 'Billing', action: 'IMPORT_BANK_STATEMENT',
+                        summary: `Đối soát ${updatesToApply.size} giao dịch, tổng: ${formatCurrency(totalReconciledAmount)}`,
+// FIX: The type of `Array.from(updatesToApply.keys())` was being inferred as `unknown[]` instead of `string[]`. Using the spread operator `...` provides better type inference for iterators.
+                        count: updatesToApply.size, ids: [...updatesToApply.keys()]
+                    });
+                    showToast(`Đã đối soát thành công ${updatesToApply.size} giao dịch. Trạng thái đã chuyển thành "Chờ đối soát".`, 'success');
                 } else {
-                    if (amountMap.size > 0) {
-                         showToast('Tìm thấy giao dịch nhưng các căn hộ đã được đối soát trước đó.', 'info');
-                    } else {
-                         showToast('Không tìm thấy giao dịch nào khớp với mã căn hộ trong file.', 'warn');
-                    }
+                    showToast('Không tìm thấy giao dịch nào khớp với mã căn hộ trong kỳ này.', 'warn');
                 }
-
-            } catch (error) {
-                console.error("Import error:", error);
-                showToast('Lỗi khi đọc file sao kê. Vui lòng kiểm tra định dạng.', 'error');
+            } catch (error: any) {
+                showToast(`Lỗi khi đọc file sao kê: ${error.message}`, 'error');
             } finally {
                 if (fileInputRef.current) fileInputRef.current.value = "";
             }
@@ -1229,44 +1162,48 @@ const BillingPage: React.FC<BillingPageProps> = ({ charges, setCharges, allData,
         reader.readAsArrayBuffer(file);
     };
 
-    const handleImportStatementClick = () => {
-        fileInputRef.current?.click();
-    };
+    const handleImportStatementClick = () => { fileInputRef.current?.click(); };
     // --- END: Bank Statement Import Handler ---
-
 
     const kpiStats = useMemo(() => {
         const rows = charges.filter(c => c.Period === period);
         const totalDue = rows.reduce((s, r) => s + r.TotalDue, 0);
-        const totalPaid = rows.filter(r => r.PaymentConfirmed === true).reduce((s, r) => s + r.TotalPaid, 0);
+        const totalPaid = rows.filter(r => r.paymentStatus === 'paid').reduce((s, r) => s + r.TotalPaid, 0);
         const difference = totalDue - totalPaid;
         const unpaidCount = rows.filter(r => r.paymentStatus !== 'paid').length;
         
-        return {
-            totalDue,
-            totalPaid,
-            difference,
-            unpaidCount,
-        };
+        return { totalDue, totalPaid, difference, unpaidCount };
     }, [charges, period]);
 
     const clearAllFilters = () => { setStatusFilter('all'); setTypeFilter('all'); setFloorFilter('all'); setSearchTerm(''); setActiveKpiFilter(null); };
-    const applyKpiFilter = (status: PaymentStatus, name: string) => { clearAllFilters(); setStatusFilter(status); setActiveKpiFilter(name); };
     const handleSelectUnit = (id: string, isSel: boolean) => setSelectedUnits(p => { const n = new Set(p); isSel ? n.add(id) : n.delete(id); return n; });
     const handleSelectAll = (e: React.ChangeEvent<HTMLInputElement>) => setSelectedUnits(e.target.checked ? new Set(sortedAndFilteredCharges.map(c => c.UnitID)) : new Set());
-    const getStatusText = (s: PaymentStatus) => s === 'paid' ? { text: 'Đã nộp', class: 'bg-green-100 text-green-800' } : s === 'unpaid' ? { text: 'Chưa nộp', class: 'bg-red-100 text-red-800' } : { text: 'Chờ xử lý', class: 'bg-yellow-100 text-yellow-800' };
 
-    const handleStatusChange = (unitId: string, newStatus: PaymentStatus) => { 
-        const updater = (prev: ChargeRaw[]) => prev.map(c => (c.UnitID === unitId && c.Period === period) ? { ...c, paymentStatus: newStatus } : c);
-        setCharges(updater, {
-            module: 'Billing',
-            action: 'UPDATE_CHARGE_STATUS',
-            summary: `Cập nhật trạng thái cho căn hộ ${unitId} thành '${newStatus}'`,
-            count: 1,
-            ids: [unitId]
-        });
-        showToast(`Đã cập nhật trạng thái cho căn hộ ${unitId}.`, 'success'); 
+    const renderStatusBadge = (charge: ChargeRaw) => {
+        // Priority 1: Payment Status
+        if (charge.paymentStatus === 'paid') {
+            return <span className="px-2.5 py-1 inline-flex text-xs font-semibold rounded-full bg-green-100 text-green-800 dark:bg-green-900/50 dark:text-green-300">Đã nộp</span>;
+        }
+        // Priority 2: Reconciliation Status
+        if (charge.paymentStatus === 'reconciling') {
+            return <span className="px-2.5 py-1 inline-flex text-xs font-semibold rounded-full bg-yellow-100 text-yellow-800 dark:bg-yellow-900/50 dark:text-yellow-300">Chờ đối soát</span>;
+        }
+        // Priority 3: Delivery Status (Both)
+        if (charge.isPrinted && charge.isSent) {
+            return <span className="px-2.5 py-1 inline-flex text-xs font-semibold rounded-full bg-blue-200 text-blue-800 dark:bg-blue-800/50 dark:text-blue-300">Đã in &amp; Gửi mail</span>;
+        }
+        // Priority 4: Delivery Status (Email only)
+        if (charge.isSent) {
+            return <span className="px-2.5 py-1 inline-flex text-xs font-semibold rounded-full bg-sky-100 text-sky-800 dark:bg-sky-900/50 dark:text-sky-300">Đã gửi mail</span>;
+        }
+        // Priority 5: Delivery Status (Print only)
+        if (charge.isPrinted) {
+            return <span className="px-2.5 py-1 inline-flex text-xs font-semibold rounded-full bg-orange-100 text-orange-800 dark:bg-orange-900/50 dark:text-orange-300">Đã in phiếu</span>;
+        }
+        // Priority 6: Default
+        return <span className="px-2.5 py-1 inline-flex text-xs font-semibold rounded-full bg-gray-100 text-gray-800 dark:bg-gray-700 dark:text-gray-300">Chờ xử lý</span>;
     };
+
     const isAllVisibleSelected = sortedAndFilteredCharges.length > 0 && selectedUnits.size > 0 && sortedAndFilteredCharges.every(c => selectedUnits.has(c.UnitID));
 
     const renderMainActionButton = () => {
@@ -1294,17 +1231,9 @@ const BillingPage: React.FC<BillingPageProps> = ({ charges, setCharges, allData,
     return (
         <div className="space-y-4 h-full flex flex-col">
             <style>{`.pill{display:inline-flex;align-items:center;gap:8px;}.pill i{font-size:14px;line-height:1;display:inline-block;}`}</style>
-             {/* Hidden File Input for Statement Import */}
-             <input 
-                type="file" 
-                ref={fileInputRef} 
-                onChange={handleStatementFileChange} 
-                accept=".xlsx, .xls, .csv" 
-                className="hidden" 
-            />
+             <input type="file" ref={fileInputRef} onChange={handleStatementFileChange} accept=".xlsx, .xls, .csv" className="hidden" />
 
             <div className="sticky top-0 z-30 bg-light-bg dark:bg-dark-bg -mx-4 -mt-3 sm:-mx-6 lg:-mx-8 px-4 sm:px-6 lg:-mx-8 pt-3 pb-2 space-y-2">
-                {/* Controls and Filters */}
                 <div className="flex flex-wrap items-center gap-4 p-2 bg-light-bg-secondary dark:bg-dark-bg-secondary rounded-xl border dark:border-dark-border shadow-sm">
                     <div className="relative flex items-center gap-2 p-1 bg-light-bg dark:bg-dark-bg rounded-lg">
                         <button onClick={() => navigatePeriod('prev')} data-tooltip="Kỳ trước"><ChevronLeftIcon /></button>
@@ -1317,62 +1246,20 @@ const BillingPage: React.FC<BillingPageProps> = ({ charges, setCharges, allData,
                     <div className="flex items-center gap-2 flex-grow flex-wrap">
                         <div className="relative flex-grow min-w-[200px]"><SearchIcon className="absolute left-3 top-1/2 -translate-y-1/2 h-5 w-5 text-gray-400" /><input type="text" placeholder="Tìm theo mã hoặc tên..." value={searchTerm} onChange={e => setSearchTerm(e.target.value)} className="w-full pl-10 p-2 border rounded-lg bg-light-bg dark:bg-dark-bg"/></div>
                         <FilterPill icon={<TagIcon className="h-5 w-5 text-gray-400" />} currentValue={typeFilter} onValueChange={v => setTypeFilter(v as any)} tooltip="Lọc theo loại hình" options={[{value: 'all', label: 'All Types'}, {value: UnitType.APARTMENT, label: 'Apartment'}, {value: UnitType.KIOS, label: 'KIOS'}]} />
-                        <FilterPill icon={<CheckCircleIcon className="h-5 w-5 text-gray-400" />} currentValue={statusFilter} onValueChange={v => setStatusFilter(v as any)} tooltip="Lọc theo trạng thái" options={[{value: 'all', label: 'All Status'}, {value: 'unpaid', label: 'Unpaid'}, {value: 'paid', label: 'Paid'}, {value: 'pending', label: 'Pending'}]} />
                         <FilterPill icon={<BuildingIcon className="h-5 w-5 text-gray-400" />} currentValue={floorFilter} onValueChange={setFloorFilter} tooltip="Lọc theo tầng" options={floors} />
                     </div>
                 </div>
-                {/* KPIs and Actions */}
                 <div className="stats-row flex items-center gap-2 p-2 bg-blue-50 dark:bg-blue-900/20 rounded-xl border border-blue-200 dark:border-blue-800 flex-wrap md:flex-nowrap mt-1">
                     <KpiCard title="Tổng phí" tooltip="Tổng phí của tất cả căn hộ trong kỳ" value={formatCurrency(kpiStats.totalDue)} valueTitle={formatCurrency(kpiStats.totalDue)} icon={<MoneyBagIcon className="w-5 h-5 text-blue-500" />} className="big billing-kpi" onClick={clearAllFilters} isActive={!activeKpiFilter}/>
-                    <KpiCard title="Tổng đã nộp" tooltip="Tổng số tiền đã nộp thực tế (đã xác nhận)" value={formatCurrency(kpiStats.totalPaid)} valueTitle={formatCurrency(kpiStats.totalPaid)} icon={<CheckCircleIcon className="w-5 h-5 text-green-500" />} className="big billing-kpi" onClick={() => applyKpiFilter('paid', 'Paid')} isActive={activeKpiFilter === 'Paid'}/>
-                    <KpiCard 
-                        title="Chênh lệch" 
-                        tooltip="Chênh lệch = Tổng phí - Tổng đã nộp" 
-                        value={(
-                            <>
-                                <span>{formatNumber(kpiStats.difference)}</span>
-                                <span className="kpi-unit">₫</span>
-                            </>
-                        )} 
-                        valueTitle={formatCurrency(kpiStats.difference)} 
-                        icon={<CalculatorIcon2 className="w-5 h-5 text-orange-500" />} 
-                        className="small billing-kpi kpi-delta" 
-                        isActive={false}
-                    />
-                    <KpiCard title="Căn hộ chưa nộp" tooltip="Số căn hộ chưa hoàn thành thanh toán" value={kpiStats.unpaidCount} valueTitle={`${kpiStats.unpaidCount} căn hộ`} icon={<WarningIcon className="w-5 h-5 text-red-500" />} className="small billing-kpi" onClick={() => applyKpiFilter('unpaid', 'Unpaid')} isActive={activeKpiFilter === 'Unpaid'}/>
+                    <KpiCard title="Tổng đã nộp" tooltip="Tổng số tiền đã nộp thực tế (đã xác nhận)" value={formatCurrency(kpiStats.totalPaid)} valueTitle={formatCurrency(kpiStats.totalPaid)} icon={<CheckCircleIcon className="w-5 h-5 text-green-500" />} className="big billing-kpi" onClick={() => {clearAllFilters(); setStatusFilter('paid');}} isActive={statusFilter === 'paid'}/>
+                    <KpiCard title="Chênh lệch" tooltip="Chênh lệch = Tổng phí - Tổng đã nộp" value={<>{formatNumber(kpiStats.difference)}<span className="kpi-unit">₫</span></>} valueTitle={formatCurrency(kpiStats.difference)} icon={<CalculatorIcon2 className="w-5 h-5 text-orange-500" />} className="small billing-kpi kpi-delta" isActive={false}/>
+                    <KpiCard title="Căn hộ chưa nộp" tooltip="Số căn hộ chưa hoàn thành thanh toán" value={kpiStats.unpaidCount} valueTitle={`${kpiStats.unpaidCount} căn hộ`} icon={<WarningIcon className="w-5 h-5 text-red-500" />} className="small billing-kpi" onClick={() => {clearAllFilters(); setStatusFilter('unpaid');}} isActive={statusFilter === 'unpaid'}/>
                     <div className="ml-auto flex items-center gap-2 flex-shrink-0">
-                        <button
-                            onClick={handleRefreshData}
-                            data-tooltip={isDataStale ? "Dữ liệu nguồn (xe, nước) đã thay đổi. Bấm để cập nhật." : "Làm mới dữ liệu nguồn"}
-                            disabled={isRefreshing || isLoading}
-                            className={`h-9 px-3 font-semibold rounded-lg hover:bg-opacity-80 disabled:opacity-50 flex items-center gap-2 border ${
-                                isDataStale
-                                    ? 'bg-green-100 dark:bg-green-900/30 border-green-600 text-green-700 dark:text-green-300 animate-pulse'
-                                    : 'border-blue-600 text-blue-600 hover:bg-blue-100 dark:hover:bg-blue-900/30'
-                            }`}
-                        >
-                            <CircularArrowRefreshIcon /> Refresh
-                        </button>
+                        <button onClick={handleRefreshData} data-tooltip={isDataStale ? "Dữ liệu nguồn (xe, nước) đã thay đổi. Bấm để cập nhật." : "Làm mới dữ liệu nguồn"} disabled={isRefreshing || isLoading} className={`h-9 px-3 font-semibold rounded-lg hover:bg-opacity-80 disabled:opacity-50 flex items-center gap-2 border ${ isDataStale ? 'bg-green-100 dark:bg-green-900/30 border-green-600 text-green-700 dark:text-green-300 animate-pulse' : 'border-blue-600 text-blue-600 hover:bg-blue-100 dark:hover:bg-blue-900/30' }`}> <CircularArrowRefreshIcon /> Refresh </button>
                         {renderMainActionButton()}
-                        
-                        {/* Import / Export Group */}
                         <div className="flex items-center border-l pl-2 ml-2 gap-2 border-gray-300 dark:border-gray-600">
-                             <button
-                                onClick={handleImportStatementClick}
-                                data-tooltip="Nhập sao kê để tự động đối soát"
-                                disabled={isPeriodLocked || !canCalculate}
-                                className="h-9 px-3 font-semibold rounded-lg hover:bg-opacity-80 disabled:opacity-50 flex items-center gap-2 border border-purple-600 text-purple-600 hover:bg-purple-100 dark:hover:bg-purple-900/30 bg-white dark:bg-transparent"
-                            >
-                                <ArrowUpTrayIcon className="w-5 h-5" /> Import
-                            </button>
-                            <button 
-                                onClick={handleExportReport} 
-                                data-tooltip="Xuất báo cáo tổng hợp" 
-                                disabled={primaryActionState === 'calculate'} 
-                                className="btn-export h-9 px-3 text-sm font-semibold rounded-lg shadow-sm flex items-center gap-2"
-                            > 
-                                <TableCellsIcon className="w-5 h-5" /> Export 
-                            </button>
+                             <button onClick={handleImportStatementClick} data-tooltip="Nhập sao kê để tự động đối soát" disabled={isPeriodLocked || !canCalculate} className="h-9 px-3 font-semibold rounded-lg hover:bg-opacity-80 disabled:opacity-50 flex items-center gap-2 border border-purple-600 text-purple-600 hover:bg-purple-100 dark:hover:bg-purple-900/30 bg-white dark:bg-transparent"> <ArrowUpTrayIcon className="w-5 h-5" /> Import </button>
+                            <button onClick={handleExportReport} data-tooltip="Xuất báo cáo tổng hợp" disabled={primaryActionState === 'calculate'} className="btn-export h-9 px-3 text-sm font-semibold rounded-lg shadow-sm flex items-center gap-2"> <TableCellsIcon className="w-5 h-5" /> Export </button>
                         </div>
                     </div>
                 </div>
@@ -1390,7 +1277,6 @@ const BillingPage: React.FC<BillingPageProps> = ({ charges, setCharges, allData,
                                 <button onClick={() => handleBulkSetStatus('unpaid')} className="flex items-center gap-2 text-sm font-semibold text-gray-700 dark:text-gray-200 hover:text-primary"><WarningIcon /> Mark Unpaid</button>
                             </>}
                             <button onClick={handleDownloadPDFs} disabled={exportProgress.isOpen} className="flex items-center gap-2 text-sm font-semibold text-gray-700 dark:text-gray-200 hover:text-primary"><DocumentArrowDownIcon className="w-5 h-5" /> Tải PDF (Zip)</button>
-                            <button onClick={handleExportReport} className="flex items-center gap-2 text-sm font-semibold text-gray-700 dark:text-gray-200 hover:text-primary"><TableCellsIcon /> Export CSV</button>
                             <button onClick={handleBulkSendEmail} className="flex items-center gap-2 text-sm font-semibold text-gray-700 dark:text-gray-200 hover:text-primary"><PaperAirplaneIcon /> Send Mail</button>
                         </div>
                     </div>
@@ -1413,16 +1299,6 @@ const BillingPage: React.FC<BillingPageProps> = ({ charges, setCharges, allData,
                             : ( sortedAndFilteredCharges.map(charge => {
                                     const finalPaidAmount = editedPayments[charge.UnitID] ?? charge.TotalPaid;
                                     const difference = finalPaidAmount - charge.TotalDue;
-                                    
-                                    let statusInfo = getStatusText(charge.paymentStatus);
-                                    // Custom logic: If status is 'paid' but amount is less than due (with tolerance), show red
-                                    if (charge.paymentStatus === 'paid' && difference < -1000) {
-                                        statusInfo = { 
-                                            text: 'Đã nộp', 
-                                            class: 'bg-red-100 text-red-800 dark:bg-red-900/50 dark:text-red-300' 
-                                        };
-                                    }
-
                                     return (
                                     <tr key={charge.UnitID}>
                                         <td className="col-check py-3 px-2"><input type="checkbox" checked={selectedUnits.has(charge.UnitID)} onChange={(e) => handleSelectUnit(charge.UnitID, e.target.checked)} /></td>
@@ -1441,12 +1317,12 @@ const BillingPage: React.FC<BillingPageProps> = ({ charges, setCharges, allData,
                                          <td className={`font-semibold col-diff py-3 px-4 text-right whitespace-nowrap ${difference > 0 ? 'text-green-600' : (difference < 0 ? 'text-red-600' : '')}`}>
                                             {difference !== 0 ? formatNumber(difference) : ''}
                                         </td>
-                                        <td className="col-status py-3 px-4"><span className={`px-2 inline-flex text-xs leading-5 font-semibold rounded-full ${statusInfo.class}`}>{statusInfo.text}</span></td>
+                                        <td className="col-status py-3 px-4 text-center">{renderStatusBadge(charge)}</td>
                                         <td className="col-actions py-3 px-4"><div className="action-icons">
                                             <button 
                                                 onClick={() => handleConfirmPayment(charge)}
-                                                disabled={isPeriodLocked || charge.PaymentConfirmed || role === 'Operator'}
-                                                className="icon-btn"
+                                                disabled={isPeriodLocked || charge.paymentStatus === 'paid' || role === 'Operator'}
+                                                className="icon-btn disabled:opacity-30"
                                                 title="Xác nhận thanh toán"
                                             >
                                                 <CheckCircleIcon className="w-5 h-5 text-green-500" />

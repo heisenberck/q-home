@@ -2,13 +2,7 @@ import React, { useRef, useState } from 'react';
 import type { Role } from '../../types';
 import { ArrowDownTrayIcon, ArrowUpTrayIcon, WarningIcon, TrashIcon, CircularArrowRefreshIcon } from '../ui/Icons';
 import { useNotification, useAuth } from '../../App';
-import { 
-    MOCK_UNITS, MOCK_OWNERS, MOCK_VEHICLES, MOCK_WATER_READINGS, 
-    MOCK_TARIFFS_SERVICE, MOCK_TARIFFS_PARKING, MOCK_TARIFFS_WATER, MOCK_ADJUSTMENTS,
-    patchKiosAreas
-} from '../../constants';
-import { db } from '../../firebaseConfig';
-import { collection, query, getDocs, writeBatch } from "firebase/firestore";
+import { wipeAllBusinessData } from '../../services';
 
 interface BackupRestorePageProps {
     allData: any; // A collection of all application data
@@ -130,47 +124,6 @@ const BackupRestorePage: React.FC<BackupRestorePageProps> = ({ allData, onRestor
         setPassword('');
     };
 
-    const wipeAllBusinessData = async (progressCallback: (message: string) => void) => {
-        const collectionsToDelete = [
-            'charges', 'waterReadings', 'vehicles', 
-            'adjustments', 'owners', 'units', 'activityLogs'
-        ];
-        
-        for (const collectionName of collectionsToDelete) {
-            progressCallback(`Đang chuẩn bị xoá: ${collectionName}...`);
-            const q = query(collection(db, collectionName));
-            const querySnapshot = await getDocs(q);
-            
-            if (querySnapshot.empty) {
-                progressCallback(`Collection '${collectionName}' trống. Bỏ qua.`);
-                continue;
-            }
-    
-            const BATCH_SIZE = 500;
-            let batch = writeBatch(db);
-            let count = 0;
-            let totalDeleted = 0;
-    
-            for (const docSnapshot of querySnapshot.docs) {
-                batch.delete(docSnapshot.ref);
-                count++;
-                if (count === BATCH_SIZE) {
-                    await batch.commit();
-                    totalDeleted += count;
-                    progressCallback(`Đã xoá ${totalDeleted}/${querySnapshot.size} từ '${collectionName}'`);
-                    batch = writeBatch(db);
-                    count = 0;
-                }
-            }
-    
-            if (count > 0) {
-                await batch.commit();
-                totalDeleted += count;
-                progressCallback(`Hoàn tất xoá ${totalDeleted}/${querySnapshot.size} từ '${collectionName}'`);
-            }
-        }
-    };
-
     const handleConfirmAction = async () => {
         const isValid = (user && password === user.password) || password === MASTER_PASSWORD;
 
@@ -190,7 +143,6 @@ const BackupRestorePage: React.FC<BackupRestorePageProps> = ({ allData, onRestor
 
         if (actionToPerform === 'restore_file' && dataToRestore) {
             onRestore(dataToRestore);
-            showToast('Đã phục hồi dữ liệu từ file backup.', 'success');
         } else if (actionToPerform === 'delete_data') {
             setIsWiping(true);
             try {
@@ -212,17 +164,10 @@ const BackupRestorePage: React.FC<BackupRestorePageProps> = ({ allData, onRestor
                 setWipeProgress('');
             }
         } else if (actionToPerform === 'restore_mock') {
-            const freshUnits = JSON.parse(JSON.stringify(MOCK_UNITS));
-            patchKiosAreas(freshUnits);
-            const mockDataState = {
-                units: freshUnits, owners: MOCK_OWNERS, vehicles: MOCK_VEHICLES,
-                waterReadings: MOCK_WATER_READINGS, charges: [], adjustments: MOCK_ADJUSTMENTS,
-                tariffs: { service: MOCK_TARIFFS_SERVICE, parking: MOCK_TARIFFS_PARKING, water: MOCK_TARIFFS_WATER },
-                invoiceSettings: allData.invoiceSettings, users: allData.users,
-                activityLogs: [], lockedPeriods: [], backupDate: new Date().toISOString()
-            };
-            onRestore(mockDataState);
-            showToast('Đã phục hồi dữ liệu mẫu thành công.', 'success');
+            // The service factory will handle providing mock data on next load
+            // For immediate effect, we'll ask the user to reload
+            showToast('Chế độ Mock sẽ được kích hoạt sau khi tải lại trang.', 'info');
+             setTimeout(() => window.location.reload(), 1500);
         }
     };
     
