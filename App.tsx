@@ -11,7 +11,7 @@ import { UnitType } from './types';
 import { db } from './firebaseConfig';
 import { getDocs, collection, getDoc, doc, writeBatch } from "firebase/firestore";
 
-
+import { getFeeSettings, updateFeeSettings } from './services/feeSettingsService';
 import Header from './components/layout/Header';
 import Sidebar from './components/layout/Sidebar';
 import FooterToast, { type ToastMessage, type ToastType } from './components/ui/Toast';
@@ -59,20 +59,20 @@ const initialInvoiceSettings: InvoiceSettings = {
     accountNumber: '020704070042387',
     bankName: 'HDBank - Chi nhánh Hoàn Kiếm',
     senderEmail: 'bqthud3linhdam@gmail.com',
-    senderName: 'BQT HUD3 Linh Đàm',
-    emailSubject: '[BQL HUD3] Thông báo phí dịch vụ kỳ {{period}} cho căn hộ {{unit_id}}',
-    emailBody: `Kính gửi Quý chủ hộ {{owner_name}},
+    senderName: 'BQT HUD3 LINH DAM',
+    emailSubject: '[BQL HUD3] THONG BAO PHI DICH VU KY {{period}} CHO CAN HO {{unit_id}}',
+    emailBody: `Kinh gui Quy chu ho {{owner_name}},
 
-Ban Quản lý (BQL) tòa nhà HUD3 Linh Đàm trân trọng thông báo phí dịch vụ kỳ {{period}} của căn hộ {{unit_id}}.
+Ban Quan ly (BQL) toa nha HUD3 Linh Dam tran trong thong bao phi dich vu ky {{period}} cua can ho {{unit_id}}.
 
-Tổng số tiền cần thanh toán là: {{total_due}}.
+Tong so tien can thanh toan la: {{total_due}}.
 
-Vui lòng xem chi tiết phí dịch vụ ngay dưới đây.
+Vui long xem chi tiet phi dich vu ngay duoi day.
 
-Trân trọng,
-BQL Chung cư HUD3 Linh Đàm.`,
+Tran trong,
+BQL Chung cu HUD3 Linh Dam.`,
     appsScriptUrl: '',
-    footerHtml: `© {{YEAR}} BQL Chung cư HUD3 Linh Đàm. Hotline: 0834.88.66.86`,
+    footerHtml: `© {{YEAR}} BQL Chung cu HUD3 Linh Dam. Hotline: 0834.88.66.86`,
     footerShowInPdf: true,
     footerShowInEmail: true,
     footerShowInViewer: true,
@@ -234,13 +234,12 @@ const App: React.FC = () => {
                 
                 const hasData = unitsSnap.docs.length > 0;
 
-                const settingsPromises = [
-                    getDoc(doc(db, 'settings', 'invoice')),
+                const [loadedInvoiceSettingsResult, tariffsSnap] = await Promise.all([
+                    getFeeSettings(),
                     getDoc(doc(db, 'settings', 'tariffs'))
-                ];
-                const [invoiceSettingsSnap, tariffsSnap] = await Promise.all(settingsPromises);
+                ]);
                 
-                const loadedInvoiceSettings = invoiceSettingsSnap.exists() ? invoiceSettingsSnap.data() as InvoiceSettings : initialInvoiceSettings;
+                const loadedInvoiceSettings = loadedInvoiceSettingsResult ?? initialInvoiceSettings;
                 const loadedTariffs = tariffsSnap.exists() ? tariffsSnap.data() : { service: MOCK_TARIFFS_SERVICE, parking: MOCK_TARIFFS_PARKING, water: MOCK_TARIFFS_WATER };
 
                 setInvoiceSettings(loadedInvoiceSettings);
@@ -422,7 +421,25 @@ const App: React.FC = () => {
         });
     }, [logAction]);
     const handleSetUsers = createDataHandler(setUsers);
-    const handleSetInvoiceSettings = createDataHandler(setInvoiceSettings);
+    
+    const handleSetInvoiceSettings = useCallback(async (newSettings: InvoiceSettings) => {
+        try {
+            await updateFeeSettings(newSettings);
+            setInvoiceSettings(newSettings);
+            logAction({
+                module: 'Settings',
+                action: 'UPDATE_SETTINGS',
+                summary: 'Cập nhật Cài đặt Phiếu báo',
+                before_snapshot: invoiceSettings,
+            });
+            showToast('Đã lưu cài đặt vào cơ sở dữ liệu.', 'success');
+        } catch (error) {
+            console.error("Error saving invoice settings:", error);
+            showToast('Lưu cài đặt thất bại. Vui lòng thử lại.', 'error');
+            throw error;
+        }
+    }, [invoiceSettings, logAction, showToast]);
+
     const handleSetVehicles = createDataHandler(setVehicles);
     
     const handleSaveResident = useCallback((updatedData: { unit: Unit; owner: Owner; vehicles: Vehicle[] }) => {
@@ -502,7 +519,7 @@ const App: React.FC = () => {
                 const newUnit: Unit = {
                     UnitID: unitId,
                     OwnerID: newOwnerId,
-                    UnitType: unitId.startsWith('K') ? UnitType.KIOS : UnitType.APARTMENT,
+                    UnitType: update.unitType || (unitId.startsWith('K') ? UnitType.KIOS : UnitType.APARTMENT),
                     Area_m2: parseFloat(update.area) || 0,
                     Status: update.status || 'Owner',
                 };
@@ -517,6 +534,7 @@ const App: React.FC = () => {
                 const unitChanges: Partial<Unit> = {};
                 if (update.status) unitChanges.Status = update.status;
                 if (update.area) unitChanges.Area_m2 = parseFloat(update.area) || unit.Area_m2;
+                if (update.unitType) unitChanges.UnitType = update.unitType;
     
                 if (Object.keys(unitChanges).length > 0) {
                     const unitRef = doc(db, "units", unitId);

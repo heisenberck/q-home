@@ -34,6 +34,10 @@ export interface Owner {
     OwnerName: string;
     Phone: string;
     Email: string;
+    documents?: {
+        nationalId?: VehicleDocument; // CCCD
+        title?: VehicleDocument;      // Sổ đỏ / Hợp đồng
+    };
 }
 
 // Represents the type of vehicle a resident registers. Clean and user-facing.
@@ -78,8 +82,7 @@ export interface Vehicle {
     // NEW: Documents attachment
     documents?: {
         registration?: VehicleDocument; // Đăng ký xe
-        title?: VehicleDocument;        // Sổ đỏ
-        nationalId?: VehicleDocument;   // CCCD
+        vehiclePhoto?: VehicleDocument; // Ảnh chụp xe
     };
 }
 

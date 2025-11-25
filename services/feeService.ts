@@ -1,3 +1,4 @@
+
 import type { ChargeRaw, Unit, Owner, Vehicle, WaterReading, Adjustment, AllData, PaymentStatus } from '../types';
 import { UnitType, VehicleTier, ParkingTariffTier } from '../types';
 import { getPreviousPeriod } from '../utils/helpers';
@@ -41,7 +42,8 @@ const calcVehicleFee = (vehicles: Vehicle[], period: string, tariffs: AllData['t
     
     const carCount = activeVehicles.filter(v => v.Type === VehicleTier.CAR).length;
     const carACount = activeVehicles.filter(v => v.Type === VehicleTier.CAR_A).length;
-    const motoCount = activeVehicles.filter(v => v.Type === VehicleTier.MOTORBIKE).length;
+    // Count motorbikes and electric bikes together for fee calculation as they share the same tariff tiers.
+    const motoCount = activeVehicles.filter(v => v.Type === VehicleTier.MOTORBIKE || v.Type === VehicleTier.EBIKE).length;
     const bicycleCount = activeVehicles.filter(v => v.Type === VehicleTier.BICYCLE).length;
     
     const carTariff = tariffs.parking.find(t => t.Tier === ParkingTariffTier.CAR);
@@ -58,8 +60,11 @@ const calcVehicleFee = (vehicles: Vehicle[], period: string, tariffs: AllData['t
     let net = 0;
     net += carCount * carTariff.Price_per_unit;
     net += carACount * carATariff.Price_per_unit;
+    
+    // Tiered pricing for motorbikes
     net += Math.min(2, motoCount) * moto12Tariff.Price_per_unit;
     net += Math.max(0, motoCount - 2) * moto34Tariff.Price_per_unit;
+    
     net += bicycleCount * bicycleTariff.Price_per_unit;
     
     const vatPercent = carTariff.VAT_percent; // Assume all parking has same VAT

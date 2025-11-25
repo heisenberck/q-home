@@ -1,6 +1,5 @@
-
-import { UnitType, ParkingTariffTier } from '../types';
-import type { ChargeRaw, AllData, Adjustment } from '../types';
+import { UnitType, ParkingTariffTier, VehicleTier } from '../types';
+import type { ChargeRaw, AllData, Adjustment, Unit } from '../types';
 
 export const formatCurrency = (value: number | null | undefined): string => {
     if (typeof value !== 'number' || isNaN(value)) {
@@ -125,4 +124,92 @@ export const generateFeeDetails = (charge: ChargeRaw, allData: AllData) => {
     }
 
     return { parking: parkingBreakdown, water: waterBreakdown, adjustments: adjustmentsForUnit };
+};
+
+// --- NEW HELPERS ---
+
+export const normalizePhoneNumber = (phoneStr: string | number | undefined | null): string => {
+    if (!phoneStr) return '';
+    let digits = String(phoneStr).replace(/\D/g, '');
+    if (digits.startsWith('84')) {
+        digits = '0' + digits.substring(2);
+    }
+    if (digits.length > 0 && !digits.startsWith('0')) {
+        digits = '0' + digits;
+    }
+    return digits;
+};
+
+export const formatLicensePlate = (rawPlate: string | undefined | null): string => {
+    if (!rawPlate) return '';
+    const cleaned = rawPlate.replace(/[\s.-]/g, '').toUpperCase();
+    
+    // Matches ...12345 (5 digits) or ...1234 (4 digits) at the end of the string
+    const match = cleaned.match(/^([A-Z0-9]+?)(\d{4,5})$/);
+    if (match && match[1] && match[2]) {
+        return `${match[1]}-${match[2]}`;
+    }
+    return cleaned; // Fallback for unusual formats
+};
+
+export const vehicleTypeLabels: { [key in VehicleTier]: string } = {
+    [VehicleTier.CAR]: "Ô tô",
+    [VehicleTier.CAR_A]: "Ô tô - A",
+    [VehicleTier.MOTORBIKE]: "Xe máy",
+    [VehicleTier.EBIKE]: "Xe điện",
+    [VehicleTier.BICYCLE]: "Xe đạp",
+};
+
+export const translateVehicleType = (type: VehicleTier): string => {
+    return vehicleTypeLabels[type] || type;
+};
+
+export const compressImageToWebP = (file: File): Promise<string> => {
+    return new Promise((resolve, reject) => {
+        const reader = new FileReader();
+        reader.readAsDataURL(file);
+        reader.onload = (event) => {
+            const img = new Image();
+            img.src = event.target?.result as string;
+            img.onload = () => {
+                const canvas = document.createElement('canvas');
+                const MAX_WIDTH_OR_HEIGHT = 1024;
+                let width = img.width;
+                let height = img.height;
+
+                if (width > height) {
+                    if (width > MAX_WIDTH_OR_HEIGHT) {
+                        height *= MAX_WIDTH_OR_HEIGHT / width;
+                        width = MAX_WIDTH_OR_HEIGHT;
+                    }
+                } else {
+                    if (height > MAX_WIDTH_OR_HEIGHT) {
+                        width *= MAX_WIDTH_OR_HEIGHT / height;
+                        height = MAX_WIDTH_OR_HEIGHT;
+                    }
+                }
+                canvas.width = width;
+                canvas.height = height;
+                const ctx = canvas.getContext('2d');
+                if (!ctx) {
+                    return reject(new Error('Could not get canvas context'));
+                }
+                ctx.drawImage(img, 0, 0, width, height);
+
+                const dataUrl = canvas.toDataURL('image/webp', 0.7);
+
+                const base64Length = dataUrl.length - (dataUrl.indexOf(',') + 1);
+                const padding = (dataUrl.charAt(dataUrl.length - 2) === '=') ? 2 : ((dataUrl.charAt(dataUrl.length - 1) === '=') ? 1 : 0);
+                const fileSizeInBytes = base64Length * 0.75 - padding;
+
+                if (fileSizeInBytes > 200 * 1024) {
+                    console.warn(`Compressed image is still larger than 200KB: ${(fileSizeInBytes / 1024).toFixed(1)}KB`);
+                }
+
+                resolve(dataUrl);
+            };
+            img.onerror = (error) => reject(error);
+        };
+        reader.onerror = (error) => reject(error);
+    });
 };

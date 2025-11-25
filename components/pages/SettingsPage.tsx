@@ -1,3 +1,5 @@
+
+
 import React, { useState, useEffect } from 'react';
 import type { InvoiceSettings, Role } from '../../types';
 import { useLogger, useNotification } from '../../App';
@@ -14,37 +16,53 @@ const sendEmailAPI = async (
     }
 
     try {
-        await fetch(settings.appsScriptUrl, {
+        const formData = new URLSearchParams();
+        formData.append('email', recipient);
+        formData.append('subject', subject);
+        formData.append('htmlBody', body.replace(/\n/g, '<br>'));
+        if (settings.senderName) {
+            formData.append('senderName', settings.senderName);
+        }
+
+        const response = await fetch(settings.appsScriptUrl, {
             method: 'POST',
-            mode: 'no-cors',
-            cache: 'no-cache',
             headers: {
-                'Content-Type': 'application/json; charset=utf-8',
+                'Content-Type': 'application/x-www-form-urlencoded',
             },
-            body: JSON.stringify({
-                to: recipient,
-                subject: subject,
-                body: body.replace(/\n/g, '<br>'),
-                name: settings.senderName
-            }),
+            body: formData,
         });
+
+        if (!response.ok) {
+            let errorMsg = `Server returned an error: ${response.status} ${response.statusText}`;
+             try {
+                const errorResult = await response.json();
+                if (errorResult.error) errorMsg = `Server error: ${errorResult.error}`;
+            } catch (e) { /* ignore */ }
+            return { success: false, error: errorMsg };
+        }
         
         return { success: true };
 
     } catch (e: any) {
         console.error("Apps Script fetch error:", e);
+        if (e.name === 'TypeError' && e.message === 'Failed to fetch') {
+            return { success: false, error: `Lỗi mạng hoặc CORS. Vui lòng kiểm tra lại URL Google Apps Script và đảm bảo đã public đúng cách.`};
+        }
         return { success: false, error: `Lỗi mạng khi gửi yêu cầu: ${e.message}` };
     }
 };
 
 interface SettingsPageProps {
     invoiceSettings: InvoiceSettings;
-    setInvoiceSettings: (settings: InvoiceSettings) => void;
+    setInvoiceSettings: (settings: InvoiceSettings) => Promise<void>;
     role: Role;
 }
 
-const DEFAULT_FOOTER_SETTINGS = {
-    footerHtml: `© {{YEAR}} BQL Chung cư HUD3 Linh Đàm. Hotline: 0834.88.66.86`,
+const DEFAULT_CONTENT_SETTINGS = {
+    senderName: 'BQT HUD3 LINH DAM',
+    emailSubject: '[BQL HUD3] THONG BAO PHI DICH VU KY {{period}} CHO CAN HO {{unit_id}}',
+    emailBody: `Kinh gui Quy chu ho {{owner_name}},\n\nBan Quan ly (BQL) toa nha HUD3 Linh Dam tran trong thong bao phi dich vu ky {{period}} cua can ho {{unit_id}}.\n\nTong so tien can thanh toan la: {{total_due}}.\n\nVui long xem chi tiet phi dich vu ngay duoi day.\n\nTran trong,\nBQL Chung cu HUD3 Linh Dam.`,
+    footerHtml: `© {{YEAR}} BQL Chung cu HUD3 Linh Dam. Hotline: 0834.88.66.86`,
     footerShowInPdf: true,
     footerShowInEmail: true,
     footerShowInViewer: true,
@@ -94,31 +112,34 @@ const SettingsPage: React.FC<SettingsPageProps> = ({ invoiceSettings, setInvoice
     };
     
     const handleSave = async () => {
-        setInvoiceSettings(localSettings);
-        showToast('Đã lưu thông tin cài đặt!', 'success');
-        
-        if (localSettings.appsScriptUrl) {
-            showToast('Đang gửi email kiểm tra để xác thực cài đặt...', 'info', 5000);
-            const testRecipient = localSettings.senderEmail || 'hquynhmvt@gmail.com';
-            const testSubject = '[Test] - Xác thực Cài đặt Email Hệ thống HUD3';
-            const testBody = `Xin chào,\n\nĐây là email được gửi tự động để kiểm tra cấu hình Google Apps Script của bạn.\n\nNếu bạn nhận được email này, cấu hình đã thành công.\n\n- Tên người gửi: ${localSettings.senderName || 'Chưa đặt'}\n- Apps Script URL: ${localSettings.appsScriptUrl}\n- Thời gian gửi: ${new Date().toLocaleString('vi-VN')}\n\nTrân trọng,\nHệ thống Quản lý.`;
-            const result = await sendEmailAPI(testRecipient, testSubject, testBody, localSettings);
-            if (result.success) {
-                showToast(`Yêu cầu gửi mail kiểm tra đã được gửi tới ${testRecipient}. Vui lòng kiểm tra hộp thư của bạn.`, 'success', 8000);
+        try {
+            await setInvoiceSettings(localSettings);
+    
+            if (localSettings.appsScriptUrl) {
+                showToast('Đang gửi email kiểm tra để xác thực cài đặt...', 'info', 5000);
+                const testRecipient = localSettings.senderEmail || 'hquynhmvt@gmail.com';
+                const testSubject = '[Test] - Xac thuc Cai dat Email He thong HUD3';
+                const testBody = `Xin chao,\n\nDay la email duoc gui tu dong de kiem tra cau hinh Google Apps Script cua ban.\n\nNeu ban nhan duoc email nay, cau hinh da thanh cong.\n\n- Ten nguoi gui: ${localSettings.senderName || 'Chua dat'}\n- Apps Script URL: ${localSettings.appsScriptUrl}\n- Thoi gian gui: ${new Date().toLocaleString('vi-VN')}\n\nTran trong,\nHe thong Quan ly.`;
+                const result = await sendEmailAPI(testRecipient, testSubject, testBody, localSettings);
+                if (result.success) {
+                    showToast(`Yeu cau gui mail kiem tra da duoc gui toi ${testRecipient}. Vui long kiem tra hop thu cua ban.`, 'success', 8000);
+                } else {
+                    showToast(`Loi gui mail kiem tra: ${result.error}`, 'error', 10000);
+                }
             } else {
-                showToast(`Lỗi gửi mail kiểm tra: ${result.error}`, 'error', 10000);
+                showToast('Chưa cau hinh Apps Script URL. Email kiem tra se khong duoc gui.', 'warn');
             }
-        } else {
-            showToast('Chưa cấu hình Apps Script URL. Email kiểm tra sẽ không được gửi.', 'warn');
+        } catch (error) {
+            // Error is handled by the parent, no need to show another toast
         }
     };
 
-    const handleResetFooter = () => {
+    const handleResetContentDefaults = () => {
         setLocalSettings(prev => ({
             ...prev,
-            ...DEFAULT_FOOTER_SETTINGS
+            ...DEFAULT_CONTENT_SETTINGS
         }));
-        showToast('Đã khôi phục cài đặt footer về mặc định.', 'info');
+        showToast('Đã khôi phục cài đặt nội dung về mặc định.', 'info');
     };
     
     const insertVariable = (variable: string) => {
@@ -199,7 +220,7 @@ const SettingsPage: React.FC<SettingsPageProps> = ({ invoiceSettings, setInvoice
                             </div>
                         </div>
                         <div>
-                            <button type="button" onClick={handleResetFooter} disabled={!canEdit} className="px-4 py-2 text-sm bg-gray-600 text-white font-semibold rounded-md shadow-sm hover:bg-gray-700 disabled:bg-gray-400">Khôi phục Mặc định</button>
+                            <button type="button" onClick={handleResetContentDefaults} disabled={!canEdit} className="px-4 py-2 text-sm bg-gray-600 text-white font-semibold rounded-md shadow-sm hover:bg-gray-700 disabled:bg-gray-400">Khôi phục Mặc định</button>
                         </div>
                     </div>
                     <div className="space-y-2">
@@ -227,7 +248,7 @@ const SettingsPage: React.FC<SettingsPageProps> = ({ invoiceSettings, setInvoice
                     </div>
                     <div>
                         <label htmlFor="senderName" className={labelStyle}>Tên người gửi (Sender Name)</label>
-                        <input id="senderName" type="text" placeholder="BQT HUD3 Linh Đàm" value={localSettings.senderName || ''} onChange={handleSettingChange} disabled={!canEdit} className={inputStyle} />
+                        <input id="senderName" type="text" placeholder="BQT HUD3 LINH DAM" value={localSettings.senderName || ''} onChange={handleSettingChange} disabled={!canEdit} className={inputStyle} />
                     </div>
                     <div className="md:col-span-2">
                         <label htmlFor="appsScriptUrl" className={labelStyle}>Google Apps Script URL</label>
@@ -251,7 +272,7 @@ const SettingsPage: React.FC<SettingsPageProps> = ({ invoiceSettings, setInvoice
 
              <div className="flex justify-end mt-6">
                 <button onClick={handleSave} disabled={!canEdit} className="px-6 py-2 bg-primary text-white font-bold rounded-md shadow-sm hover:bg-primary-focus disabled:bg-gray-400">
-                    Lưu và Gửi mail kiểm tra
+                    Lưu Cài đặt
                 </button>
             </div>
         </div>

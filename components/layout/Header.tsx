@@ -50,14 +50,55 @@ const Header: React.FC<HeaderProps> = ({ pageTitle, currentUser, allUsers, onSwi
     const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
         const file = e.target.files?.[0];
         if (file) {
-            if (file.size > 2 * 1024 * 1024) { // 2MB Limit
-                showToast('Kích thước ảnh phải nhỏ hơn 2MB.', 'error');
+            if (file.size > 5 * 1024 * 1024) { // 5MB Limit before compression
+                showToast('Kích thước ảnh gốc phải nhỏ hơn 5MB.', 'error');
                 return;
             }
+
             const reader = new FileReader();
-            reader.onloadend = () => {
-                const base64 = reader.result as string;
-                setFormData(prev => ({ ...prev, avatarUrl: base64 }));
+            reader.onload = (event) => {
+                const img = new Image();
+                img.onload = () => {
+                    const MAX_WIDTH = 256;
+                    const MAX_HEIGHT = 256;
+                    let width = img.width;
+                    let height = img.height;
+
+                    if (width > height) {
+                        if (width > MAX_WIDTH) {
+                            height *= MAX_WIDTH / width;
+                            width = MAX_WIDTH;
+                        }
+                    } else {
+                        if (height > MAX_HEIGHT) {
+                            width *= MAX_HEIGHT / height;
+                            height = MAX_HEIGHT;
+                        }
+                    }
+
+                    const canvas = document.createElement('canvas');
+                    canvas.width = width;
+                    canvas.height = height;
+                    const ctx = canvas.getContext('2d');
+                    if (!ctx) {
+                        showToast('Không thể xử lý ảnh.', 'error');
+                        return;
+                    }
+                    ctx.drawImage(img, 0, 0, width, height);
+                    
+                    const dataUrl = canvas.toDataURL('image/jpeg', 0.8); // 80% quality JPEG
+
+                    const base64Length = dataUrl.length - (dataUrl.indexOf(',') + 1);
+                    const padding = (dataUrl.charAt(dataUrl.length - 2) === '=') ? 2 : ((dataUrl.charAt(dataUrl.length - 1) === '=') ? 1 : 0);
+                    const fileSizeInBytes = base64Length * 0.75 - padding;
+
+                    if (fileSizeInBytes > 200 * 1024) { // Check if it's over 200KB
+                         showToast('Ảnh sau khi nén vẫn lớn hơn 200KB. Vui lòng chọn ảnh khác.', 'warn');
+                    }
+                    
+                    setFormData(prev => ({ ...prev, avatarUrl: dataUrl }));
+                };
+                img.src = event.target?.result as string;
             };
             reader.readAsDataURL(file);
         }

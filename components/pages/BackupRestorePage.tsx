@@ -7,6 +7,8 @@ import {
     MOCK_TARIFFS_SERVICE, MOCK_TARIFFS_PARKING, MOCK_TARIFFS_WATER, MOCK_ADJUSTMENTS,
     patchKiosAreas
 } from '../../constants';
+import { db } from '../../firebaseConfig';
+import { collection, query, getDocs, writeBatch } from "firebase/firestore";
 
 interface BackupRestorePageProps {
     allData: any; // A collection of all application data
@@ -15,6 +17,22 @@ interface BackupRestorePageProps {
 }
 
 type ConfirmAction = 'restore_file' | 'delete_data' | 'restore_mock' | null;
+
+// --- START: New Components for Wipe Data feature ---
+const WipeProgressModal: React.FC<{ message: string }> = ({ message }) => (
+    <div className="fixed inset-0 bg-black bg-opacity-60 flex justify-center items-center z-50 p-4">
+        <div className="bg-light-bg-secondary dark:bg-dark-bg-secondary p-8 rounded-lg shadow-xl w-full max-w-md text-center">
+            <h4 className="text-lg font-bold mb-4">Đang Xoá Dữ Liệu...</h4>
+            <p className="mb-4">Vui lòng không đóng cửa sổ này. Quá trình có thể mất vài phút.</p>
+            <div className="flex justify-center items-center my-4">
+                <div className="animate-spin rounded-full h-12 w-12 border-t-2 border-b-2 border-primary"></div>
+            </div>
+            <p className="text-sm text-gray-600 dark:text-gray-400 font-mono">{message}</p>
+        </div>
+    </div>
+);
+// --- END: New Components for Wipe Data feature ---
+
 
 const BackupRestorePage: React.FC<BackupRestorePageProps> = ({ allData, onRestore, role }) => {
     const { showToast } = useNotification();
@@ -25,6 +43,9 @@ const BackupRestorePage: React.FC<BackupRestorePageProps> = ({ allData, onRestor
     const [restorePendingData, setRestorePendingData] = useState<any | null>(null);
     const [confirmAction, setConfirmAction] = useState<ConfirmAction>(null);
     const [password, setPassword] = useState('');
+    
+    const [isWiping, setIsWiping] = useState(false);
+    const [wipeProgress, setWipeProgress] = useState('');
 
     const MASTER_PASSWORD = '123456a@A';
 
@@ -97,7 +118,7 @@ const BackupRestorePage: React.FC<BackupRestorePageProps> = ({ allData, onRestor
         reader.readAsText(file);
     };
 
-    const handleDeleteMockDataClick = () => {
+    const handleDeleteDataClick = () => {
         if (!canManage) return;
         setConfirmAction('delete_data');
         setPassword('');
@@ -109,8 +130,48 @@ const BackupRestorePage: React.FC<BackupRestorePageProps> = ({ allData, onRestor
         setPassword('');
     };
 
-    const handleConfirmAction = () => {
-        // Allow either the current user's password or the master password
+    const wipeAllBusinessData = async (progressCallback: (message: string) => void) => {
+        const collectionsToDelete = [
+            'charges', 'waterReadings', 'vehicles', 
+            'adjustments', 'owners', 'units', 'activityLogs'
+        ];
+        
+        for (const collectionName of collectionsToDelete) {
+            progressCallback(`Đang chuẩn bị xoá: ${collectionName}...`);
+            const q = query(collection(db, collectionName));
+            const querySnapshot = await getDocs(q);
+            
+            if (querySnapshot.empty) {
+                progressCallback(`Collection '${collectionName}' trống. Bỏ qua.`);
+                continue;
+            }
+    
+            const BATCH_SIZE = 500;
+            let batch = writeBatch(db);
+            let count = 0;
+            let totalDeleted = 0;
+    
+            for (const docSnapshot of querySnapshot.docs) {
+                batch.delete(docSnapshot.ref);
+                count++;
+                if (count === BATCH_SIZE) {
+                    await batch.commit();
+                    totalDeleted += count;
+                    progressCallback(`Đã xoá ${totalDeleted}/${querySnapshot.size} từ '${collectionName}'`);
+                    batch = writeBatch(db);
+                    count = 0;
+                }
+            }
+    
+            if (count > 0) {
+                await batch.commit();
+                totalDeleted += count;
+                progressCallback(`Hoàn tất xoá ${totalDeleted}/${querySnapshot.size} từ '${collectionName}'`);
+            }
+        }
+    };
+
+    const handleConfirmAction = async () => {
         const isValid = (user && password === user.password) || password === MASTER_PASSWORD;
 
         if (!isValid) {
@@ -118,59 +179,51 @@ const BackupRestorePage: React.FC<BackupRestorePageProps> = ({ allData, onRestor
             setPassword('');
             return;
         }
+        
+        const actionToPerform = confirmAction;
+        const dataToRestore = restorePendingData;
 
-        if (confirmAction === 'restore_file' && restorePendingData) {
-            onRestore(restorePendingData);
-        } else if (confirmAction === 'delete_data') {
-            // Create empty state for operational data, preserving settings
-            const emptyData = {
-                units: [],
-                owners: [],
-                vehicles: [],
-                waterReadings: [],
-                charges: [],
-                adjustments: [],
-                activityLogs: [],
-                lockedPeriods: [],
-                // IMPORTANT: Preserve configuration and users so the app remains usable
-                tariffs: allData.tariffs, 
-                invoiceSettings: allData.invoiceSettings,
-                users: allData.users, 
-                backupDate: new Date().toISOString()
-            };
-            onRestore(emptyData);
-            showToast('Đã xoá sạch dữ liệu nghiệp vụ. Cài đặt được giữ nguyên.', 'success');
-        } else if (confirmAction === 'restore_mock') {
-            // Construct fresh mock data state
+        // Immediately hide confirmation UI
+        setPassword('');
+        setConfirmAction(null);
+        setRestorePendingData(null);
+
+        if (actionToPerform === 'restore_file' && dataToRestore) {
+            onRestore(dataToRestore);
+            showToast('Đã phục hồi dữ liệu từ file backup.', 'success');
+        } else if (actionToPerform === 'delete_data') {
+            setIsWiping(true);
+            try {
+                await wipeAllBusinessData(setWipeProgress);
+                
+                const emptyData = {
+                    units: [], owners: [], vehicles: [], waterReadings: [], charges: [],
+                    adjustments: [], activityLogs: [], lockedPeriods: [],
+                    tariffs: allData.tariffs, invoiceSettings: allData.invoiceSettings,
+                    users: allData.users, backupDate: new Date().toISOString()
+                };
+                onRestore(emptyData);
+                showToast('Đã xoá sạch dữ liệu nghiệp vụ thành công!', 'success');
+            } catch (error: any) {
+                console.error("Wipe data failed:", error);
+                showToast(`Lỗi khi xoá dữ liệu: ${error.message}`, 'error');
+            } finally {
+                setIsWiping(false);
+                setWipeProgress('');
+            }
+        } else if (actionToPerform === 'restore_mock') {
             const freshUnits = JSON.parse(JSON.stringify(MOCK_UNITS));
             patchKiosAreas(freshUnits);
-
             const mockDataState = {
-                units: freshUnits,
-                owners: MOCK_OWNERS,
-                vehicles: MOCK_VEHICLES,
-                waterReadings: MOCK_WATER_READINGS,
-                charges: [], // Reset charges on fresh start
-                adjustments: MOCK_ADJUSTMENTS,
-                tariffs: {
-                    service: MOCK_TARIFFS_SERVICE,
-                    parking: MOCK_TARIFFS_PARKING,
-                    water: MOCK_TARIFFS_WATER
-                },
-                invoiceSettings: allData.invoiceSettings, // Keep settings
-                users: allData.users, // Keep current users
-                activityLogs: [],
-                lockedPeriods: [],
-                backupDate: new Date().toISOString()
+                units: freshUnits, owners: MOCK_OWNERS, vehicles: MOCK_VEHICLES,
+                waterReadings: MOCK_WATER_READINGS, charges: [], adjustments: MOCK_ADJUSTMENTS,
+                tariffs: { service: MOCK_TARIFFS_SERVICE, parking: MOCK_TARIFFS_PARKING, water: MOCK_TARIFFS_WATER },
+                invoiceSettings: allData.invoiceSettings, users: allData.users,
+                activityLogs: [], lockedPeriods: [], backupDate: new Date().toISOString()
             };
             onRestore(mockDataState);
             showToast('Đã phục hồi dữ liệu mẫu thành công.', 'success');
         }
-        
-        // Cleanup
-        setConfirmAction(null);
-        setRestorePendingData(null);
-        setPassword('');
     };
     
     const handleCancel = () => {
@@ -204,6 +257,8 @@ const BackupRestorePage: React.FC<BackupRestorePageProps> = ({ allData, onRestor
                     animation: slide-up 0.3s ease-out;
                 }
             `}</style>
+            
+            {isWiping && <WipeProgressModal message={wipeProgress} />}
             
             {/* Backup Section */}
             <div className="bg-light-bg-secondary dark:bg-dark-bg-secondary p-6 rounded-lg shadow-md">
@@ -257,7 +312,7 @@ const BackupRestorePage: React.FC<BackupRestorePageProps> = ({ allData, onRestor
                 
                 <div className="flex flex-wrap gap-4">
                     <button
-                        onClick={handleDeleteMockDataClick}
+                        onClick={handleDeleteDataClick}
                         disabled={!canManage}
                         className="px-6 py-2 bg-red-600 text-white font-bold rounded-md shadow-sm hover:bg-red-700 disabled:bg-gray-400 flex items-center gap-2"
                     >
@@ -291,6 +346,7 @@ const BackupRestorePage: React.FC<BackupRestorePageProps> = ({ allData, onRestor
                             <input 
                                 type="password"
                                 value={password}
+                                onKeyDown={(e) => e.key === 'Enter' && handleConfirmAction()}
                                 onChange={(e) => setPassword(e.target.value)}
                                 placeholder="Mật khẩu Admin"
                                 className="p-2 border border-gray-300 dark:border-gray-600 rounded-md bg-white dark:bg-gray-800 w-full sm:w-48 focus:ring-2 focus:ring-red-500 outline-none"

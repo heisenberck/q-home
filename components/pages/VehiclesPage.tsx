@@ -1,10 +1,10 @@
-
 import React, { useState, useMemo, useCallback } from 'react';
 import type { Vehicle, Unit, Owner, Role, VehicleDocument } from '../../types';
 import { VehicleTier } from '../../types';
 import Modal from '../ui/Modal';
 import { useNotification } from '../../App';
 import { CarIcon, SearchIcon, PencilSquareIcon, DocumentArrowDownIcon, WarningIcon, ListBulletIcon, ActionViewIcon, UploadIcon, TrashIcon, DocumentTextIcon, EyeIcon } from '../ui/Icons';
+import { formatLicensePlate, translateVehicleType, vehicleTypeLabels, compressImageToWebP } from '../../utils/helpers';
 
 const PARKING_CAPACITY = {
     main: 89,
@@ -86,27 +86,32 @@ const VehicleEditModal: React.FC<{
         }
     };
 
-    const handleFileUpload = (e: React.ChangeEvent<HTMLInputElement>, docType: 'registration' | 'title' | 'nationalId') => {
+    const handleLicensePlateBlur = (e: React.FocusEvent<HTMLInputElement>) => {
+        const formattedPlate = formatLicensePlate(e.target.value);
+        setVehicle(prev => ({ ...prev, PlateNumber: formattedPlate }));
+    };
+
+    const handleFileUpload = async (e: React.ChangeEvent<HTMLInputElement>, docType: 'registration' | 'vehiclePhoto') => {
         const file = e.target.files?.[0];
         if (!file) return;
-
-        if (file.size > 5 * 1024 * 1024) {
-            showToast('File quá lớn. Vui lòng chọn file dưới 5MB.', 'error');
+    
+        if (file.size > 10 * 1024 * 1024) {
+            showToast('File quá lớn. Vui lòng chọn file dưới 10MB.', 'error');
             return;
         }
-        if (!['application/pdf', 'image/jpeg', 'image/png'].includes(file.type)) {
-            showToast('Định dạng file không hỗ trợ. Chỉ chấp nhận PDF, JPG, PNG.', 'error');
+        if (!file.type.startsWith('image/')) {
+            showToast('Chỉ chấp nhận file ảnh.', 'error');
             return;
         }
-
-        const reader = new FileReader();
-        reader.onload = (event) => {
-            const base64 = event.target?.result as string;
+    
+        try {
+            showToast('Đang nén ảnh...', 'info');
+            const compressedDataUrl = await compressImageToWebP(file);
             const newDoc: VehicleDocument = {
-                fileId: `DOC_${Date.now()}`,
-                name: file.name,
-                url: base64,
-                type: file.type,
+                fileId: `DOC_VEHICLE_${Date.now()}`,
+                name: file.name.replace(/\.[^/.]+$/, ".webp"),
+                url: compressedDataUrl,
+                type: 'image/webp',
                 uploadedAt: new Date().toISOString()
             };
             
@@ -117,12 +122,16 @@ const VehicleEditModal: React.FC<{
                     [docType]: newDoc
                 }
             }));
-            showToast(`Đã tải lên ${file.name}`, 'success');
-        };
-        reader.readAsDataURL(file);
+            showToast(`Đã tải lên ${newDoc.name}`, 'success');
+        } catch (error) {
+            showToast('Lỗi khi nén ảnh.', 'error');
+            console.error(error);
+        }
+        // Reset file input
+        if (e.target) e.target.value = '';
     };
 
-    const handleRemoveFile = (docType: 'registration' | 'title' | 'nationalId') => {
+    const handleRemoveFile = (docType: 'registration' | 'vehiclePhoto') => {
         if (window.confirm('Bạn có chắc muốn xóa file này?')) {
              setVehicle(prev => {
                 const newDocs = { ...prev.documents };
@@ -134,22 +143,34 @@ const VehicleEditModal: React.FC<{
 
     const handleSubmit = (e: React.FormEvent) => {
         e.preventDefault();
-
-        // Validation Rules
-        if (isCar && !vehicle.documents?.registration) {
-            showToast('Ô tô bắt buộc phải có Đăng ký xe (Attach file).', 'error');
-            return;
-        }
-        if (!isCar && vehicle.parkingStatus) {
-             // Should be prevented by UI, but double check
-             showToast('Trạng thái đỗ xe chỉ áp dụng cho Ô tô.', 'error');
-             return;
-        }
-
         onSave(vehicle);
     };
     
     const inputStyle = "w-full p-2 border rounded-md bg-light-bg dark:bg-dark-bg border-light-border dark:border-dark-border focus:ring-primary focus:border-primary";
+
+    const FileUploadField: React.FC<{ docType: 'registration' | 'vehiclePhoto'; label: string; }> = ({ docType, label }) => {
+        const doc = vehicle.documents?.[docType];
+        return (
+            <div className="border dark:border-dark-border rounded-md p-3 bg-gray-50 dark:bg-gray-800/50">
+                <div className="flex justify-between items-center">
+                    <label className="text-sm font-medium">{label}</label>
+                    {doc ? (
+                        <div className="flex items-center gap-2">
+                            <span className="text-xs text-green-600 truncate max-w-[150px]">{doc.name}</span>
+                            <button type="button" onClick={() => setPreviewDoc(doc)} className="text-blue-600 hover:text-blue-800 text-xs underline">Xem</button>
+                            <button type="button" onClick={() => handleRemoveFile(docType)} className="text-red-500 hover:text-red-700"><TrashIcon className="w-4 h-4" /></button>
+                        </div>
+                    ) : (
+                        <label className="cursor-pointer text-xs bg-white dark:bg-dark-bg border border-gray-300 dark:border-gray-600 px-2 py-1 rounded shadow-sm hover:bg-gray-50">
+                            <span className="flex items-center gap-1"><UploadIcon className="w-3 h-3"/> Upload</span>
+                            <input type="file" className="hidden" accept="image/*" onChange={(e) => handleFileUpload(e, docType)} />
+                        </label>
+                    )}
+                </div>
+            </div>
+        );
+    };
+
 
     return (
         <Modal title={`Chỉnh sửa xe: ${initialVehicle.PlateNumber}`} onClose={onClose} size="2xl">
@@ -162,12 +183,16 @@ const VehicleEditModal: React.FC<{
                     </div>
                     <div>
                         <label className="block text-sm font-medium text-light-text-secondary dark:text-dark-text-secondary">Biển số</label>
-                        <input type="text" name="PlateNumber" value={vehicle.PlateNumber} onChange={handleChange} className={inputStyle} />
+                        <input type="text" name="PlateNumber" value={vehicle.PlateNumber} onChange={handleChange} onBlur={handleLicensePlateBlur} placeholder={isCar ? 'VD: 30E-12345' : 'VD: 29H1-12345'} className={inputStyle} />
                     </div>
                     <div>
                         <label className="block text-sm font-medium text-light-text-secondary dark:text-dark-text-secondary">Loại xe</label>
-                        <select name="Type" value={vehicle.Type} onChange={handleChange} className={inputStyle}>
-                            {Object.values(VehicleTier).map(tier => <option key={tier} value={tier}>{tier}</option>)}
+                         <select name="Type" value={vehicle.Type === VehicleTier.EBIKE ? VehicleTier.EBIKE : vehicle.Type} onChange={handleChange} className={inputStyle}>
+                            <option value={VehicleTier.CAR}>{vehicleTypeLabels.car}</option>
+                            <option value={VehicleTier.CAR_A}>{vehicleTypeLabels.car_a}</option>
+                            <option value={VehicleTier.MOTORBIKE}>{vehicleTypeLabels.motorbike}</option>
+                            <option value={VehicleTier.EBIKE}>{vehicleTypeLabels.ebike}</option>
+                            <option value={VehicleTier.BICYCLE}>{vehicleTypeLabels.bicycle}</option>
                         </select>
                     </div>
                     <div>
@@ -202,67 +227,11 @@ const VehicleEditModal: React.FC<{
                     <h4 className="text-sm font-bold text-light-text-primary dark:text-dark-text-primary mb-3 flex items-center gap-2">
                         <DocumentTextIcon className="w-5 h-5" /> Hồ sơ đính kèm
                     </h4>
-                    <div className="grid grid-cols-1 gap-4">
-                        {/* Registration (Required for Car) */}
-                        <div className="border dark:border-dark-border rounded-md p-3 bg-gray-50 dark:bg-gray-800/50">
-                            <div className="flex justify-between items-center mb-2">
-                                <label className="text-sm font-medium flex items-center gap-1">
-                                    Đăng ký xe {isCar && <span className="text-red-500">*</span>}
-                                </label>
-                                {vehicle.documents?.registration ? (
-                                    <div className="flex items-center gap-2">
-                                        <span className="text-xs text-green-600 truncate max-w-[150px]">{vehicle.documents.registration.name}</span>
-                                        <button type="button" onClick={() => setPreviewDoc(vehicle.documents!.registration!)} className="text-blue-600 hover:text-blue-800 text-xs underline">Xem</button>
-                                        <button type="button" onClick={() => handleRemoveFile('registration')} className="text-red-500 hover:text-red-700"><TrashIcon className="w-4 h-4" /></button>
-                                    </div>
-                                ) : (
-                                    <label className="cursor-pointer text-xs bg-white dark:bg-dark-bg border border-gray-300 dark:border-gray-600 px-2 py-1 rounded shadow-sm hover:bg-gray-50">
-                                        <span className="flex items-center gap-1"><UploadIcon className="w-3 h-3"/> Upload</span>
-                                        <input type="file" className="hidden" accept=".pdf,.jpg,.jpeg,.png" onChange={(e) => handleFileUpload(e, 'registration')} />
-                                    </label>
-                                )}
-                            </div>
-                        </div>
-
-                        {/* Title (Optional) */}
-                        <div className="border dark:border-dark-border rounded-md p-3 bg-gray-50 dark:bg-gray-800/50">
-                            <div className="flex justify-between items-center mb-2">
-                                <label className="text-sm font-medium">Sổ đỏ / HĐMB (Tùy chọn)</label>
-                                {vehicle.documents?.title ? (
-                                    <div className="flex items-center gap-2">
-                                        <span className="text-xs text-green-600 truncate max-w-[150px]">{vehicle.documents.title.name}</span>
-                                        <button type="button" onClick={() => setPreviewDoc(vehicle.documents!.title!)} className="text-blue-600 hover:text-blue-800 text-xs underline">Xem</button>
-                                        <button type="button" onClick={() => handleRemoveFile('title')} className="text-red-500 hover:text-red-700"><TrashIcon className="w-4 h-4" /></button>
-                                    </div>
-                                ) : (
-                                    <label className="cursor-pointer text-xs bg-white dark:bg-dark-bg border border-gray-300 dark:border-gray-600 px-2 py-1 rounded shadow-sm hover:bg-gray-50">
-                                        <span className="flex items-center gap-1"><UploadIcon className="w-3 h-3"/> Upload</span>
-                                        <input type="file" className="hidden" accept=".pdf,.jpg,.jpeg,.png" onChange={(e) => handleFileUpload(e, 'title')} />
-                                    </label>
-                                )}
-                            </div>
-                        </div>
-
-                        {/* ID Card (Optional) */}
-                        <div className="border dark:border-dark-border rounded-md p-3 bg-gray-50 dark:bg-gray-800/50">
-                            <div className="flex justify-between items-center mb-2">
-                                <label className="text-sm font-medium">CCCD / CMND (Tùy chọn)</label>
-                                {vehicle.documents?.nationalId ? (
-                                    <div className="flex items-center gap-2">
-                                        <span className="text-xs text-green-600 truncate max-w-[150px]">{vehicle.documents.nationalId.name}</span>
-                                        <button type="button" onClick={() => setPreviewDoc(vehicle.documents!.nationalId!)} className="text-blue-600 hover:text-blue-800 text-xs underline">Xem</button>
-                                        <button type="button" onClick={() => handleRemoveFile('nationalId')} className="text-red-500 hover:text-red-700"><TrashIcon className="w-4 h-4" /></button>
-                                    </div>
-                                ) : (
-                                    <label className="cursor-pointer text-xs bg-white dark:bg-dark-bg border border-gray-300 dark:border-gray-600 px-2 py-1 rounded shadow-sm hover:bg-gray-50">
-                                        <span className="flex items-center gap-1"><UploadIcon className="w-3 h-3"/> Upload</span>
-                                        <input type="file" className="hidden" accept=".pdf,.jpg,.jpeg,.png" onChange={(e) => handleFileUpload(e, 'nationalId')} />
-                                    </label>
-                                )}
-                            </div>
-                        </div>
+                    <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                        <FileUploadField docType="registration" label="Ảnh Đăng ký xe" />
+                        <FileUploadField docType="vehiclePhoto" label="Ảnh chụp xe" />
                     </div>
-                    <p className="text-xs text-gray-500 mt-2">Hỗ trợ: PDF, JPG, PNG. Tối đa 5MB/file.</p>
+                    <p className="text-xs text-gray-500 mt-2">Hỗ trợ ảnh. File sẽ được nén dưới 200KB.</p>
                 </div>
 
                  <div>
@@ -286,8 +255,7 @@ const VehicleViewModal: React.FC<{
     const [previewDoc, setPreviewDoc] = useState<VehicleDocument | null>(null);
     const docTypes = [
         { key: 'registration' as const, label: 'Đăng ký xe' },
-        { key: 'title' as const, label: 'Sổ đỏ' },
-        { key: 'nationalId' as const, label: 'CCCD' },
+        { key: 'vehiclePhoto' as const, label: 'Ảnh chụp xe' },
     ];
 
     return (
@@ -310,7 +278,7 @@ const VehicleViewModal: React.FC<{
                     <h3 className="text-lg font-semibold border-b pb-2 mb-3 dark:border-dark-border">Thông tin Phương tiện</h3>
                     <div className="grid grid-cols-2 gap-x-4 gap-y-2 text-sm">
                         <div className="font-medium text-gray-500 dark:text-gray-400">Loại xe:</div>
-                        <div>{vehicle.Type}</div>
+                        <div>{translateVehicleType(vehicle.Type)}</div>
                         <div className="font-medium text-gray-500 dark:text-gray-400">Tên xe:</div>
                         <div>{vehicle.VehicleName}</div>
                         <div className="font-medium text-gray-500 dark:text-gray-400">Biển số:</div>
@@ -397,7 +365,6 @@ const VehicleManagementPage: React.FC<VehiclesPageProps> = ({ vehicles, units, o
 
         if (parkingStatusFilter !== 'all' && v.parkingStatus !== (parkingStatusFilter === 'none' ? null : parkingStatusFilter)) return false;
         
-        // FIX: Safely handle undefined ownerName to prevent crashes
         if (searchTerm && !(
             v.PlateNumber.toLowerCase().includes(searchTerm.toLowerCase()) ||
             v.UnitID.toLowerCase().includes(searchTerm.toLowerCase()) ||
@@ -509,7 +476,15 @@ const VehicleManagementPage: React.FC<VehiclesPageProps> = ({ vehicles, units, o
                 
                 <div className="flex flex-wrap items-center gap-4 p-2 bg-light-bg-secondary dark:bg-dark-bg-secondary rounded-xl border dark:border-dark-border shadow-sm">
                     <div className="relative flex-grow min-w-[200px]"><SearchIcon className="absolute left-3 top-1/2 -translate-y-1/2 h-5 w-5 text-gray-400" /><input type="text" placeholder="Tìm biển số, căn hộ, chủ hộ..." value={searchTerm} onChange={e => setSearchTerm(e.target.value)} className="w-full pl-10 p-2 border rounded-lg bg-light-bg dark:bg-dark-bg"/></div>
-                    <select value={typeFilter} onChange={e => setTypeFilter(e.target.value)} className="p-2 border rounded-lg bg-light-bg dark:bg-dark-bg"><option value="all">Tất cả loại xe</option><option value="all_cars">Tất cả ô tô</option><option value="car">Ô tô</option><option value="car_a">Ô tô hạng A</option><option value="motorbike">Xe máy</option><option value="ebike">Xe điện</option><option value="bicycle">Xe đạp</option></select>
+                    <select value={typeFilter} onChange={e => setTypeFilter(e.target.value)} className="p-2 border rounded-lg bg-light-bg dark:bg-dark-bg">
+                        <option value="all">Tất cả loại xe</option>
+                        <option value="all_cars">Tất cả ô tô</option>
+                        <option value="car">{vehicleTypeLabels.car}</option>
+                        <option value="car_a">{vehicleTypeLabels.car_a}</option>
+                        <option value="motorbike">{vehicleTypeLabels.motorbike}</option>
+                        <option value="ebike">{vehicleTypeLabels.ebike}</option>
+                        <option value="bicycle">{vehicleTypeLabels.bicycle}</option>
+                    </select>
                     <select value={parkingStatusFilter} onChange={e => setParkingStatusFilter(e.target.value)} className="p-2 border rounded-lg bg-light-bg dark:bg-dark-bg"><option value="all">Tất cả trạng thái</option><option value="Lốt chính">Lốt chính</option><option value="Lốt tạm">Lốt tạm</option><option value="Xếp lốt">Xếp lốt</option><option value="none">Không có</option></select>
                     <div className="relative group inline-block ml-auto">
                         <button onClick={handleExport} className="px-4 py-2 bg-primary text-white font-semibold rounded-md flex items-center gap-2"><DocumentArrowDownIcon /> Export</button>
@@ -537,7 +512,7 @@ const VehicleManagementPage: React.FC<VehiclesPageProps> = ({ vehicles, units, o
                                 <tr key={v.VehicleId}>
                                     <td className="font-medium col-unit">{v.UnitID}</td>
                                     <td className="col-owner">{v.ownerName}</td>
-                                    <td className="col-type">{v.Type}</td>
+                                    <td className="col-type">{translateVehicleType(v.Type)}</td>
                                     <td className="col-name">{v.VehicleName}</td>
                                     <td className="font-mono col-plate">{v.PlateNumber}</td>
                                     <td className="col-date">{new Date(v.StartDate).toLocaleDateString('vi-VN')}</td>

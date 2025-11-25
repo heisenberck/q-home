@@ -1,7 +1,4 @@
 
-
-
-
 import React, { useState, useCallback, useMemo, useEffect, useRef } from 'react';
 import type { Unit, ChargeRaw, Vehicle, WaterReading, Adjustment, Owner, AllData, Role, PaymentStatus, InvoiceSettings, ActivityLog } from '../../types';
 import { UnitType, ParkingTariffTier } from '../../types';
@@ -49,31 +46,43 @@ const sendEmailAPI = async (
     }
 
     try {
-        // NOTE: mode: 'no-cors' is a common workaround for simple Apps Script POST requests from a browser.
-        // The script executes, but the browser cannot read the response due to CORS policies on Google's side.
-        // We optimistically assume success. For a more robust solution, the Apps Script would need to be
-        // modified to return JSONP or handle preflight requests, which is more complex.
-        await fetch(settings.appsScriptUrl, {
+        const formData = new URLSearchParams();
+        formData.append('email', recipient);
+        formData.append('subject', subject);
+        formData.append('htmlBody', body);
+        if (settings.senderName) {
+            formData.append('senderName', settings.senderName);
+        }
+
+        if (attachment) {
+            formData.append('attachmentData', attachment.data);
+            formData.append('attachmentName', attachment.name);
+        }
+
+        const response = await fetch(settings.appsScriptUrl, {
             method: 'POST',
-            mode: 'no-cors',
-            cache: 'no-cache',
             headers: {
-                'Content-Type': 'application/json; charset=utf-8',
+                'Content-Type': 'application/x-www-form-urlencoded',
             },
-            body: JSON.stringify({
-                to: recipient,
-                subject: subject,
-                body: body, // Body is already HTML
-                attachment: attachment,
-                name: settings.senderName
-            }),
+            body: formData,
         });
         
-        // We can't check the response, so we assume it was successful.
+        if (!response.ok) {
+            let errorMsg = `Server returned an error: ${response.status} ${response.statusText}`;
+            try {
+                const errorResult = await response.json();
+                if (errorResult.error) errorMsg = `Server error: ${errorResult.error}`;
+            } catch (e) { /* ignore if response is not json */ }
+            return { success: false, error: errorMsg };
+        }
+        
         return { success: true };
 
     } catch (e: any) {
         console.error("Apps Script fetch error:", e);
+        if (e.name === 'TypeError' && e.message === 'Failed to fetch') {
+            return { success: false, error: `Lỗi mạng hoặc CORS. Vui lòng kiểm tra lại URL Google Apps Script và đảm bảo đã public đúng cách.`};
+        }
         return { success: false, error: `Lỗi mạng khi gửi yêu cầu: ${e.message}` };
     }
 };

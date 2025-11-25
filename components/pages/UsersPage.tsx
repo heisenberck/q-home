@@ -5,7 +5,8 @@ import { useAuth, useNotification, useLogger } from '../../App';
 import Modal from '../ui/Modal';
 import { 
     KeyIcon, EyeIcon, EnvelopeIcon, ShieldCheckIcon, ArrowPathIcon, 
-    EllipsisVerticalIcon, TrashIcon, CheckCircleIcon, WarningIcon, PencilSquareIcon 
+    EllipsisVerticalIcon, TrashIcon, CheckCircleIcon, WarningIcon, PencilSquareIcon,
+    SearchIcon 
 } from '../ui/Icons';
 
 interface UsersPageProps {
@@ -21,11 +22,30 @@ const UsersPage: React.FC<UsersPageProps> = ({ users, setUsers, role }) => {
 
     const [selectedUsers, setSelectedUsers] = useState<Set<string>>(new Set());
     
+    // Filter States
+    const [searchTerm, setSearchTerm] = useState('');
+    const [roleFilter, setRoleFilter] = useState('all');
+    const [statusFilter, setStatusFilter] = useState('all');
+
     // Modal States
     const [addUserModalOpen, setAddUserModalOpen] = useState(false);
     const [passwordModalState, setPasswordModalState] = useState<{ isOpen: boolean; user: UserPermission | null }>({ isOpen: false, user: null });
     const [editUserModalState, setEditUserModalState] = useState<{ isOpen: boolean; user: UserPermission | null }>({ isOpen: false, user: null });
 
+    const filteredUsers = useMemo(() => {
+        return users.filter(user => {
+            if (roleFilter !== 'all' && user.Role !== roleFilter) return false;
+            if (statusFilter !== 'all' && user.status !== statusFilter) return false;
+    
+            const lowerSearch = searchTerm.toLowerCase();
+            if (lowerSearch && !(
+                user.Email.toLowerCase().includes(lowerSearch) ||
+                (user.Username || '').toLowerCase().includes(lowerSearch)
+            )) return false;
+    
+            return true;
+        });
+    }, [users, searchTerm, roleFilter, statusFilter]);
 
     const handleUserUpdate = (updatedUser: UserPermission, summary: string, oldEmail?: string) => {
         const targetEmail = oldEmail || updatedUser.Email;
@@ -164,10 +184,10 @@ const UsersPage: React.FC<UsersPageProps> = ({ users, setUsers, role }) => {
     };
 
     const handleSelectAll = (e: React.ChangeEvent<HTMLInputElement>) => {
-        setSelectedUsers(e.target.checked ? new Set(users.map(u => u.Email)) : new Set());
+        setSelectedUsers(e.target.checked ? new Set(filteredUsers.map(u => u.Email)) : new Set());
     };
 
-    const isAllSelected = selectedUsers.size > 0 && selectedUsers.size === users.length;
+    const isAllSelected = filteredUsers.length > 0 && selectedUsers.size === filteredUsers.length;
 
     const statusDisplay = (status: UserPermission['status']) => {
         const styles = {
@@ -323,10 +343,37 @@ const UsersPage: React.FC<UsersPageProps> = ({ users, setUsers, role }) => {
                 />
             )}
             
-            <div className="flex justify-end items-center">
+            <div className="flex justify-between items-center">
+                <h2 className="text-2xl font-bold">Quản lý Người dùng ({users.length})</h2>
                 <button onClick={() => setAddUserModalOpen(true)} disabled={!canManage} className="px-4 py-2 bg-primary text-white font-semibold rounded-md shadow-sm hover:bg-primary-focus disabled:bg-gray-400 flex items-center gap-2">
                     <span>+</span> Thêm người dùng
                 </button>
+            </div>
+
+            <div className="flex flex-wrap items-center gap-4 p-4 bg-light-bg-secondary dark:bg-dark-bg-secondary rounded-lg border dark:border-dark-border shadow-sm">
+                <div className="relative flex-grow min-w-[200px]">
+                    <SearchIcon className="absolute left-3 top-1/2 -translate-y-1/2 h-5 w-5 text-gray-400" />
+                    <input 
+                        type="text" 
+                        placeholder="Tìm theo Email hoặc Tên..." 
+                        value={searchTerm} 
+                        onChange={e => setSearchTerm(e.target.value)} 
+                        className="w-full pl-10 p-2 border rounded-lg bg-light-bg dark:bg-dark-bg"
+                    />
+                </div>
+                <select value={roleFilter} onChange={e => setRoleFilter(e.target.value)} className="p-2 border rounded-lg bg-light-bg dark:bg-dark-bg">
+                    <option value="all">Tất cả vai trò</option>
+                    <option value="Admin">Admin</option>
+                    <option value="Accountant">Accountant</option>
+                    <option value="Operator">Operator</option>
+                    <option value="Viewer">Viewer</option>
+                </select>
+                <select value={statusFilter} onChange={e => setStatusFilter(e.target.value)} className="p-2 border rounded-lg bg-light-bg dark:bg-dark-bg">
+                    <option value="all">Tất cả trạng thái</option>
+                    <option value="Active">Active</option>
+                    <option value="Disabled">Disabled</option>
+                    <option value="Pending">Pending</option>
+                </select>
             </div>
 
             {selectedUsers.size > 0 && (
@@ -349,7 +396,7 @@ const UsersPage: React.FC<UsersPageProps> = ({ users, setUsers, role }) => {
                     <table className="min-w-full themed-table">
                         <thead>
                             <tr>
-                                <th className="w-12 text-center"><input type="checkbox" onChange={handleSelectAll} checked={isAllSelected} disabled={!canManage || users.length === 0} /></th>
+                                <th className="w-12 text-center"><input type="checkbox" onChange={handleSelectAll} checked={isAllSelected} disabled={!canManage || filteredUsers.length === 0} /></th>
                                 <th className="text-left">Email / Tên đăng nhập</th>
                                 <th className="text-left w-40">Vai trò</th>
                                 <th className="text-left w-32">Trạng thái</th>
@@ -357,7 +404,7 @@ const UsersPage: React.FC<UsersPageProps> = ({ users, setUsers, role }) => {
                             </tr>
                         </thead>
                         <tbody className="divide-y divide-gray-200 dark:divide-gray-700">
-                            {users.map(user => (
+                            {filteredUsers.map(user => (
                                 <tr key={user.Email} className="hover:bg-gray-50 dark:hover:bg-gray-800/50">
                                     <td className="text-center py-3">
                                         <input type="checkbox" checked={selectedUsers.has(user.Email)} onChange={e => handleSelectUser(user.Email, e.target.checked)} disabled={!canManage} />
