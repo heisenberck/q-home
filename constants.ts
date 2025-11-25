@@ -10,7 +10,6 @@ import {
     VehicleTier,
     TariffWater,
     Adjustment,
-    ChargeRaw,
     ParkingTariffTier
 } from './types';
 
@@ -126,9 +125,6 @@ export function patchKiosAreas(units: Unit[]): void {
         patched++;
       }
     }
-  }
-  if (patched > 0) {
-      // console.log(`[patchKiosAreas] Patched: ${patched} KIOS areas.`);
   }
 }
 // --- END: KIOS Area Patch ---

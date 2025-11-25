@@ -8,6 +8,13 @@ export const formatCurrency = (value: number | null | undefined): string => {
     return new Intl.NumberFormat('vi-VN', { style: 'currency', currency: 'VND' }).format(Math.round(value));
 };
 
+export const formatNumber = (value: number | null | undefined): string => {
+    if (typeof value !== 'number' || isNaN(value)) {
+        return '0';
+    }
+    return new Intl.NumberFormat('vi-VN').format(Math.round(value));
+};
+
 export const getPreviousPeriod = (p: string): string => {
     const [year, month] = p.split('-').map(Number);
     const d = new Date(year, month - 1, 1);

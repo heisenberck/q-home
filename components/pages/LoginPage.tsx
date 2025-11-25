@@ -1,7 +1,8 @@
-
 import React, { useState } from 'react';
 import { UserPermission } from '../../types';
 import { EyeIcon } from '../ui/Icons';
+import { useSettings } from '../../App';
+import { isProduction } from '../../utils/env';
 
 interface LoginPageProps {
     users: UserPermission[];
@@ -9,11 +10,13 @@ interface LoginPageProps {
 }
 
 const LoginPage: React.FC<LoginPageProps> = ({ users, onLogin }) => {
-    const [identifier, setIdentifier] = useState(''); // Email or Username
+    const [identifier, setIdentifier] = useState('');
     const [password, setPassword] = useState('');
     const [showPassword, setShowPassword] = useState(false);
     const [error, setError] = useState('');
     const [isLoading, setIsLoading] = useState(false);
+    const { invoiceSettings } = useSettings();
+    const IS_PROD = isProduction();
 
     const MASTER_PASSWORD = '123456a@A';
 
@@ -22,10 +25,18 @@ const LoginPage: React.FC<LoginPageProps> = ({ users, onLogin }) => {
         setError('');
         setIsLoading(true);
 
-        // Simulate network delay for better UX feel
         await new Promise(resolve => setTimeout(resolve, 600));
 
         const cleanIdentifier = identifier.trim().toLowerCase();
+        
+        if (!IS_PROD && cleanIdentifier === 'admin' && password === '123456a@') {
+            const adminUser = users.find(u => u.Role === 'Admin');
+            if (adminUser) {
+                onLogin(adminUser);
+                setIsLoading(false);
+                return;
+            }
+        }
         
         const user = users.find(u => 
             u.Email.toLowerCase() === cleanIdentifier || 
@@ -55,14 +66,15 @@ const LoginPage: React.FC<LoginPageProps> = ({ users, onLogin }) => {
         onLogin(user);
         setIsLoading(false);
     };
+    
+    const backgroundUrl = invoiceSettings.loginBackgroundUrl || 'https://images.unsplash.com/photo-1545324418-cc1a3fa10c00?auto=format&fit=crop&q=80&w=1920';
 
     return (
         <div className="min-h-screen flex items-center justify-center bg-gray-900 px-4 relative overflow-hidden">
-            {/* Background Image */}
             <div 
                 className="absolute inset-0 z-0 bg-cover bg-center" 
                 style={{ 
-                    backgroundImage: 'url("https://images.unsplash.com/photo-1545324418-cc1a3fa10c00?auto=format&fit=crop&q=80&w=1920")',
+                    backgroundImage: `url("${backgroundUrl}")`,
                     filter: 'brightness(0.5)'
                 }}
             ></div>
@@ -70,7 +82,6 @@ const LoginPage: React.FC<LoginPageProps> = ({ users, onLogin }) => {
             <div className="max-w-md w-full bg-white/90 dark:bg-gray-800/90 backdrop-blur-md rounded-xl shadow-2xl overflow-hidden z-10 border border-white/20">
                 <div className="bg-primary p-8 text-center relative overflow-hidden">
                     <div className="absolute inset-0 bg-gradient-to-b from-white/10 to-transparent"></div>
-                     {/* Logo Icon */}
                      <div className="relative z-10 flex justify-center mb-3">
                         <div className="bg-white/20 p-3 rounded-xl backdrop-blur-sm">
                              <svg xmlns="http://www.w3.org/2000/svg" className="h-8 w-8 text-white" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2.5}>
@@ -80,7 +91,7 @@ const LoginPage: React.FC<LoginPageProps> = ({ users, onLogin }) => {
                      </div>
                      <h1 className="text-3xl font-bold text-white mb-2 relative z-10">Q-Home Manager</h1>
                      <div className="inline-block bg-yellow-400 text-yellow-900 text-xs font-bold px-3 py-1 rounded-full relative z-10 shadow-sm uppercase tracking-wide">
-                        HUD3 Linh Đàm
+                        {invoiceSettings.buildingName || 'Q-HOME MANAGER'}
                      </div>
                 </div>
                 

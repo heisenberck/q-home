@@ -1,4 +1,3 @@
-
 import React, { useState, useMemo } from 'react';
 import type { ActivityLog, Role } from '../../types';
 import { ArrowUturnLeftIcon, ClipboardDocumentListIcon, SearchIcon } from '../ui/Icons';
@@ -67,57 +66,54 @@ const ActivityLogPage: React.FC<ActivityLogPageProps> = ({ logs, onUndo, role })
 
     const totalPages = Math.ceil(filteredLogs.length / ITEMS_PER_PAGE);
 
-    return (
-        <div className="h-full flex flex-col space-y-4">
-            <h2 className="text-2xl font-bold mb-2 flex items-center gap-3">
-                <ClipboardDocumentListIcon className="w-7 h-7" />
-                Nhật ký Hoạt động Hệ thống
-            </h2>
+    const inputStyle = "p-2 border rounded-lg bg-white border-gray-300 text-gray-900 dark:bg-dark-bg-secondary dark:border-gray-600 dark:text-white";
 
-            {/* Filter Bar */}
-            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4 p-4 bg-light-bg-secondary dark:bg-dark-bg-secondary rounded-lg border dark:border-dark-border shadow-sm">
-                <div className="relative col-span-1 md:col-span-2 lg:col-span-1">
-                    <SearchIcon className="absolute left-3 top-1/2 -translate-y-1/2 h-5 w-5 text-gray-400" />
-                    <input type="text" placeholder="Tìm kiếm..." value={searchTerm} onChange={e => setSearchTerm(e.target.value)} className="w-full pl-10 p-2 border rounded-lg bg-light-bg dark:bg-dark-bg"/>
+    return (
+        <div className="h-full flex flex-col space-y-6">
+            <div className="bg-white dark:bg-dark-bg-secondary p-4 rounded-xl shadow-sm">
+                <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
+                    <div className="relative col-span-1 md:col-span-2 lg:col-span-1">
+                        <SearchIcon className="absolute left-3 top-1/2 -translate-y-1/2 h-5 w-5 text-gray-400" />
+                        <input type="text" placeholder="Tìm kiếm..." value={searchTerm} onChange={e => setSearchTerm(e.target.value)} className={`w-full pl-10 ${inputStyle}`}/>
+                    </div>
+                    <select value={moduleFilter} onChange={e => setModuleFilter(e.target.value)} className={inputStyle}><option value="all">Tất cả Module</option>{uniqueModules.slice(1).map(m => <option key={m} value={m}>{m}</option>)}</select>
+                    <select value={userFilter} onChange={e => setUserFilter(e.target.value)} className={inputStyle}><option value="all">Tất cả người dùng</option>{uniqueUsers.slice(1).map(u => <option key={u} value={u}>{u}</option>)}</select>
+                    <select value={dateFilter} onChange={e => setDateFilter(e.target.value)} className={inputStyle}><option value="all">Toàn bộ thời gian</option><option value="1">24 giờ qua</option><option value="7">7 ngày qua</option><option value="30">30 ngày qua</option></select>
                 </div>
-                <select value={moduleFilter} onChange={e => setModuleFilter(e.target.value)} className="p-2 border rounded-lg bg-light-bg dark:bg-dark-bg"><option value="all">All Modules</option>{uniqueModules.slice(1).map(m => <option key={m} value={m}>{m}</option>)}</select>
-                <select value={userFilter} onChange={e => setUserFilter(e.target.value)} className="p-2 border rounded-lg bg-light-bg dark:bg-dark-bg"><option value="all">All Users</option>{uniqueUsers.slice(1).map(u => <option key={u} value={u}>{u}</option>)}</select>
-                <select value={dateFilter} onChange={e => setDateFilter(e.target.value)} className="p-2 border rounded-lg bg-light-bg dark:bg-dark-bg"><option value="all">All Time</option><option value="1">Last 24 hours</option><option value="7">Last 7 days</option><option value="30">Last 30 days</option></select>
             </div>
 
-            {/* Table */}
-            <div className="bg-light-bg-secondary dark:bg-dark-bg-secondary p-4 rounded-lg shadow-md flex-1 flex flex-col overflow-hidden">
+            <div className="bg-white dark:bg-dark-bg-secondary rounded-xl shadow-sm flex-1 flex flex-col overflow-hidden">
                 <div className="overflow-y-auto">
-                    <table className="min-w-full themed-table">
-                        <thead className="sticky top-0 z-10 text-xs uppercase">
+                    <table className="min-w-full">
+                        <thead className="bg-gray-50 dark:bg-slate-800 sticky top-0 z-10">
                             <tr>
-                                <th className="w-[15%]">Thời gian</th>
-                                <th className="w-[15%]">Người dùng</th>
-                                <th className="w-[10%]">Module</th>
-                                <th className="w-[15%]">Hành động</th>
-                                <th className="flex-1">Chi tiết</th>
-                                <th className="w-[5%] text-center">Undo</th>
+                                <th className="px-4 py-3 text-left text-xs font-bold text-gray-700 dark:text-gray-300 uppercase tracking-wider w-[15%]">Thời gian</th>
+                                <th className="px-4 py-3 text-left text-xs font-bold text-gray-700 dark:text-gray-300 uppercase tracking-wider w-[15%]">Người dùng</th>
+                                <th className="px-4 py-3 text-left text-xs font-bold text-gray-700 dark:text-gray-300 uppercase tracking-wider w-[10%]">Module</th>
+                                <th className="px-4 py-3 text-left text-xs font-bold text-gray-700 dark:text-gray-300 uppercase tracking-wider w-[15%]">Hành động</th>
+                                <th className="px-4 py-3 text-left text-xs font-bold text-gray-700 dark:text-gray-300 uppercase tracking-wider">Chi tiết</th>
+                                <th className="px-4 py-3 text-center text-xs font-bold text-gray-700 dark:text-gray-300 uppercase tracking-wider w-[5%]">Undo</th>
                             </tr>
                         </thead>
-                        <tbody className="text-sm">
+                        <tbody className="divide-y divide-gray-200 dark:divide-gray-700 text-sm">
                             {paginatedLogs.length === 0 ? (
-                                <tr><td colSpan={6} className="text-center p-8">Không có hoạt động nào phù hợp.</td></tr>
+                                <tr><td colSpan={6} className="text-center p-8 text-gray-500">Không có hoạt động nào phù hợp.</td></tr>
                             ) : (
                                 paginatedLogs.map(log => {
                                     const canUndo = !log.undone && log.undo_token && new Date() < new Date(log.undo_until!);
                                     return (
-                                        <tr key={log.id} className={log.undone ? 'opacity-40' : ''}>
-                                            <td className="font-mono text-xs">{new Date(log.ts).toLocaleString('vi-VN')}</td>
-                                            <td>{log.actor_email}<br/><span className="text-xs text-gray-500">{log.actor_role}</span></td>
-                                            <td><span className="px-2 py-1 text-xs font-semibold rounded-full bg-gray-200 dark:bg-gray-700">{log.module}</span></td>
-                                            <td className="font-semibold font-mono text-xs">{log.action}</td>
-                                            <td>{log.summary}</td>
-                                            <td className="text-center">
+                                        <tr key={log.id} className={`${log.undone ? 'opacity-40' : ''} hover:bg-gray-50 dark:hover:bg-slate-800/50`}>
+                                            <td className="px-4 py-4 font-mono text-xs text-gray-900 dark:text-gray-200">{new Date(log.ts).toLocaleString('vi-VN')}</td>
+                                            <td className="px-4 py-4 text-gray-900 dark:text-gray-200">{log.actor_email}<br/><span className="text-xs text-gray-500">{log.actor_role}</span></td>
+                                            <td className="px-4 py-4"><span className="px-2 py-1 text-xs font-semibold rounded-full bg-gray-200 dark:bg-gray-700 text-gray-900 dark:text-gray-200">{log.module}</span></td>
+                                            <td className="px-4 py-4 font-semibold font-mono text-xs text-gray-900 dark:text-gray-200">{log.action}</td>
+                                            <td className="px-4 py-4 text-gray-900 dark:text-gray-200">{log.summary}</td>
+                                            <td className="px-4 py-4 text-center">
                                                 <button 
                                                     onClick={() => handleUndoClick(log)}
                                                     disabled={!canUndo}
                                                     className="p-1.5 rounded-full text-blue-600 hover:bg-blue-100 dark:hover:bg-blue-900/50 disabled:text-gray-400 disabled:bg-transparent disabled:cursor-not-allowed"
-                                                    title={log.undone ? 'Đã hoàn tác' : (!log.undo_token ? 'Không thể hoàn tác' : (canUndo ? 'Hoàn tác' : 'Hết hạn hoàn tác'))}
+                                                    data-tooltip={log.undone ? 'Đã hoàn tác' : (!log.undo_token ? 'Không thể hoàn tác' : (canUndo ? 'Hoàn tác' : 'Hết hạn hoàn tác'))}
                                                 >
                                                     <ArrowUturnLeftIcon className="w-5 h-5"/>
                                                 </button>
@@ -130,12 +126,13 @@ const ActivityLogPage: React.FC<ActivityLogPageProps> = ({ logs, onUndo, role })
                     </table>
                 </div>
 
-                 {/* Pagination */}
                 {totalPages > 1 && (
-                    <div className="pagination-controls">
-                        <span className="text-sm">{`Page ${currentPage} of ${totalPages}`}</span>
-                        <button onClick={() => setCurrentPage(p => Math.max(1, p - 1))} disabled={currentPage === 1}>Previous</button>
-                        <button onClick={() => setCurrentPage(p => Math.min(totalPages, p + 1))} disabled={currentPage === totalPages}>Next</button>
+                    <div className="p-3 border-t dark:border-dark-border flex justify-between items-center">
+                        <span className="text-sm font-medium text-gray-600 dark:text-gray-400">{`Trang ${currentPage} / ${totalPages}`}</span>
+                        <div className="flex gap-2">
+                             <button onClick={() => setCurrentPage(p => Math.max(1, p - 1))} disabled={currentPage === 1} className="px-3 py-1 text-sm bg-white dark:bg-dark-bg-secondary border dark:border-dark-border rounded-md disabled:opacity-50">Trước</button>
+                             <button onClick={() => setCurrentPage(p => Math.min(totalPages, p + 1))} disabled={currentPage === totalPages} className="px-3 py-1 text-sm bg-white dark:bg-dark-bg-secondary border dark:border-dark-border rounded-md disabled:opacity-50">Sau</button>
+                        </div>
                     </div>
                 )}
             </div>

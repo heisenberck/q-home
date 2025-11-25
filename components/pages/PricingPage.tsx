@@ -1,4 +1,5 @@
 
+
 import React, { useState } from 'react';
 import type { TariffService, TariffParking, TariffWater, Role } from '../../types';
 import Modal from '../ui/Modal';
@@ -60,14 +61,14 @@ const PricingPage: React.FC<PricingPageProps> = ({ tariffs, setTariffs, role }) 
         headers: { label: string; align?: 'left' | 'right' | 'center' }[]; 
         children: React.ReactNode 
     }> = ({ title, headers, children }) => (
-        <div className="bg-light-bg-secondary dark:bg-dark-bg-secondary p-4 rounded-lg shadow-md">
-            <h3 className="text-xl font-semibold mb-4 text-light-text-primary dark:text-dark-text-primary">{title}</h3>
-            <div className="overflow-auto max-h-[500px] border border-light-border dark:border-dark-border rounded-md">
-                <table className="min-w-full themed-table">
-                    <thead className="sticky top-0 z-20 shadow-sm">
+        <div className="bg-white dark:bg-dark-bg-secondary p-6 rounded-xl shadow-sm">
+            <h3 className="text-xl font-bold mb-4 text-gray-800 dark:text-gray-200">{title}</h3>
+            <div className="overflow-auto max-h-[500px] border border-gray-200 dark:border-gray-700 rounded-lg">
+                <table className="min-w-full">
+                    <thead className="bg-gray-50 dark:bg-slate-800 sticky top-0 z-10 shadow-sm">
                         <tr>
                             {headers.map((h, i) => (
-                                <th key={i} className={`bg-gray-100 dark:bg-gray-800 whitespace-nowrap px-4 py-3 text-xs font-medium uppercase tracking-wider text-${h.align || 'left'}`}>
+                                <th key={i} className={`px-4 py-3 text-xs font-bold uppercase tracking-wider text-gray-700 dark:text-gray-300 text-${h.align || 'left'}`}>
                                     {h.label}
                                 </th>
                             ))}
@@ -82,7 +83,7 @@ const PricingPage: React.FC<PricingPageProps> = ({ tariffs, setTariffs, role }) 
     );
     
     return (
-        <div className="space-y-8 pricing-page-container pb-8">
+        <div className="space-y-6">
             <TariffTable 
                 title="Biểu phí Dịch vụ" 
                 headers={[
@@ -95,13 +96,13 @@ const PricingPage: React.FC<PricingPageProps> = ({ tariffs, setTariffs, role }) 
                 ]}
             >
                 {tariffs.service.map((item, index) => (
-                    <tr key={index} className="hover:bg-gray-50 dark:hover:bg-gray-700/50">
-                        <td className="px-4 py-3 font-medium">{item.LoaiHinh}</td>
-                        <td className="px-4 py-3 text-right font-mono">{formatCurrency(item.ServiceFee_per_m2)}</td>
-                        <td className="px-4 py-3 text-right">{item.VAT_percent}</td>
-                        <td className="px-4 py-3 text-center">{formatDate(item.ValidFrom)}</td>
-                        <td className="px-4 py-3 text-center">{formatDate(item.ValidTo)}</td>
-                        <td className="px-4 py-3 text-center">
+                    <tr key={index} className="hover:bg-gray-50 dark:hover:bg-slate-800/50 text-sm text-gray-900 dark:text-gray-200">
+                        <td className="px-4 py-4 font-medium">{item.LoaiHinh}</td>
+                        <td className="px-4 py-4 text-right font-mono">{formatCurrency(item.ServiceFee_per_m2)}</td>
+                        <td className="px-4 py-4 text-right">{item.VAT_percent}</td>
+                        <td className="px-4 py-4 text-center">{formatDate(item.ValidFrom)}</td>
+                        <td className="px-4 py-4 text-center">{formatDate(item.ValidTo)}</td>
+                        <td className="px-4 py-4 text-center">
                             <button onClick={() => handleEdit('service', item)} disabled={!canEdit} className="text-primary hover:text-primary-focus disabled:text-gray-400 p-1">
                                 <PencilSquareIcon className="w-5 h-5" />
                             </button>
@@ -122,13 +123,13 @@ const PricingPage: React.FC<PricingPageProps> = ({ tariffs, setTariffs, role }) 
                 ]}
             >
                 {tariffs.parking.map((item, index) => (
-                    <tr key={index} className="hover:bg-gray-50 dark:hover:bg-gray-700/50">
-                        <td className="px-4 py-3 font-medium">{item.Tier}</td>
-                        <td className="px-4 py-3 text-right font-mono">{formatCurrency(item.Price_per_unit)}</td>
-                        <td className="px-4 py-3 text-right">{item.VAT_percent}</td>
-                        <td className="px-4 py-3 text-center">{formatDate(item.ValidFrom)}</td>
-                        <td className="px-4 py-3 text-center">{formatDate(item.ValidTo)}</td>
-                         <td className="px-4 py-3 text-center">
+                    <tr key={index} className="hover:bg-gray-50 dark:hover:bg-slate-800/50 text-sm text-gray-900 dark:text-gray-200">
+                        <td className="px-4 py-4 font-medium">{item.Tier}</td>
+                        <td className="px-4 py-4 text-right font-mono">{formatCurrency(item.Price_per_unit)}</td>
+                        <td className="px-4 py-4 text-right">{item.VAT_percent}</td>
+                        <td className="px-4 py-4 text-center">{formatDate(item.ValidFrom)}</td>
+                        <td className="px-4 py-4 text-center">{formatDate(item.ValidTo)}</td>
+                         <td className="px-4 py-4 text-center">
                             <button onClick={() => handleEdit('parking', item)} disabled={!canEdit} className="text-primary hover:text-primary-focus disabled:text-gray-400 p-1">
                                 <PencilSquareIcon className="w-5 h-5" />
                             </button>
@@ -150,14 +151,14 @@ const PricingPage: React.FC<PricingPageProps> = ({ tariffs, setTariffs, role }) 
                 ]}
             >
                 {tariffs.water.map((item, index) => (
-                    <tr key={index} className="hover:bg-gray-50 dark:hover:bg-gray-700/50">
-                        <td className="px-4 py-3 text-right">{item.From_m3}</td>
-                        <td className="px-4 py-3 text-right">{item.To_m3 === null ? 'Trở lên' : item.To_m3}</td>
-                        <td className="px-4 py-3 text-right font-mono">{formatCurrency(item.UnitPrice)}</td>
-                        <td className="px-4 py-3 text-right">{item.VAT_percent}</td>
-                        <td className="px-4 py-3 text-center">{formatDate(item.ValidFrom)}</td>
-                        <td className="px-4 py-3 text-center">{formatDate(item.ValidTo)}</td>
-                        <td className="px-4 py-3 text-center">
+                    <tr key={index} className="hover:bg-gray-50 dark:hover:bg-slate-800/50 text-sm text-gray-900 dark:text-gray-200">
+                        <td className="px-4 py-4 text-right">{item.From_m3}</td>
+                        <td className="px-4 py-4 text-right">{item.To_m3 === null ? 'Trở lên' : item.To_m3}</td>
+                        <td className="px-4 py-4 text-right font-mono">{formatCurrency(item.UnitPrice)}</td>
+                        <td className="px-4 py-4 text-right">{item.VAT_percent}</td>
+                        <td className="px-4 py-4 text-center">{formatDate(item.ValidFrom)}</td>
+                        <td className="px-4 py-4 text-center">{formatDate(item.ValidTo)}</td>
+                        <td className="px-4 py-4 text-center">
                             <button onClick={() => handleEdit('water', item)} disabled={!canEdit} className="text-primary hover:text-primary-focus disabled:text-gray-400 p-1">
                                 <PencilSquareIcon className="w-5 h-5" />
                             </button>
@@ -196,7 +197,7 @@ const EditForm: React.FC<{ item: any; onSave: (data: any) => void; onCancel: () 
                         value={String(value ?? '')}
                         onChange={handleChange}
                         disabled={['LoaiHinh', 'Tier', 'From_m3'].includes(key)}
-                        className="w-full p-2 border rounded-md bg-light-bg dark:bg-dark-bg border-light-border dark:border-dark-border disabled:bg-gray-200 dark:disabled:bg-gray-700 text-light-text-primary dark:text-dark-text-primary focus:ring-primary focus:border-primary"
+                        className="w-full p-2 border rounded-md bg-white border-gray-300 text-gray-900 dark:bg-gray-700 dark:border-gray-600 dark:text-white disabled:bg-gray-200 dark:disabled:bg-gray-800 disabled:cursor-not-allowed"
                     />
                 </div>
             ))}

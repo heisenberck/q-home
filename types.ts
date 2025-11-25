@@ -195,6 +195,9 @@ export interface InvoiceSettings {
     footerShowInViewer?: boolean;
     footerAlign?: 'left' | 'center' | 'right';
     footerFontSize?: 'sm' | 'md' | 'lg';
+    // Branding Settings
+    buildingName?: string;
+    loginBackgroundUrl?: string;
 }
 
 // REFACTORED: New Activity Log schema

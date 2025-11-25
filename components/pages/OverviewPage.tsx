@@ -3,7 +3,7 @@ import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, Legend, Responsive
 import type { Unit, Owner, Vehicle, WaterReading, ChargeRaw } from '../../types';
 import { UnitType, VehicleTier } from '../../types';
 import StatCard from '../ui/StatCard';
-import { BuildingIcon, CarIcon, MotorbikeIcon, RevenueIcon, WarningIcon, WaterIcon } from '../ui/Icons';
+import { BuildingIcon, CarIcon, RevenueIcon, WarningIcon, WaterIcon } from '../ui/Icons';
 import { getPreviousPeriod } from '../../utils/helpers';
 
 const formatCurrency = (value: number) => new Intl.NumberFormat('vi-VN').format(Math.round(value));
@@ -110,29 +110,49 @@ const OverviewPage: React.FC<OverviewPageProps> = ({ allUnits, allOwners, allVeh
     };
 
     return (
-        <div className="space-y-6">
+        <div className="space-y-8">
             <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-6">
-                <StatCard label="Căn hộ / Kios" value={`${dashboardStats.totalApartments} / ${dashboardStats.totalKios}`} icon={<BuildingIcon />} />
-                <StatCard label={`Doanh thu T${new Date('2025-11-01').getMonth() + 1}`} value={formatCurrency(dashboardStats.latestRevenue)} icon={<RevenueIcon />} />
-                <StatCard label="Ô tô & Xe máy" value={`${dashboardStats.totalCars} / ${dashboardStats.totalMotorbikes}`} icon={<CarIcon />} />
-                <StatCard label={`Nước T${new Date(getPreviousPeriod('2025-11')).getMonth() + 1}`} value={`${dashboardStats.totalWaterConsumption} m³`} icon={<WaterIcon />} />
+                <StatCard 
+                    label="Căn hộ / Kios" 
+                    value={`${dashboardStats.totalApartments} / ${dashboardStats.totalKios}`} 
+                    icon={<BuildingIcon className="w-7 h-7 text-sky-600 dark:text-sky-400"/>} 
+                    iconBgClass="bg-sky-100 dark:bg-sky-900/50"
+                />
+                <StatCard 
+                    label={`Doanh thu T${new Date('2025-11-01').getMonth() + 1}`} 
+                    value={formatCurrency(dashboardStats.latestRevenue)} 
+                    icon={<RevenueIcon className="w-7 h-7 text-emerald-600 dark:text-emerald-400"/>} 
+                    iconBgClass="bg-emerald-100 dark:bg-emerald-900/50"
+                />
+                <StatCard 
+                    label="Ô tô & Xe máy" 
+                    value={`${dashboardStats.totalCars} / ${dashboardStats.totalMotorbikes}`} 
+                    icon={<CarIcon className="w-7 h-7 text-amber-600 dark:text-amber-400"/>} 
+                    iconBgClass="bg-amber-100 dark:bg-amber-900/50"
+                />
+                <StatCard 
+                    label={`Nước T${new Date(getPreviousPeriod('2025-11')).getMonth() + 1}`} 
+                    value={`${dashboardStats.totalWaterConsumption} m³`} 
+                    icon={<WaterIcon className="w-7 h-7 text-indigo-600 dark:text-indigo-400"/>} 
+                    iconBgClass="bg-indigo-100 dark:bg-indigo-900/50"
+                />
             </div>
 
             <div className="grid grid-cols-1 lg:grid-cols-5 gap-6">
-                <div className="lg:col-span-3 bg-light-bg-secondary dark:bg-dark-bg-secondary p-6 rounded-lg shadow-md">
-                     <h3 className="font-semibold mb-4">Biểu đồ doanh thu năm 2025 (VND)</h3>
+                <div className="lg:col-span-3 bg-white dark:bg-dark-bg-secondary p-6 rounded-xl shadow-sm">
+                     <h3 className="font-bold text-lg text-gray-800 dark:text-gray-200 mb-4">Biểu đồ doanh thu năm 2025 (VND)</h3>
                     <ResponsiveContainer width="100%" height={300}>
                         <BarChart data={revenueData}>
                             <CartesianGrid strokeDasharray="3 3" stroke="var(--color-border)" />
                             <XAxis dataKey="name" tick={{ fill: 'var(--color-text-secondary)' }} />
                             <YAxis tickFormatter={formatYAxisLabel} tick={{ fill: 'var(--color-text-secondary)' }} />
-                            <Tooltip formatter={(value) => `${new Intl.NumberFormat('vi-VN').format(value as number)} ₫`} />
-                            <Bar dataKey="Doanh_thu" name="Doanh thu" fill="#006f3a" />
+                            <Tooltip formatter={(value) => `${new Intl.NumberFormat('vi-VN').format(value as number)} ₫`} contentStyle={{ backgroundColor: 'var(--color-surface)', border: '1px solid var(--color-border)', borderRadius: '0.75rem' }}/>
+                            <Bar dataKey="Doanh_thu" name="Doanh thu" fill="#006f3a" radius={[4, 4, 0, 0]} />
                         </BarChart>
                     </ResponsiveContainer>
                 </div>
-                 <div className="lg:col-span-2 bg-light-bg-secondary dark:bg-dark-bg-secondary p-6 rounded-lg shadow-md">
-                    <h3 className="font-semibold mb-4">Cơ cấu phí (Tháng 11)</h3>
+                 <div className="lg:col-span-2 bg-white dark:bg-dark-bg-secondary p-6 rounded-xl shadow-sm">
+                    <h3 className="font-bold text-lg text-gray-800 dark:text-gray-200 mb-4">Cơ cấu phí (Tháng 11)</h3>
                      <ResponsiveContainer width="100%" height={300}>
                         <PieChart margin={{ top: 10, right: 30, left: 30, bottom: 10 }}>
                             <Pie 
@@ -161,7 +181,7 @@ const OverviewPage: React.FC<OverviewPageProps> = ({ allUnits, allOwners, allVeh
                                 label={renderCustomizedLabel}
                                 fill="transparent"
                             />
-                            <Tooltip formatter={(value) => `${formatCurrency(value as number)} ₫`} />
+                            <Tooltip formatter={(value) => `${formatCurrency(value as number)} ₫`} contentStyle={{ backgroundColor: 'var(--color-surface)', border: '1px solid var(--color-border)', borderRadius: '0.75rem' }} />
                              <Legend
                                 layout="horizontal"
                                 verticalAlign="bottom"
@@ -179,8 +199,8 @@ const OverviewPage: React.FC<OverviewPageProps> = ({ allUnits, allOwners, allVeh
                 </div>
             </div>
             
-            <div className="bg-light-bg-secondary dark:bg-dark-bg-secondary p-6 rounded-lg shadow-md">
-                 <h3 className="font-semibold mb-4 flex items-center gap-2"><WarningIcon /> Cảnh báo & Thông báo quan trọng</h3>
+            <div className="bg-white dark:bg-dark-bg-secondary p-6 rounded-xl shadow-sm">
+                 <h3 className="font-bold text-lg text-gray-800 dark:text-gray-200 mb-4 flex items-center gap-2"><WarningIcon /> Cảnh báo & Thông báo quan trọng</h3>
                  <div className="space-y-2 text-sm">
                     <p><span className="font-semibold text-red-500">{dashboardStats.unpaidFeesCount} căn hộ</span> chưa hoàn thành phí dịch vụ tháng 11/2025.</p>
                     <p><span className="font-semibold text-yellow-500">{dashboardStats.missingWaterReadings} căn hộ</span> chưa được nhập chỉ số nước cho kỳ tháng 10/2025.</p>

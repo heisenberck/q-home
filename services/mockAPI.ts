@@ -3,7 +3,6 @@ import type { InvoiceSettings, Unit, Owner, Vehicle, WaterReading, ChargeRaw, Ad
 import { MOCK_UNITS, MOCK_OWNERS, MOCK_VEHICLES, MOCK_WATER_READINGS, MOCK_TARIFFS_SERVICE, MOCK_TARIFFS_PARKING, MOCK_TARIFFS_WATER, MOCK_ADJUSTMENTS, MOCK_USER_PERMISSIONS, patchKiosAreas } from '../constants';
 import { UnitType } from '../types';
 
-// --- In-Memory Data Store ---
 let units: Unit[] = JSON.parse(JSON.stringify(MOCK_UNITS));
 let owners: Owner[] = JSON.parse(JSON.stringify(MOCK_OWNERS));
 let vehicles: Vehicle[] = JSON.parse(JSON.stringify(MOCK_VEHICLES));
@@ -25,8 +24,6 @@ let invoiceSettings: InvoiceSettings | null = {
 };
 
 patchKiosAreas(units);
-
-// --- Mock Service Implementation ---
 
 export const loadAllData = async () => {
     console.log("MockAPI: loadAllData called");

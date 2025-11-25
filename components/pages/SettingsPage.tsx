@@ -1,8 +1,6 @@
-
-
 import React, { useState, useEffect } from 'react';
 import type { InvoiceSettings, Role } from '../../types';
-import { useLogger, useNotification } from '../../App';
+import { useNotification } from '../../App';
 import { processFooterHtml } from '../../utils/helpers';
 
 const sendEmailAPI = async (
@@ -73,8 +71,7 @@ const DEFAULT_CONTENT_SETTINGS = {
 const SettingsPage: React.FC<SettingsPageProps> = ({ invoiceSettings, setInvoiceSettings, role }) => {
     const canEdit = ['Admin', 'Accountant'].includes(role);
     const { showToast } = useNotification();
-    const { logAction } = useLogger();
-
+    
     const [localSettings, setLocalSettings] = useState<InvoiceSettings>(invoiceSettings);
 
     useEffect(() => {
@@ -156,6 +153,20 @@ const SettingsPage: React.FC<SettingsPageProps> = ({ invoiceSettings, setInvoice
 
     return (
         <div className="space-y-6">
+            <div className="bg-light-bg-secondary dark:bg-dark-bg-secondary p-6 rounded-lg shadow-md">
+                <h3 className="text-xl font-semibold border-b pb-3 mb-6 dark:border-dark-border">Cấu hình Chung & Thương hiệu</h3>
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+                    <div>
+                        <label htmlFor="buildingName" className={labelStyle}>Tên Tòa nhà</label>
+                        <input id="buildingName" type="text" placeholder="Nhập tên tòa nhà..." value={localSettings.buildingName || ''} onChange={handleSettingChange} disabled={!canEdit} className={inputStyle}/>
+                    </div>
+                     <div>
+                        <label htmlFor="loginBackgroundUrl" className={labelStyle}>Ảnh nền Login (URL)</label>
+                        <input id="loginBackgroundUrl" type="text" placeholder="https://..." value={localSettings.loginBackgroundUrl || ''} onChange={handleSettingChange} disabled={!canEdit} className={inputStyle}/>
+                    </div>
+                </div>
+            </div>
+
             <div className="bg-light-bg-secondary dark:bg-dark-bg-secondary p-6 rounded-lg shadow-md">
                 <h3 className="text-xl font-semibold border-b pb-3 mb-6 dark:border-dark-border">Thông tin Phiếu báo & Chuyển khoản</h3>
                 <div className="grid grid-cols-1 md:grid-cols-2 gap-6">

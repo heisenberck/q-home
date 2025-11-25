@@ -1,7 +1,6 @@
-
-import React, { useState, useCallback, useMemo, useEffect, useRef } from 'react';
-import type { Unit, ChargeRaw, Vehicle, WaterReading, Adjustment, Owner, AllData, Role, PaymentStatus, InvoiceSettings, ActivityLog } from '../../types';
-import { UnitType, ParkingTariffTier } from '../../types';
+import React, { useState, useCallback, useMemo, useRef } from 'react';
+import type { ChargeRaw, Adjustment, AllData, Role, PaymentStatus, InvoiceSettings, ActivityLog } from '../../types';
+import { UnitType } from '../../types';
 import NoticePreviewModal from '../NoticePreviewModal';
 import { calculateChargesBatch } from '../../services/feeService';
 import { 
@@ -13,15 +12,16 @@ import {
 } from '../../services';
 import { useNotification } from '../../App';
 import { 
-    RefreshIcon, SearchIcon, TagIcon, BuildingIcon, ChevronLeftIcon, 
-    ChevronRightIcon, CalendarDaysIcon, MoneyBagIcon, 
-    CheckCircleIcon, WarningIcon, PercentageIcon, PrinterIcon, PaperAirplaneIcon,
-    CircularArrowRefreshIcon, ActionUnpaidIcon, ActionPaidIcon, ActionViewIcon,
-    CalculatorIcon2, ExportIcon, LockClosedIcon, LockOpenIcon, ChevronDownIcon,
-    DocumentArrowDownIcon, TableCellsIcon, ArrowUpTrayIcon
+    SearchIcon, TagIcon, BuildingIcon, ChevronLeftIcon, 
+    ChevronRightIcon, CheckCircleIcon, WarningIcon, PrinterIcon, PaperAirplaneIcon,
+    CircularArrowRefreshIcon, ActionViewIcon,
+    CalculatorIcon2, LockClosedIcon, LockOpenIcon, ChevronDownIcon,
+    DocumentArrowDownIcon, TableCellsIcon, ArrowUpTrayIcon, RevenueIcon
 } from '../ui/Icons';
 import { loadScript } from '../../utils/scriptLoader';
-import { formatCurrency, getPreviousPeriod, parseUnitCode, generateFeeDetails, processFooterHtml } from '../../utils/helpers';
+// FIX: Added formatNumber to helpers and imported it here.
+import { formatCurrency, getPreviousPeriod, parseUnitCode, generateFeeDetails, processFooterHtml, formatNumber } from '../../utils/helpers';
+import StatCard from '../ui/StatCard';
 
 
 // Declare external libraries for TypeScript
@@ -29,11 +29,6 @@ declare const jspdf: any;
 declare const html2canvas: any;
 declare const JSZip: any;
 declare const XLSX: any;
-
-const formatNumber = (value: number | null | undefined) => {
-    if (typeof value !== 'number' || isNaN(value)) return '0';
-    return new Intl.NumberFormat('vi-VN').format(Math.round(value));
-};
 
 // --- Real Email Sending Function using Google Apps Script ---
 interface Attachment {
@@ -258,21 +253,6 @@ const generateEmailHtmlForCharge = (charge: ChargeRaw, allData: AllData, invoice
     `;
 };
 
-
-// Redesigned, compact KPI Card Component with Tooltip and onClick
-const KpiCard: React.FC<{ title: string; tooltip: string; value: React.ReactNode; valueTitle: string; icon: React.ReactNode; className?: string; onClick?: () => void; isActive: boolean; }> = ({ title, tooltip, value, valueTitle, icon, className, onClick, isActive }) => (
-    <div className={`stat-card cursor-pointer ${className || ''} ${isActive ? 'ring-2 ring-primary' : ''}`} data-label={tooltip} title={tooltip} onClick={onClick}>
-        <div className="stat-icon">
-            {icon}
-        </div>
-        <span className="stat-label">{title}</span>
-        <div className="stat-value" title={valueTitle}>
-            {value}
-        </div>
-    </div>
-);
-
-
 type LogPayload = Omit<ActivityLog, 'id' | 'ts' | 'actor_email' | 'actor_role' | 'undone' | 'undo_token' | 'undo_until' | 'before_snapshot'>;
 
 interface BillingPageProps {
@@ -412,7 +392,7 @@ const MonthPicker: React.FC<{
     const pickerRef = useRef<HTMLDivElement>(null);
     const [displayYear, setDisplayYear] = useState(new Date(currentPeriod + '-02').getFullYear());
 
-    useEffect(() => {
+    React.useEffect(() => {
         const handleClickOutside = (event: MouseEvent) => {
             if (pickerRef.current && !pickerRef.current.contains(event.target as Node)) {
                 onClose();
@@ -489,7 +469,7 @@ const FilterPill: React.FC<{
     const [isOpen, setIsOpen] = useState(false);
     const pillRef = useRef<HTMLDivElement>(null);
 
-    useEffect(() => {
+    React.useEffect(() => {
         const handleClickOutside = (event: MouseEvent) => {
             if (pillRef.current && !pillRef.current.contains(event.target as Node)) {
                 setIsOpen(false);
@@ -505,7 +485,7 @@ const FilterPill: React.FC<{
         <div className="relative" ref={pillRef} data-tooltip={tooltip}>
             <button
                 onClick={() => setIsOpen(!isOpen)}
-                className="pill h-9 px-3 border rounded-lg bg-light-bg dark:bg-dark-bg flex items-center gap-2 hover:border-primary transition-colors w-full justify-between"
+                className="h-10 px-3 border border-gray-300 dark:border-gray-600 bg-white dark:bg-dark-bg-secondary rounded-lg flex items-center gap-2 hover:border-primary transition-colors w-full justify-between"
                 aria-haspopup="true"
                 aria-expanded={isOpen}
             >
@@ -524,7 +504,7 @@ const FilterPill: React.FC<{
                                 onValueChange(option.value);
                                 setIsOpen(false);
                             }}
-                            className={`w-full text-left p-2 rounded-md text-sm ${currentValue === option.value ? 'bg-primary text-white' : 'hover:bg-gray-200 dark:hover:bg-slate-700'}`}
+                            className={`w-full text-left p-2 rounded-md text-sm ${currentValue === option.value ? 'bg-primary text-white' : 'hover:bg-gray-100 dark:hover:bg-slate-700'}`}
                         >
                             {option.label}
                         </button>
@@ -558,7 +538,7 @@ const BillingPage: React.FC<BillingPageProps> = ({ charges, setCharges, allData,
     const lastClickTime = useRef(0);
 
     const [isMonthPickerOpen, setIsMonthPickerOpen] = useState(false);
-    const [activeKpiFilter, setActiveKpiFilter] = useState<string | null>(null);
+    const [activeKpiFilter, setActiveKpiFilter] = useState<string>('all');
     
     const [exportProgress, setExportProgress] = useState({ isOpen: false, done: 0, total: 0 });
     const cancelExportToken = useRef({ cancelled: false });
@@ -579,7 +559,7 @@ const BillingPage: React.FC<BillingPageProps> = ({ charges, setCharges, allData,
         });
     }, []);
 
-    useEffect(() => {
+    React.useEffect(() => {
         if (!dataSnapshot) {
             setDataSnapshot(createSnapshot(allData));
             return;
@@ -590,11 +570,11 @@ const BillingPage: React.FC<BillingPageProps> = ({ charges, setCharges, allData,
         }
     }, [allData, dataSnapshot, createSnapshot]);
     
-    useEffect(() => {
+    React.useEffect(() => {
         localStorage.setItem('lockedBillingPeriods', JSON.stringify(Array.from(lockedPeriods)));
     }, [lockedPeriods]);
 
-    useEffect(() => {
+    React.useEffect(() => {
         if (lockedPeriods.has(period)) {
             setPrimaryActionState('locked');
         } else if (charges.some(c => c.Period === period)) {
@@ -611,9 +591,9 @@ const BillingPage: React.FC<BillingPageProps> = ({ charges, setCharges, allData,
 
     const [floorFilter, setFloorFilter] = useState('all');
 
-    useEffect(() => {
+    React.useEffect(() => {
         setSelectedUnits(new Set()); 
-        setActiveKpiFilter(null);
+        setActiveKpiFilter('all');
     }, [period]);
     
     const filteredCharges = useMemo(() => {
@@ -644,7 +624,7 @@ const BillingPage: React.FC<BillingPageProps> = ({ charges, setCharges, allData,
         });
     }, [filteredCharges]);
 
-    useEffect(() => { setSelectedUnits(new Set()); }, [searchTerm, statusFilter, typeFilter, floorFilter, period]);
+    React.useEffect(() => { setSelectedUnits(new Set()); }, [searchTerm, statusFilter, typeFilter, floorFilter, period]);
 
     const formatPeriodForDisplay = (isoPeriod: string): string => {
         const date = new Date(isoPeriod + '-02');
@@ -1143,10 +1123,10 @@ const BillingPage: React.FC<BillingPageProps> = ({ charges, setCharges, allData,
                         return charge;
                     });
                     
+                    // FIX: Changed from Array.from to spread syntax to fix TypeScript type inference issue with iterators.
                     setCharges(updater, {
                         module: 'Billing', action: 'IMPORT_BANK_STATEMENT',
                         summary: `Đối soát ${updatesToApply.size} giao dịch, tổng: ${formatCurrency(totalReconciledAmount)}`,
-// FIX: The type of `Array.from(updatesToApply.keys())` was being inferred as `unknown[]` instead of `string[]`. Using the spread operator `...` provides better type inference for iterators.
                         count: updatesToApply.size, ids: [...updatesToApply.keys()]
                     });
                     showToast(`Đã đối soát thành công ${updatesToApply.size} giao dịch. Trạng thái đã chuyển thành "Chờ đối soát".`, 'success');
@@ -1175,7 +1155,7 @@ const BillingPage: React.FC<BillingPageProps> = ({ charges, setCharges, allData,
         return { totalDue, totalPaid, difference, unpaidCount };
     }, [charges, period]);
 
-    const clearAllFilters = () => { setStatusFilter('all'); setTypeFilter('all'); setFloorFilter('all'); setSearchTerm(''); setActiveKpiFilter(null); };
+    const clearAllFilters = () => { setStatusFilter('all'); setTypeFilter('all'); setFloorFilter('all'); setSearchTerm(''); setActiveKpiFilter('all'); };
     const handleSelectUnit = (id: string, isSel: boolean) => setSelectedUnits(p => { const n = new Set(p); isSel ? n.add(id) : n.delete(id); return n; });
     const handleSelectAll = (e: React.ChangeEvent<HTMLInputElement>) => setSelectedUnits(e.target.checked ? new Set(sortedAndFilteredCharges.map(c => c.UnitID)) : new Set());
 
@@ -1211,7 +1191,7 @@ const BillingPage: React.FC<BillingPageProps> = ({ charges, setCharges, allData,
         const isDisabled = isLoading || !canCalculate || isRefreshing;
 
         if (primaryActionState === 'locked') {
-            return ( <button onClick={handlePrimaryAction} className="h-9 px-4 bg-gray-700 text-white font-bold rounded-lg shadow-sm flex items-center gap-1.5 hover:bg-gray-800" title="Đang khóa tính phí. Nhấn đúp để mở khóa."> <LockClosedIcon className="w-5 h-5" /> Locked </button> );
+            return ( <button onClick={handlePrimaryAction} className="h-10 px-4 bg-gray-700 text-white font-bold rounded-lg shadow-sm flex items-center gap-1.5 hover:bg-gray-800" title="Đang khóa tính phí. Nhấn đúp để mở khóa."> <LockClosedIcon className="w-5 h-5" /> Locked </button> );
         }
         
         const tooltip = !canCalculate ? 'Bạn không có quyền.' : (isRefreshing ? 'Đang làm mới dữ liệu...' : (primaryActionState === 'recalculate' ? "Tính lại toàn bộ phí cho kỳ này" : "Tính phí cho kỳ hiện tại"));
@@ -1221,7 +1201,7 @@ const BillingPage: React.FC<BillingPageProps> = ({ charges, setCharges, allData,
 
         return (
             <div className="relative" title={!isDisabled ? (canLock ? 'Nhấn đúp để khóa' : '') : tooltip}>
-                <button onClick={handlePrimaryAction} disabled={isDisabled} data-tooltip={tooltip} className={`h-9 px-4 text-white font-bold rounded-lg shadow-sm transition-colors flex items-center gap-1.5 ${buttonClass} disabled:bg-gray-400 disabled:cursor-not-allowed`}> <Icon className="w-5 w-5" /> {buttonText} </button>
+                <button onClick={handlePrimaryAction} disabled={isDisabled} data-tooltip={tooltip} className={`h-10 px-4 text-white font-bold rounded-lg shadow-sm transition-colors flex items-center gap-1.5 ${buttonClass} disabled:bg-gray-400 disabled:cursor-not-allowed`}> <Icon className="w-5 w-5" /> {buttonText} </button>
             </div>
         );
     };
@@ -1229,48 +1209,56 @@ const BillingPage: React.FC<BillingPageProps> = ({ charges, setCharges, allData,
     const isPeriodLocked = lockedPeriods.has(period);
 
     return (
-        <div className="space-y-4 h-full flex flex-col">
-            <style>{`.pill{display:inline-flex;align-items:center;gap:8px;}.pill i{font-size:14px;line-height:1;display:inline-block;}`}</style>
-             <input type="file" ref={fileInputRef} onChange={handleStatementFileChange} accept=".xlsx, .xls, .csv" className="hidden" />
+        <div className="space-y-6 h-full flex flex-col">
+            <input type="file" ref={fileInputRef} onChange={handleStatementFileChange} accept=".xlsx, .xls, .csv" className="hidden" />
 
-            <div className="sticky top-0 z-30 bg-light-bg dark:bg-dark-bg -mx-4 -mt-3 sm:-mx-6 lg:-mx-8 px-4 sm:px-6 lg:-mx-8 pt-3 pb-2 space-y-2">
-                <div className="flex flex-wrap items-center gap-4 p-2 bg-light-bg-secondary dark:bg-dark-bg-secondary rounded-xl border dark:border-dark-border shadow-sm">
-                    <div className="relative flex items-center gap-2 p-1 bg-light-bg dark:bg-dark-bg rounded-lg">
-                        <button onClick={() => navigatePeriod('prev')} data-tooltip="Kỳ trước"><ChevronLeftIcon /></button>
-                        <button onClick={() => setIsMonthPickerOpen(p => !p)} className="p-1.5 w-36 font-semibold hover:bg-gray-200 dark:hover:bg-slate-700 rounded-md">{formatPeriodForDisplay(period)}</button>
-                        <button onClick={() => navigatePeriod('next')} data-tooltip="Kỳ sau"><ChevronRightIcon /></button>
-                        <button onClick={() => setPeriod(currentISODate)} className={`p-2 rounded-md text-sm font-semibold flex items-center gap-1 ${period === currentISODate ? 'bg-primary text-white' : 'hover:bg-gray-200 dark:hover:bg-slate-700'}`}><CalendarDaysIcon /> Current</button>
-                        {isMonthPickerOpen && <MonthPicker currentPeriod={period} onSelectPeriod={(p) => { setPeriod(p); setIsMonthPickerOpen(false); }} onClose={() => setIsMonthPickerOpen(false)}/>}
-                    </div>
-                    <div className="h-6 border-l dark:border-dark-border hidden md:block"></div>
-                    <div className="flex items-center gap-2 flex-grow flex-wrap">
-                        <div className="relative flex-grow min-w-[200px]"><SearchIcon className="absolute left-3 top-1/2 -translate-y-1/2 h-5 w-5 text-gray-400" /><input type="text" placeholder="Tìm theo mã hoặc tên..." value={searchTerm} onChange={e => setSearchTerm(e.target.value)} className="w-full pl-10 p-2 border rounded-lg bg-light-bg dark:bg-dark-bg"/></div>
-                        <FilterPill icon={<TagIcon className="h-5 w-5 text-gray-400" />} currentValue={typeFilter} onValueChange={v => setTypeFilter(v as any)} tooltip="Lọc theo loại hình" options={[{value: 'all', label: 'All Types'}, {value: UnitType.APARTMENT, label: 'Apartment'}, {value: UnitType.KIOS, label: 'KIOS'}]} />
-                        <FilterPill icon={<BuildingIcon className="h-5 w-5 text-gray-400" />} currentValue={floorFilter} onValueChange={setFloorFilter} tooltip="Lọc theo tầng" options={floors} />
-                    </div>
+            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6">
+                <div data-tooltip="Tổng phí của tất cả căn hộ trong kỳ" className={`cursor-pointer transition-all rounded-xl ${activeKpiFilter === 'all' ? 'ring-2 ring-primary' : ''}`} onClick={clearAllFilters}>
+                    <StatCard label="Tổng phải thu" value={formatCurrency(kpiStats.totalDue)} icon={<RevenueIcon className="w-7 h-7 text-blue-600 dark:text-blue-400" />} iconBgClass="bg-blue-100 dark:bg-blue-900/50" />
                 </div>
-                <div className="stats-row flex items-center gap-2 p-2 bg-blue-50 dark:bg-blue-900/20 rounded-xl border border-blue-200 dark:border-blue-800 flex-wrap md:flex-nowrap mt-1">
-                    <KpiCard title="Tổng phí" tooltip="Tổng phí của tất cả căn hộ trong kỳ" value={formatCurrency(kpiStats.totalDue)} valueTitle={formatCurrency(kpiStats.totalDue)} icon={<MoneyBagIcon className="w-5 h-5 text-blue-500" />} className="big billing-kpi" onClick={clearAllFilters} isActive={!activeKpiFilter}/>
-                    <KpiCard title="Tổng đã nộp" tooltip="Tổng số tiền đã nộp thực tế (đã xác nhận)" value={formatCurrency(kpiStats.totalPaid)} valueTitle={formatCurrency(kpiStats.totalPaid)} icon={<CheckCircleIcon className="w-5 h-5 text-green-500" />} className="big billing-kpi" onClick={() => {clearAllFilters(); setStatusFilter('paid');}} isActive={statusFilter === 'paid'}/>
-                    <KpiCard title="Chênh lệch" tooltip="Chênh lệch = Tổng phí - Tổng đã nộp" value={<>{formatNumber(kpiStats.difference)}<span className="kpi-unit">₫</span></>} valueTitle={formatCurrency(kpiStats.difference)} icon={<CalculatorIcon2 className="w-5 h-5 text-orange-500" />} className="small billing-kpi kpi-delta" isActive={false}/>
-                    <KpiCard title="Căn hộ chưa nộp" tooltip="Số căn hộ chưa hoàn thành thanh toán" value={kpiStats.unpaidCount} valueTitle={`${kpiStats.unpaidCount} căn hộ`} icon={<WarningIcon className="w-5 h-5 text-red-500" />} className="small billing-kpi" onClick={() => {clearAllFilters(); setStatusFilter('unpaid');}} isActive={statusFilter === 'unpaid'}/>
+                <div data-tooltip="Tổng số tiền đã nộp thực tế (đã xác nhận)" className={`cursor-pointer transition-all rounded-xl ${activeKpiFilter === 'paid' ? 'ring-2 ring-primary' : ''}`} onClick={() => { clearAllFilters(); setStatusFilter('paid'); setActiveKpiFilter('paid'); }}>
+                    <StatCard label="Tổng đã nộp" value={formatCurrency(kpiStats.totalPaid)} icon={<CheckCircleIcon className="w-7 h-7 text-green-600 dark:text-green-400" />} iconBgClass="bg-green-100 dark:bg-green-900/50" />
+                </div>
+                <div data-tooltip="Chênh lệch = Tổng phí - Tổng đã nộp" className="cursor-default">
+                     <StatCard label="Chênh lệch" value={formatCurrency(kpiStats.difference)} icon={<CalculatorIcon2 className="w-7 h-7 text-orange-600 dark:text-orange-400" />} iconBgClass="bg-orange-100 dark:bg-orange-900/50" />
+                </div>
+                <div data-tooltip="Số căn hộ chưa hoàn thành thanh toán" className={`cursor-pointer transition-all rounded-xl ${activeKpiFilter === 'unpaid' ? 'ring-2 ring-primary' : ''}`} onClick={() => { clearAllFilters(); setStatusFilter('unpaid'); setActiveKpiFilter('unpaid'); }}>
+                     <StatCard label="Căn hộ chưa nộp" value={kpiStats.unpaidCount} icon={<WarningIcon className="w-7 h-7 text-red-600 dark:text-red-400" />} iconBgClass="bg-red-100 dark:bg-red-900/50" />
+                </div>
+            </div>
+            
+            <div className="bg-white dark:bg-dark-bg-secondary p-4 rounded-xl shadow-sm">
+                <div className="flex flex-wrap items-center gap-4">
+                    <div className="relative flex items-center gap-1 p-1 bg-gray-100 dark:bg-gray-800 rounded-lg">
+                        <button onClick={() => navigatePeriod('prev')} data-tooltip="Kỳ trước"><ChevronLeftIcon /></button>
+                        <button onClick={() => setIsMonthPickerOpen(p => !p)} className="p-1.5 w-40 font-semibold hover:bg-gray-200 dark:hover:bg-slate-700 rounded-md" data-tooltip="Chọn kỳ tính phí">
+                            {formatPeriodForDisplay(period)}
+                        </button>
+                         {isMonthPickerOpen && <MonthPicker currentPeriod={period} onSelectPeriod={(p) => { setPeriod(p); setIsMonthPickerOpen(false); }} onClose={() => setIsMonthPickerOpen(false)}/>}
+                        <button onClick={() => navigatePeriod('next')} data-tooltip="Kỳ sau"><ChevronRightIcon /></button>
+                    </div>
+
+                    <div className="relative flex-grow min-w-[200px]"><SearchIcon className="absolute left-3 top-1/2 -translate-y-1/2 h-5 w-5 text-gray-400" /><input type="text" placeholder="Tìm theo mã hoặc tên..." value={searchTerm} onChange={e => setSearchTerm(e.target.value)} className="w-full h-10 pl-10 pr-3 border rounded-lg bg-white dark:bg-dark-bg-secondary border-gray-300 dark:border-gray-600 text-gray-900 dark:text-white"/></div>
+                    <FilterPill icon={<TagIcon className="h-5 w-5 text-gray-400" />} currentValue={typeFilter} onValueChange={v => setTypeFilter(v as any)} tooltip="Lọc theo loại hình" options={[{value: 'all', label: 'All Types'}, {value: UnitType.APARTMENT, label: 'Apartment'}, {value: UnitType.KIOS, label: 'KIOS'}]} />
+                    <FilterPill icon={<BuildingIcon className="h-5 w-5 text-gray-400" />} currentValue={floorFilter} onValueChange={setFloorFilter} tooltip="Lọc theo tầng" options={floors} />
+
                     <div className="ml-auto flex items-center gap-2 flex-shrink-0">
-                        <button onClick={handleRefreshData} data-tooltip={isDataStale ? "Dữ liệu nguồn (xe, nước) đã thay đổi. Bấm để cập nhật." : "Làm mới dữ liệu nguồn"} disabled={isRefreshing || isLoading} className={`h-9 px-3 font-semibold rounded-lg hover:bg-opacity-80 disabled:opacity-50 flex items-center gap-2 border ${ isDataStale ? 'bg-green-100 dark:bg-green-900/30 border-green-600 text-green-700 dark:text-green-300 animate-pulse' : 'border-blue-600 text-blue-600 hover:bg-blue-100 dark:hover:bg-blue-900/30' }`}> <CircularArrowRefreshIcon /> Refresh </button>
+                        <button onClick={handleRefreshData} data-tooltip={isDataStale ? "Dữ liệu nguồn (xe, nước) đã thay đổi. Bấm để cập nhật." : "Làm mới dữ liệu nguồn"} disabled={isRefreshing || isLoading} className={`h-10 px-3 font-semibold rounded-lg hover:bg-opacity-80 disabled:opacity-50 flex items-center gap-2 border ${ isDataStale ? 'bg-green-100 dark:bg-green-900/30 border-green-600 text-green-700 dark:text-green-300 animate-pulse' : 'border-gray-300 dark:border-gray-600 bg-white dark:bg-dark-bg-secondary text-gray-700 dark:text-gray-300 hover:bg-gray-50' }`}> <CircularArrowRefreshIcon /> Refresh </button>
                         {renderMainActionButton()}
                         <div className="flex items-center border-l pl-2 ml-2 gap-2 border-gray-300 dark:border-gray-600">
-                             <button onClick={handleImportStatementClick} data-tooltip="Nhập sao kê để tự động đối soát" disabled={isPeriodLocked || !canCalculate} className="h-9 px-3 font-semibold rounded-lg hover:bg-opacity-80 disabled:opacity-50 flex items-center gap-2 border border-purple-600 text-purple-600 hover:bg-purple-100 dark:hover:bg-purple-900/30 bg-white dark:bg-transparent"> <ArrowUpTrayIcon className="w-5 h-5" /> Import </button>
-                            <button onClick={handleExportReport} data-tooltip="Xuất báo cáo tổng hợp" disabled={primaryActionState === 'calculate'} className="btn-export h-9 px-3 text-sm font-semibold rounded-lg shadow-sm flex items-center gap-2"> <TableCellsIcon className="w-5 h-5" /> Export </button>
+                             <button onClick={handleImportStatementClick} data-tooltip="Nhập sao kê để tự động đối soát" disabled={isPeriodLocked || !canCalculate} className="h-10 px-3 font-semibold rounded-lg hover:bg-opacity-80 disabled:opacity-50 flex items-center gap-2 border border-purple-600 text-purple-600 hover:bg-purple-100 dark:hover:bg-purple-900/30 bg-white dark:bg-transparent"> <ArrowUpTrayIcon className="w-5 h-5" /> Import </button>
+                            <button onClick={handleExportReport} data-tooltip="Xuất báo cáo tổng hợp" disabled={primaryActionState === 'calculate'} className="h-10 px-3 text-sm font-semibold rounded-lg shadow-sm flex items-center gap-2 bg-blue-600 text-white hover:bg-blue-700 disabled:bg-blue-300"> <TableCellsIcon className="w-5 h-5" /> Export </button>
                         </div>
                     </div>
                 </div>
             </div>
-            
-            <div className="bg-light-bg-secondary dark:bg-dark-bg-secondary p-4 rounded-lg shadow-md flex-1 flex flex-col overflow-hidden mt-2">
+
+            <div className="bg-white dark:bg-dark-bg-secondary rounded-xl shadow-sm flex-1 flex flex-col overflow-hidden">
                 {selectedUnits.size > 0 && (
-                    <div className="bulk-action-bar">
-                        <span className="font-semibold text-sm">{selectedUnits.size} selected</span>
-                        <button onClick={() => setSelectedUnits(new Set())} className="btn-clear ml-4">Bỏ chọn</button>
-                        <div className="h-6 border-l dark:border-dark-border ml-2"></div>
+                     <div className="p-3 border-b dark:border-dark-border bg-gray-50 dark:bg-dark-bg flex items-center gap-4 animate-fade-in-down">
+                        <span className="font-semibold text-sm">{selectedUnits.size} đã chọn</span>
+                        <button onClick={() => setSelectedUnits(new Set())} className="text-sm text-gray-500 hover:text-gray-800 dark:hover:text-gray-200">Bỏ chọn</button>
+                        <div className="h-5 border-l dark:border-dark-border ml-2"></div>
                         <div className="ml-auto flex items-center gap-4">
                              {(role === 'Admin' || role === 'Accountant') && <>
                                 <button onClick={() => handleBulkSetStatus('paid')} className="flex items-center gap-2 text-sm font-semibold text-gray-700 dark:text-gray-200 hover:text-primary"><CheckCircleIcon /> Mark Paid</button>
@@ -1282,52 +1270,52 @@ const BillingPage: React.FC<BillingPageProps> = ({ charges, setCharges, allData,
                     </div>
                 )}
                 <div className="overflow-y-auto">
-                    <table className="min-w-full themed-table billing-table">
-                        <thead className="sticky top-0 z-10"><tr>
-                            <th className="col-check text-center"><input type="checkbox" onChange={handleSelectAll} checked={isAllVisibleSelected} disabled={sortedAndFilteredCharges.length === 0}/></th>
-                            <th className="col-unit text-left">Căn hộ</th>
-                            <th className="col-owner text-left">Chủ SH</th>
-                            <th className="col-total-due text-right">Tổng phí</th>
-                            <th className="col-total-paid text-right">Tổng TT</th>
-                            <th className="col-diff text-right">C.Lệch</th>
-                            <th className="col-status text-center">Trạng thái</th>
-                            <th className="col-actions text-center">H.động</th>
+                    <table className="min-w-full">
+                        <thead className="bg-gray-50 dark:bg-slate-800 sticky top-0 z-10"><tr>
+                            <th className="px-4 py-2 w-12 text-center"><input type="checkbox" onChange={handleSelectAll} checked={isAllVisibleSelected} disabled={sortedAndFilteredCharges.length === 0}/></th>
+                            <th className="px-4 py-3 text-left text-xs font-bold text-gray-700 dark:text-gray-300 uppercase tracking-wider">Căn hộ</th>
+                            <th className="px-4 py-3 text-left text-xs font-bold text-gray-700 dark:text-gray-300 uppercase tracking-wider">Chủ SH</th>
+                            <th className="px-4 py-3 text-right text-xs font-bold text-gray-700 dark:text-gray-300 uppercase tracking-wider">Tổng phí</th>
+                            <th className="px-4 py-3 text-right text-xs font-bold text-gray-700 dark:text-gray-300 uppercase tracking-wider">Tổng TT</th>
+                            <th className="px-4 py-3 text-right text-xs font-bold text-gray-700 dark:text-gray-300 uppercase tracking-wider">C.Lệch</th>
+                            <th className="px-4 py-3 text-center text-xs font-bold text-gray-700 dark:text-gray-300 uppercase tracking-wider">Trạng thái</th>
+                            <th className="px-4 py-3 text-center text-xs font-bold text-gray-700 dark:text-gray-300 uppercase tracking-wider">H.động</th>
                         </tr></thead>
-                        <tbody className="text-sm">
-                            {isLoading && primaryActionState !== 'recalculate' ? ( Array.from({ length: 10 }).map((_, i) => ( <tr key={i}><td colSpan={8} className="p-1"><div className="skeleton-row"></div></td></tr> )) )
+                        <tbody className="text-sm divide-y divide-gray-200 dark:divide-gray-700">
+                            {isLoading && primaryActionState !== 'recalculate' ? ( Array.from({ length: 10 }).map((_, i) => ( <tr key={i}><td colSpan={8} className="p-2"><div className="h-12 bg-gray-200 dark:bg-gray-700 animate-pulse rounded-md"></div></td></tr> )) ) 
                             : sortedAndFilteredCharges.length === 0 ? ( <tr><td colSpan={8} className="text-center p-8 text-gray-500">{charges.filter(c=>c.Period===period).length > 0 ? 'Không có dữ liệu nào khớp với bộ lọc.' : 'Chưa có dữ liệu cho kỳ này. Vui lòng bấm "Calculate".'}</td></tr> ) 
                             : ( sortedAndFilteredCharges.map(charge => {
                                     const finalPaidAmount = editedPayments[charge.UnitID] ?? charge.TotalPaid;
                                     const difference = finalPaidAmount - charge.TotalDue;
                                     return (
-                                    <tr key={charge.UnitID}>
-                                        <td className="col-check py-3 px-2"><input type="checkbox" checked={selectedUnits.has(charge.UnitID)} onChange={(e) => handleSelectUnit(charge.UnitID, e.target.checked)} /></td>
-                                        <td className="font-medium col-unit py-3 px-4">{charge.UnitID}</td>
-                                        <td className="col-owner py-3 px-4">{charge.OwnerName}</td>
-                                        <td className="font-bold col-total-due py-3 px-4 text-right"><span className="amount-wrapper">{formatNumber(charge.TotalDue)}</span></td>
-                                        <td className="col-total-paid py-2 px-2">
+                                    <tr key={charge.UnitID} className="hover:bg-gray-50 dark:hover:bg-slate-800/50">
+                                        <td className="w-12 text-center"><input type="checkbox" checked={selectedUnits.has(charge.UnitID)} onChange={(e) => handleSelectUnit(charge.UnitID, e.target.checked)} /></td>
+                                        <td className="font-medium px-4 py-4 text-gray-900 dark:text-gray-200">{charge.UnitID}</td>
+                                        <td className="px-4 py-4 text-gray-900 dark:text-gray-200">{charge.OwnerName}</td>
+                                        <td className="font-bold px-4 py-4 text-right text-gray-900 dark:text-gray-200"><span className="amount-wrapper">{formatNumber(charge.TotalDue)}</span></td>
+                                        <td className="py-2 px-2">
                                             <input 
                                                 type="text"
                                                 value={new Intl.NumberFormat('vi-VN').format(finalPaidAmount)}
                                                 onChange={(e) => handlePaymentChange(charge.UnitID, e.target.value)}
                                                 disabled={isPeriodLocked || charge.PaymentConfirmed || role === 'Operator'}
-                                                className="payment-input"
+                                                className="w-36 text-right p-2 text-sm border rounded-md bg-white text-gray-900 border-gray-300 focus:ring-2 focus:ring-primary disabled:bg-transparent disabled:border-transparent disabled:font-semibold disabled:text-current dark:disabled:text-gray-200"
                                             />
                                         </td>
-                                         <td className={`font-semibold col-diff py-3 px-4 text-right whitespace-nowrap ${difference > 0 ? 'text-green-600' : (difference < 0 ? 'text-red-600' : '')}`}>
+                                         <td className={`font-semibold px-4 py-4 text-right whitespace-nowrap ${difference > 0 ? 'text-green-600' : (difference < 0 ? 'text-red-600' : 'text-gray-900 dark:text-gray-200')}`}>
                                             {difference !== 0 ? formatNumber(difference) : ''}
                                         </td>
-                                        <td className="col-status py-3 px-4 text-center">{renderStatusBadge(charge)}</td>
-                                        <td className="col-actions py-3 px-4"><div className="action-icons">
+                                        <td className="px-4 py-4 text-center">{renderStatusBadge(charge)}</td>
+                                        <td className="px-4 py-4"><div className="flex justify-center items-center gap-2">
                                             <button 
                                                 onClick={() => handleConfirmPayment(charge)}
                                                 disabled={isPeriodLocked || charge.paymentStatus === 'paid' || role === 'Operator'}
-                                                className="icon-btn disabled:opacity-30"
-                                                title="Xác nhận thanh toán"
+                                                className="p-2 rounded-full hover:bg-gray-200 dark:hover:bg-gray-600 disabled:opacity-30"
+                                                data-tooltip="Xác nhận thanh toán"
                                             >
                                                 <CheckCircleIcon className="w-5 h-5 text-green-500" />
                                             </button>
-                                            <button onClick={() => setPreviewCharge(charge)} className="icon-btn" title="View & Send"><ActionViewIcon className="text-blue-500" /></button>
+                                            <button onClick={() => setPreviewCharge(charge)} className="p-2 rounded-full hover:bg-gray-200 dark:hover:bg-gray-600" data-tooltip="View & Send"><ActionViewIcon className="text-blue-500 w-5 h-5" /></button>
                                         </div></td>
                                     </tr>
                                 )

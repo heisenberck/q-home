@@ -119,26 +119,20 @@ const WaterPage: React.FC<WaterPageProps> = ({ waterReadings, setWaterReadings, 
 
     const unitsWithData = useMemo(() => {
         const readingsForPeriod = readingsMapByPeriod.get(period) || new Map();
-        const prevReadingsForPeriod = readingsMapByPeriod.get(getPreviousPeriod(period)) || new Map();
         
         return allUnits
             .map(unit => {
                 const reading = readingsForPeriod.get(unit.UnitID);
-                const prevReading = prevReadingsForPeriod.get(unit.UnitID);
-                
                 const consumption = reading ? Math.max(0, reading.CurrIndex - reading.PrevIndex) : 0;
-
-                const hasBeenRecorded = reading ? reading.CurrIndex > (prevReading?.CurrIndex ?? (reading.PrevIndex || 0)) : false;
-                
+                const hasBeenRecorded = reading ? reading.CurrIndex > reading.PrevIndex : false;
                 const isKios = unit.UnitType === UnitType.KIOS;
                 const isBusinessApt = unit.UnitType === UnitType.APARTMENT && unit.Status === 'Business';
 
                 return {
                     unit,
-                    reading: reading || { UnitID: unit.UnitID, Period: period, PrevIndex: prevReading?.CurrIndex ?? 0, CurrIndex: prevReading?.CurrIndex ?? 0, Rollover: false },
-                    prevIndex: prevReading?.CurrIndex ?? 0,
+                    reading: reading || { UnitID: unit.UnitID, Period: period, PrevIndex: 0, CurrIndex: 0, Rollover: false },
+                    prevIndex: reading?.PrevIndex ?? 0,
                     consumption: consumption,
-                    hasNoPrevious: !!reading && !prevReading,
                     isRecorded: hasBeenRecorded,
                     isBusiness: isKios || isBusinessApt,
                     isResidential: unit.UnitType === UnitType.APARTMENT && unit.Status !== 'Business',
@@ -162,8 +156,8 @@ const WaterPage: React.FC<WaterPageProps> = ({ waterReadings, setWaterReadings, 
     }, [unitsWithData, floorFilter, searchTerm, kpiFilter]);
 
     const kpiStats = useMemo(() => {
+        // Current period calculation
         let totalM3 = 0, totalM3Business = 0, resM3 = 0, resCountWithData = 0;
-
         for (const item of unitsWithData) {
             const m3 = item.consumption;
             totalM3 += m3;
@@ -173,14 +167,46 @@ const WaterPage: React.FC<WaterPageProps> = ({ waterReadings, setWaterReadings, 
                 if(item.isRecorded) resCountWithData++;
             }
         }
+
+        // Previous period calculation
+        const prevPeriod = getPreviousPeriod(period);
+        const prevReadingsForPeriod = readingsMapByPeriod.get(prevPeriod) || new Map();
+        let prevTotalM3 = 0, prevResM3 = 0, prevBusinessM3 = 0;
+        
+        for (const unit of allUnits) {
+            const reading = prevReadingsForPeriod.get(unit.UnitID);
+            if (!reading) continue;
+            
+            const consumption = Math.max(0, reading.CurrIndex - reading.PrevIndex);
+            
+            prevTotalM3 += consumption;
+            const isKios = unit.UnitType === UnitType.KIOS;
+            const isBusinessApt = unit.UnitType === UnitType.APARTMENT && unit.Status === 'Business';
+            if (isKios || isBusinessApt) {
+                prevBusinessM3 += consumption;
+            } else {
+                prevResM3 += consumption;
+            }
+        }
+
+        // Trend calculation function
+        const calculateTrend = (current: number, previous: number): number => {
+            if (previous === 0) {
+                return current > 0 ? Infinity : 0;
+            }
+            return ((current - previous) / previous) * 100;
+        };
         
         return {
-            totalM3: totalM3.toLocaleString('vi-VN'),
-            totalLitersResidential: (resM3 * 1000).toLocaleString('vi-VN'),
-            totalM3Business: totalM3Business.toLocaleString('vi-VN'),
+            totalM3,
+            totalM3Residential: resM3,
+            totalM3Business,
             avgM3Apts: resCountWithData > 0 ? (resM3 / resCountWithData).toFixed(1) : '0.0',
+            totalTrend: calculateTrend(totalM3, prevTotalM3),
+            resTrend: calculateTrend(resM3, prevResM3),
+            businessTrend: calculateTrend(totalM3Business, prevBusinessM3),
         };
-    }, [unitsWithData]);
+    }, [unitsWithData, period, readingsMapByPeriod, allUnits]);
 
     const historyData = useMemo(() => {
         if (!selectedUnitId) return null;
@@ -189,7 +215,6 @@ const WaterPage: React.FC<WaterPageProps> = ({ waterReadings, setWaterReadings, 
         let currentPeriodForChart = period;
         for (let i = 0; i < 6; i++) {
             const reading = readingsMapByPeriod.get(currentPeriodForChart)?.get(selectedUnitId);
-            
             const consumption = reading ? Math.max(0, reading.CurrIndex - reading.PrevIndex) : 0;
             
             const monthName = new Date(currentPeriodForChart + '-02').toLocaleString('en-US', { month: 'short' });
@@ -320,7 +345,7 @@ const WaterPage: React.FC<WaterPageProps> = ({ waterReadings, setWaterReadings, 
                     const unitId = values[unitIdIndex]?.trim().replace(/"/g, '');
                     const currIndexStr = values[currIndexIndex]?.trim().replace(/"/g, '');
                     
-                    if (!unitId || currIndexStr === '') {
+                    if (!unitId || currIndexStr == null || currIndexStr === '') {
                         skippedCount++;
                         continue;
                     }
@@ -342,7 +367,8 @@ const WaterPage: React.FC<WaterPageProps> = ({ waterReadings, setWaterReadings, 
 
                     if (currIndex < existingReading.PrevIndex) {
                         skippedCount++;
-                        errors.push(`Dòng ${i + 1}: Chỉ số mới (${currIndex}) của căn hộ ${unitId} nhỏ hơn chỉ số cũ (${existingReading.PrevIndex}).`);
+                        // FIX: Explicitly cast variables to string inside template literal to avoid type inference issues.
+                        errors.push(`Dòng ${i + 1}: Chỉ số mới (${currIndex}) của căn hộ ${String(unitId)} nhỏ hơn chỉ số cũ (${String(existingReading.PrevIndex)}).`);
                         continue;
                     }
                     
@@ -350,110 +376,134 @@ const WaterPage: React.FC<WaterPageProps> = ({ waterReadings, setWaterReadings, 
                     readingsForPeriodMap.set(unitId, { ...existingReading, CurrIndex: currIndex });
                     updatedCount++;
                 }
-
                 setWaterReadings(prev => [
-                    ...prev.filter(r => r.Period !== period), 
+                    ...prev.filter(r => r.Period !== period),
                     ...Array.from(readingsForPeriodMap.values())
-                ], `Nhập ${updatedCount} chỉ số nước từ CSV cho kỳ ${period}`);
+                ]);
 
                 if (errors.length > 0) {
-                     showToast(`Hoàn tất: ${updatedCount} cập nhật, ${skippedCount} bỏ qua. Một số dòng có lỗi.`, 'warn', 8000);
-                     console.warn("CSV Import errors:", errors);
+                    showToast(`Hoàn tất. Cập nhật ${updatedCount}, bỏ qua ${skippedCount} dòng. Lỗi: ${errors.join('; ')}`, 'warn', 10000);
                 } else {
-                     showToast(`Nhập thành công ${updatedCount} chỉ số nước.`, 'success');
+                    showToast(`Nhập thành công ${updatedCount} chỉ số.`, 'success');
                 }
-
             } catch (error: any) {
-                showToast(`Lỗi xử lý file CSV: ${error.message}`, 'error');
+                showToast(`Lỗi khi đọc file: ${error.message}`, 'error');
             } finally {
                 if (fileInputRef.current) fileInputRef.current.value = "";
             }
         };
-        reader.readAsText(file, 'UTF-8');
+        reader.readAsText(file);
     };
-    
-    const floors = ['all', ...Array.from(new Set(allUnits.filter(u => u.UnitType === UnitType.APARTMENT).map(u => u.UnitID.slice(0, -2)))).sort((a: string, b: string) => parseInt(a, 10) - parseInt(b, 10)), '99'];
+
+    const floors = useMemo(() => {
+        const floorNumbers = Array.from(new Set(allUnits.filter(u => u.UnitType === UnitType.APARTMENT).map(u => String(parseUnitCode(u.UnitID)?.floor ?? '')))).filter(Boolean).sort((a, b) => parseInt(a, 10) - parseInt(b, 10));
+        return [{ value: 'all', label: 'Tất cả các tầng' }, ...floorNumbers.map(f => ({ value: f, label: `Tầng ${f}` })), { value: '99', label: 'KIOS' }];
+    }, [allUnits]);
 
     return (
-        <div className="h-full flex flex-col space-y-4">
-            <input
-                type="file"
-                ref={fileInputRef}
-                onChange={handleFileChange}
-                accept=".csv"
-                className="hidden"
-            />
-            {/* Sticky Header */}
-            <div className="sticky top-0 z-10 bg-light-bg dark:bg-dark-bg -mx-4 sm:-mx-6 lg:-mx-8 px-4 sm:px-6 lg:-mx-8 pt-4 pb-2 space-y-3">
-                {/* KPI Bar */}
-                <div className="stats-row">
-                    <StatCard label="Total m³" value={kpiStats.totalM3} icon={<DropletsIcon className="h-5 w-5 text-cyan-500" />} isActive={!kpiFilter} onClick={() => setKpiFilter(null)} />
-                    <StatCard label="Residential Liters" value={kpiStats.totalLitersResidential} icon={<HomeIcon className="h-5 w-5 text-sky-500" />} isActive={kpiFilter === 'residential'} onClick={() => setKpiFilter('residential')} />
-                    <StatCard label="Business m³" value={kpiStats.totalM3Business} icon={<StoreIcon className="h-5 w-5 text-amber-500" />} isActive={kpiFilter === 'business'} onClick={() => setKpiFilter('business')} />
-                    <StatCard label="Avg Apartment m³" value={kpiStats.avgM3Apts} icon={<TrendingUpIcon className="h-5 w-5 text-lime-500" />} isActive={false} />
+        <div className="h-full flex flex-col space-y-6">
+            <input type="file" ref={fileInputRef} onChange={handleFileChange} accept=".csv" className="hidden" />
+            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6">
+                <div className={`cursor-pointer transition-all rounded-xl ${!kpiFilter ? 'ring-2 ring-primary' : ''}`} onClick={() => setKpiFilter(null)}>
+                    <StatCard 
+                        label="Tổng tiêu thụ" 
+                        value={`${kpiStats.totalM3.toLocaleString('vi-VN')} m³`} 
+                        icon={<DropletsIcon className="w-7 h-7 text-blue-600 dark:text-blue-400" />} 
+                        iconBgClass="bg-blue-100 dark:bg-blue-900/50"
+                        trend={kpiStats.totalTrend}
+                    />
                 </div>
-                {/* Toolbar */}
-                <div className="flex flex-wrap items-center gap-4 p-2 bg-light-bg-secondary dark:bg-dark-bg-secondary rounded-xl border dark:border-dark-border shadow-sm">
-                    <div className="relative flex items-center gap-1 p-1 bg-light-bg dark:bg-dark-bg rounded-lg">
+                <div className={`cursor-pointer transition-all rounded-xl ${kpiFilter === 'residential' ? 'ring-2 ring-primary' : ''}`} onClick={() => setKpiFilter('residential')}>
+                    <StatCard 
+                        label="Hộ dân" 
+                        value={`${kpiStats.totalM3Residential.toLocaleString('vi-VN')} m³`} 
+                        icon={<HomeIcon className="w-7 h-7 text-green-600 dark:text-green-400" />} 
+                        iconBgClass="bg-green-100 dark:bg-green-900/50"
+                        trend={kpiStats.resTrend}
+                    />
+                </div>
+                <div className={`cursor-pointer transition-all rounded-xl ${kpiFilter === 'business' ? 'ring-2 ring-primary' : ''}`} onClick={() => setKpiFilter('business')}>
+                    <StatCard 
+                        label="Kinh doanh" 
+                        value={`${kpiStats.totalM3Business.toLocaleString('vi-VN')} m³`} 
+                        icon={<StoreIcon className="w-7 h-7 text-orange-600 dark:text-orange-400" />} 
+                        iconBgClass="bg-orange-100 dark:bg-orange-900/50"
+                        trend={kpiStats.businessTrend}
+                    />
+                </div>
+                <StatCard 
+                    label="TB Hộ dân" 
+                    value={`${kpiStats.avgM3Apts} m³/hộ`} 
+                    icon={<TrendingUpIcon className="w-7 h-7 text-indigo-600 dark:text-indigo-400" />} 
+                    iconBgClass="bg-indigo-100 dark:bg-indigo-900/50"
+                />
+            </div>
+
+             <div className="bg-white dark:bg-dark-bg-secondary p-4 rounded-xl shadow-sm">
+                <div className="flex flex-wrap items-center gap-4">
+                    <div className="relative flex items-center gap-1 p-1 bg-gray-100 dark:bg-gray-800 rounded-lg">
                         <button onClick={() => navigatePeriod('prev')} data-tooltip="Kỳ trước"><ChevronLeftIcon /></button>
-                        <button onClick={() => setIsMonthPickerOpen(p => !p)} className="p-1.5 w-40 font-semibold hover:bg-gray-200 dark:hover:bg-slate-700 rounded-md" data-tooltip="Chọn kỳ chốt nước">
-                            {new Date(period + '-02').toLocaleDateString('en-US', { month: 'long', year: 'numeric' })}
+                        <button onClick={() => setIsMonthPickerOpen(p => !p)} className="p-1.5 w-40 font-semibold hover:bg-gray-200 dark:hover:bg-slate-700 rounded-md" data-tooltip="Chọn kỳ">
+                           {new Date(period + '-02').toLocaleString('vi-VN', { month: '2-digit', year: 'numeric' })}
                         </button>
-                         {isMonthPickerOpen && <MonthPickerPopover currentPeriod={period} onSelectPeriod={setPeriod} onClose={() => setIsMonthPickerOpen(false)} />}
+                         {isMonthPickerOpen && <MonthPickerPopover currentPeriod={period} onSelectPeriod={setPeriod} onClose={() => setIsMonthPickerOpen(false)}/>}
                         <button onClick={() => navigatePeriod('next')} data-tooltip="Kỳ sau"><ChevronRightIcon /></button>
                     </div>
-                    <button onClick={() => setPeriod(currentISODate)} data-tooltip="Trở về tháng hiện tại" className={`p-2 rounded-md text-sm font-semibold flex items-center gap-1 ${period === currentISODate ? 'bg-primary text-white' : 'hover:bg-gray-200 dark:hover:bg-slate-700'}`}><CalendarDaysIcon /> Current</button>
 
-                    <div className="relative flex-grow min-w-[200px]"><SearchIcon className="absolute left-3 top-1/2 -translate-y-1/2 h-5 w-5 text-gray-400" /><input type="text" placeholder="Tìm theo mã căn..." value={searchTerm} onChange={e => setSearchTerm(e.target.value)} className="w-full pl-10 p-2 border rounded-lg bg-light-bg dark:bg-dark-bg"/></div>
-                    <div className="flex items-center gap-2" data-tooltip="Lọc theo tầng">
-                        <BuildingIcon className="w-5 w-5 text-gray-500" />
-                        <select value={floorFilter} onChange={e => setFloorFilter(e.target.value)} className="p-2 border rounded-lg bg-light-bg dark:bg-dark-bg">
-                            {floors.map(f => <option key={f} value={f}>{f === 'all' ? 'All Floors' : (f === '99' ? 'KIOS' : `Floor ${f}`)}</option>)}
+                    <div className="relative flex-grow min-w-[200px]">
+                        <SearchIcon className="absolute left-3 top-1/2 -translate-y-1/2 h-5 w-5 text-gray-400" />
+                        <input type="text" placeholder="Tìm theo mã căn hộ..." value={searchTerm} onChange={e => setSearchTerm(e.target.value)} className="w-full h-10 pl-10 pr-3 border rounded-lg bg-white dark:bg-dark-bg-secondary border-gray-300 dark:border-gray-600"/>
+                    </div>
+                    
+                    <div className="relative min-w-[180px]">
+                        <BuildingIcon className="absolute left-3 top-1/2 -translate-y-1/2 h-5 w-5 text-gray-400" />
+                        <select value={floorFilter} onChange={e => setFloorFilter(e.target.value)} className="w-full h-10 pl-10 pr-3 border rounded-lg bg-white dark:bg-dark-bg-secondary border-gray-300 dark:border-gray-600 appearance-none">
+                            {floors.map(f => <option key={f.value} value={f.value}>{f.label}</option>)}
                         </select>
                     </div>
-                    <div className="ml-auto flex items-center gap-2">
-                        <button onClick={handleDownloadTemplate} className="h-9 px-3 text-sm bg-gray-600 text-white font-semibold rounded-lg shadow-sm hover:bg-gray-700 flex items-center gap-2"><DocumentArrowDownIcon/> Tải Template</button>
-                        <button onClick={handleImportClick} disabled={!canEdit} className="h-9 px-3 text-sm bg-primary text-white font-semibold rounded-lg shadow-sm hover:bg-primary-focus disabled:bg-gray-400 flex items-center gap-2"><UploadIcon/> Nhập CSV</button>
+
+                    <div className="ml-auto flex items-center gap-2 flex-shrink-0">
+                        <button onClick={handleDownloadTemplate} data-tooltip="Tải file mẫu" className="h-10 px-3 font-semibold rounded-lg hover:bg-opacity-80 disabled:opacity-50 flex items-center gap-2 border border-gray-300 dark:border-gray-600 bg-white dark:bg-dark-bg-secondary text-gray-700 dark:text-gray-300 hover:bg-gray-50"><DocumentArrowDownIcon/></button>
+                        <button onClick={handleImportClick} data-tooltip="Nhập từ file" disabled={!canEdit} className="h-10 px-3 font-semibold rounded-lg hover:bg-opacity-80 disabled:opacity-50 flex items-center gap-2 border border-blue-600 text-blue-600 hover:bg-blue-100 dark:hover:bg-blue-900/30 bg-white dark:bg-transparent"><UploadIcon/></button>
                     </div>
                 </div>
             </div>
 
-            {/* Main Content */}
-            <div className="flex-1 overflow-hidden grid grid-cols-1 lg:grid-cols-3 gap-6 pb-6">
-                <div className="lg:col-span-2 bg-light-bg-secondary dark:bg-dark-bg-secondary p-4 rounded-lg shadow-md h-full flex flex-col overflow-hidden">
+            <div className="flex-1 grid grid-cols-1 lg:grid-cols-3 gap-6 overflow-hidden">
+                <div className="lg:col-span-2 bg-white dark:bg-dark-bg-secondary rounded-xl shadow-sm flex flex-col overflow-hidden">
                     <div className="overflow-y-auto">
-                        <table className="min-w-full themed-table">
-                            <thead className="sticky top-0 z-10">
-                                <tr><th>Căn hộ</th><th className="text-right">Chỉ số tháng</th><th className="text-right whitespace-nowrap">Tiêu thụ (m³)</th></tr>
+                        <table className="min-w-full">
+                            <thead className="bg-gray-50 dark:bg-slate-800 sticky top-0 z-10">
+                                <tr>
+                                    <th className="px-4 py-3 text-left text-xs font-bold text-gray-700 dark:text-gray-300 uppercase tracking-wider">Căn hộ</th>
+                                    <th className="px-4 py-3 text-right text-xs font-bold text-gray-700 dark:text-gray-300 uppercase tracking-wider">Chỉ số cũ</th>
+                                    <th className="px-4 py-3 text-right text-xs font-bold text-gray-700 dark:text-gray-300 uppercase tracking-wider">Chỉ số mới</th>
+                                    <th className="px-4 py-3 text-right text-xs font-bold text-gray-700 dark:text-gray-300 uppercase tracking-wider">Tiêu thụ (m³)</th>
+                                </tr>
                             </thead>
-                            <tbody className="text-sm">
+                            <tbody className="divide-y divide-gray-200 dark:divide-gray-700">
                                 {filteredUnits.map((item, index) => (
-                                    <tr key={item.unit.UnitID} onClick={() => setSelectedUnitId(item.unit.UnitID)} className={`cursor-pointer ${selectedUnitId === item.unit.UnitID ? 'bg-blue-100 dark:bg-blue-900/50' : ''}`}>
-                                        <td className="font-medium py-3 px-4">{item.unit.UnitID}</td>
-                                        <td className="text-right py-3 px-4">
-                                            <input
-                                                ref={el => {
-                                                    if (el) {
-                                                        inputRefs.current[item.unit.UnitID] = el;
-                                                    } else {
-                                                        delete inputRefs.current[item.unit.UnitID];
-                                                    }
-                                                }}
+                                    <tr 
+                                        key={item.unit.UnitID} 
+                                        className={`hover:bg-gray-50 dark:hover:bg-slate-800/50 cursor-pointer ${selectedUnitId === item.unit.UnitID ? 'bg-blue-50 dark:bg-blue-900/20' : ''}`}
+                                        onClick={() => setSelectedUnitId(item.unit.UnitID)}
+                                    >
+                                        <td className="font-medium px-4 py-1 text-gray-900 dark:text-gray-200">{item.unit.UnitID}</td>
+                                        <td className="px-4 py-1 text-right">{item.prevIndex.toLocaleString('vi-VN')}</td>
+                                        <td className="px-4 py-1 text-right">
+                                            <input 
+                                                ref={el => { if (el) inputRefs.current[item.unit.UnitID] = el }}
                                                 type="number"
                                                 value={item.reading.CurrIndex}
                                                 onChange={e => handleReadingChange(item.unit.UnitID, e.target.value)}
                                                 onBlur={() => handleInputBlur(item.unit.UnitID, item.reading.CurrIndex, item.prevIndex)}
                                                 onKeyDown={e => handleKeyDown(e, index)}
                                                 disabled={!canEdit}
-                                                className={`w-32 p-1 text-sm text-right border rounded-md bg-light-bg dark:bg-dark-bg ${validationErrors[item.unit.UnitID] ? 'border-red-500' : 'border-light-border dark:border-dark-border'}`}
+                                                className={`w-32 text-right p-2 text-sm border rounded-md bg-white text-gray-900 focus:ring-2 focus:ring-primary ${validationErrors[item.unit.UnitID] ? 'border-red-500' : 'border-gray-300'}`}
                                             />
-                                            {validationErrors[item.unit.UnitID] && <p className="text-red-500 text-xs text-right">{validationErrors[item.unit.UnitID]}</p>}
                                         </td>
-                                        <td className="text-right font-semibold py-3 px-4">
-                                            <div className="flex items-center justify-end gap-2">
-                                                {item.hasNoPrevious && item.isRecorded && <span data-tooltip="Chưa có kỳ trước" className="px-1.5 py-0.5 text-xs bg-yellow-200 text-yellow-800 rounded-full">!</span>}
-                                                {item.consumption}
-                                            </div>
+                                        <td className={`font-bold px-4 py-1 text-right text-lg ${item.consumption > 0 ? 'text-blue-600 dark:text-blue-400' : ''}`}>
+                                            {item.consumption > 0 ? item.consumption.toLocaleString('vi-VN') : '-'}
                                         </td>
                                     </tr>
                                 ))}
@@ -461,29 +511,29 @@ const WaterPage: React.FC<WaterPageProps> = ({ waterReadings, setWaterReadings, 
                         </table>
                     </div>
                 </div>
-                <div className="lg:col-span-1 bg-light-bg-secondary dark:bg-dark-bg-secondary p-4 rounded-lg shadow-md">
-                    {historyData && selectedUnitId ? (
+                <div className="bg-white dark:bg-dark-bg-secondary rounded-xl shadow-sm p-6 overflow-y-auto">
+                    <h3 className="text-lg font-bold mb-4">Lịch sử tiêu thụ 6 kỳ gần nhất</h3>
+                    {selectedUnitId && historyData ? (
                         <div>
-                            <h3 className="font-bold text-lg mb-2">Lịch sử tiêu thụ: {selectedUnitId}</h3>
-                            <div className="grid grid-cols-3 gap-2 text-center text-sm mb-4">
-                                <div className="p-2 bg-red-100 dark:bg-red-900/50 rounded-md"><div className="font-bold">{historyData.stats.max}</div><div className="text-xs">Cao nhất</div></div>
-                                <div className="p-2 bg-blue-100 dark:bg-blue-900/50 rounded-md"><div className="font-bold">{historyData.stats.avg}</div><div className="text-xs">Trung bình</div></div>
-                                <div className="p-2 bg-green-100 dark:bg-green-900/50 rounded-md"><div className="font-bold">{historyData.stats.min}</div><div className="text-xs">Thấp nhất</div></div>
-                            </div>
-                            <ResponsiveContainer width="100%" height={250}>
-                                <LineChart data={historyData.chartData} margin={{ top: 5, right: 20, left: -10, bottom: 5 }}>
-                                    <CartesianGrid strokeDasharray="3 3" stroke="var(--color-border)" />
-                                    <XAxis dataKey="name" tick={{ fill: 'var(--color-text-secondary)' }} fontSize={12} />
-                                    <YAxis tick={{ fill: 'var(--color-text-secondary)' }} fontSize={12} />
-                                    <Tooltip contentStyle={{ backgroundColor: 'var(--color-surface)' }} />
-                                    <Line type="monotone" dataKey="consumption" stroke="#006f3a" strokeWidth={2} name="Tiêu thụ (m³)" />
+                            <h4 className="text-xl font-bold text-primary mb-4">{selectedUnitId}</h4>
+                             <ResponsiveContainer width="100%" height={250}>
+                                <LineChart data={historyData.chartData}>
+                                    <CartesianGrid strokeDasharray="3 3" />
+                                    <XAxis dataKey="name" />
+                                    <YAxis />
+                                    <Tooltip formatter={(value) => `${value} m³`}/>
+                                    <Legend />
+                                    <Line type="monotone" dataKey="consumption" name="Tiêu thụ" stroke="#3b82f6" strokeWidth={2} />
                                 </LineChart>
                             </ResponsiveContainer>
+                             <div className="mt-6 grid grid-cols-3 gap-4 text-center">
+                                <div><p className="text-xs text-gray-500">Thấp nhất</p><p className="font-bold text-lg">{historyData.stats.min} m³</p></div>
+                                <div><p className="text-xs text-gray-500">Cao nhất</p><p className="font-bold text-lg">{historyData.stats.max} m³</p></div>
+                                <div><p className="text-xs text-gray-500">Trung bình</p><p className="font-bold text-lg">{historyData.stats.avg} m³</p></div>
+                            </div>
                         </div>
                     ) : (
-                        <div className="flex items-center justify-center h-full text-center text-gray-500">
-                            <p>Chọn một căn hộ để xem lịch sử tiêu thụ 6 tháng gần nhất.</p>
-                        </div>
+                        <div className="flex items-center justify-center h-full text-gray-500">Chọn một căn hộ để xem lịch sử</div>
                     )}
                 </div>
             </div>

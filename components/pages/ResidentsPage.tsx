@@ -2,14 +2,14 @@ import React, { useState, useMemo, useRef, useCallback, useEffect } from 'react'
 import type { Unit, Owner, Vehicle, Role, UserPermission, VehicleDocument } from '../../types';
 import { UnitType, VehicleTier } from '../../types';
 import Modal from '../ui/Modal';
+import StatCard from '../ui/StatCard';
 import { useNotification } from '../../App';
 import { 
-    EyeIcon, PencilSquareIcon, BuildingIcon, TagIcon, CheckCircleIcon, UploadIcon, UserGroupIcon, 
-    UserIcon, KeyIcon, StoreIcon, CarIcon, PrinterIcon, TrashIcon,
-    MotorbikeIcon, DocumentArrowDownIcon, ActionViewIcon, TableCellsIcon, DocumentTextIcon
+    EyeIcon, PencilSquareIcon, BuildingIcon, TagIcon, UploadIcon, UserGroupIcon, 
+    UserIcon, KeyIcon, StoreIcon, CarIcon, TrashIcon,
+    DocumentArrowDownIcon, ActionViewIcon, TableCellsIcon, DocumentTextIcon
 } from '../ui/Icons';
 import { loadScript } from '../../utils/scriptLoader';
-// FIX: Import 'sortUnitsComparator' from utils/helpers.ts to fix a 'Cannot find name' error.
 import { normalizePhoneNumber, formatLicensePlate, vehicleTypeLabels, translateVehicleType, sortUnitsComparator, compressImageToWebP } from '../../utils/helpers';
 
 
@@ -19,19 +19,38 @@ declare const html2canvas: any;
 declare const JSZip: any;
 declare const XLSX: any; // SheetJS
 
-const parseUnitCode = (code: string) => {
-    const s = String(code).trim();
-    if (s.startsWith('K')) return { floor: 99, apt: parseInt(s.substring(1), 10) || 0 };
-    if (!/^\d{3,4}$/.test(s)) return null;
-    let floor, apt;
-    if (s.length === 3) {
-        floor = parseInt(s.slice(0, 1), 10);
-        apt = parseInt(s.slice(1), 10);
-    } else { // 4 digits
-        floor = parseInt(s.slice(0, 2), 10);
-        apt = parseInt(s.slice(2), 10);
+const renderStatusBadge = (status: 'Owner' | 'Rent' | 'Business' | string) => {
+    const baseClasses = "inline-flex items-center gap-1.5 px-2 py-1 text-xs font-medium rounded-full";
+
+    switch (status) {
+        case 'Owner':
+            return (
+                <span className={`${baseClasses} bg-green-50 text-green-700 border border-green-200 dark:bg-green-900/50 dark:text-green-300 dark:border-green-700/50`}>
+                    <UserIcon className="w-3.5 h-3.5" />
+                    Chính chủ
+                </span>
+            );
+        case 'Rent':
+            return (
+                <span className={`${baseClasses} bg-blue-50 text-blue-700 border border-blue-200 dark:bg-blue-900/50 dark:text-blue-300 dark:border-blue-700/50`}>
+                    <KeyIcon className="w-3.5 h-3.5" />
+                    Hộ thuê
+                </span>
+            );
+        case 'Business':
+            return (
+                <span className={`${baseClasses} bg-amber-50 text-amber-700 border border-amber-200 dark:bg-amber-900/50 dark:text-amber-300 dark:border-amber-700/50`}>
+                    <StoreIcon className="w-3.5 h-3.5" />
+                    Kinh doanh
+                </span>
+            );
+        default:
+            return (
+                <span className={`${baseClasses} bg-gray-100 text-gray-600 border border-gray-200 dark:bg-gray-700 dark:text-gray-300 dark:border-gray-600`}>
+                    Chưa rõ
+                </span>
+            );
     }
-    return { floor, apt };
 };
 
 type ResidentData = {
@@ -300,7 +319,7 @@ const ResidentDetailModal: React.FC<{
     }, [formData.unit.Status, formData.vehicles]);
 
 
-    const formElementStyle = `w-full p-2 border rounded-md bg-light-bg dark:bg-dark-bg border-light-border dark:border-dark-border disabled:bg-gray-200 dark:disabled:bg-gray-700 disabled:cursor-not-allowed`;
+    const formElementStyle = `w-full p-2 border rounded-md bg-white border-gray-300 text-gray-900 dark:bg-gray-700 dark:border-gray-600 dark:text-white disabled:bg-gray-200 dark:disabled:bg-gray-800 disabled:cursor-not-allowed`;
 
     const validateVehicle = useCallback((vehicle: Vehicle): VehicleErrors => {
         const vErrors: VehicleErrors = {};
@@ -710,11 +729,11 @@ const DataImportModal: React.FC<{
                     <div>
                         <h4 className="font-semibold mb-2">Xem trước dữ liệu (10 dòng đầu)</h4>
                         <div className="overflow-auto border rounded-lg max-h-96">
-                            <table className="min-w-full themed-table">
-                                <thead className="sticky top-0 bg-gray-100 dark:bg-gray-800">
+                            <table className="min-w-full">
+                                <thead className="sticky top-0 bg-gray-50 dark:bg-gray-800">
                                     <tr>
                                         {rawHeaders.map((header, index) => (
-                                            <th key={index} className="px-4 py-3 text-left text-xs font-medium uppercase tracking-wider">
+                                            <th key={index} className="px-4 py-3 text-left text-xs font-semibold text-gray-500 uppercase tracking-wider">
                                                 {header}
                                                 <div className="text-primary font-bold">{mappedHeaders[header] || <span className="text-red-500">Not Found</span>}</div>
                                             </th>
@@ -723,7 +742,7 @@ const DataImportModal: React.FC<{
                                 </thead>
                                 <tbody className="divide-y divide-gray-200 dark:divide-gray-700">
                                     {preview.slice(0, 10).map((row, rowIndex) => (
-                                        <tr key={rowIndex}>
+                                        <tr key={rowIndex} className="hover:bg-gray-50 dark:hover:bg-slate-800/50">
                                             {rawHeaders.map((_header, colIndex) => (
                                                 <td key={colIndex} className="px-4 py-3 text-sm whitespace-nowrap text-gray-800 dark:text-gray-200">
                                                     {row[colIndex] || ''}
@@ -847,35 +866,35 @@ const ResidentsPage: React.FC<ResidentsPageProps> = ({ units, owners, vehicles, 
     };
     
     return (
-        <div className="h-full flex flex-col space-y-4">
+        <div className="h-full flex flex-col space-y-6">
             {modalState.type === 'view' && modalState.data && <ResidentViewModal resident={modalState.data} onClose={() => setModalState({ type: null, data: null })} />}
             {modalState.type === 'edit' && modalState.data && <ResidentDetailModal resident={modalState.data} onClose={() => setModalState({ type: null, data: null })} onSave={onSaveResident} />}
             {modalState.type === 'import' && <DataImportModal onClose={() => setModalState({ type: null, data: null })} onImport={onImportData} />}
             
-            <div className="sticky top-0 z-10 bg-light-bg dark:bg-dark-bg -mx-4 sm:-mx-6 lg:-mx-8 px-4 sm:px-6 lg:px-8 pt-4 pb-2 space-y-3">
-                <div className="stats-row">
-                    <div className="stat-card" data-label="Tổng số căn hộ và kios"><div className="stat-icon"><UserGroupIcon /></div><p className="stat-value">{kpiStats.totalUnits}</p></div>
-                    <div className="stat-card" data-label="Số căn hộ"><div className="stat-icon"><BuildingIcon /></div><p className="stat-value">{kpiStats.apartments}</p></div>
-                    <div className="stat-card" data-label="Số kios kinh doanh"><div className="stat-icon"><StoreIcon /></div><p className="stat-value">{kpiStats.kiosks}</p></div>
-                    <div className="stat-card" data-label="Tổng số phương tiện"><div className="stat-icon"><CarIcon /></div><p className="stat-value">{kpiStats.totalVehicles}</p></div>
-                </div>
+            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-6">
+                <StatCard label="Tổng Căn hộ & Kios" value={kpiStats.totalUnits} icon={<UserGroupIcon className="w-7 h-7 text-indigo-600 dark:text-indigo-400" />} iconBgClass="bg-indigo-100 dark:bg-indigo-900/50" />
+                <StatCard label="Số căn hộ" value={kpiStats.apartments} icon={<BuildingIcon className="w-7 h-7 text-sky-600 dark:text-sky-400" />} iconBgClass="bg-sky-100 dark:bg-sky-900/50" />
+                <StatCard label="Số kios kinh doanh" value={kpiStats.kiosks} icon={<StoreIcon className="w-7 h-7 text-amber-600 dark:text-amber-400" />} iconBgClass="bg-amber-100 dark:bg-amber-900/50" />
+                <StatCard label="Tổng số phương tiện" value={kpiStats.totalVehicles} icon={<CarIcon className="w-7 h-7 text-emerald-600 dark:text-emerald-400" />} iconBgClass="bg-emerald-100 dark:bg-emerald-900/50" />
+            </div>
 
-                <div className="flex flex-wrap items-center gap-4 p-2 bg-light-bg-secondary dark:bg-dark-bg-secondary rounded-xl border dark:border-dark-border shadow-sm">
-                    <input type="text" placeholder="Tìm căn hộ, chủ hộ..." value={searchTerm} onChange={e => setSearchTerm(e.target.value)} className="flex-grow p-2 border rounded-lg bg-light-bg dark:bg-dark-bg"/>
-                    <select value={typeFilter} onChange={e => setTypeFilter(e.target.value as any)} className="p-2 border rounded-lg bg-light-bg dark:bg-dark-bg"><option value="all">Tất cả loại hình</option><option value={UnitType.APARTMENT}>Căn hộ</option><option value={UnitType.KIOS}>KIOS</option></select>
-                    <select value={statusFilter} onChange={e => setStatusFilter(e.target.value)} className="p-2 border rounded-lg bg-light-bg dark:bg-dark-bg"><option value="all">Tất cả trạng thái</option><option value="Owner">Chủ sở hữu</option><option value="Rent">Cho thuê</option><option value="Business">Kinh doanh</option></select>
+            <div className="bg-white dark:bg-dark-bg-secondary p-4 rounded-xl shadow-sm">
+                <div className="flex flex-wrap items-center gap-4">
+                    <input type="text" placeholder="Tìm căn hộ, chủ hộ..." value={searchTerm} onChange={e => setSearchTerm(e.target.value)} className="flex-grow p-2 border rounded-lg bg-white border-gray-300 text-gray-900 dark:bg-gray-800 dark:border-gray-600 dark:text-white"/>
+                    <select value={typeFilter} onChange={e => setTypeFilter(e.target.value as any)} className="p-2 border rounded-lg bg-white border-gray-300 text-gray-900 dark:bg-dark-bg-secondary dark:border-gray-600 dark:text-white"><option value="all">Tất cả loại hình</option><option value={UnitType.APARTMENT}>Căn hộ</option><option value={UnitType.KIOS}>KIOS</option></select>
+                    <select value={statusFilter} onChange={e => setStatusFilter(e.target.value)} className="p-2 border rounded-lg bg-white border-gray-300 text-gray-900 dark:bg-dark-bg-secondary dark:border-gray-600 dark:text-white"><option value="all">Tất cả trạng thái</option><option value="Owner">Chủ sở hữu</option><option value="Rent">Cho thuê</option><option value="Business">Kinh doanh</option></select>
                     <div className="ml-auto flex items-center gap-2">
                         <button onClick={() => setModalState({ type: 'import', data: null })} disabled={!canManage} className="px-4 py-2 bg-primary text-white font-semibold rounded-md flex items-center gap-2"><UploadIcon /> Import Excel</button>
                     </div>
                 </div>
             </div>
 
-            <div className="bg-light-bg-secondary dark:bg-dark-bg-secondary p-4 rounded-lg shadow-md flex-1 flex flex-col overflow-hidden">
+            <div className="bg-white dark:bg-dark-bg-secondary rounded-xl shadow-sm flex-1 flex flex-col overflow-hidden">
                 {selectedUnits.size > 0 && (
-                    <div className="bulk-action-bar">
+                    <div className="p-3 border-b dark:border-dark-border bg-gray-50 dark:bg-dark-bg flex items-center gap-4">
                         <span className="font-semibold text-sm">{selectedUnits.size} đã chọn</span>
-                        <button onClick={() => setSelectedUnits(new Set())} className="btn-clear ml-4">Bỏ chọn</button>
-                        <div className="h-6 border-l dark:border-dark-border ml-2"></div>
+                        <button onClick={() => setSelectedUnits(new Set())} className="text-sm text-gray-500 hover:text-gray-800 dark:hover:text-gray-200">Bỏ chọn</button>
+                        <div className="h-5 border-l dark:border-dark-border ml-2"></div>
                         <div className="ml-auto flex items-center gap-4">
                             <button onClick={handleExportSelected} className="flex items-center gap-2 text-sm font-semibold text-gray-700 dark:text-gray-200 hover:text-primary"><TableCellsIcon /> Export CSV</button>
                             {canDelete && <button onClick={handleDeleteSelected} className="flex items-center gap-2 text-sm font-semibold text-red-600 dark:text-red-400 hover:text-red-800"><TrashIcon /> Xóa thông tin</button>}
@@ -883,33 +902,33 @@ const ResidentsPage: React.FC<ResidentsPageProps> = ({ units, owners, vehicles, 
                     </div>
                 )}
                 <div className="overflow-y-auto">
-                    <table className="min-w-full themed-table">
-                        <thead className="text-sm uppercase sticky top-0 z-10">
+                    <table className="min-w-full">
+                        <thead className="bg-gray-50 dark:bg-slate-800 sticky top-0 z-10">
                             <tr>
-                                <th className="w-12"><input type="checkbox" onChange={handleSelectAll} checked={isAllVisibleSelected} disabled={!canManage} /></th>
-                                <th className="text-left px-3 py-2">Căn hộ</th>
-                                <th className="text-left px-3 py-2">Chủ hộ</th>
-                                <th className="text-left px-3 py-2">Diện tích</th>
-                                <th className="text-left px-3 py-2">Liên hệ</th>
-                                <th className="text-left px-3 py-2">Loại hình</th>
-                                <th className="text-left px-3 py-2">Trạng thái</th>
-                                <th className="text-center px-3 py-2">Hành động</th>
+                                <th className="px-4 py-2 w-12 text-center"><input type="checkbox" onChange={handleSelectAll} checked={isAllVisibleSelected} disabled={!canManage} /></th>
+                                <th className="px-4 py-3 text-left text-xs font-bold text-gray-700 dark:text-gray-300 uppercase tracking-wider">Căn hộ</th>
+                                <th className="px-4 py-3 text-left text-xs font-bold text-gray-700 dark:text-gray-300 uppercase tracking-wider">Diện tích</th>
+                                <th className="px-4 py-3 text-left text-xs font-bold text-gray-700 dark:text-gray-300 uppercase tracking-wider">Chủ hộ</th>
+                                <th className="px-4 py-3 text-left text-xs font-bold text-gray-700 dark:text-gray-300 uppercase tracking-wider">Liên hệ</th>
+                                <th className="px-4 py-3 text-left text-xs font-bold text-gray-700 dark:text-gray-300 uppercase tracking-wider">Loại hình</th>
+                                <th className="px-4 py-3 text-left text-xs font-bold text-gray-700 dark:text-gray-300 uppercase tracking-wider">Trạng thái</th>
+                                <th className="px-4 py-3 text-center text-xs font-bold text-gray-700 dark:text-gray-300 uppercase tracking-wider">Hành động</th>
                             </tr>
                         </thead>
-                        <tbody>
+                        <tbody className="divide-y divide-gray-200 dark:divide-gray-700">
                             {filteredResidents.map(resident => (
-                                <tr key={resident.unit.UnitID}>
-                                    <td className="text-center text-sm"><input type="checkbox" checked={selectedUnits.has(resident.unit.UnitID)} onChange={(e) => handleSelectUnit(resident.unit.UnitID, e.target.checked)} disabled={!canManage} /></td>
-                                    <td className="px-3 py-2 font-medium text-sm">{resident.unit.UnitID}</td>
-                                    <td className="px-3 py-2 text-sm">{resident.owner.OwnerName}</td>
-                                    <td className="px-3 py-2 text-sm">{resident.unit.Area_m2} m²</td>
-                                    <td className="px-3 py-2 text-sm">{resident.owner.Phone}</td>
-                                    <td className="px-3 py-2 text-sm">{resident.unit.UnitType === UnitType.APARTMENT ? 'Căn hộ' : 'Kios'}</td>
-                                    <td className="px-3 py-2 text-sm">{resident.unit.Status}</td>
-                                    <td className="text-center px-3 py-2">
-                                        <div className="action-icons">
-                                            <button onClick={() => setModalState({ type: 'view', data: resident })} className="icon-btn" data-tooltip="Xem"><ActionViewIcon /></button>
-                                            <button onClick={() => setModalState({ type: 'edit', data: resident })} disabled={!canManage} className="icon-btn" data-tooltip="Sửa"><PencilSquareIcon /></button>
+                                <tr key={resident.unit.UnitID} className="hover:bg-gray-50 dark:hover:bg-slate-800/50">
+                                    <td className="w-12 text-center text-sm"><input type="checkbox" checked={selectedUnits.has(resident.unit.UnitID)} onChange={(e) => handleSelectUnit(resident.unit.UnitID, e.target.checked)} disabled={!canManage} /></td>
+                                    <td className="px-4 py-4 font-medium text-sm text-gray-900 dark:text-gray-200">{resident.unit.UnitID}</td>
+                                    <td className="px-4 py-4 text-sm text-gray-900 dark:text-gray-200">{resident.unit.Area_m2} m²</td>
+                                    <td className="px-4 py-4 text-sm text-gray-900 dark:text-gray-200">{resident.owner.OwnerName}</td>
+                                    <td className="px-4 py-4 text-sm text-gray-900 dark:text-gray-200">{resident.owner.Phone}</td>
+                                    <td className="px-4 py-4 text-sm text-gray-900 dark:text-gray-200">{resident.unit.UnitType === UnitType.APARTMENT ? 'Căn hộ' : 'Kios'}</td>
+                                    <td className="px-4 py-4">{renderStatusBadge(resident.unit.Status)}</td>
+                                    <td className="text-center px-4 py-4">
+                                        <div className="flex justify-center items-center gap-2">
+                                            <button onClick={() => setModalState({ type: 'view', data: resident })} className="p-2 rounded-full hover:bg-gray-200 dark:hover:bg-gray-600 text-gray-500 hover:text-gray-700" data-tooltip="Xem"><ActionViewIcon className="w-5 h-5"/></button>
+                                            <button onClick={() => setModalState({ type: 'edit', data: resident })} disabled={!canManage} className="p-2 rounded-full hover:bg-gray-200 dark:hover:bg-gray-600 disabled:opacity-30 text-blue-600 hover:text-blue-800" data-tooltip="Sửa"><PencilSquareIcon className="w-5 h-5"/></button>
                                         </div>
                                     </td>
                                 </tr>

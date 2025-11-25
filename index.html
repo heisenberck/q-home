@@ -9,7 +9,7 @@
     <!-- Google Fonts: Inter -->
     <link rel="preconnect" href="https://fonts.googleapis.com">
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800;900&display=swap" rel="stylesheet">
     
     <!-- Tailwind CSS -->
     <script src="https://cdn.tailwindcss.com"></script>
@@ -26,19 +26,16 @@
               sans: ['Inter', 'sans-serif'],
             },
             colors: {
-              // Base Colors
               primary: '#006f3a',
               'primary-focus': '#005a2f',
               secondary: '#f6b800',
               
-              // Light Theme
-              'light-bg': '#f4f6f8',
+              'light-bg': '#f9fafb',
               'light-bg-secondary': '#ffffff',
               'light-text-primary': '#111827',
               'light-text-secondary': '#6b7280',
               'light-border': '#e5e7eb',
 
-              // Dark Theme
               'dark-bg': '#111827',
               'dark-bg-secondary': '#1f2937',
               'dark-text-primary': '#f9fafb',
@@ -49,375 +46,8 @@
         }
       }
     </script>
-    <style id="main-styles">
-      :root { /* Dark Theme Defaults */
-        --color-bg: #111827;
-        --color-surface: #1f2937;
-        --color-surface-header: #111827;
-        --color-text-primary: #f9fafb;
-        --color-text-secondary: #9ca3af;
-        --color-border: #374151;
-        --color-row-hover: #374151;
-        --color-row-zebra: #1f2937;
-      }
-      html.light { /* Light Theme Overrides */
-        --color-bg: #f4f6f8;
-        --color-surface: #ffffff;
-        --color-surface-header: #f9fafb;
-        --color-text-primary: #111827;
-        --color-text-secondary: #6b7280;
-        --color-border: #e5e7eb;
-        --color-row-hover: #f3f4f6;
-        --color-row-zebra: #fafafa;
-      }
-      
-      html, body, .page-content, .main-container { 
-        box-sizing: border-box !important; 
-        max-width:100% !important; 
-        overflow-x: hidden !important; 
-      }
-      .table-wrapper { 
-        max-width:100% !important; 
-        overflow-x:auto !important; 
-      }
-      
-      /* --- Consolidated Stat Components --- */
-      .stats-row { 
-          display:flex !important; 
-          gap: 12px !important; 
-          align-items: stretch; 
-          flex-wrap: wrap !important; 
-          padding: 8px !important; 
-      }
-      .stat-card {
-        position: relative;
-        display: flex !important;
-        align-items: center !important;
-        gap: 10px !important;
-        padding: 6px 10px !important;
-        min-width: 100px !important;
-        flex: 1 1 0%;
-        border-radius: 8px !important;
-        background: var(--color-surface);
-        box-shadow: 0 1px 2px rgba(0,0,0,0.04) !important;
-        border: 1px solid var(--color-border);
-        transition: transform 0.2s ease, box-shadow 0.2s ease;
-        min-height: 44px !important; 
-        box-sizing: border-box !important;
-      }
-      .stat-card:hover {
-        transform: translateY(-2px);
-        box-shadow: 0 4px 8px rgba(0,0,0,0.06);
-      }
-      .stat-card.big { flex: 2 1 0% !important; }
-      .stat-card.small { flex: 1 1 0% !important; }
-
-      .stat-card .stat-icon {
-        flex: 0 0 32px !important;
-        width: 32px !important;
-        height: 32px !important;
-        display: flex;
-        align-items: center;
-        justify-content: center;
-        border-radius: 50%;
-        background: #f1f5f9;
-        font-size: 16px;
-      }
-      html.dark .stat-card .stat-icon {
-          background: var(--color-bg) !important;
-      }
-
-      .stat-card .stat-value {
-        flex: 1 1 auto !important;
-        text-align: left !important;
-        font-weight: 700 !important;
-        color: var(--color-text-primary);
-        font-size: clamp(12px, 2.6vw, 18px) !important;
-        line-height: 1.2 !important;
-        white-space: nowrap !important;
-        overflow: hidden !important;
-        text-overflow: ellipsis !important;
-        max-width: 100% !important;
-      }
-      .stat-card:hover::after {
-        content: attr(data-label);
-        position: absolute;
-        top: -34px;
-        left: 10px;
-        background: #1f2937;
-        color: #f9fafb;
-        padding: 6px 8px;
-        border-radius: 6px;
-        font-size: 12px;
-        font-weight: 500;
-        white-space: nowrap;
-        z-index: 20;
-      }
-      .stat-card .stat-label {
-        position: absolute !important;
-        width:1px; height:1px; overflow:hidden; clip:rect(1px,1px,1px,1px);
-        white-space:nowrap;
-      }
-
-      /* Specific Stat Card Variants */
-      .billing-kpi .stat-value {
-        font-size: 14px !important;
-        line-height: 1.3 !important;
-        min-width: 0;
-      }
-      .kpi-delta {
-        min-width: 220px !important;
-        flex: 0 0 auto !important;
-      }
-      .kpi-delta .stat-value {
-        font-size: clamp(12px, 1.6vw, 16px) !important;
-        display: flex;
-        align-items: baseline;
-      }
-      .kpi-delta .kpi-unit {
-        margin-left: 4px;
-        font-size: 0.85em;
-        color: var(--color-text-secondary);
-        flex-shrink: 0;
-      }
-      @media (max-width: 900px) {
-        .stats-row { gap: 8px !important; }
-        .stat-card .stat-icon { width: 28px !important; height: 28px !important; font-size: 13px;}
-      }
-      
-      /* --- Themed Table --- */
-      .themed-table {
-        border-collapse: collapse;
-        table-layout: fixed !important;
-        width: 100% !important;
-      }
-      .themed-table th, .themed-table td {
-        vertical-align: middle !important;
-        word-break: break-word !important;
-      }
-      .themed-table thead th {
-        background-color: var(--color-surface-header);
-        color: var(--color-text-secondary);
-        border-bottom: 2px solid var(--color-border);
-        padding: 0.75rem 1rem;
-        font-size: 0.75rem;
-        font-weight: 600;
-        text-transform: uppercase;
-        letter-spacing: 0.05em;
-      }
-      .themed-table tbody td {
-        background-color: var(--color-surface);
-        color: var(--color-text-primary);
-        padding: 1rem 1rem;
-        border-bottom: 1px solid var(--color-border);
-      }
-      .themed-table tbody tr:last-child td {
-        border-bottom: none;
-      }
-      .themed-table tbody tr:nth-child(even) td {
-        background-color: var(--color-row-zebra);
-      }
-      .themed-table tbody tr:hover td {
-        background-color: var(--color-row-hover);
-      }
-
-      /* Generic Table Column Layouts */
-      .themed-table .col-check { width: 5% !important; text-align: center !important; }
-      .themed-table .col-unit { width: 12% !important; }
-      .themed-table .col-owner { width: 30% !important; }
-      .themed-table .col-total { width: 18% !important; text-align: right !important; }
-      .themed-table .col-status { width: 15% !important; text-align: center !important; }
-      .themed-table .col-actions { width: 20% !important; text-align: center !important; }
-      .themed-table .col-total .amount-wrapper {
-        white-space: nowrap !important;
-        overflow: hidden !important;
-        text-overflow: ellipsis !important;
-        display: inline-block;
-        max-width: 100%;
-      }
-      .themed-table .col-actions div {
-        display: flex;
-        justify-content: center;
-        gap: 0.5rem;
-      }
-      @media (max-width: 1024px) {
-        .themed-table .col-owner { width: 25% !important; }
-        .themed-table .col-total { width: 20% !important; }
-        .themed-table .col-actions { width: 25% !important; }
-      }
-
-      /* Billing Table Specifics */
-      .billing-table th.col-check { width: 4% !important; text-align: center !important; }
-      .billing-table th.col-unit { width: 10% !important; text-align: left !important; }
-      .billing-table th.col-owner { width: 22% !important; text-align: left !important; }
-      .billing-table th.col-total-due { width: 13% !important; text-align: right !important; }
-      .billing-table th.col-total-paid { width: 13% !important; text-align: right !important; }
-      .billing-table th.col-diff { width: 12% !important; text-align: right !important; }
-      .billing-table th.col-status { width: 12% !important; text-align: center !important; }
-      .billing-table th.col-actions { width: 14% !important; text-align: center !important; }
-      .billing-table td .payment-input {
-        width: 100%;
-        text-align: right;
-        padding: 6px 8px;
-        font-size: 0.875rem;
-        border-radius: 4px;
-        border: 1px solid var(--color-border);
-        background-color: var(--color-surface);
-        color: var(--color-text-primary);
-      }
-      .billing-table td .payment-input:disabled {
-        background-color: transparent;
-        border-color: transparent;
-        font-weight: 500;
-      }
-      .billing-table thead th {
-        background-color: #F7F8FA;
-        border-bottom: 1px solid #E3E3E3;
-      }
-      html.dark .billing-table thead th {
-        background-color: #2a374a;
-        border-bottom-color: #4b5563;
-      }
-
-      /* Vehicle Table Specifics */
-      .vehicle-table { table-layout: fixed !important; width: 100% !important; }
-      .vehicle-table th.col-unit { width: 8% !important; text-align: left !important; }
-      .vehicle-table th.col-owner { width: 20% !important; text-align: left !important; }
-      .vehicle-table th.col-type { width: 10% !important; text-align: left !important; }
-      .vehicle-table th.col-name { width: 12% !important; text-align: left !important; }
-      .vehicle-table th.col-plate { width: 12% !important; text-align: left !important; }
-      .vehicle-table th.col-date { width: 10% !important; text-align: left !important; }
-      .vehicle-table th.col-status { width: 15% !important; text-align: left !important; }
-      .vehicle-table th.col-actions { width: 13% !important; text-align: center !important; }
-      
-      /* --- UI Components --- */
-      .bulk-action-bar {
-        background-color: var(--color-surface);
-        border: 1px solid var(--color-border);
-        border-radius: 0.75rem;
-        padding: 0.75rem 1rem;
-        margin-bottom: 1rem;
-        display: flex;
-        gap: 1rem;
-        align-items: center;
-        box-shadow: 0 4px 6px -1px rgb(0 0 0 / 0.1), 0 2px 4px -2px rgb(0 0 0 / 0.1);
-        animation: slide-down 0.3s ease-out;
-      }
-      @keyframes slide-down {
-        from { transform: translateY(-20px); opacity: 0; }
-        to { transform: translateY(0); opacity: 1; }
-      }
-      .bulk-action-bar .btn-clear {
-        background: transparent;
-        border: 1px solid var(--color-border);
-        padding: 4px 10px;
-        border-radius: 6px;
-        cursor: pointer;
-        font-size: 13px;
-        font-weight: 500;
-        color: var(--color-text-secondary);
-        transition: background-color 0.2s;
-      }
-      .bulk-action-bar .btn-clear:hover {
-        background-color: var(--color-row-hover);
-      }
-
-      .pagination-controls {
-        display: flex;
-        gap: 0.5rem;
-        justify-content: flex-end;
-        align-items: center;
-        padding: 1rem 0;
-        margin-top: auto;
-        flex-shrink: 0;
-        border-top: 1px solid var(--color-border);
-      }
-      .pagination-controls button, .pagination-controls select {
-        padding: 0.5rem 0.75rem;
-        border-radius: 0.375rem;
-        border: 1px solid var(--color-border);
-        background-color: var(--color-surface);
-        color: var(--color-text-primary);
-        font-size: 0.875rem;
-      }
-      .pagination-controls button:disabled {
-        opacity: 0.5;
-        cursor: not-allowed;
-      }
-
-      .skeleton-row {
-        height: 65px;
-        width: 100%;
-        background-color: var(--color-row-zebra);
-        border-radius: 6px;
-        position: relative;
-        overflow: hidden;
-      }
-      .skeleton-row::after {
-        content: '';
-        position: absolute;
-        top: 0;
-        left: -150%;
-        height: 100%;
-        width: 150%;
-        background: linear-gradient(90deg, transparent, rgba(255, 255, 255, 0.08), transparent);
-        animation: skeleton-shine 1.5s infinite;
-      }
-      html.light .skeleton-row::after {
-         background: linear-gradient(90deg, transparent, rgba(0, 0, 0, 0.04), transparent);
-      }
-      @keyframes skeleton-shine {
-        0% { left: -150%; }
-        100% { left: 150%; }
-      }
-
-      .icon-btn {
-        position: relative;
-      }
-      .icon-btn[title]:hover::after {
-        content: attr(title);
-        position: absolute;
-        bottom: 125%;
-        left: 50%;
-        transform: translateX(-50%);
-        background: #1f2937;
-        color: #f9fafb;
-        padding: 4px 8px;
-        border-radius: 4px;
-        font-size: 12px;
-        font-weight: 500;
-        white-space: nowrap;
-        z-index: 10;
-        pointer-events: none;
-      }
-      
-      .themed-table td.col-actions .action-icons { 
-        display:flex; 
-        gap:8px; 
-        justify-content:center; 
-        align-items:center; 
-      }
-      .action-icons .icon-btn { 
-        background:transparent; 
-        border:none; 
-        cursor:pointer; 
-        width:32px; 
-        height:32px; 
-        display:inline-flex; 
-        align-items:center; 
-        justify-content:center; 
-        padding:0; 
-        border-radius: 50%;
-        transition: background-color 0.2s;
-      }
-      .action-icons .icon-btn:hover { 
-        background-color: var(--color-row-hover); 
-      }
-      .action-icons .icon-btn svg { 
-        width:18px; 
-        height:18px; 
-      }
-      
+    <style>
+      /* Base Tooltip Style */
       [data-tooltip] {
         position: relative;
       }
@@ -427,141 +57,41 @@
         bottom: 110%;
         left: 50%;
         transform: translateX(-50%);
-        background: #F8F8F8;
-        color: #1f2937;
+        background-color: #1f2937;
+        color: #f9fafb;
         padding: 6px 10px;
         border-radius: 6px;
         font-size: 12px;
         font-weight: 500;
         white-space: nowrap;
-        z-index: 20;
-        box-shadow: 0 2px 8px rgba(0,0,0,0.15);
-        border: 1px solid #e5e7eb;
+        z-index: 50;
+        box-shadow: 0 4px 6px rgba(0,0,0,0.1);
         pointer-events: none;
+        opacity: 0;
+        transition: opacity 0.15s ease;
+      }
+      [data-tooltip]:hover::after {
+        opacity: 1;
       }
       html.dark [data-tooltip]:hover::after {
-        background: #374151;
-        color: #f9fafb;
-        border-color: #4b5563;
+        background: #e5e7eb;
+        color: #111827;
       }
 
-      .export-modal-progress-bar {
-        width: 100%;
-        height: 8px;
-        background-color: #e5e7eb;
-        border-radius: 6px;
-        overflow: hidden;
-      }
-      html.dark .export-modal-progress-bar {
-        background-color: #374151;
-      }
-      .export-modal-progress-bar div {
-        height: 100%;
-        background-color: #2563eb;
-        border-radius: 6px;
-        transition: width 0.25s ease;
-      }
-
-      .btn-export {
-        background: #2563EB !important;
-        color: #fff !important;
-        border-color: #2563EB !important;
-      }
-      .btn-export:hover {
-        background: #1E40AF !important;
-        border-color: #1E40AF !important;
-      }
-      .btn-export:disabled {
-        background: #93C5FD !important;
-        border-color: #93C5FD !important;
-        color: #fff !important;
-      }
-      
-      .footer-default {
-        height: 40px; display:flex; align-items:center;
-        padding: 0 1.5rem; /* Add some padding for left/right align */
-        color: var(--color-text-secondary); background: var(--color-surface); 
-        border-top: 1px solid var(--color-border);
-        flex-shrink: 0;
-      }
-      .footer-toast {
-        position: sticky; bottom:0; left:0; right:0; z-index:40;
-        display:flex; gap:10px; align-items:center; justify-content:center;
-        min-height: 48px; padding:10px 16px; font-weight:500;
-        border-top: 1px solid var(--color-border);
-        flex-shrink: 0;
-      }
-      .footer-toast.hidden{ display:none }
-      .footer-toast.info{   background:#eef2ff; color:#1e3a8a; border-top-color: #c7d2fe; }
-      .footer-toast.success{background:#ecfdf5; color:#065f46; border-top-color: #a7f3d0; }
-      .footer-toast.warn{   background:#fffbeb; color:#92400e; border-top-color: #fde68a; }
-      .footer-toast.error{  background:#fef2f2; color:#991b1b; border-top-color: #fecaca; }
-      html.dark .footer-toast.info { background: #312e81; color: #e0e7ff; border-top-color: #4338ca; }
-      html.dark .footer-toast.success { background: #052e16; color: #d1fae5; border-top-color: #166534; }
-      html.dark .footer-toast.warn { background: #451a03; color: #fef3c7; border-top-color: #b45309; }
-      html.dark .footer-toast.error { background: #450a0a; color: #fee2e2; border-top-color: #b91c1c; }
-      #ftClose{ margin-left:12px; background:transparent; border:none; cursor:pointer; font-size:14px; color: inherit; opacity: 0.7; }
-      #ftClose:hover { opacity: 1; }
-
-      .pricing-page-container .themed-table thead th {
-        font-size: 0.875rem;
-      }
-      .pricing-page-container .themed-table tbody td {
-        font-size: 0.9375rem;
-        padding-top: 0.75rem;
-        padding-bottom: 0.75rem;
-      }
-      .pricing-page-container .themed-table tbody td button {
-        font-size: 0.9375rem;
-      }
-      
-      .user-menu-button {
-          display: flex;
-          align-items: center;
-          gap: 0.5rem;
-          padding: 0.25rem 0.75rem;
-          border-radius: 9999px;
-          transition: background-color 0.2s;
-          border: 1px solid transparent;
-      }
-      .user-menu-button:hover {
-          background-color: var(--color-row-hover);
-          border-color: var(--color-border);
-      }
-      .user-menu-dropdown {
-          position: absolute;
-          top: 100%;
-          right: 0;
-          margin-top: 0.5rem;
-          width: 16rem;
-          background-color: var(--color-surface);
-          border-radius: 0.5rem;
-          border: 1px solid var(--color-border);
-          box-shadow: 0 4px 6px -1px rgb(0 0 0 / 0.1), 0 2px 4px -2px rgb(0 0 0 / 0.1);
-          z-index: 40;
-          overflow: hidden;
-          animation: fade-in 0.1s ease-out;
-      }
-      @keyframes fade-in {
+      /* Simple animation for modals */
+       @keyframes fade-in-down {
           from { opacity: 0; transform: translateY(-10px); }
           to { opacity: 1; transform: translateY(0); }
       }
-      .user-menu-item {
-          display: flex;
-          align-items: center;
-          width: 100%;
-          padding: 0.75rem 1rem;
-          font-size: 0.875rem;
-          text-align: left;
+      .animate-fade-in-down {
+        animation: fade-in-down 0.2s ease-out;
       }
-      .user-menu-item:hover {
-          background-color: var(--color-row-hover);
+       @keyframes slide-up {
+          from { transform: translateY(100%); }
+          to { transform: translateY(0); }
       }
-      .user-menu-item.active {
-          background-color: #eef2ff;
-      }
-      html.dark .user-menu-item.active {
-          background-color: #312e81;
+      .animate-slide-up {
+          animation: slide-up 0.3s ease-out;
       }
     </style>
   <script type="importmap">
@@ -580,9 +110,8 @@
 }
 </script>
 </head>
-  <body class="font-sans antialiased">
+  <body class="font-sans antialiased bg-gray-50 dark:bg-slate-900">
     <div id="root"></div>
     <script type="module" src="/index.tsx"></script>
-    
   </body>
 </html>
