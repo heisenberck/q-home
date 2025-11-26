@@ -152,6 +152,7 @@ const App: React.FC = () => {
 
     const [currentUser, setCurrentUser] = useState<UserPermission | null>(null);
     const [usersLoaded, setUsersLoaded] = useState(false);
+    const [dataLoaded, setDataLoaded] = useState(false); // BUG FIX: Flag to prevent re-fetching
     const IS_PROD = isProduction();
 
     const showToast = useCallback((message: string, type: ToastType = 'info', duration?: number) => {
@@ -181,9 +182,11 @@ const App: React.FC = () => {
     }, []);
 
     useEffect(() => {
-        if (!currentUser) return;
+        // BUG FIX: Add guard to prevent re-fetching if data is already loaded
+        if (!currentUser || dataLoaded) return;
 
         const fetchData = async () => {
+            console.log('[System] Fetching all data...'); // BUG FIX: Add logging
             setLoadingState('loading');
             try {
                 const data = await loadAllData();
@@ -205,6 +208,7 @@ const App: React.FC = () => {
                     showToast("Sử dụng dữ liệu mẫu.", 'warn');
                 }
                 setLoadingState('loaded');
+                setDataLoaded(true); // BUG FIX: Set flag after successful fetch
             } catch (error: any) {
                 console.error("Failed to load data:", error);
                 setErrorMessage("Không thể tải dữ liệu. Vui lòng kiểm tra kết nối và thử lại.");
@@ -212,7 +216,7 @@ const App: React.FC = () => {
             }
         };
         fetchData();
-    }, [currentUser, showToast, IS_PROD]);
+    }, [currentUser, dataLoaded, showToast, IS_PROD]);
 
     useEffect(() => {
         if (currentUser && users.length > 0) {
@@ -236,6 +240,7 @@ const App: React.FC = () => {
 
     const handleLogout = useCallback(() => {
         setCurrentUser(null);
+        setDataLoaded(false); // BUG FIX: Reset flag on logout
         showToast('Đã đăng xuất.', 'info');
     }, [showToast]);
 

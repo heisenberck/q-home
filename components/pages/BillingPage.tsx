@@ -6,6 +6,10 @@
 
 
 
+
+
+
+
 import React, { useState, useCallback, useMemo, useRef } from 'react';
 import type { ChargeRaw, Adjustment, AllData, Role, PaymentStatus, InvoiceSettings, ActivityLog } from '../../types';
 import { UnitType } from '../../types';
@@ -1103,7 +1107,7 @@ const BillingPage: React.FC<BillingPageProps> = ({ charges, setCharges, allData,
                 let headerIndex = -1, colCredit = -1, colDesc = -1;
                 for (let i = 0; i < Math.min(20, json.length); i++) {
                     if (Array.isArray(json[i])) {
-                        // @google/genai-fix: Explicitly cast row data to any[] and handle potential null/undefined cells to resolve typing ambiguity from the XLSX library.
+                        // FIX: Explicitly cast row data to any[] and handle potential null/undefined cells to resolve typing ambiguity from the XLSX library.
                         const row = (json[i] as any[]).map(cell => String(cell ?? '').toLowerCase());
                         const cIdx = row.findIndex(cell => cell.includes('so tien ghi co') || cell.includes('credit amount'));
                         const dIdx = row.findIndex(cell => cell.includes('noi dung') || cell.includes('transaction detail') || cell.includes('description'));
@@ -1118,7 +1122,7 @@ const BillingPage: React.FC<BillingPageProps> = ({ charges, setCharges, allData,
 
                 for (let i = headerIndex + 1; i < json.length; i++) {
                     if (!Array.isArray(json[i])) continue;
-                    const row = json[i] as any[];
+                    const row = json[i] as unknown[];
                     if (!row[colCredit]) continue;
                     const amount = parseFloat(String(row[colCredit]).replace(/,/g, ''));
                     if (isNaN(amount) || amount <= 0) continue;

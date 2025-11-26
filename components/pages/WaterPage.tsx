@@ -6,6 +6,10 @@
 
 
 
+
+
+
+
 import React, { useState, useMemo, useEffect, useRef } from 'react';
 import type { WaterReading, Unit, Role } from '../../types';
 import { UnitType } from '../../types';
@@ -363,9 +367,9 @@ const WaterPage: React.FC<WaterPageProps> = ({ waterReadings, setWaterReadings, 
 
                 for (let i = 1; i < lines.length; i++) {
                     const values = lines[i].split(',');
-                    // @google/genai-fix: Added optional chaining to `.replace()` to prevent a runtime error if `trim()` is called on an undefined value from the CSV.
-                    const unitId = values[unitIdIndex]?.trim()?.replace(/"/g, '');
-                    const currIndexStr = values[currIndexIndex]?.trim()?.replace(/"/g, '');
+                    // FIX: Explicitly convert to string to handle various types from CSV parsing and avoid type errors.
+                    const unitId = String(values[unitIdIndex] ?? '').trim().replace(/"/g, '');
+                    const currIndexStr = String(values[currIndexIndex] ?? '').trim().replace(/"/g, '');
                     
                     if (!unitId || currIndexStr == null || currIndexStr === '') {
                         skippedCount++;
