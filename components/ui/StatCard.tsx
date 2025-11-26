@@ -1,3 +1,4 @@
+
 import React from 'react';
 
 interface StatCardProps {
@@ -35,7 +36,7 @@ const TrendBadge: React.FC<{ trend: number }> = ({ trend }) => {
 
 const StatCard: React.FC<StatCardProps> = ({ label, value, icon, iconBgClass = 'bg-gray-100 dark:bg-gray-800', className, trend }) => {
     return (
-        <div className={`bg-white dark:bg-dark-bg-secondary p-5 rounded-xl shadow-sm flex items-center gap-5 ${className}`}>
+        <div className={`bg-white dark:bg-dark-bg-secondary p-5 rounded-xl shadow-sm flex items-center gap-5 h-full ${className}`}>
             <div className={`flex-shrink-0 w-14 h-14 flex items-center justify-center rounded-full ${iconBgClass}`}>
                 {icon}
             </div>

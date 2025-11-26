@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useCallback, createContext, lazy, Suspense } from 'react';
-import type { Role, UserPermission, Unit, Owner, Vehicle, WaterReading, ChargeRaw, TariffService, TariffParking, TariffWater, Adjustment, InvoiceSettings, ActivityLog, VehicleTier } from './types';
+import type { Role, UserPermission, Unit, Owner, Vehicle, WaterReading, ChargeRaw, TariffService, TariffParking, TariffWater, Adjustment, InvoiceSettings, ActivityLog, VehicleTier, TariffCollection } from './types';
 import { patchKiosAreas } from './constants';
 import { UnitType } from './types';
 
@@ -139,7 +139,7 @@ const App: React.FC = () => {
     const [vehicles, setVehicles] = useState<Vehicle[]>([]);
     const [waterReadings, setWaterReadings] = useState<WaterReading[]>([]);
     const [charges, setCharges] = useState<ChargeRaw[]>([]);
-    const [tariffs, setTariffs] = useState<any>({ service: [], parking: [], water: [] });
+    const [tariffs, setTariffs] = useState<TariffCollection>({ service: [], parking: [], water: [] });
     const [users, setUsers] = useState<UserPermission[]>([]);
     const [adjustments, setAdjustments] = useState<Adjustment[]>([]);
     const [invoiceSettings, setInvoiceSettings] = useState<InvoiceSettings>(initialInvoiceSettings);
@@ -258,9 +258,9 @@ const App: React.FC = () => {
         showToast('Chức năng hoàn tác chưa được hỗ trợ.', 'warn');
     }, [showToast]);
 
-    const createDataHandler = <T, S extends (...args: any[]) => Promise<any>>(
+    const createDataHandler = <T,>(
         stateSetter: React.Dispatch<React.SetStateAction<T>>,
-        saveFunction: S,
+        saveFunction: (data: T) => Promise<any>,
         stateKey: keyof typeof allDataRef.current
     ) => useCallback(async (updater: React.SetStateAction<T>, logPayload?: LogPayload) => {
         const currentState = allDataRef.current[stateKey] as T;
@@ -277,7 +277,7 @@ const App: React.FC = () => {
         }
     }, [logAction, showToast, stateSetter, saveFunction, stateKey]);
 
-    const handleSetCharges = createDataHandler(setCharges, saveChargesBatch as any, 'charges');
+    const handleSetCharges = createDataHandler(setCharges, saveChargesBatch, 'charges');
     const handleSetAdjustments = createDataHandler(setAdjustments, saveAdjustments, 'adjustments');
     const handleSetTariffs = createDataHandler(setTariffs, saveTariffs, 'tariffs');
     const handleSetWaterReadings = createDataHandler(setWaterReadings, saveWaterReadings, 'waterReadings');
@@ -395,12 +395,12 @@ const App: React.FC = () => {
     const renderPage = () => {
         switch (activePage) {
             case 'overview': return <OverviewPage allUnits={units} allOwners={owners} allVehicles={vehicles} allWaterReadings={waterReadings} charges={charges} />;
-            case 'billing': return <BillingPage charges={charges} setCharges={handleSetCharges as any} allData={{ units, owners, vehicles, waterReadings, tariffs, adjustments }} onUpdateAdjustments={handleSetAdjustments as any} role={role!} invoiceSettings={invoiceSettings} />;
+            case 'billing': return <BillingPage charges={charges} setCharges={handleSetCharges} allData={{ units, owners, vehicles, waterReadings, tariffs, adjustments }} onUpdateAdjustments={handleSetAdjustments} role={role!} invoiceSettings={invoiceSettings} />;
             case 'residents': return <ResidentsPage units={units} owners={owners} vehicles={vehicles} onSaveResident={handleSaveResident} onImportData={handleImportData} onDeleteResidents={handleResetResidents} role={role!} currentUser={currentUser!} />;
-            case 'vehicles': return <VehiclesPage vehicles={vehicles} units={units} owners={owners} onSetVehicles={handleSetVehicles as any} role={role!} />;
-            case 'water': return <WaterPage waterReadings={waterReadings} setWaterReadings={handleSetWaterReadings as any} allUnits={units} role={role!} />;
-            case 'pricing': return <PricingPage tariffs={tariffs} setTariffs={handleSetTariffs as any} role={role!} />;
-            case 'users': return <UsersPage users={users} setUsers={handleSetUsers as any} role={role!} />;
+            case 'vehicles': return <VehiclesPage vehicles={vehicles} units={units} owners={owners} onSetVehicles={handleSetVehicles} role={role!} />;
+            case 'water': return <WaterPage waterReadings={waterReadings} setWaterReadings={handleSetWaterReadings} allUnits={units} role={role!} />;
+            case 'pricing': return <PricingPage tariffs={tariffs} setTariffs={handleSetTariffs} role={role!} />;
+            case 'users': return <UsersPage users={users} setUsers={handleSetUsers} role={role!} />;
             case 'settings': return <SettingsPage invoiceSettings={invoiceSettings} setInvoiceSettings={handleSetInvoiceSettings} role={role!} />;
             case 'backup': return <BackupRestorePage allData={{ units, owners, vehicles, waterReadings, charges, tariffs, users, adjustments, invoiceSettings }} onRestore={handleRestoreAllData} role={role!} />;
             case 'activityLog': return <ActivityLogPage logs={activityLogs} onUndo={handleUndoAction} role={role!} />;

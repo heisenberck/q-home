@@ -1,3 +1,11 @@
+
+
+
+
+
+
+
+
 import React, { useState, useCallback, useMemo, useRef } from 'react';
 import type { ChargeRaw, Adjustment, AllData, Role, PaymentStatus, InvoiceSettings, ActivityLog } from '../../types';
 import { UnitType } from '../../types';
@@ -16,7 +24,7 @@ import {
     ChevronRightIcon, CheckCircleIcon, WarningIcon, PrinterIcon, PaperAirplaneIcon,
     CircularArrowRefreshIcon, ActionViewIcon,
     CalculatorIcon2, LockClosedIcon, LockOpenIcon, ChevronDownIcon,
-    DocumentArrowDownIcon, TableCellsIcon, ArrowUpTrayIcon, RevenueIcon
+    DocumentArrowDownIcon, TableCellsIcon, ArrowUpTrayIcon, RevenueIcon, PercentageIcon
 } from '../ui/Icons';
 import { loadScript } from '../../utils/scriptLoader';
 // FIX: Added formatNumber to helpers and imported it here.
@@ -524,7 +532,6 @@ const BillingPage: React.FC<BillingPageProps> = ({ charges, setCharges, allData,
     const [previewCharge, setPreviewCharge] = useState<ChargeRaw | null>(null);
     const [searchTerm, setSearchTerm] = useState('');
     const [statusFilter, setStatusFilter] = useState('all');
-    const [typeFilter, setTypeFilter] = useState<'all' | UnitType>('all');
     const [selectedUnits, setSelectedUnits] = useState<Set<string>>(new Set());
     
     const [isRefreshing, setIsRefreshing] = useState(false);
@@ -539,6 +546,7 @@ const BillingPage: React.FC<BillingPageProps> = ({ charges, setCharges, allData,
 
     const [isMonthPickerOpen, setIsMonthPickerOpen] = useState(false);
     const [activeKpiFilter, setActiveKpiFilter] = useState<string>('all');
+    const [specialFilter, setSpecialFilter] = useState<string | null>(null);
     
     const [exportProgress, setExportProgress] = useState({ isOpen: false, done: 0, total: 0 });
     const cancelExportToken = useRef({ cancelled: false });
@@ -594,26 +602,30 @@ const BillingPage: React.FC<BillingPageProps> = ({ charges, setCharges, allData,
     React.useEffect(() => {
         setSelectedUnits(new Set()); 
         setActiveKpiFilter('all');
+        setSpecialFilter(null);
     }, [period]);
     
     const filteredCharges = useMemo(() => {
         return charges.filter(c => {
             if (c.Period !== period) return false;
-            const unitInfo = parseUnitCode(c.UnitID);
-            const unitType = allData.units.find(u => u.UnitID === c.UnitID)?.UnitType;
-            if (statusFilter !== 'all' && c.paymentStatus !== statusFilter) return false;
-            if (typeFilter !== 'all' && unitType !== typeFilter) return false;
             
+            if (statusFilter !== 'all' && c.paymentStatus !== statusFilter) return false;
+            
+            const unitInfo = parseUnitCode(c.UnitID);
             if (floorFilter !== 'all') {
                 const floor = unitInfo?.floor === 99 ? 'KIOS' : String(unitInfo?.floor);
                 if (floor !== floorFilter) return false;
             }
 
+            if (specialFilter === 'has_difference' && (c.TotalDue - c.TotalPaid === 0)) return false;
+            if (specialFilter === 'not_paid' && c.paymentStatus === 'paid') return false;
+
             const s = searchTerm.toLowerCase();
             if (s && !(c.UnitID.toLowerCase().includes(s) || (c.OwnerName || '').toLowerCase().includes(s))) return false;
+            
             return true;
         });
-    }, [charges, period, searchTerm, statusFilter, typeFilter, floorFilter, allData.units]);
+    }, [charges, period, searchTerm, statusFilter, floorFilter, specialFilter, allData.units]);
     
     const sortedAndFilteredCharges = useMemo(() => {
         return [...filteredCharges].sort((a, b) => {
@@ -624,7 +636,7 @@ const BillingPage: React.FC<BillingPageProps> = ({ charges, setCharges, allData,
         });
     }, [filteredCharges]);
 
-    React.useEffect(() => { setSelectedUnits(new Set()); }, [searchTerm, statusFilter, typeFilter, floorFilter, period]);
+    React.useEffect(() => { setSelectedUnits(new Set()); }, [searchTerm, statusFilter, floorFilter, period, specialFilter]);
 
     const formatPeriodForDisplay = (isoPeriod: string): string => {
         const date = new Date(isoPeriod + '-02');
@@ -659,12 +671,25 @@ const BillingPage: React.FC<BillingPageProps> = ({ charges, setCharges, allData,
         finally { setIsRefreshing(false); }
     }, [isRefreshing, allData, showToast, createSnapshot]);
 
-    const executeCalculation = useCallback(async () => {
+    const executeCalculation = useCallback(async (isRecalculation = false) => {
         setIsLoading(true);
         setProgress({ current: 0, total: allData.units.length });
-        
+
         try {
-            const calculationInputs = allData.units.map(unit => {
+            const existingChargesForPeriod = charges.filter(c => c.Period === period);
+            const unitsToSkip = isRecalculation
+                ? new Set(existingChargesForPeriod.filter(c => c.paymentStatus === 'paid' || c.paymentStatus === 'reconciling').map(c => c.UnitID))
+                : new Set<string>();
+            
+            const unitsToCalculate = allData.units.filter(unit => !unitsToSkip.has(unit.UnitID));
+
+            if (unitsToCalculate.length === 0) {
+                showToast('Không có căn hộ nào cần tính lại.', 'info');
+                setIsLoading(false);
+                return;
+            }
+
+            const calculationInputs = unitsToCalculate.map(unit => {
                 const owner = allData.owners.find(o => o.OwnerID === unit.OwnerID)!;
                 const waterReading = allData.waterReadings.find(r => r.UnitID === unit.UnitID && r.Period === getPreviousPeriod(period)) || { UnitID: unit.UnitID, Period: getPreviousPeriod(period), PrevIndex: 0, CurrIndex: 0, Rollover: false };
                 return { unit, owner, vehicles: allData.vehicles.filter(v => v.UnitID === unit.UnitID), waterReading, adjustments: allData.adjustments.filter(a => a.UnitID === unit.UnitID && a.Period === period) };
@@ -675,7 +700,14 @@ const BillingPage: React.FC<BillingPageProps> = ({ charges, setCharges, allData,
             
             await saveChargesBatchAPI(newChargesWithMeta);
 
-            const updater = (prev: ChargeRaw[]) => [...prev.filter(c => c.Period !== period), ...newChargesWithMeta];
+            const updater = (prev: ChargeRaw[]) => {
+                const chargesFromOtherPeriods = prev.filter(c => c.Period !== period);
+                const chargesToKeep = isRecalculation
+                    ? existingChargesForPeriod.filter(c => unitsToSkip.has(c.UnitID))
+                    : [];
+                return [...chargesFromOtherPeriods, ...chargesToKeep, ...newChargesWithMeta];
+            };
+
             setCharges(updater, {
                 module: 'Billing',
                 action: 'CALCULATE_CHARGES',
@@ -684,6 +716,15 @@ const BillingPage: React.FC<BillingPageProps> = ({ charges, setCharges, allData,
             });
 
             showToast(`Tính phí hoàn tất cho ${newChargesWithMeta.length} căn hộ.`, 'success');
+            
+            // Auto-lock the period after calculation
+            setLockedPeriods(prev => {
+                const next = new Set(prev);
+                next.add(period);
+                return next;
+            });
+            showToast('Kỳ đã được tự động khoá. Nhấn đúp để mở khoá và tính lại.', 'info');
+
         } catch (error) {
             console.error("Calculation failed", error);
             showToast('Quá trình tính phí xảy ra lỗi.', 'error');
@@ -691,14 +732,14 @@ const BillingPage: React.FC<BillingPageProps> = ({ charges, setCharges, allData,
             setIsLoading(false);
             setProgress({ current: 0, total: 0 });
         }
-    }, [period, allData, setCharges, showToast]);
+    }, [period, allData, setCharges, showToast, charges, setLockedPeriods]);
 
     const runRecalculation = useCallback(async () => {
         if (lockedPeriods.has(period)) {
             showToast('Đang khoá tính phí. Nhấn đúp nút Locked để mở khoá.', 'warn');
             return;
         }
-        await executeCalculation();
+        await executeCalculation(true);
     }, [period, showToast, lockedPeriods, executeCalculation]);
 
     const runInitialCalculation = useCallback(async () => {
@@ -706,7 +747,7 @@ const BillingPage: React.FC<BillingPageProps> = ({ charges, setCharges, allData,
             showToast('Đang khoá tính phí. Nhấn đúp nút Locked để mở khoá.', 'warn');
             return;
         }
-        await executeCalculation();
+        await executeCalculation(false);
     }, [period, showToast, lockedPeriods, executeCalculation]);
     
     const handlePrimaryAction = useCallback(() => {
@@ -746,7 +787,7 @@ const BillingPage: React.FC<BillingPageProps> = ({ charges, setCharges, allData,
                 }
             }, 250);
         }
-    }, [primaryActionState, period, role, showToast, runInitialCalculation, runRecalculation, isDataStale]);
+    }, [primaryActionState, period, role, showToast, runInitialCalculation, runRecalculation, isDataStale, setLockedPeriods]);
 
     const handleBulkSetStatus = useCallback(async (targetStatus: 'paid' | 'unpaid') => {
         if (selectedUnits.size === 0) return;
@@ -1062,7 +1103,8 @@ const BillingPage: React.FC<BillingPageProps> = ({ charges, setCharges, allData,
                 let headerIndex = -1, colCredit = -1, colDesc = -1;
                 for (let i = 0; i < Math.min(20, json.length); i++) {
                     if (Array.isArray(json[i])) {
-                        const row = json[i].map(cell => String(cell).toLowerCase());
+                        // @google/genai-fix: Explicitly cast row data to any[] and handle potential null/undefined cells to resolve typing ambiguity from the XLSX library.
+                        const row = (json[i] as any[]).map(cell => String(cell ?? '').toLowerCase());
                         const cIdx = row.findIndex(cell => cell.includes('so tien ghi co') || cell.includes('credit amount'));
                         const dIdx = row.findIndex(cell => cell.includes('noi dung') || cell.includes('transaction detail') || cell.includes('description'));
                         if (cIdx !== -1 && dIdx !== -1) { headerIndex = i; colCredit = cIdx; colDesc = dIdx; break; }
@@ -1123,11 +1165,10 @@ const BillingPage: React.FC<BillingPageProps> = ({ charges, setCharges, allData,
                         return charge;
                     });
                     
-                    // FIX: Changed from Array.from to spread syntax to fix TypeScript type inference issue with iterators.
                     setCharges(updater, {
                         module: 'Billing', action: 'IMPORT_BANK_STATEMENT',
                         summary: `Đối soát ${updatesToApply.size} giao dịch, tổng: ${formatCurrency(totalReconciledAmount)}`,
-                        count: updatesToApply.size, ids: [...updatesToApply.keys()]
+                        count: updatesToApply.size, ids: Array.from(updatesToApply.keys())
                     });
                     showToast(`Đã đối soát thành công ${updatesToApply.size} giao dịch. Trạng thái đã chuyển thành "Chờ đối soát".`, 'success');
                 } else {
@@ -1147,15 +1188,21 @@ const BillingPage: React.FC<BillingPageProps> = ({ charges, setCharges, allData,
 
     const kpiStats = useMemo(() => {
         const rows = charges.filter(c => c.Period === period);
+        if (rows.length === 0) {
+            return { totalDue: 0, totalPaid: 0, difference: 0, paidCount: 0, totalCount: 0, progress: 0 };
+        }
         const totalDue = rows.reduce((s, r) => s + r.TotalDue, 0);
-        const totalPaid = rows.filter(r => r.paymentStatus === 'paid').reduce((s, r) => s + r.TotalPaid, 0);
+        const paidRows = rows.filter(r => r.paymentStatus === 'paid');
+        const totalPaid = paidRows.reduce((s, r) => s + r.TotalPaid, 0);
         const difference = totalDue - totalPaid;
-        const unpaidCount = rows.filter(r => r.paymentStatus !== 'paid').length;
+        const paidCount = paidRows.length;
+        const totalCount = rows.length;
+        const progress = totalCount > 0 ? (paidCount / totalCount) * 100 : 0;
         
-        return { totalDue, totalPaid, difference, unpaidCount };
+        return { totalDue, totalPaid, difference, paidCount, totalCount, progress };
     }, [charges, period]);
 
-    const clearAllFilters = () => { setStatusFilter('all'); setTypeFilter('all'); setFloorFilter('all'); setSearchTerm(''); setActiveKpiFilter('all'); };
+    const clearAllFilters = () => { setStatusFilter('all'); setFloorFilter('all'); setSearchTerm(''); setActiveKpiFilter('all'); setSpecialFilter(null); };
     const handleSelectUnit = (id: string, isSel: boolean) => setSelectedUnits(p => { const n = new Set(p); isSel ? n.add(id) : n.delete(id); return n; });
     const handleSelectAll = (e: React.ChangeEvent<HTMLInputElement>) => setSelectedUnits(e.target.checked ? new Set(sortedAndFilteredCharges.map(c => c.UnitID)) : new Set());
 
@@ -1205,50 +1252,113 @@ const BillingPage: React.FC<BillingPageProps> = ({ charges, setCharges, allData,
             </div>
         );
     };
-
-    const isPeriodLocked = lockedPeriods.has(period);
+    
+    const totalDueString = formatCurrency(kpiStats.totalDue);
+    const totalPaidString = formatCurrency(kpiStats.totalPaid);
+    const differenceString = formatCurrency(kpiStats.difference);
+    const FONT_SIZE_THRESHOLD = 18;
 
     return (
-        <div className="space-y-6 h-full flex flex-col">
+        <div className="space-y-4 h-full flex flex-col">
             <input type="file" ref={fileInputRef} onChange={handleStatementFileChange} accept=".xlsx, .xls, .csv" className="hidden" />
 
             <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6">
                 <div data-tooltip="Tổng phí của tất cả căn hộ trong kỳ" className={`cursor-pointer transition-all rounded-xl ${activeKpiFilter === 'all' ? 'ring-2 ring-primary' : ''}`} onClick={clearAllFilters}>
-                    <StatCard label="Tổng phải thu" value={formatCurrency(kpiStats.totalDue)} icon={<RevenueIcon className="w-7 h-7 text-blue-600 dark:text-blue-400" />} iconBgClass="bg-blue-100 dark:bg-blue-900/50" />
+                    <StatCard 
+                        label="Tổng phải thu" 
+                        value={<span className={`font-bold text-blue-600 ${totalDueString.length > FONT_SIZE_THRESHOLD ? 'text-xl' : 'text-2xl'}`}>{totalDueString}</span>} 
+                        icon={<RevenueIcon className="w-7 h-7 text-blue-600 dark:text-blue-400" />} 
+                        iconBgClass="bg-blue-100 dark:bg-blue-900/50" 
+                    />
                 </div>
                 <div data-tooltip="Tổng số tiền đã nộp thực tế (đã xác nhận)" className={`cursor-pointer transition-all rounded-xl ${activeKpiFilter === 'paid' ? 'ring-2 ring-primary' : ''}`} onClick={() => { clearAllFilters(); setStatusFilter('paid'); setActiveKpiFilter('paid'); }}>
-                    <StatCard label="Tổng đã nộp" value={formatCurrency(kpiStats.totalPaid)} icon={<CheckCircleIcon className="w-7 h-7 text-green-600 dark:text-green-400" />} iconBgClass="bg-green-100 dark:bg-green-900/50" />
+                    <StatCard 
+                        label="Đã thanh toán" 
+                        value={<span className={`font-bold text-emerald-600 ${totalPaidString.length > FONT_SIZE_THRESHOLD ? 'text-xl' : 'text-2xl'}`}>{totalPaidString}</span>} 
+                        icon={<CheckCircleIcon className="w-7 h-7 text-emerald-600 dark:text-emerald-400" />} 
+                        iconBgClass="bg-emerald-100 dark:bg-emerald-900/50" 
+                    />
                 </div>
-                <div data-tooltip="Chênh lệch = Tổng phí - Tổng đã nộp" className="cursor-default">
-                     <StatCard label="Chênh lệch" value={formatCurrency(kpiStats.difference)} icon={<CalculatorIcon2 className="w-7 h-7 text-orange-600 dark:text-orange-400" />} iconBgClass="bg-orange-100 dark:bg-orange-900/50" />
+                <div data-tooltip="Lọc các hộ có chênh lệch giữa Phải thu và Đã nộp" className={`cursor-pointer transition-all rounded-xl ${activeKpiFilter === 'difference' ? 'ring-2 ring-primary' : ''}`} onClick={() => { clearAllFilters(); setSpecialFilter('has_difference'); setActiveKpiFilter('difference'); }}>
+                     <StatCard 
+                        label="Còn nợ / Chênh lệch" 
+                        value={<span className={`font-bold text-red-600 ${differenceString.length > FONT_SIZE_THRESHOLD ? 'text-xl' : 'text-2xl'}`}>{differenceString}</span>} 
+                        icon={<WarningIcon className="w-7 h-7 text-red-600 dark:text-red-400" />} 
+                        iconBgClass="bg-red-100 dark:bg-red-900/50" 
+                    />
                 </div>
-                <div data-tooltip="Số căn hộ chưa hoàn thành thanh toán" className={`cursor-pointer transition-all rounded-xl ${activeKpiFilter === 'unpaid' ? 'ring-2 ring-primary' : ''}`} onClick={() => { clearAllFilters(); setStatusFilter('unpaid'); setActiveKpiFilter('unpaid'); }}>
-                     <StatCard label="Căn hộ chưa nộp" value={kpiStats.unpaidCount} icon={<WarningIcon className="w-7 h-7 text-red-600 dark:text-red-400" />} iconBgClass="bg-red-100 dark:bg-red-900/50" />
+                <div className={`bg-white dark:bg-dark-bg-secondary p-5 rounded-xl shadow-sm flex items-center gap-5 cursor-pointer transition-all h-full ${activeKpiFilter === 'progress' ? 'ring-2 ring-primary' : ''}`} onClick={() => { clearAllFilters(); setSpecialFilter('not_paid'); setActiveKpiFilter('progress'); }}>
+                    <div className="flex-shrink-0 w-14 h-14 flex items-center justify-center rounded-full bg-purple-100 dark:bg-purple-900/50">
+                        <PercentageIcon className="w-7 h-7 text-purple-600 dark:text-purple-400" />
+                    </div>
+                    <div className="flex-1">
+                        <p className="text-sm font-medium text-gray-500 dark:text-gray-400">Tiến độ thu</p>
+                        <div className="mt-1">
+                            <div className="flex items-baseline gap-2">
+                                <p className="text-2xl font-bold text-gray-900 dark:text-gray-200">{kpiStats.progress.toFixed(0)}%</p>
+                                <p className="text-sm font-medium text-gray-500">({kpiStats.paidCount}/{kpiStats.totalCount})</p>
+                            </div>
+                            <div className="w-full bg-gray-200 rounded-full h-1.5 dark:bg-gray-700 mt-2">
+                                <div className="bg-purple-600 h-1.5 rounded-full transition-all duration-500" style={{ width: `${kpiStats.progress}%` }}></div>
+                            </div>
+                        </div>
+                    </div>
                 </div>
             </div>
             
             <div className="bg-white dark:bg-dark-bg-secondary p-4 rounded-xl shadow-sm">
-                <div className="flex flex-wrap items-center gap-4">
-                    <div className="relative flex items-center gap-1 p-1 bg-gray-100 dark:bg-gray-800 rounded-lg">
-                        <button onClick={() => navigatePeriod('prev')} data-tooltip="Kỳ trước"><ChevronLeftIcon /></button>
-                        <button onClick={() => setIsMonthPickerOpen(p => !p)} className="p-1.5 w-40 font-semibold hover:bg-gray-200 dark:hover:bg-slate-700 rounded-md" data-tooltip="Chọn kỳ tính phí">
-                            {formatPeriodForDisplay(period)}
-                        </button>
-                         {isMonthPickerOpen && <MonthPicker currentPeriod={period} onSelectPeriod={(p) => { setPeriod(p); setIsMonthPickerOpen(false); }} onClose={() => setIsMonthPickerOpen(false)}/>}
-                        <button onClick={() => navigatePeriod('next')} data-tooltip="Kỳ sau"><ChevronRightIcon /></button>
+                <div className="flex items-center gap-2 md:gap-4">
+                    {/* LEFT */}
+                    <div className="flex items-center gap-2 flex-shrink-0">
+                        <div className="relative flex items-center gap-1 p-1 bg-gray-100 dark:bg-gray-800 rounded-lg">
+                            <button onClick={() => navigatePeriod('prev')} data-tooltip="Kỳ trước"><ChevronLeftIcon /></button>
+                            <button onClick={() => setIsMonthPickerOpen(p => !p)} className="p-1.5 w-32 font-semibold hover:bg-gray-200 dark:hover:bg-slate-700 rounded-md" data-tooltip="Chọn kỳ tính phí">
+                                {formatPeriodForDisplay(period)}
+                            </button>
+                            {isMonthPickerOpen && <MonthPicker currentPeriod={period} onSelectPeriod={(p) => { setPeriod(p); setIsMonthPickerOpen(false); }} onClose={() => setIsMonthPickerOpen(false)}/>}
+                            <button onClick={() => navigatePeriod('next')} data-tooltip="Kỳ sau"><ChevronRightIcon /></button>
+                        </div>
+                        <button onClick={() => navigatePeriod('current')} data-tooltip="Về kỳ hiện tại" className="h-10 px-3 text-sm font-semibold rounded-lg border border-gray-300 dark:border-gray-600 bg-white dark:bg-dark-bg-secondary hover:bg-gray-50 dark:hover:bg-gray-700">Current</button>
                     </div>
 
-                    <div className="relative flex-grow min-w-[200px]"><SearchIcon className="absolute left-3 top-1/2 -translate-y-1/2 h-5 w-5 text-gray-400" /><input type="text" placeholder="Tìm theo mã hoặc tên..." value={searchTerm} onChange={e => setSearchTerm(e.target.value)} className="w-full h-10 pl-10 pr-3 border rounded-lg bg-white dark:bg-dark-bg-secondary border-gray-300 dark:border-gray-600 text-gray-900 dark:text-white"/></div>
-                    <FilterPill icon={<TagIcon className="h-5 w-5 text-gray-400" />} currentValue={typeFilter} onValueChange={v => setTypeFilter(v as any)} tooltip="Lọc theo loại hình" options={[{value: 'all', label: 'All Types'}, {value: UnitType.APARTMENT, label: 'Apartment'}, {value: UnitType.KIOS, label: 'KIOS'}]} />
-                    <FilterPill icon={<BuildingIcon className="h-5 w-5 text-gray-400" />} currentValue={floorFilter} onValueChange={setFloorFilter} tooltip="Lọc theo tầng" options={floors} />
-
-                    <div className="ml-auto flex items-center gap-2 flex-shrink-0">
-                        <button onClick={handleRefreshData} data-tooltip={isDataStale ? "Dữ liệu nguồn (xe, nước) đã thay đổi. Bấm để cập nhật." : "Làm mới dữ liệu nguồn"} disabled={isRefreshing || isLoading} className={`h-10 px-3 font-semibold rounded-lg hover:bg-opacity-80 disabled:opacity-50 flex items-center gap-2 border ${ isDataStale ? 'bg-green-100 dark:bg-green-900/30 border-green-600 text-green-700 dark:text-green-300 animate-pulse' : 'border-gray-300 dark:border-gray-600 bg-white dark:bg-dark-bg-secondary text-gray-700 dark:text-gray-300 hover:bg-gray-50' }`}> <CircularArrowRefreshIcon /> Refresh </button>
-                        {renderMainActionButton()}
-                        <div className="flex items-center border-l pl-2 ml-2 gap-2 border-gray-300 dark:border-gray-600">
-                             <button onClick={handleImportStatementClick} data-tooltip="Nhập sao kê để tự động đối soát" disabled={isPeriodLocked || !canCalculate} className="h-10 px-3 font-semibold rounded-lg hover:bg-opacity-80 disabled:opacity-50 flex items-center gap-2 border border-purple-600 text-purple-600 hover:bg-purple-100 dark:hover:bg-purple-900/30 bg-white dark:bg-transparent"> <ArrowUpTrayIcon className="w-5 h-5" /> Import </button>
-                            <button onClick={handleExportReport} data-tooltip="Xuất báo cáo tổng hợp" disabled={primaryActionState === 'calculate'} className="h-10 px-3 text-sm font-semibold rounded-lg shadow-sm flex items-center gap-2 bg-blue-600 text-white hover:bg-blue-700 disabled:bg-blue-300"> <TableCellsIcon className="w-5 h-5" /> Export </button>
+                    {/* CENTER */}
+                    <div className="flex items-center gap-2 flex-grow">
+                        <div className="relative flex-grow min-w-[150px] md:min-w-[200px]">
+                            <SearchIcon className="absolute left-3 top-1/2 -translate-y-1/2 h-5 w-5 text-gray-400" />
+                            <input type="text" placeholder="Tìm theo mã hoặc tên..." value={searchTerm} onChange={e => setSearchTerm(e.target.value)} className="w-full h-10 pl-10 pr-3 border rounded-lg bg-white dark:bg-dark-bg-secondary border-gray-300 dark:border-gray-600 text-gray-900 dark:text-white"/>
                         </div>
+                        <div className="hidden md:block">
+                             <FilterPill
+                                icon={<TagIcon className="h-5 w-5 text-gray-400" />}
+                                currentValue={statusFilter}
+                                onValueChange={setStatusFilter}
+                                tooltip="Lọc theo trạng thái"
+                                options={[
+                                    { value: 'all', label: 'Tất cả trạng thái' },
+                                    { value: 'paid', label: 'Đã nộp' },
+                                    { value: 'reconciling', label: 'Chờ đối soát' },
+                                    { value: 'unpaid', label: 'Chưa nộp' },
+                                    { value: 'pending', label: 'Chờ xử lý' },
+                                ]}
+                            />
+                        </div>
+                        <div className="hidden md:block"><FilterPill icon={<BuildingIcon className="h-5 w-5 text-gray-400" />} currentValue={floorFilter} onValueChange={setFloorFilter} tooltip="Lọc theo tầng" options={floors} /></div>
+                    </div>
+
+                    {/* RIGHT */}
+                    <div className="flex items-center gap-2 flex-shrink-0">
+                        <button onClick={handleRefreshData} data-tooltip={isDataStale ? "Dữ liệu nguồn (xe, nước) đã thay đổi. Bấm để cập nhật." : "Làm mới dữ liệu nguồn"} disabled={isRefreshing || isLoading} className={`h-10 w-10 flex items-center justify-center font-semibold rounded-lg hover:bg-opacity-80 disabled:opacity-50 border ${ isDataStale ? 'bg-green-100 dark:bg-green-900/30 border-green-600 text-green-700 dark:text-green-300 animate-pulse' : 'border-gray-300 dark:border-gray-600 bg-white dark:bg-dark-bg-secondary text-gray-700 dark:text-gray-300 hover:bg-gray-50 dark:hover:bg-gray-700' }`}> 
+                            <CircularArrowRefreshIcon /> 
+                        </button>
+                        
+                        {renderMainActionButton()}
+                        
+                        <button onClick={handleImportStatementClick} data-tooltip="Nhập sao kê để tự động đối soát" disabled={!canCalculate} className="h-10 px-4 font-semibold rounded-lg disabled:opacity-50 flex items-center gap-2 border border-primary text-primary hover:bg-primary/10 bg-white dark:bg-transparent">
+                            <ArrowUpTrayIcon className="w-5 h-5" /> <span className="hidden lg:inline">Import</span>
+                        </button>
+                        <button onClick={handleExportReport} data-tooltip="Xuất báo cáo tổng hợp" disabled={primaryActionState === 'calculate'} className="h-10 px-4 text-sm font-semibold rounded-lg flex items-center gap-2 border border-gray-500 text-gray-700 dark:text-gray-300 hover:bg-gray-500/10 disabled:opacity-50">
+                            <TableCellsIcon className="w-5 h-5" /> <span className="hidden lg:inline">Export</span>
+                        </button>
                     </div>
                 </div>
             </div>
@@ -1293,13 +1403,13 @@ const BillingPage: React.FC<BillingPageProps> = ({ charges, setCharges, allData,
                                         <td className="font-medium px-4 py-4 text-gray-900 dark:text-gray-200">{charge.UnitID}</td>
                                         <td className="px-4 py-4 text-gray-900 dark:text-gray-200">{charge.OwnerName}</td>
                                         <td className="font-bold px-4 py-4 text-right text-gray-900 dark:text-gray-200"><span className="amount-wrapper">{formatNumber(charge.TotalDue)}</span></td>
-                                        <td className="py-2 px-2">
+                                        <td className="px-4 py-4 text-right">
                                             <input 
                                                 type="text"
                                                 value={new Intl.NumberFormat('vi-VN').format(finalPaidAmount)}
                                                 onChange={(e) => handlePaymentChange(charge.UnitID, e.target.value)}
-                                                disabled={isPeriodLocked || charge.PaymentConfirmed || role === 'Operator'}
-                                                className="w-36 text-right p-2 text-sm border rounded-md bg-white text-gray-900 border-gray-300 focus:ring-2 focus:ring-primary disabled:bg-transparent disabled:border-transparent disabled:font-semibold disabled:text-current dark:disabled:text-gray-200"
+                                                disabled={charge.PaymentConfirmed || role === 'Operator'}
+                                                className="w-36 text-right p-2 text-sm border rounded-md bg-white text-gray-900 border-gray-300 focus:ring-2 focus:ring-primary disabled:bg-transparent disabled:border-transparent disabled:font-semibold disabled:text-emerald-600 dark:disabled:text-emerald-400"
                                             />
                                         </td>
                                          <td className={`font-semibold px-4 py-4 text-right whitespace-nowrap ${difference > 0 ? 'text-green-600' : (difference < 0 ? 'text-red-600' : 'text-gray-900 dark:text-gray-200')}`}>
@@ -1309,7 +1419,7 @@ const BillingPage: React.FC<BillingPageProps> = ({ charges, setCharges, allData,
                                         <td className="px-4 py-4"><div className="flex justify-center items-center gap-2">
                                             <button 
                                                 onClick={() => handleConfirmPayment(charge)}
-                                                disabled={isPeriodLocked || charge.paymentStatus === 'paid' || role === 'Operator'}
+                                                disabled={charge.paymentStatus === 'paid' || role === 'Operator'}
                                                 className="p-2 rounded-full hover:bg-gray-200 dark:hover:bg-gray-600 disabled:opacity-30"
                                                 data-tooltip="Xác nhận thanh toán"
                                             >

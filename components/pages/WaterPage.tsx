@@ -1,3 +1,11 @@
+
+
+
+
+
+
+
+
 import React, { useState, useMemo, useEffect, useRef } from 'react';
 import type { WaterReading, Unit, Role } from '../../types';
 import { UnitType } from '../../types';
@@ -108,6 +116,14 @@ const WaterPage: React.FC<WaterPageProps> = ({ waterReadings, setWaterReadings, 
         setSelectedUnitId(null); // Reset selection on period change
     }, [period, allUnits, waterReadings, setWaterReadings]);
 
+    const firstRecordedPeriod = useMemo(() => {
+        if (waterReadings.length === 0) return null;
+        return waterReadings.reduce((earliest, current) => 
+            (current.Period && current.Period < earliest) ? current.Period : earliest, 
+            waterReadings[0].Period
+        );
+    }, [waterReadings]);
+
     const readingsMapByPeriod = useMemo(() => {
         const map = new Map<string, Map<string, WaterReading>>();
         waterReadings.forEach(r => {
@@ -123,7 +139,10 @@ const WaterPage: React.FC<WaterPageProps> = ({ waterReadings, setWaterReadings, 
         return allUnits
             .map(unit => {
                 const reading = readingsForPeriod.get(unit.UnitID);
-                const consumption = reading ? Math.max(0, reading.CurrIndex - reading.PrevIndex) : 0;
+                const isFirstPeriod = period === firstRecordedPeriod;
+                const consumption = isFirstPeriod 
+                    ? 0 
+                    : (reading ? Math.max(0, reading.CurrIndex - reading.PrevIndex) : 0);
                 const hasBeenRecorded = reading ? reading.CurrIndex > reading.PrevIndex : false;
                 const isKios = unit.UnitType === UnitType.KIOS;
                 const isBusinessApt = unit.UnitType === UnitType.APARTMENT && unit.Status === 'Business';
@@ -139,7 +158,7 @@ const WaterPage: React.FC<WaterPageProps> = ({ waterReadings, setWaterReadings, 
                 };
             })
             .sort((a, b) => sortUnitsComparator(a.unit, b.unit));
-    }, [allUnits, period, readingsMapByPeriod]);
+    }, [allUnits, period, readingsMapByPeriod, firstRecordedPeriod]);
     
     const filteredUnits = useMemo(() => {
         return unitsWithData.filter(item => {
@@ -177,7 +196,8 @@ const WaterPage: React.FC<WaterPageProps> = ({ waterReadings, setWaterReadings, 
             const reading = prevReadingsForPeriod.get(unit.UnitID);
             if (!reading) continue;
             
-            const consumption = Math.max(0, reading.CurrIndex - reading.PrevIndex);
+            const isFirstPeriod = prevPeriod === firstRecordedPeriod;
+            const consumption = isFirstPeriod ? 0 : Math.max(0, reading.CurrIndex - reading.PrevIndex);
             
             prevTotalM3 += consumption;
             const isKios = unit.UnitType === UnitType.KIOS;
@@ -206,7 +226,7 @@ const WaterPage: React.FC<WaterPageProps> = ({ waterReadings, setWaterReadings, 
             resTrend: calculateTrend(resM3, prevResM3),
             businessTrend: calculateTrend(totalM3Business, prevBusinessM3),
         };
-    }, [unitsWithData, period, readingsMapByPeriod, allUnits]);
+    }, [unitsWithData, period, readingsMapByPeriod, allUnits, firstRecordedPeriod]);
 
     const historyData = useMemo(() => {
         if (!selectedUnitId) return null;
@@ -215,7 +235,8 @@ const WaterPage: React.FC<WaterPageProps> = ({ waterReadings, setWaterReadings, 
         let currentPeriodForChart = period;
         for (let i = 0; i < 6; i++) {
             const reading = readingsMapByPeriod.get(currentPeriodForChart)?.get(selectedUnitId);
-            const consumption = reading ? Math.max(0, reading.CurrIndex - reading.PrevIndex) : 0;
+            const isFirstPeriod = currentPeriodForChart === firstRecordedPeriod;
+            const consumption = isFirstPeriod ? 0 : (reading ? Math.max(0, reading.CurrIndex - reading.PrevIndex) : 0);
             
             const monthName = new Date(currentPeriodForChart + '-02').toLocaleString('en-US', { month: 'short' });
             data.unshift({ name: monthName, consumption });
@@ -234,7 +255,7 @@ const WaterPage: React.FC<WaterPageProps> = ({ waterReadings, setWaterReadings, 
                 avg: validConsumptions.length > 0 ? (validConsumptions.reduce((a, b) => a + b, 0) / validConsumptions.length).toFixed(1) : '0.0',
             }
         };
-    }, [selectedUnitId, period, readingsMapByPeriod]);
+    }, [selectedUnitId, period, readingsMapByPeriod, firstRecordedPeriod]);
 
 
     const handleReadingChange = (unitId: string, value: string) => {
@@ -342,8 +363,9 @@ const WaterPage: React.FC<WaterPageProps> = ({ waterReadings, setWaterReadings, 
 
                 for (let i = 1; i < lines.length; i++) {
                     const values = lines[i].split(',');
-                    const unitId = values[unitIdIndex]?.trim().replace(/"/g, '');
-                    const currIndexStr = values[currIndexIndex]?.trim().replace(/"/g, '');
+                    // @google/genai-fix: Added optional chaining to `.replace()` to prevent a runtime error if `trim()` is called on an undefined value from the CSV.
+                    const unitId = values[unitIdIndex]?.trim()?.replace(/"/g, '');
+                    const currIndexStr = values[currIndexIndex]?.trim()?.replace(/"/g, '');
                     
                     if (!unitId || currIndexStr == null || currIndexStr === '') {
                         skippedCount++;
@@ -367,8 +389,7 @@ const WaterPage: React.FC<WaterPageProps> = ({ waterReadings, setWaterReadings, 
 
                     if (currIndex < existingReading.PrevIndex) {
                         skippedCount++;
-                        // FIX: Explicitly cast variables to string inside template literal to avoid type inference issues.
-                        errors.push(`Dòng ${i + 1}: Chỉ số mới (${currIndex}) của căn hộ ${String(unitId)} nhỏ hơn chỉ số cũ (${String(existingReading.PrevIndex)}).`);
+                        errors.push(`Dòng ${i + 1}: Chỉ số mới (${currIndex}) của căn hộ ${unitId} nhỏ hơn chỉ số cũ (${existingReading.PrevIndex}).`);
                         continue;
                     }
                     
@@ -399,6 +420,8 @@ const WaterPage: React.FC<WaterPageProps> = ({ waterReadings, setWaterReadings, 
         const floorNumbers = Array.from(new Set(allUnits.filter(u => u.UnitType === UnitType.APARTMENT).map(u => String(parseUnitCode(u.UnitID)?.floor ?? '')))).filter(Boolean).sort((a, b) => parseInt(a, 10) - parseInt(b, 10));
         return [{ value: 'all', label: 'Tất cả các tầng' }, ...floorNumbers.map(f => ({ value: f, label: `Tầng ${f}` })), { value: '99', label: 'KIOS' }];
     }, [allUnits]);
+
+    const headerPeriod = new Date(period + '-02').toLocaleString('vi-VN', { month: 'numeric', year: 'numeric' });
 
     return (
         <div className="h-full flex flex-col space-y-6">
@@ -476,8 +499,7 @@ const WaterPage: React.FC<WaterPageProps> = ({ waterReadings, setWaterReadings, 
                             <thead className="bg-gray-50 dark:bg-slate-800 sticky top-0 z-10">
                                 <tr>
                                     <th className="px-4 py-3 text-left text-xs font-bold text-gray-700 dark:text-gray-300 uppercase tracking-wider">Căn hộ</th>
-                                    <th className="px-4 py-3 text-right text-xs font-bold text-gray-700 dark:text-gray-300 uppercase tracking-wider">Chỉ số cũ</th>
-                                    <th className="px-4 py-3 text-right text-xs font-bold text-gray-700 dark:text-gray-300 uppercase tracking-wider">Chỉ số mới</th>
+                                    <th className="px-4 py-3 text-right text-xs font-bold text-gray-700 dark:text-gray-300 uppercase tracking-wider">{`Chỉ số T${headerPeriod}`}</th>
                                     <th className="px-4 py-3 text-right text-xs font-bold text-gray-700 dark:text-gray-300 uppercase tracking-wider">Tiêu thụ (m³)</th>
                                 </tr>
                             </thead>
@@ -489,7 +511,6 @@ const WaterPage: React.FC<WaterPageProps> = ({ waterReadings, setWaterReadings, 
                                         onClick={() => setSelectedUnitId(item.unit.UnitID)}
                                     >
                                         <td className="font-medium px-4 py-1 text-gray-900 dark:text-gray-200">{item.unit.UnitID}</td>
-                                        <td className="px-4 py-1 text-right">{item.prevIndex.toLocaleString('vi-VN')}</td>
                                         <td className="px-4 py-1 text-right">
                                             <input 
                                                 ref={el => { if (el) inputRefs.current[item.unit.UnitID] = el }}
@@ -503,7 +524,7 @@ const WaterPage: React.FC<WaterPageProps> = ({ waterReadings, setWaterReadings, 
                                             />
                                         </td>
                                         <td className={`font-bold px-4 py-1 text-right text-lg ${item.consumption > 0 ? 'text-blue-600 dark:text-blue-400' : ''}`}>
-                                            {item.consumption > 0 ? item.consumption.toLocaleString('vi-VN') : '-'}
+                                            {item.isRecorded || (period === firstRecordedPeriod) ? item.consumption.toLocaleString('vi-VN') : '-'}
                                         </td>
                                     </tr>
                                 ))}

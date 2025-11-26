@@ -4,7 +4,7 @@ import { VehicleTier } from '../../types';
 import Modal from '../ui/Modal';
 import StatCard from '../ui/StatCard';
 import { useNotification } from '../../App';
-import { CarIcon, SearchIcon, PencilSquareIcon, DocumentArrowDownIcon, WarningIcon, ListBulletIcon, ActionViewIcon, UploadIcon, TrashIcon, DocumentTextIcon, EyeIcon } from '../ui/Icons';
+import { CarIcon, SearchIcon, PencilSquareIcon, DocumentArrowDownIcon, WarningIcon, ListBulletIcon, ActionViewIcon, UploadIcon, TrashIcon, DocumentTextIcon, EyeIcon, MotorbikeIcon, BikeIcon, BoltIcon } from '../ui/Icons';
 import { formatLicensePlate, translateVehicleType, vehicleTypeLabels, compressImageToWebP } from '../../utils/helpers';
 
 const PARKING_CAPACITY = {
@@ -327,7 +327,7 @@ interface VehiclesPageProps {
     role: Role;
 }
 
-const VehicleManagementPage: React.FC<VehiclesPageProps> = ({ vehicles, units, owners, onSetVehicles, role }) => {
+const VehiclesPage: React.FC<VehiclesPageProps> = ({ vehicles, units, owners, onSetVehicles, role }) => {
     const { showToast } = useNotification();
     const canEdit = ['Admin', 'Accountant', 'Operator'].includes(role);
     const [searchTerm, setSearchTerm] = useState('');
@@ -358,10 +358,12 @@ const VehicleManagementPage: React.FC<VehiclesPageProps> = ({ vehicles, units, o
     [vehicles, unitsMap, ownersMap]);
 
     const filteredVehicles = useMemo(() => enhancedVehicles.filter(v => {
-        if (typeFilter === 'all_cars') {
-            if (v.Type !== VehicleTier.CAR && v.Type !== VehicleTier.CAR_A) return false;
-        } else if (typeFilter !== 'all' && v.Type !== typeFilter) {
-            return false;
+        if (typeFilter !== 'all') {
+            if (typeFilter === 'all_cars') {
+                if (v.Type !== VehicleTier.CAR && v.Type !== VehicleTier.CAR_A) return false;
+            } else if (v.Type !== typeFilter) {
+                return false;
+            }
         }
 
         if (parkingStatusFilter !== 'all' && v.parkingStatus !== (parkingStatusFilter === 'none' ? null : parkingStatusFilter)) return false;
@@ -375,14 +377,20 @@ const VehicleManagementPage: React.FC<VehiclesPageProps> = ({ vehicles, units, o
         return true;
     }), [enhancedVehicles, searchTerm, typeFilter, parkingStatusFilter]);
     
-    const parkingStats = useMemo(() => {
-        const cars = enhancedVehicles.filter(v => v.Type === VehicleTier.CAR || v.Type === VehicleTier.CAR_A);
+    const kpiStats = useMemo(() => {
+        const activeVehicles = enhancedVehicles;
         return {
-            totalCars: cars.length,
-            mainSlotsUsed: cars.filter(c => c.parkingStatus === 'Lốt chính').length,
-            tempSlotsUsed: cars.filter(c => c.parkingStatus === 'Lốt tạm').length,
-            waitingList: cars.filter(c => c.parkingStatus === 'Xếp lốt').sort((a, b) => new Date(a.StartDate).getTime() - new Date(b.StartDate).getTime()),
+            totalCars: activeVehicles.filter(v => v.Type === VehicleTier.CAR || v.Type === VehicleTier.CAR_A).length,
+            totalMotorbikes: activeVehicles.filter(v => v.Type === VehicleTier.MOTORBIKE).length,
+            totalEBikes: activeVehicles.filter(v => v.Type === VehicleTier.EBIKE).length,
+            totalBicycles: activeVehicles.filter(v => v.Type === VehicleTier.BICYCLE).length,
         }
+    }, [enhancedVehicles]);
+    
+    const waitingList = useMemo(() => {
+        return enhancedVehicles
+            .filter(v => (v.Type === VehicleTier.CAR || v.Type === VehicleTier.CAR_A) && v.parkingStatus === 'Xếp lốt')
+            .sort((a, b) => new Date(a.StartDate).getTime() - new Date(b.StartDate).getTime());
     }, [enhancedVehicles]);
 
     const handleSave = (updatedVehicle: Vehicle) => {
@@ -396,7 +404,7 @@ const VehicleManagementPage: React.FC<VehiclesPageProps> = ({ vehicles, units, o
         const isNowNotParked = updatedVehicle.parkingStatus !== 'Lốt chính' && updatedVehicle.parkingStatus !== 'Lốt tạm';
 
         if (wasParked && isNowNotParked) {
-            const nextInLine = parkingStats.waitingList[0];
+            const nextInLine = waitingList[0];
             if (nextInLine) {
                 showToast(`Lốt đỗ xe đã trống. Đề xuất duyệt xe ${nextInLine.PlateNumber} (đăng ký ${new Date(nextInLine.StartDate).toLocaleDateString('vi-VN')}) vào lốt.`, 'info', 8000);
             }
@@ -436,18 +444,39 @@ const VehicleManagementPage: React.FC<VehiclesPageProps> = ({ vehicles, units, o
         showToast(`Đã xuất thành công ${filteredVehicles.length} dòng.`, 'success');
     };
     
-    const parkingStatusDisplay = (v: Vehicle) => {
+    const renderParkingStatusBadge = (v: Vehicle) => {
         const isCar = v.Type === VehicleTier.CAR || v.Type === VehicleTier.CAR_A;
         if (!isCar) return <span className="text-gray-400 text-xs">N/A</span>;
         
-        if (!v.parkingStatus) return <span className="text-gray-400 text-xs">None</span>;
+        if (!v.parkingStatus) return <span className="text-gray-400 text-xs">Chưa có</span>;
+        
+        // @google/genai-fix: Changed type of `label` to `string | null` to allow assignment of custom formatted strings, resolving a TypeScript error where the inferred type was too narrow.
+        let label: string | null = v.parkingStatus;
+        if (v.parkingStatus === 'Xếp lốt') {
+            const index = waitingList.findIndex(car => car.VehicleId === v.VehicleId);
+            if (index !== -1) {
+                label = `Xếp lốt - ${index + 1}`;
+            }
+        }
         
         const styles = {
             'Lốt chính': 'bg-green-100 text-green-800 dark:bg-green-900/50 dark:text-green-300',
             'Lốt tạm': 'bg-yellow-100 text-yellow-800 dark:bg-yellow-900/50 dark:text-yellow-300',
             'Xếp lốt': 'bg-blue-100 text-blue-800 dark:bg-blue-900/50 dark:text-blue-300',
         };
-        return <span className={`px-2 py-1 text-xs font-semibold rounded-full ${styles[v.parkingStatus]}`}>{v.parkingStatus}</span>;
+        const statusKey = v.parkingStatus as keyof typeof styles;
+        return <span className={`px-2 py-1 text-xs font-semibold rounded-full ${styles[statusKey]}`}>{label}</span>;
+    };
+
+     const renderTypeBadge = (type: VehicleTier) => {
+        const styles: Record<VehicleTier, string> = {
+            [VehicleTier.CAR]: 'bg-blue-100 text-blue-800 dark:bg-blue-900/50 dark:text-blue-300',
+            [VehicleTier.CAR_A]: 'bg-sky-100 text-sky-800 dark:bg-sky-900/50 dark:text-sky-300',
+            [VehicleTier.MOTORBIKE]: 'bg-orange-100 text-orange-800 dark:bg-orange-900/50 dark:text-orange-300',
+            [VehicleTier.EBIKE]: 'bg-purple-100 text-purple-800 dark:bg-purple-900/50 dark:text-purple-300',
+            [VehicleTier.BICYCLE]: 'bg-gray-200 text-gray-800 dark:bg-gray-700 dark:text-gray-300',
+        };
+        return <span className={`px-2.5 py-1 text-xs font-semibold rounded-full ${styles[type]}`}>{translateVehicleType(type)}</span>;
     };
     
     return (
@@ -456,27 +485,28 @@ const VehicleManagementPage: React.FC<VehiclesPageProps> = ({ vehicles, units, o
             {viewingVehicle && <VehicleViewModal vehicle={viewingVehicle} onClose={() => setViewingVehicle(null)} />}
             
             <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6">
-                <StatCard label="Tổng số ô tô" value={parkingStats.totalCars} icon={<CarIcon className="w-7 h-7 text-blue-600" />} iconBgClass="bg-blue-100 dark:bg-blue-900/50" />
-                <StatCard label="Lốt chính" value={`${parkingStats.mainSlotsUsed} / ${PARKING_CAPACITY.main}`} icon={<ListBulletIcon className="w-7 h-7 text-green-600" />} iconBgClass="bg-green-100 dark:bg-green-900/50" />
-                <StatCard label="Lốt tạm" value={`${parkingStats.tempSlotsUsed} / ${PARKING_CAPACITY.temp}`} icon={<WarningIcon className="w-7 h-7 text-yellow-600" />} iconBgClass="bg-yellow-100 dark:bg-yellow-900/50" />
-                <StatCard label="Danh sách chờ" value={parkingStats.waitingList.length} icon={<ListBulletIcon className="w-7 h-7 text-indigo-600" />} iconBgClass="bg-indigo-100 dark:bg-indigo-900/50" />
+                <div className={`cursor-pointer rounded-xl transition-all ${typeFilter === 'all_cars' ? 'ring-2 ring-primary' : ''}`} onClick={() => setTypeFilter(p => p === 'all_cars' ? 'all' : 'all_cars')}>
+                    <StatCard label="SL Ô tô" value={kpiStats.totalCars} icon={<CarIcon className="w-7 h-7 text-blue-600" />} iconBgClass="bg-blue-100 dark:bg-blue-900/50" />
+                </div>
+                <div className={`cursor-pointer rounded-xl transition-all ${typeFilter === VehicleTier.MOTORBIKE ? 'ring-2 ring-primary' : ''}`} onClick={() => setTypeFilter(p => p === VehicleTier.MOTORBIKE ? 'all' : VehicleTier.MOTORBIKE)}>
+                    <StatCard label="SL Xe máy" value={kpiStats.totalMotorbikes} icon={<MotorbikeIcon className="w-7 h-7 text-orange-600" />} iconBgClass="bg-orange-100 dark:bg-orange-900/50" />
+                </div>
+                 <div className={`cursor-pointer rounded-xl transition-all ${typeFilter === VehicleTier.EBIKE ? 'ring-2 ring-primary' : ''}`} onClick={() => setTypeFilter(p => p === VehicleTier.EBIKE ? 'all' : VehicleTier.EBIKE)}>
+                    <StatCard label="SL Xe điện" value={kpiStats.totalEBikes} icon={<BoltIcon className="w-7 h-7 text-purple-600" />} iconBgClass="bg-purple-100 dark:bg-purple-900/50" />
+                </div>
+                <div className={`cursor-pointer rounded-xl transition-all ${typeFilter === VehicleTier.BICYCLE ? 'ring-2 ring-primary' : ''}`} onClick={() => setTypeFilter(p => p === VehicleTier.BICYCLE ? 'all' : VehicleTier.BICYCLE)}>
+                    <StatCard label="SL Xe đạp" value={kpiStats.totalBicycles} icon={<BikeIcon className="w-7 h-7 text-gray-600" />} iconBgClass="bg-gray-200 dark:bg-gray-700" />
+                </div>
             </div>
             
             <div className="bg-white dark:bg-dark-bg-secondary p-4 rounded-xl shadow-sm">
                 <div className="flex flex-wrap items-center gap-4">
                     <div className="relative flex-grow min-w-[200px]"><SearchIcon className="absolute left-3 top-1/2 -translate-y-1/2 h-5 w-5 text-gray-400" /><input type="text" placeholder="Tìm biển số, căn hộ, chủ hộ..." value={searchTerm} onChange={e => setSearchTerm(e.target.value)} className="w-full pl-10 p-2 border rounded-lg bg-white border-gray-300 text-gray-900 dark:bg-gray-800 dark:border-gray-600 dark:text-white"/></div>
-                    <select value={typeFilter} onChange={e => setTypeFilter(e.target.value)} className="p-2 border rounded-lg bg-white border-gray-300 text-gray-900 dark:bg-dark-bg-secondary dark:border-gray-600 dark:text-white">
-                        <option value="all">Tất cả loại xe</option>
-                        <option value="all_cars">Tất cả ô tô</option>
-                        <option value="car">{vehicleTypeLabels.car}</option>
-                        <option value="car_a">{vehicleTypeLabels.car_a}</option>
-                        <option value="motorbike">{vehicleTypeLabels.motorbike}</option>
-                        <option value="ebike">{vehicleTypeLabels.ebike}</option>
-                        <option value="bicycle">{vehicleTypeLabels.bicycle}</option>
-                    </select>
-                    <select value={parkingStatusFilter} onChange={e => setParkingStatusFilter(e.target.value)} className="p-2 border rounded-lg bg-white border-gray-300 text-gray-900 dark:bg-dark-bg-secondary dark:border-gray-600 dark:text-white"><option value="all">Tất cả trạng thái</option><option value="Lốt chính">Lốt chính</option><option value="Lốt tạm">Lốt tạm</option><option value="Xếp lốt">Xếp lốt</option><option value="none">Không có</option></select>
+                     <select value={parkingStatusFilter} onChange={e => setParkingStatusFilter(e.target.value)} className="p-2 border rounded-lg bg-white border-gray-300 text-gray-900 dark:bg-dark-bg-secondary dark:border-gray-600 dark:text-white"><option value="all">Tất cả trạng thái đỗ</option><option value="Lốt chính">Lốt chính</option><option value="Lốt tạm">Lốt tạm</option><option value="Xếp lốt">Xếp lốt</option><option value="none">Chưa có</option></select>
                     <div className="relative group inline-block ml-auto">
-                        <button onClick={handleExport} className="px-4 py-2 bg-primary text-white font-semibold rounded-md flex items-center gap-2"><DocumentArrowDownIcon /> Export</button>
+                        <button onClick={handleExport} className="h-10 px-4 text-sm font-semibold rounded-lg flex items-center gap-2 border border-gray-500 text-gray-700 dark:text-gray-300 hover:bg-gray-500/10">
+                            <DocumentArrowDownIcon /> <span className="hidden lg:inline">Export</span>
+                        </button>
                     </div>
                 </div>
             </div>
@@ -501,19 +531,19 @@ const VehicleManagementPage: React.FC<VehiclesPageProps> = ({ vehicles, units, o
                                 <tr key={v.VehicleId} className="hover:bg-gray-50 dark:hover:bg-slate-800/50">
                                     <td className="font-medium px-4 py-4 text-sm text-gray-900 dark:text-gray-200">{v.UnitID}</td>
                                     <td className="px-4 py-4 text-sm text-gray-900 dark:text-gray-200">{v.ownerName}</td>
-                                    <td className="px-4 py-4 text-sm text-gray-900 dark:text-gray-200">{translateVehicleType(v.Type)}</td>
+                                    <td className="px-4 py-4 text-sm">{renderTypeBadge(v.Type)}</td>
                                     <td className="px-4 py-4 text-sm text-gray-900 dark:text-gray-200">{v.VehicleName}</td>
                                     <td className="font-mono px-4 py-4 text-sm text-gray-900 dark:text-gray-200">{v.PlateNumber}</td>
                                     <td className="px-4 py-4 text-sm text-gray-900 dark:text-gray-200">{new Date(v.StartDate).toLocaleDateString('vi-VN')}</td>
-                                    <td className="px-4 py-4 text-sm">{parkingStatusDisplay(v)}</td>
+                                    <td className="px-4 py-4 text-sm">{renderParkingStatusBadge(v)}</td>
                                     <td className="text-center px-4 py-4">
                                         <div className="flex justify-center items-center gap-2">
                                             <button 
                                                 onClick={() => setViewingVehicle(v)} 
-                                                className="p-2 rounded-full hover:bg-gray-200 dark:hover:bg-gray-600"
+                                                className="p-2 rounded-full hover:bg-gray-200 dark:hover:bg-gray-600 text-gray-500 hover:text-gray-700"
                                                 data-tooltip="Xem chi tiết"
                                             >
-                                                <ActionViewIcon className="w-5 h-5 text-blue-500" />
+                                                <ActionViewIcon className="w-5 h-5" />
                                             </button>
                                             <button 
                                                 onClick={() => setEditingVehicle(v)} 
@@ -521,7 +551,7 @@ const VehicleManagementPage: React.FC<VehiclesPageProps> = ({ vehicles, units, o
                                                 className="p-2 rounded-full hover:bg-gray-200 dark:hover:bg-gray-600 disabled:opacity-30"
                                                 data-tooltip="Sửa thông tin"
                                             >
-                                                <PencilSquareIcon className="w-5 h-5" />
+                                                <PencilSquareIcon className="w-5 h-5 text-blue-500" />
                                             </button>
                                         </div>
                                     </td>
@@ -535,4 +565,4 @@ const VehicleManagementPage: React.FC<VehiclesPageProps> = ({ vehicles, units, o
     );
 };
 
-export default VehicleManagementPage;
+export default VehiclesPage;

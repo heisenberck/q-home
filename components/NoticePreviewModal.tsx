@@ -1,9 +1,10 @@
 
+
 import React from 'react';
 import type { ChargeRaw, AllData, InvoiceSettings } from '../types';
 import Modal from './ui/Modal';
 import { PaperAirplaneIcon } from './ui/Icons';
-import { generateFeeDetails, processFooterHtml } from '../utils/helpers';
+import { generateFeeDetails, processFooterHtml, formatNumber } from '../utils/helpers';
 
 interface NoticePreviewModalProps {
     charge: ChargeRaw;
@@ -14,8 +15,6 @@ interface NoticePreviewModalProps {
 }
 
 const NoticePreviewModal: React.FC<NoticePreviewModalProps> = ({ charge, onClose, invoiceSettings, allData, onSendEmail }) => {
-    const formatVND = (value: number | undefined | null) => new Intl.NumberFormat('vi-VN').format(Math.round(value || 0));
-
     const feeDetails = generateFeeDetails(charge, allData);
 
     const paymentContent = `HUD3 LD - Phong ${charge.UnitID} - nop phi dich vu thang ${charge.Period.split('-')[1]}/${charge.Period.split('-')[0]}`;
@@ -47,56 +46,56 @@ const NoticePreviewModal: React.FC<NoticePreviewModalProps> = ({ charge, onClose
             <p><strong>Diện tích:</strong> ${charge.Area_m2} m²</p>
             <p><strong>SĐT:</strong> ${charge.Phone}</p>
         </section>
-        <table class="w-full border-collapse text-sm themed-table">
+        <table class="w-full border-collapse text-sm">
             <thead class="bg-gray-100">
                 <tr>
-                    <th class="p-2 border text-left font-semibold">Nội dung</th>
-                    <th class="p-2 border text-center font-semibold">Số lượng</th>
-                    <th class="p-2 border text-right font-semibold">Thành tiền (VND)</th>
-                    <th class="p-2 border text-right font-semibold">Thuế GTGT (VND)</th>
-                    <th class="p-2 border text-right font-semibold">Tổng cộng (VND)</th>
+                    <th class="p-2 border text-left font-semibold text-gray-700">Nội dung</th>
+                    <th class="p-2 border text-center font-semibold text-gray-700">Số lượng</th>
+                    <th class="p-2 border text-right font-semibold text-gray-700">Thành tiền (VND)</th>
+                    <th class="p-2 border text-right font-semibold text-gray-700">Thuế GTGT (VND)</th>
+                    <th class="p-2 border text-right font-semibold text-gray-700">Tổng cộng (VND)</th>
                 </tr>
             </thead>
             <tbody>
                 <tr>
-                    <td class="p-2 border">Phí dịch vụ</td>
-                    <td class="p-2 border text-center">${charge.Area_m2} m²</td>
-                    <td class="p-2 border text-right">${formatVND(charge.ServiceFee_Base)}</td>
-                    <td class="p-2 border text-right">${formatVND(charge.ServiceFee_VAT)}</td>
-                    <td class="p-2 border text-right">${formatVND(charge.ServiceFee_Total)}</td>
+                    <td class="p-2 border text-gray-800">Phí dịch vụ</td>
+                    <td class="p-2 border text-center text-gray-800">${charge.Area_m2} m²</td>
+                    <td class="p-2 border text-right text-gray-800">${formatNumber(charge.ServiceFee_Base)}</td>
+                    <td class="p-2 border text-right text-gray-800">${formatNumber(charge.ServiceFee_VAT)}</td>
+                    <td class="p-2 border text-right text-gray-800">${formatNumber(charge.ServiceFee_Total)}</td>
                 </tr>
                 ${feeDetails.parking.map(item => `
                     <tr>
-                        <td class="p-2 border">${item.description}</td>
-                        <td class="p-2 border text-center">${item.quantity}</td>
-                        <td class="p-2 border text-right">${formatVND(item.base)}</td>
-                        <td class="p-2 border text-right">${formatVND(item.vat)}</td>
-                        <td class="p-2 border text-right">${formatVND(item.total)}</td>
+                        <td class="p-2 border text-gray-800">${item.description}</td>
+                        <td class="p-2 border text-center text-gray-800">${item.quantity}</td>
+                        <td class="p-2 border text-right text-gray-800">${formatNumber(item.base)}</td>
+                        <td class="p-2 border text-right text-gray-800">${formatNumber(item.vat)}</td>
+                        <td class="p-2 border text-right text-gray-800">${formatNumber(item.total)}</td>
                     </tr>
                 `).join('')}
                 ${feeDetails.water.map(item => `
                      <tr>
-                        <td class="p-2 border">${item.description}</td>
-                        <td class="p-2 border text-center">${item.quantity}</td>
-                        <td class="p-2 border text-right">${formatVND(item.base)}</td>
-                        <td class="p-2 border text-right">${formatVND(item.vat)}</td>
-                        <td class="p-2 border text-right">${formatVND(item.total)}</td>
+                        <td class="p-2 border text-gray-800">${item.description}</td>
+                        <td class="p-2 border text-center text-gray-800">${item.quantity}</td>
+                        <td class="p-2 border text-right text-gray-800">${formatNumber(item.base)}</td>
+                        <td class="p-2 border text-right text-gray-800">${formatNumber(item.vat)}</td>
+                        <td class="p-2 border text-right text-gray-800">${formatNumber(item.total)}</td>
                     </tr>
                 `).join('')}
                  ${feeDetails.adjustments.map(adj => `
                     <tr>
-                        <td class="p-2 border">${adj.Description}</td>
-                        <td class="p-2 border"></td>
-                        <td class="p-2 border"></td>
-                        <td class="p-2 border"></td>
-                        <td class="p-2 border text-right">${formatVND(adj.Amount)}</td>
+                        <td class="p-2 border text-gray-800">${adj.Description}</td>
+                        <td class="p-2 border text-gray-800"></td>
+                        <td class="p-2 border text-gray-800"></td>
+                        <td class="p-2 border text-gray-800"></td>
+                        <td class="p-2 border text-right text-gray-800">${formatNumber(adj.Amount)}</td>
                     </tr>
                 `).join('')}
             </tbody>
             <tfoot>
                 <tr class="bg-gray-100 font-bold text-base">
-                    <td colspan="4" class="p-2 border text-right">TỔNG CỘNG THANH TOÁN</td>
-                    <td class="p-2 border text-right text-red-600">${formatVND(charge.TotalDue)}</td>
+                    <td colspan="4" class="p-2 border text-right text-gray-800">TỔNG CỘNG THANH TOÁN</td>
+                    <td class="p-2 border text-right text-red-600">${formatNumber(charge.TotalDue)}</td>
                 </tr>
             </tfoot>
         </table>

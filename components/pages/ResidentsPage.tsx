@@ -7,10 +7,11 @@ import { useNotification } from '../../App';
 import { 
     EyeIcon, PencilSquareIcon, BuildingIcon, TagIcon, UploadIcon, UserGroupIcon, 
     UserIcon, KeyIcon, StoreIcon, CarIcon, TrashIcon,
-    DocumentArrowDownIcon, ActionViewIcon, TableCellsIcon, DocumentTextIcon
+    DocumentArrowDownIcon, ActionViewIcon, TableCellsIcon, DocumentTextIcon, SearchIcon, ChevronDownIcon,
+    MotorbikeIcon, BikeIcon
 } from '../ui/Icons';
 import { loadScript } from '../../utils/scriptLoader';
-import { normalizePhoneNumber, formatLicensePlate, vehicleTypeLabels, translateVehicleType, sortUnitsComparator, compressImageToWebP } from '../../utils/helpers';
+import { normalizePhoneNumber, formatLicensePlate, vehicleTypeLabels, translateVehicleType, sortUnitsComparator, compressImageToWebP, parseUnitCode } from '../../utils/helpers';
 
 
 // Declare external libraries
@@ -767,6 +768,63 @@ const DataImportModal: React.FC<{
     );
 };
 
+const FilterPill: React.FC<{
+  icon: React.ReactNode;
+  options: { value: string; label: string }[];
+  currentValue: string;
+  onValueChange: (value: string) => void;
+  tooltip: string;
+}> = ({ icon, options, currentValue, onValueChange, tooltip }) => {
+    const [isOpen, setIsOpen] = useState(false);
+    const pillRef = useRef<HTMLDivElement>(null);
+
+    useEffect(() => {
+        const handleClickOutside = (event: MouseEvent) => {
+            if (pillRef.current && !pillRef.current.contains(event.target as Node)) {
+                setIsOpen(false);
+            }
+        };
+        document.addEventListener("mousedown", handleClickOutside);
+        return () => document.removeEventListener("mousedown", handleClickOutside);
+    }, []);
+
+    const currentLabel = options.find(o => o.value === currentValue)?.label || 'Select';
+
+    return (
+        <div className="relative" ref={pillRef} data-tooltip={tooltip}>
+            <button
+                onClick={() => setIsOpen(!isOpen)}
+                className="h-10 px-3 border border-gray-300 dark:border-gray-600 bg-white dark:bg-dark-bg-secondary rounded-lg flex items-center gap-2 hover:border-primary transition-colors w-full justify-between"
+                aria-haspopup="true"
+                aria-expanded={isOpen}
+            >
+                <div className='flex items-center gap-2'>
+                    {icon}
+                    <span className="text-sm font-medium">{currentLabel}</span>
+                </div>
+                <ChevronDownIcon />
+            </button>
+            {isOpen && (
+                <div className="absolute top-full mt-1.5 z-20 bg-light-bg-secondary dark:bg-dark-bg-secondary p-2 rounded-lg shadow-lg border dark:border-dark-border w-48 max-h-60 overflow-y-auto">
+                    {options.map(option => (
+                        <button
+                            key={option.value}
+                            onClick={() => {
+                                onValueChange(option.value);
+                                setIsOpen(false);
+                            }}
+                            className={`w-full text-left p-2 rounded-md text-sm ${currentValue === option.value ? 'bg-primary text-white' : 'hover:bg-gray-100 dark:hover:bg-slate-700'}`}
+                        >
+                            {option.label}
+                        </button>
+                    ))}
+                </div>
+            )}
+        </div>
+    );
+};
+
+
 // --- Main Page Component ---
 const ResidentsPage: React.FC<ResidentsPageProps> = ({ units, owners, vehicles, onSaveResident, onImportData, onDeleteResidents, role }) => {
     const { showToast } = useNotification();
@@ -774,7 +832,9 @@ const ResidentsPage: React.FC<ResidentsPageProps> = ({ units, owners, vehicles, 
     const canDelete = role === 'Admin';
     const [searchTerm, setSearchTerm] = useState('');
     const [typeFilter, setTypeFilter] = useState<'all' | UnitType>('all');
-    const [statusFilter, setStatusFilter] = useState('all');
+    const [statusFilter, setStatusFilter] = useState<'all' | 'Owner' | 'Rent' | 'Business'>('all');
+    const [floorFilter, setFloorFilter] = useState('all');
+    const [activeKpiFilter, setActiveKpiFilter] = useState<'all' | 'Owner' | 'Rent' | 'Business'>('all');
     
     const [modalState, setModalState] = useState<{ type: 'view' | 'edit' | 'import' | null; data: ResidentData | null }>({ type: null, data: null });
     const [selectedUnits, setSelectedUnits] = useState<Set<string>>(new Set());
@@ -798,20 +858,42 @@ const ResidentsPage: React.FC<ResidentsPageProps> = ({ units, owners, vehicles, 
         return residentsData.filter(r => {
             if (typeFilter !== 'all' && r.unit.UnitType !== typeFilter) return false;
             if (statusFilter !== 'all' && r.unit.Status !== statusFilter) return false;
+            
+            if (floorFilter !== 'all') {
+                if (floorFilter === 'KIOS') {
+                    if (r.unit.UnitType !== UnitType.KIOS) return false;
+                } else {
+                    if (r.unit.UnitType === UnitType.KIOS) return false;
+                    const unitFloor = parseUnitCode(r.unit.UnitID)?.floor;
+                    if (String(unitFloor) !== floorFilter) return false;
+                }
+            }
+
             if (searchTerm && !(
                 r.unit.UnitID.toLowerCase().includes(searchTerm.toLowerCase()) ||
                 r.owner.OwnerName.toLowerCase().includes(searchTerm.toLowerCase())
             )) return false;
             return true;
         });
-    }, [residentsData, searchTerm, typeFilter, statusFilter]);
+    }, [residentsData, searchTerm, typeFilter, statusFilter, floorFilter]);
     
-    const kpiStats = useMemo(() => ({
-        totalUnits: units.length,
-        apartments: units.filter(u => u.UnitType === UnitType.APARTMENT).length,
-        kiosks: units.filter(u => u.UnitType === UnitType.KIOS).length,
-        totalVehicles: vehicles.filter(v => v.isActive).length,
-    }), [units, vehicles]);
+    const kpiStats = useMemo(() => {
+        const apartmentCount = units.filter(u => u.UnitType === UnitType.APARTMENT).length;
+        const kiosCount = units.filter(u => u.UnitType === UnitType.KIOS).length;
+        return {
+            totalUnits: units.length,
+            apartmentCount,
+            kiosCount,
+            ownerCount: units.filter(u => u.Status === 'Owner').length,
+            rentCount: units.filter(u => u.Status === 'Rent').length,
+            businessCount: units.filter(u => u.Status === 'Business').length,
+        };
+    }, [units]);
+
+    const floors = useMemo(() => {
+        const floorNumbers = Array.from(new Set(units.filter(u=>u.UnitType === UnitType.APARTMENT).map(u => u.UnitID.slice(0,-2)))).sort((a,b) => parseInt(String(a), 10) - parseInt(String(b), 10));
+        return [{value: 'all', label: 'Tất cả các tầng'}, ...floorNumbers.map(f => ({value: f, label: `Tầng ${f}`})), {value: 'KIOS', label: 'Kios'}];
+    }, [units]);
 
     const handleSelectUnit = (unitId: string, isSelected: boolean) => {
         const newSelection = new Set(selectedUnits);
@@ -823,7 +905,7 @@ const ResidentsPage: React.FC<ResidentsPageProps> = ({ units, owners, vehicles, 
         setSelectedUnits(e.target.checked ? new Set(filteredResidents.map(r => r.unit.UnitID)) : new Set());
     };
     
-    const isAllVisibleSelected = filteredResidents.length > 0 && selectedUnits.size === filteredResidents.length;
+    const isAllVisibleSelected = filteredResidents.length > 0 && selectedUnits.size > 0 && filteredResidents.every(r => selectedUnits.has(r.unit.UnitID));
 
     const handleDeleteSelected = () => {
         if (!canDelete || selectedUnits.size === 0) return;
@@ -833,9 +915,9 @@ const ResidentsPage: React.FC<ResidentsPageProps> = ({ units, owners, vehicles, 
         }
     };
     
-    const handleExportSelected = () => {
-        const dataToExport = filteredResidents.filter(r => selectedUnits.has(r.unit.UnitID));
-        if(dataToExport.length === 0) { showToast('Vui lòng chọn ít nhất một hồ sơ để xuất.', 'info'); return; }
+    const handleExport = () => {
+        const dataToExport = filteredResidents;
+        if(dataToExport.length === 0) { showToast('Không có dữ liệu để xuất.', 'info'); return; }
         
         const headers = ['Mã căn hộ', 'Chủ hộ', 'SĐT', 'Email', 'Trạng thái', 'Loại hình', 'Diện tích', 'Xe máy', 'Ô tô', 'Xe đạp'];
         const csvRows = [headers.join(',')];
@@ -863,6 +945,17 @@ const ResidentsPage: React.FC<ResidentsPageProps> = ({ units, owners, vehicles, 
         link.download = `HoSoCuDan_${new Date().toISOString().slice(0, 10)}.csv`;
         link.click();
         URL.revokeObjectURL(link.href);
+        showToast(`Đã xuất ${dataToExport.length} hồ sơ.`, 'success');
+    };
+
+    const handleCopyPhone = (phone: string) => {
+        navigator.clipboard.writeText(phone);
+        showToast(`Đã sao chép SĐT: ${phone}`, 'success');
+    };
+
+    const handleStatusFilterClick = (status: 'all' | 'Owner' | 'Rent' | 'Business') => {
+        setStatusFilter(status);
+        setActiveKpiFilter(status);
     };
     
     return (
@@ -872,19 +965,40 @@ const ResidentsPage: React.FC<ResidentsPageProps> = ({ units, owners, vehicles, 
             {modalState.type === 'import' && <DataImportModal onClose={() => setModalState({ type: null, data: null })} onImport={onImportData} />}
             
             <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-6">
-                <StatCard label="Tổng Căn hộ & Kios" value={kpiStats.totalUnits} icon={<UserGroupIcon className="w-7 h-7 text-indigo-600 dark:text-indigo-400" />} iconBgClass="bg-indigo-100 dark:bg-indigo-900/50" />
-                <StatCard label="Số căn hộ" value={kpiStats.apartments} icon={<BuildingIcon className="w-7 h-7 text-sky-600 dark:text-sky-400" />} iconBgClass="bg-sky-100 dark:bg-sky-900/50" />
-                <StatCard label="Số kios kinh doanh" value={kpiStats.kiosks} icon={<StoreIcon className="w-7 h-7 text-amber-600 dark:text-amber-400" />} iconBgClass="bg-amber-100 dark:bg-amber-900/50" />
-                <StatCard label="Tổng số phương tiện" value={kpiStats.totalVehicles} icon={<CarIcon className="w-7 h-7 text-emerald-600 dark:text-emerald-400" />} iconBgClass="bg-emerald-100 dark:bg-emerald-900/50" />
+                 <div className={`cursor-pointer transition-all rounded-xl ${activeKpiFilter === 'all' ? 'ring-2 ring-primary' : ''}`} onClick={() => handleStatusFilterClick('all')}>
+                    <StatCard label="Tổng số căn hộ / Kios" value={`${kpiStats.apartmentCount} / ${kpiStats.kiosCount}`} icon={<UserGroupIcon className="w-7 h-7 text-indigo-600 dark:text-indigo-400" />} iconBgClass="bg-indigo-100 dark:bg-indigo-900/50" />
+                </div>
+                 <div className={`cursor-pointer transition-all rounded-xl ${activeKpiFilter === 'Owner' ? 'ring-2 ring-primary' : ''}`} onClick={() => handleStatusFilterClick('Owner')}>
+                    <StatCard label="Hộ chính chủ" value={kpiStats.ownerCount} icon={<UserIcon className="w-7 h-7 text-green-600 dark:text-green-400" />} iconBgClass="bg-green-100 dark:bg-green-900/50" />
+                </div>
+                 <div className={`cursor-pointer transition-all rounded-xl ${activeKpiFilter === 'Rent' ? 'ring-2 ring-primary' : ''}`} onClick={() => handleStatusFilterClick('Rent')}>
+                    <StatCard label="Hộ thuê" value={kpiStats.rentCount} icon={<KeyIcon className="w-7 h-7 text-blue-600 dark:text-blue-400" />} iconBgClass="bg-blue-100 dark:bg-blue-900/50" />
+                </div>
+                 <div className={`cursor-pointer transition-all rounded-xl ${activeKpiFilter === 'Business' ? 'ring-2 ring-primary' : ''}`} onClick={() => handleStatusFilterClick('Business')}>
+                    <StatCard label="Hộ kinh doanh" value={kpiStats.businessCount} icon={<StoreIcon className="w-7 h-7 text-amber-600 dark:text-amber-400" />} iconBgClass="bg-amber-100 dark:bg-amber-900/50" />
+                </div>
             </div>
 
             <div className="bg-white dark:bg-dark-bg-secondary p-4 rounded-xl shadow-sm">
-                <div className="flex flex-wrap items-center gap-4">
-                    <input type="text" placeholder="Tìm căn hộ, chủ hộ..." value={searchTerm} onChange={e => setSearchTerm(e.target.value)} className="flex-grow p-2 border rounded-lg bg-white border-gray-300 text-gray-900 dark:bg-gray-800 dark:border-gray-600 dark:text-white"/>
-                    <select value={typeFilter} onChange={e => setTypeFilter(e.target.value as any)} className="p-2 border rounded-lg bg-white border-gray-300 text-gray-900 dark:bg-dark-bg-secondary dark:border-gray-600 dark:text-white"><option value="all">Tất cả loại hình</option><option value={UnitType.APARTMENT}>Căn hộ</option><option value={UnitType.KIOS}>KIOS</option></select>
-                    <select value={statusFilter} onChange={e => setStatusFilter(e.target.value)} className="p-2 border rounded-lg bg-white border-gray-300 text-gray-900 dark:bg-dark-bg-secondary dark:border-gray-600 dark:text-white"><option value="all">Tất cả trạng thái</option><option value="Owner">Chủ sở hữu</option><option value="Rent">Cho thuê</option><option value="Business">Kinh doanh</option></select>
-                    <div className="ml-auto flex items-center gap-2">
-                        <button onClick={() => setModalState({ type: 'import', data: null })} disabled={!canManage} className="px-4 py-2 bg-primary text-white font-semibold rounded-md flex items-center gap-2"><UploadIcon /> Import Excel</button>
+                <div className="flex items-center gap-2 md:gap-4">
+                     {/* CENTER */}
+                    <div className="flex items-center gap-2 flex-grow">
+                        <div className="relative flex-grow min-w-[150px] md:min-w-[200px]">
+                            <SearchIcon className="absolute left-3 top-1/2 -translate-y-1/2 h-5 w-5 text-gray-400" />
+                            <input type="text" placeholder="Tìm căn hộ, chủ hộ..." value={searchTerm} onChange={e => setSearchTerm(e.target.value)} className="w-full h-10 pl-10 pr-3 border rounded-lg bg-white dark:bg-dark-bg-secondary border-gray-300 dark:border-gray-600"/>
+                        </div>
+                        <div className="hidden md:block"><FilterPill icon={<TagIcon className="h-5 w-5 text-gray-400" />} currentValue={typeFilter} onValueChange={v => setTypeFilter(v as any)} tooltip="Lọc theo loại hình" options={[{value: 'all', label: 'Tất cả loại hình'}, {value: UnitType.APARTMENT, label: 'Căn hộ'}, {value: UnitType.KIOS, label: 'Kios'}]} /></div>
+                        <div className="hidden md:block"><FilterPill icon={<BuildingIcon className="h-5 w-5 text-gray-400" />} currentValue={floorFilter} onValueChange={setFloorFilter} tooltip="Lọc theo tầng" options={floors} /></div>
+                    </div>
+
+                    {/* RIGHT */}
+                    <div className="flex items-center gap-2 flex-shrink-0">
+                         <button onClick={() => setModalState({ type: 'import', data: null })} disabled={!canManage} className="h-10 px-4 font-semibold rounded-lg disabled:opacity-50 flex items-center gap-2 border border-primary text-primary hover:bg-primary/10 bg-white dark:bg-transparent">
+                            <UploadIcon className="w-5 h-5" /> <span className="hidden lg:inline">Import</span>
+                        </button>
+                        <button onClick={handleExport} className="h-10 px-4 text-sm font-semibold rounded-lg flex items-center gap-2 border border-gray-500 text-gray-700 dark:text-gray-300 hover:bg-gray-500/10">
+                            <TableCellsIcon className="w-5 h-5" /> <span className="hidden lg:inline">Export</span>
+                        </button>
                     </div>
                 </div>
             </div>
@@ -896,7 +1010,6 @@ const ResidentsPage: React.FC<ResidentsPageProps> = ({ units, owners, vehicles, 
                         <button onClick={() => setSelectedUnits(new Set())} className="text-sm text-gray-500 hover:text-gray-800 dark:hover:text-gray-200">Bỏ chọn</button>
                         <div className="h-5 border-l dark:border-dark-border ml-2"></div>
                         <div className="ml-auto flex items-center gap-4">
-                            <button onClick={handleExportSelected} className="flex items-center gap-2 text-sm font-semibold text-gray-700 dark:text-gray-200 hover:text-primary"><TableCellsIcon /> Export CSV</button>
                             {canDelete && <button onClick={handleDeleteSelected} className="flex items-center gap-2 text-sm font-semibold text-red-600 dark:text-red-400 hover:text-red-800"><TrashIcon /> Xóa thông tin</button>}
                         </div>
                     </div>
@@ -910,20 +1023,51 @@ const ResidentsPage: React.FC<ResidentsPageProps> = ({ units, owners, vehicles, 
                                 <th className="px-4 py-3 text-left text-xs font-bold text-gray-700 dark:text-gray-300 uppercase tracking-wider">Diện tích</th>
                                 <th className="px-4 py-3 text-left text-xs font-bold text-gray-700 dark:text-gray-300 uppercase tracking-wider">Chủ hộ</th>
                                 <th className="px-4 py-3 text-left text-xs font-bold text-gray-700 dark:text-gray-300 uppercase tracking-wider">Liên hệ</th>
-                                <th className="px-4 py-3 text-left text-xs font-bold text-gray-700 dark:text-gray-300 uppercase tracking-wider">Loại hình</th>
+                                <th className="px-4 py-3 text-left text-xs font-bold text-gray-700 dark:text-gray-300 uppercase tracking-wider">Phương tiện</th>
                                 <th className="px-4 py-3 text-left text-xs font-bold text-gray-700 dark:text-gray-300 uppercase tracking-wider">Trạng thái</th>
                                 <th className="px-4 py-3 text-center text-xs font-bold text-gray-700 dark:text-gray-300 uppercase tracking-wider">Hành động</th>
                             </tr>
                         </thead>
                         <tbody className="divide-y divide-gray-200 dark:divide-gray-700">
-                            {filteredResidents.map(resident => (
+                            {filteredResidents.map(resident => {
+                                const activeVehicles = resident.vehicles.filter(v => v.isActive);
+                                const carCount = activeVehicles.filter(v => v.Type === VehicleTier.CAR || v.Type === VehicleTier.CAR_A).length;
+                                const motorbikeCount = activeVehicles.filter(v => v.Type === VehicleTier.MOTORBIKE || v.Type === VehicleTier.EBIKE).length;
+                                const bicycleCount = activeVehicles.filter(v => v.Type === VehicleTier.BICYCLE).length;
+
+                                return (
                                 <tr key={resident.unit.UnitID} className="hover:bg-gray-50 dark:hover:bg-slate-800/50">
                                     <td className="w-12 text-center text-sm"><input type="checkbox" checked={selectedUnits.has(resident.unit.UnitID)} onChange={(e) => handleSelectUnit(resident.unit.UnitID, e.target.checked)} disabled={!canManage} /></td>
                                     <td className="px-4 py-4 font-medium text-sm text-gray-900 dark:text-gray-200">{resident.unit.UnitID}</td>
                                     <td className="px-4 py-4 text-sm text-gray-900 dark:text-gray-200">{resident.unit.Area_m2} m²</td>
-                                    <td className="px-4 py-4 text-sm text-gray-900 dark:text-gray-200">{resident.owner.OwnerName}</td>
-                                    <td className="px-4 py-4 text-sm text-gray-900 dark:text-gray-200">{resident.owner.Phone}</td>
-                                    <td className="px-4 py-4 text-sm text-gray-900 dark:text-gray-200">{resident.unit.UnitType === UnitType.APARTMENT ? 'Căn hộ' : 'Kios'}</td>
+                                    <td className="px-4 py-4 text-sm font-bold text-gray-900 dark:text-gray-200">{resident.owner.OwnerName}</td>
+                                    <td className="px-4 py-4 text-sm text-gray-900 dark:text-gray-200">
+                                         <button onClick={() => handleCopyPhone(resident.owner.Phone)} className="hover:text-primary transition-colors" title="Sao chép SĐT">
+                                            {resident.owner.Phone.replace(/(\d{4})(\d{3})(\d{3})/, '$1.$2.$3')}
+                                        </button>
+                                    </td>
+                                    <td className="px-4 py-4 text-sm">
+                                        <div className="flex items-center gap-4">
+                                            {carCount > 0 && (
+                                                <span className="flex items-center gap-1.5 text-gray-700 dark:text-gray-300" title={`${carCount} ô tô`}>
+                                                    <CarIcon className="w-5 h-5" />
+                                                    <span className="font-medium">{carCount}</span>
+                                                </span>
+                                            )}
+                                            {motorbikeCount > 0 && (
+                                                <span className="flex items-center gap-1.5 text-gray-700 dark:text-gray-300" title={`${motorbikeCount} xe máy/xe điện`}>
+                                                    <MotorbikeIcon className="w-5 h-5" />
+                                                    <span className="font-medium">{motorbikeCount}</span>
+                                                </span>
+                                            )}
+                                            {bicycleCount > 0 && (
+                                                <span className="flex items-center gap-1.5 text-gray-700 dark:text-gray-300" title={`${bicycleCount} xe đạp`}>
+                                                    <BikeIcon className="w-5 h-5" />
+                                                    <span className="font-medium">{bicycleCount}</span>
+                                                </span>
+                                            )}
+                                        </div>
+                                    </td>
                                     <td className="px-4 py-4">{renderStatusBadge(resident.unit.Status)}</td>
                                     <td className="text-center px-4 py-4">
                                         <div className="flex justify-center items-center gap-2">
@@ -932,7 +1076,7 @@ const ResidentsPage: React.FC<ResidentsPageProps> = ({ units, owners, vehicles, 
                                         </div>
                                     </td>
                                 </tr>
-                            ))}
+                            )})}
                         </tbody>
                     </table>
                 </div>
