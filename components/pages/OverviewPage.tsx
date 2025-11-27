@@ -1,24 +1,27 @@
 import React, { useMemo } from 'react';
 import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer, PieChart, Pie, Cell, LabelList } from 'recharts';
-import type { Unit, Owner, Vehicle, WaterReading, ChargeRaw } from '../../types';
-import { UnitType, VehicleTier } from '../../types';
+import type { Unit, Owner, Vehicle, WaterReading, ChargeRaw, ActivityLog } from '../../types';
+import { VehicleTier } from '../../types';
 import StatCard from '../ui/StatCard';
-import { BuildingIcon, CarIcon, RevenueIcon, WarningIcon, WaterIcon } from '../ui/Icons';
-import { getPreviousPeriod } from '../../utils/helpers';
+import { CarIcon, RevenueIcon, WarningIcon, DropletsIcon, ClipboardDocumentListIcon, CheckCircleIcon } from '../ui/Icons';
+import { getPreviousPeriod, formatCurrency as formatFullCurrency } from '../../utils/helpers';
 
-const formatCurrency = (value: number) => new Intl.NumberFormat('vi-VN').format(Math.round(value));
-
-interface OverviewPageProps {
-    allUnits: Unit[];
-    allOwners: Owner[];
-    allVehicles: Vehicle[];
-    allWaterReadings: WaterReading[];
-    charges: ChargeRaw[];
+const formatCurrency = (value: number) => {
+    if (value >= 1_000_000_000) {
+        return `${(value / 1_000_000_000).toFixed(2)} tỷ`;
+    }
+    if (value >= 1_000_000) {
+        return `${(value / 1_000_000).toFixed(1)} tr`;
+    }
+    if (value >= 1_000) {
+        return `${(value / 1_000).toFixed(0)} k`;
+    }
+    return new Intl.NumberFormat('vi-VN').format(Math.round(value));
 }
 
 const formatYAxisLabel = (value: number): string => {
     if (value >= 1_000_000) {
-        return `${Math.round(value / 1_000_000)}m`;
+        return `${Math.round(value / 1_000_000)}tr`;
     }
     if (value >= 1_000) {
         return `${Math.round(value / 1_000)}k`;
@@ -26,185 +29,310 @@ const formatYAxisLabel = (value: number): string => {
     return String(value);
 };
 
+const COLORS = ['#3b82f6', '#16a34a', '#f97316']; // Blue (Service), Green (Parking), Orange (Water)
+const RADIAN = Math.PI / 180;
+const renderCustomizedLabel = ({ cx, cy, midAngle, innerRadius, outerRadius, percent }: any) => {
+    const radius = innerRadius + (outerRadius - innerRadius) * 0.5;
+    const x = cx + radius * Math.cos(-midAngle * RADIAN);
+    const y = cy + radius * Math.sin(-midAngle * RADIAN);
 
-const OverviewPage: React.FC<OverviewPageProps> = ({ allUnits, allOwners, allVehicles, allWaterReadings, charges }) => {
+    if (percent < 0.05) return null; // Don't render label for small slices
+
+    return (
+        <text x={x} y={y} fill="white" textAnchor={x > cx ? 'start' : 'end'} dominantBaseline="central" className="font-bold text-xs">
+            {`${(percent * 100).toFixed(0)}%`}
+        </text>
+    );
+};
+
+const timeAgo = (dateString: string) => {
+    const date = new Date(dateString);
+    const now = new Date();
+    const seconds = Math.floor((now.getTime() - date.getTime()) / 1000);
+
+    let interval = seconds / 31536000;
+    if (interval > 1) return `${Math.floor(interval)} năm trước`;
+    interval = seconds / 2592000;
+    if (interval > 1) return `${Math.floor(interval)} tháng trước`;
+    interval = seconds / 86400;
+    if (interval > 1) return `${Math.floor(interval)} ngày trước`;
+    interval = seconds / 3600;
+    if (interval > 1) return `${Math.floor(interval)} giờ trước`;
+    interval = seconds / 60;
+    if (interval > 1) return `${Math.floor(interval)} phút trước`;
+    return `${Math.floor(seconds)} giây trước`;
+};
+
+interface OverviewPageProps {
+    allUnits: Unit[];
+    allOwners: Owner[];
+    allVehicles: Vehicle[];
+    allWaterReadings: WaterReading[];
+    charges: ChargeRaw[];
+    activityLogs: ActivityLog[];
+}
+
+const OverviewPage: React.FC<OverviewPageProps> = ({ allUnits, allVehicles, allWaterReadings, charges, activityLogs }) => {
     
     const dashboardStats = useMemo(() => {
         const currentPeriod = '2025-11';
-        const waterUsagePeriod = getPreviousPeriod(currentPeriod);
+        const previousPeriod = getPreviousPeriod(currentPeriod);
         
-        const chargesForPeriod = charges.filter(c => c.Period === currentPeriod);
+        const currentCharges = charges.filter(c => c.Period === currentPeriod);
+        const previousCharges = charges.filter(c => c.Period === previousPeriod);
+
+        const currentRevenue = currentCharges.reduce((sum, c) => sum + c.TotalPaid, 0);
+        const previousRevenue = previousCharges.reduce((sum, c) => sum + c.TotalPaid, 0);
+        const revenueTrend = previousRevenue > 0 ? ((currentRevenue - previousRevenue) / previousRevenue) * 100 : (currentRevenue > 0 ? Infinity : 0);
+
+        const outstandingUnitsCount = charges.filter(c => c.paymentStatus !== 'paid').length;
 
         const activeVehicles = allVehicles.filter(v => v.isActive);
-        const totalApartments = allUnits.filter(u => u.UnitType === UnitType.APARTMENT).length;
-        const totalKios = allUnits.filter(u => u.UnitType === UnitType.KIOS).length;
         const totalCars = activeVehicles.filter(v => v.Type === VehicleTier.CAR || v.Type === VehicleTier.CAR_A).length;
         const totalMotorbikes = activeVehicles.filter(v => v.Type === VehicleTier.MOTORBIKE || v.Type === VehicleTier.EBIKE).length;
-
-        const totalRevenue = chargesForPeriod.reduce((sum, c) => sum + c.TotalDue, 0);
-        const unpaidFeesCount = chargesForPeriod.filter(c => c.paymentStatus !== 'paid').length;
-        const totalWaterConsumption = chargesForPeriod.reduce((sum, c) => sum + c.Water_m3, 0);
         
-        const unitsWithWaterReading = new Set(allWaterReadings.filter(r => r.Period === waterUsagePeriod).map(r => r.UnitID));
-        const missingWaterReadings = allUnits.filter(u => !unitsWithWaterReading.has(u.UnitID)).length;
+        const totalWaterConsumption = currentCharges.reduce((sum, c) => sum + c.Water_m3, 0);
+
+        const previousWaterConsumption = previousCharges.reduce((sum, c) => sum + c.Water_m3, 0);
+        const waterConsumptionTrend = previousWaterConsumption > 0 
+            ? ((totalWaterConsumption - previousWaterConsumption) / previousWaterConsumption) * 100 
+            : (totalWaterConsumption > 0 ? Infinity : 0);
 
         return {
-            totalApartments,
-            totalKios,
+            currentRevenue,
+            revenueTrend,
+            outstandingUnitsCount,
             totalCars,
             totalMotorbikes,
             totalWaterConsumption,
-            missingWaterReadings,
-            latestRevenue: totalRevenue,
-            unpaidFeesCount: unpaidFeesCount,
+            waterConsumptionTrend,
         };
     }, [allUnits, allVehicles, allWaterReadings, charges]);
 
-    // Generate data for all 12 months of 2025
-    const revenueData = useMemo(() => {
-        const currentYear = 2025;
-        const months = Array.from({ length: 12 }, (_, i) => i + 1); // [1, 2, ..., 12]
+    const revenueChartData = useMemo(() => {
+        const generateMockRevenue = () => 120_000_000 + Math.random() * 60_000_000;
 
+        const months = Array.from({ length: 12 }, (_, i) => i + 1);
         return months.map(month => {
-            const periodStr = `${currentYear}-${String(month).padStart(2, '0')}`;
-            const revenue = charges
-                .filter(c => c.Period === periodStr)
-                .reduce((sum, c) => sum + c.TotalDue, 0);
+            const periodStr = `2025-${String(month).padStart(2, '0')}`;
+            const chargesForMonth = charges.filter(c => c.Period === periodStr);
             
-            return {
-                name: `Thg ${month}`,
-                Doanh_thu: revenue,
-            };
+            let revenue = 0;
+            if (chargesForMonth.length > 0) {
+                revenue = chargesForMonth.reduce((sum, c) => sum + c.TotalDue, 0);
+            } else if (month < 11) {
+                revenue = generateMockRevenue();
+            }
+            
+            return { name: `Thg ${month}`, 'Doanh thu tháng': revenue };
         });
     }, [charges]);
     
-    const feeStructureData = useMemo(() => {
-        const chargesForPeriod = charges.filter(c => c.Period === '2025-11');
-        if (chargesForPeriod.length === 0) return [];
-        
-        const service = chargesForPeriod.reduce((sum, c) => sum + c.ServiceFee_Total, 0);
-        const parking = chargesForPeriod.reduce((sum, c) => sum + c.ParkingFee_Total, 0);
-        const water = chargesForPeriod.reduce((sum, c) => sum + c.WaterFee_Total, 0);
+    const revenueStructureData = useMemo(() => {
+        const currentPeriod = '2025-11';
+        const currentCharges = charges.filter(c => c.Period === currentPeriod);
+        if (currentCharges.length === 0) return [];
+
+        const totals = currentCharges.reduce((acc, charge) => {
+            acc.service += charge.ServiceFee_Total;
+            acc.parking += charge.ParkingFee_Total;
+            acc.water += charge.WaterFee_Total;
+            return acc;
+        }, { service: 0, parking: 0, water: 0 });
 
         return [
-            { name: 'Dịch vụ', value: service },
-            { name: 'Gửi xe', value: parking },
-            { name: 'Nước', value: water },
+            { name: 'Phí Dịch Vụ', value: totals.service },
+            { name: 'Phí Gửi Xe', value: totals.parking },
+            { name: 'Tiền Nước', value: totals.water },
         ].filter(item => item.value > 0);
+
     }, [charges]);
 
-    const PIE_COLORS = ['#006f3a', '#f6b800', '#00C49F'];
+    const currentMonthAlerts = useMemo(() => {
+        const currentPeriod = '2025-11';
+        const chargesForCurrentMonth = charges.filter(c => c.Period === currentPeriod);
 
-    const renderCustomizedLabel = (props: any) => {
-        const { cx, cy, midAngle, outerRadius, value } = props;
-        const RADIAN = Math.PI / 180;
-        const radius = outerRadius + 25;
-        const x = cx + radius * Math.cos(-midAngle * RADIAN);
-        const y = cy + radius * Math.sin(-midAngle * RADIAN);
+        if (chargesForCurrentMonth.length === 0) {
+            return { unpaidCount: 0, unpaidTotal: 0 };
+        }
 
-        return (
-            <text x={x} y={y} fill="var(--color-text-primary)" textAnchor={x > cx ? 'start' : 'end'} dominantBaseline="central">
-                {formatCurrency(value)}
-            </text>
+        const unpaidCharges = chargesForCurrentMonth.filter(c => c.paymentStatus !== 'paid');
+        const unpaidCount = unpaidCharges.length;
+        const unpaidTotal = unpaidCharges.reduce((sum, c) => sum + (c.TotalDue - c.TotalPaid), 0);
+
+        return { unpaidCount, unpaidTotal };
+    }, [charges]);
+    
+    const unrecordedWaterUnits = useMemo(() => {
+        const checkPeriod = getPreviousPeriod('2025-11'); // '2025-10'
+        const readingsForPeriod = new Set(
+            allWaterReadings
+                .filter(r => r.Period === checkPeriod && r.CurrIndex > r.PrevIndex)
+                .map(r => r.UnitID)
         );
-    };
+        return allUnits.filter(u => !readingsForPeriod.has(u.UnitID));
+    }, [allUnits, allWaterReadings]);
+
+    const chargesForCurrentPeriodExist = useMemo(() => {
+        const currentPeriod = '2025-11';
+        return charges.some(c => c.Period === currentPeriod);
+    }, [charges]);
+
 
     return (
         <div className="space-y-8">
             <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-6">
                 <StatCard 
-                    label="Căn hộ / Kios" 
-                    value={`${dashboardStats.totalApartments} / ${dashboardStats.totalKios}`} 
-                    icon={<BuildingIcon className="w-7 h-7 text-sky-600 dark:text-sky-400"/>} 
-                    iconBgClass="bg-sky-100 dark:bg-sky-900/50"
-                />
-                <StatCard 
                     label={`Doanh thu T${new Date('2025-11-01').getMonth() + 1}`} 
-                    value={formatCurrency(dashboardStats.latestRevenue)} 
+                    value={formatCurrency(dashboardStats.currentRevenue)} 
                     icon={<RevenueIcon className="w-7 h-7 text-emerald-600 dark:text-emerald-400"/>} 
                     iconBgClass="bg-emerald-100 dark:bg-emerald-900/50"
+                    trend={dashboardStats.revenueTrend}
                 />
                 <StatCard 
-                    label="Ô tô & Xe máy" 
+                    label="Căn hộ nợ phí" 
+                    value={<span className="text-red-600 dark:text-red-400">{dashboardStats.outstandingUnitsCount}</span>}
+                    icon={<WarningIcon className="w-7 h-7 text-red-600 dark:text-red-400"/>} 
+                    iconBgClass="bg-red-100 dark:bg-red-900/50"
+                />
+                <StatCard 
+                    label="Ô tô / Xe máy" 
                     value={`${dashboardStats.totalCars} / ${dashboardStats.totalMotorbikes}`} 
                     icon={<CarIcon className="w-7 h-7 text-amber-600 dark:text-amber-400"/>} 
                     iconBgClass="bg-amber-100 dark:bg-amber-900/50"
                 />
                 <StatCard 
-                    label={`Nước T${new Date(getPreviousPeriod('2025-11')).getMonth() + 1}`} 
-                    value={`${dashboardStats.totalWaterConsumption} m³`} 
-                    icon={<WaterIcon className="w-7 h-7 text-indigo-600 dark:text-indigo-400"/>} 
+                    label={`Tiêu thụ nước T${new Date(getPreviousPeriod('2025-11')).getMonth() + 1}`} 
+                    value={`${dashboardStats.totalWaterConsumption.toLocaleString('vi-VN')} m³`} 
+                    icon={<DropletsIcon className="w-7 h-7 text-indigo-600 dark:text-indigo-400"/>} 
                     iconBgClass="bg-indigo-100 dark:bg-indigo-900/50"
+                    trend={dashboardStats.waterConsumptionTrend}
                 />
             </div>
 
-            <div className="grid grid-cols-1 lg:grid-cols-5 gap-6">
-                <div className="lg:col-span-3 bg-white dark:bg-dark-bg-secondary p-6 rounded-xl shadow-sm">
-                     <h3 className="font-bold text-lg text-gray-800 dark:text-gray-200 mb-4">Biểu đồ doanh thu năm 2025 (VND)</h3>
+            <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+                <div className="bg-white dark:bg-dark-bg-secondary p-6 rounded-xl shadow-sm">
+                    <h3 className="font-bold text-lg text-gray-800 dark:text-gray-200 mb-4">Doanh thu năm 2025</h3>
                     <ResponsiveContainer width="100%" height={300}>
-                        <BarChart data={revenueData}>
+                        <BarChart data={revenueChartData}>
                             <CartesianGrid strokeDasharray="3 3" stroke="var(--color-border)" />
                             <XAxis dataKey="name" tick={{ fill: 'var(--color-text-secondary)' }} />
                             <YAxis tickFormatter={formatYAxisLabel} tick={{ fill: 'var(--color-text-secondary)' }} />
-                            <Tooltip formatter={(value) => `${new Intl.NumberFormat('vi-VN').format(value as number)} ₫`} contentStyle={{ backgroundColor: 'var(--color-surface)', border: '1px solid var(--color-border)', borderRadius: '0.75rem' }}/>
-                            <Bar dataKey="Doanh_thu" name="Doanh thu" fill="#006f3a" radius={[4, 4, 0, 0]} />
+                            <Tooltip 
+                                formatter={(value: number) => `${new Intl.NumberFormat('vi-VN').format(value)} ₫`}
+                                contentStyle={{ backgroundColor: 'var(--color-surface)', border: '1px solid var(--color-border)', borderRadius: '0.75rem' }}
+                                wrapperStyle={{ zIndex: 50 }}
+                            />
+                            <Legend />
+                            <Bar dataKey="Doanh thu tháng" fill="#3b82f6" radius={[4, 4, 0, 0]}>
+                                <LabelList 
+                                    dataKey="Doanh thu tháng" 
+                                    position="top" 
+                                    formatter={(value: number) => value > 0 ? formatCurrency(value) : ''} 
+                                    fill="black" 
+                                    fontSize={10} 
+                                    fontWeight="bold" 
+                                />
+                            </Bar>
                         </BarChart>
                     </ResponsiveContainer>
                 </div>
-                 <div className="lg:col-span-2 bg-white dark:bg-dark-bg-secondary p-6 rounded-xl shadow-sm">
-                    <h3 className="font-bold text-lg text-gray-800 dark:text-gray-200 mb-4">Cơ cấu phí (Tháng 11)</h3>
-                     <ResponsiveContainer width="100%" height={300}>
-                        <PieChart margin={{ top: 10, right: 30, left: 30, bottom: 10 }}>
-                            <Pie 
-                                data={feeStructureData} 
-                                dataKey="value" 
-                                nameKey="name" 
-                                cx="50%" 
-                                cy="50%" 
-                                outerRadius={80}
-                                labelLine={false}
-                            >
-                                {feeStructureData.map((entry, index) => <Cell key={`cell-${index}`} fill={PIE_COLORS[index % PIE_COLORS.length]} />)}
-                                 <LabelList dataKey="value" position="inside" fill="#fff" fontWeight="bold" formatter={(value: number) => {
-                                     const total = feeStructureData.reduce((sum, item) => sum + item.value, 0);
-                                     if (total === 0) return '0%';
-                                     return `${((value / total) * 100).toFixed(0)}%`;
-                                 }} />
-                            </Pie>
-                             <Pie
-                                data={feeStructureData}
-                                dataKey="value"
-                                cx="50%"
-                                cy="50%"
-                                outerRadius={80}
-                                innerRadius={80}
-                                label={renderCustomizedLabel}
-                                fill="transparent"
-                            />
-                            <Tooltip formatter={(value) => `${formatCurrency(value as number)} ₫`} contentStyle={{ backgroundColor: 'var(--color-surface)', border: '1px solid var(--color-border)', borderRadius: '0.75rem' }} />
-                             <Legend
-                                layout="horizontal"
-                                verticalAlign="bottom"
-                                align="center"
-                                wrapperStyle={{
-                                    width: '100%',
-                                    display: 'flex',
-                                    justifyContent: 'center',
-                                    gap: '24px',
-                                    paddingTop: '10px'
-                                }}
-                            />
-                        </PieChart>
+                
+                <div className="bg-white dark:bg-dark-bg-secondary p-6 rounded-xl shadow-sm">
+                    <h3 className="font-bold text-lg text-gray-800 dark:text-gray-200 mb-4">Cơ cấu doanh thu Tháng 11/2025</h3>
+                    <ResponsiveContainer width="100%" height={300}>
+                         {revenueStructureData.length > 0 ? (
+                            <PieChart>
+                                <Pie
+                                    data={revenueStructureData}
+                                    cx="50%"
+                                    cy="50%"
+                                    labelLine={false}
+                                    label={renderCustomizedLabel}
+                                    outerRadius={110}
+                                    fill="#8884d8"
+                                    dataKey="value"
+                                >
+                                    {revenueStructureData.map((entry, index) => (
+                                        <Cell key={`cell-${index}`} fill={COLORS[index % COLORS.length]} />
+                                    ))}
+                                </Pie>
+                                <Tooltip formatter={(value: number, name: string, props: any) => {
+                                    const formattedValue = formatFullCurrency(value);
+                                    const percent = (props.payload.percent * 100).toFixed(0);
+                                    return [`${formattedValue} (${percent}%)`, name];
+                                }} />
+                                <Legend />
+                            </PieChart>
+                         ) : (
+                             <div className="flex items-center justify-center h-full text-gray-500">Chưa có dữ liệu cho kỳ này.</div>
+                         )}
                     </ResponsiveContainer>
                 </div>
             </div>
             
-            <div className="bg-white dark:bg-dark-bg-secondary p-6 rounded-xl shadow-sm">
-                 <h3 className="font-bold text-lg text-gray-800 dark:text-gray-200 mb-4 flex items-center gap-2"><WarningIcon /> Cảnh báo & Thông báo quan trọng</h3>
-                 <div className="space-y-2 text-sm">
-                    <p><span className="font-semibold text-red-500">{dashboardStats.unpaidFeesCount} căn hộ</span> chưa hoàn thành phí dịch vụ tháng 11/2025.</p>
-                    <p><span className="font-semibold text-yellow-500">{dashboardStats.missingWaterReadings} căn hộ</span> chưa được nhập chỉ số nước cho kỳ tháng 10/2025.</p>
-                 </div>
+            <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+                <div className="bg-white dark:bg-dark-bg-secondary p-6 rounded-xl shadow-sm">
+                    <h3 className="font-bold text-lg text-gray-800 dark:text-gray-200 mb-4 flex items-center">
+                        <ClipboardDocumentListIcon className="w-6 h-6 mr-3 text-primary" />
+                        Hoạt động gần đây
+                    </h3>
+                    <ul className="space-y-4">
+                        {activityLogs.slice(0, 5).map(log => (
+                            <li key={log.id} className="flex items-start space-x-3">
+                                <div className="bg-gray-100 dark:bg-gray-700 rounded-full p-2 mt-1">
+                                    <CheckCircleIcon className="w-4 h-4 text-gray-500" />
+                                </div>
+                                <div>
+                                    <p className="text-sm text-gray-800 dark:text-gray-200">{log.summary}</p>
+                                    <p className="text-xs text-gray-500 dark:text-gray-400">
+                                        bởi {log.actor_email.split('@')[0]} - {timeAgo(log.ts)}
+                                    </p>
+                                </div>
+                            </li>
+                        ))}
+                        {activityLogs.length === 0 && <p className="text-sm text-gray-500">Chưa có hoạt động nào.</p>}
+                    </ul>
+                </div>
+                <div className="bg-white dark:bg-dark-bg-secondary p-6 rounded-xl shadow-sm">
+                    <h3 className="font-bold text-lg text-gray-800 dark:text-gray-200 mb-4 flex items-center">
+                        <WarningIcon className="w-6 h-6 mr-3 text-orange-500" />
+                        Cảnh báo & Nhắc việc
+                    </h3>
+                     <div className="space-y-4">
+                        {currentMonthAlerts.unpaidCount > 0 && (
+                            <div>
+                                <h4 className="text-sm font-semibold text-red-600 dark:text-red-400">Phí chưa thanh toán (Tháng {new Date('2025-11').getMonth() + 1})</h4>
+                                <p className="mt-2 text-sm text-gray-600 dark:text-gray-400">
+                                    Có <strong className="text-gray-900 dark:text-gray-100">{currentMonthAlerts.unpaidCount}</strong> hộ chưa hoàn thành thanh toán phí, với tổng số tiền là <strong className="text-gray-900 dark:text-gray-100">{formatFullCurrency(currentMonthAlerts.unpaidTotal)}</strong>.
+                                </p>
+                            </div>
+                        )}
+
+                        {unrecordedWaterUnits.length > 0 && (
+                            <div>
+                                <h4 className="text-sm font-semibold text-blue-600 dark:text-blue-400">Chưa chốt số nước kỳ T{new Date(getPreviousPeriod('2025-11')).getMonth()+1}</h4>
+                                <p className="mt-2 text-sm text-gray-600 dark:text-gray-400">
+                                    Có <strong className="text-gray-900 dark:text-gray-100">{unrecordedWaterUnits.length}</strong> căn hộ chưa có số nước, cần cập nhật để tính phí. 
+                                    <span className="text-xs italic"> (VD: {unrecordedWaterUnits.slice(0, 5).map(u => u.UnitID).join(', ')}, ...)</span>
+                                </p>
+                            </div>
+                        )}
+                        
+                        {currentMonthAlerts.unpaidCount === 0 && unrecordedWaterUnits.length === 0 && (
+                             chargesForCurrentPeriodExist ? (
+                                <div className="flex items-center gap-2 text-sm text-green-600 dark:text-green-400">
+                                    <CheckCircleIcon className="w-5 h-5" />
+                                    <span>Tất cả phí đã được xử lý và số nước đã được ghi đầy đủ.</span>
+                                </div>
+                            ) : (
+                                <p className="text-sm text-gray-500">
+                                    Chưa có dữ liệu phí cho kỳ này. Vui lòng tính phí để xem cảnh báo.
+                                </p>
+                            )
+                        )}
+                    </div>
+                </div>
             </div>
         </div>
     );

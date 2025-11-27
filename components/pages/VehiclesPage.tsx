@@ -450,8 +450,7 @@ const VehiclesPage: React.FC<VehiclesPageProps> = ({ vehicles, units, owners, on
         
         if (!v.parkingStatus) return <span className="text-gray-400 text-xs">Chưa có</span>;
         
-        // @google/genai-fix: Changed type of `label` to `string | null` to allow assignment of custom formatted strings, resolving a TypeScript error where the inferred type was too narrow.
-        let label: string | null = v.parkingStatus;
+        let label: string | null = v.parkingStatus || null;
         if (v.parkingStatus === 'Xếp lốt') {
             const index = waitingList.findIndex(car => car.VehicleId === v.VehicleId);
             if (index !== -1) {

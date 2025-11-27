@@ -1,15 +1,5 @@
 
 
-
-
-
-
-
-
-
-
-
-
 import React, { useState, useCallback, useMemo, useRef } from 'react';
 import type { ChargeRaw, Adjustment, AllData, Role, PaymentStatus, InvoiceSettings, ActivityLog } from '../../types';
 import { UnitType } from '../../types';
@@ -1107,8 +1097,8 @@ const BillingPage: React.FC<BillingPageProps> = ({ charges, setCharges, allData,
                 let headerIndex = -1, colCredit = -1, colDesc = -1;
                 for (let i = 0; i < Math.min(20, json.length); i++) {
                     if (Array.isArray(json[i])) {
-                        // FIX: Explicitly cast row data to any[] and handle potential null/undefined cells to resolve typing ambiguity from the XLSX library.
-                        const row = (json[i] as any[]).map(cell => String(cell ?? '').toLowerCase());
+                        // FIX: Explicitly type `cell` as `any` to resolve type ambiguity from XLSX library under strict type checking.
+                        const row = (json[i] as any[]).map((cell: any) => String(cell ?? '').toLowerCase());
                         const cIdx = row.findIndex(cell => cell.includes('so tien ghi co') || cell.includes('credit amount'));
                         const dIdx = row.findIndex(cell => cell.includes('noi dung') || cell.includes('transaction detail') || cell.includes('description'));
                         if (cIdx !== -1 && dIdx !== -1) { headerIndex = i; colCredit = cIdx; colDesc = dIdx; break; }
@@ -1122,7 +1112,7 @@ const BillingPage: React.FC<BillingPageProps> = ({ charges, setCharges, allData,
 
                 for (let i = headerIndex + 1; i < json.length; i++) {
                     if (!Array.isArray(json[i])) continue;
-                    const row = json[i] as unknown[];
+                    const row = json[i] as any[];
                     if (!row[colCredit]) continue;
                     const amount = parseFloat(String(row[colCredit]).replace(/,/g, ''));
                     if (isNaN(amount) || amount <= 0) continue;
@@ -1375,11 +1365,11 @@ const BillingPage: React.FC<BillingPageProps> = ({ charges, setCharges, allData,
                         <div className="h-5 border-l dark:border-dark-border ml-2"></div>
                         <div className="ml-auto flex items-center gap-4">
                              {(role === 'Admin' || role === 'Accountant') && <>
-                                <button onClick={() => handleBulkSetStatus('paid')} className="flex items-center gap-2 text-sm font-semibold text-gray-700 dark:text-gray-200 hover:text-primary"><CheckCircleIcon /> Mark Paid</button>
-                                <button onClick={() => handleBulkSetStatus('unpaid')} className="flex items-center gap-2 text-sm font-semibold text-gray-700 dark:text-gray-200 hover:text-primary"><WarningIcon /> Mark Unpaid</button>
+                                <button onClick={() => handleBulkSetStatus('paid')} className="flex items-center gap-2 text-sm font-semibold text-green-600 hover:text-green-800 dark:text-green-400 dark:hover:text-green-300"><CheckCircleIcon /> Mark Paid</button>
+                                <button onClick={() => handleBulkSetStatus('unpaid')} className="flex items-center gap-2 text-sm font-semibold text-orange-600 hover:text-orange-800 dark:text-orange-400 dark:hover:text-orange-300"><WarningIcon /> Mark Unpaid</button>
                             </>}
-                            <button onClick={handleDownloadPDFs} disabled={exportProgress.isOpen} className="flex items-center gap-2 text-sm font-semibold text-gray-700 dark:text-gray-200 hover:text-primary"><DocumentArrowDownIcon className="w-5 h-5" /> Tải PDF (Zip)</button>
-                            <button onClick={handleBulkSendEmail} className="flex items-center gap-2 text-sm font-semibold text-gray-700 dark:text-gray-200 hover:text-primary"><PaperAirplaneIcon /> Send Mail</button>
+                            <button onClick={handleDownloadPDFs} disabled={exportProgress.isOpen} className="flex items-center gap-2 text-sm font-semibold text-blue-600 hover:text-blue-800 dark:text-blue-400 dark:hover:text-blue-300"><DocumentArrowDownIcon className="w-5 h-5" /> Tải PDF (Zip)</button>
+                            <button onClick={handleBulkSendEmail} className="flex items-center gap-2 text-sm font-semibold text-indigo-600 hover:text-indigo-800 dark:text-indigo-400 dark:hover:text-indigo-300"><PaperAirplaneIcon /> Send Mail</button>
                         </div>
                     </div>
                 )}
