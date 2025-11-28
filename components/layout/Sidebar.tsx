@@ -1,5 +1,6 @@
+
 import React from 'react';
-import { DashboardIcon, CalculatorIcon, UsersIcon, WaterIcon, ReceiptIcon, PencilSquareIcon, KeyIcon, ArchiveBoxIcon, ClipboardDocumentListIcon, CarIcon } from '../ui/Icons';
+import { PieChartIcon, CalculatorIcon, UsersIcon, WaterIcon, ReceiptIcon, PencilSquareIcon, KeyIcon, ArchiveBoxIcon, ClipboardDocumentListIcon, CarIcon } from '../ui/Icons';
 import type { Role } from '../../types';
 import { useSettings } from '../../App';
 import { isProduction } from '../../utils/env';
@@ -13,7 +14,7 @@ interface SidebarProps {
 }
 
 const mainNavItems: { id: Page; label: string; roles: Role[]; icon: React.ReactNode }[] = [
-    { id: 'overview', label: 'Tổng quan', roles: ['Admin', 'Accountant', 'Operator', 'Viewer'], icon: <DashboardIcon /> },
+    { id: 'overview', label: 'Tổng quan', roles: ['Admin', 'Accountant', 'Operator', 'Viewer'], icon: <PieChartIcon /> },
     { id: 'billing', label: 'Tính phí & Gửi phiếu', roles: ['Admin', 'Accountant'], icon: <CalculatorIcon /> },
     { id: 'residents', label: 'Quản lý Cư dân', roles: ['Admin', 'Accountant', 'Operator'], icon: <UsersIcon /> },
     { id: 'vehicles', label: 'Quản lý Phương tiện', roles: ['Admin', 'Accountant', 'Operator'], icon: <CarIcon /> },

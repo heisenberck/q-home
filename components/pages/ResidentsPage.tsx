@@ -5,13 +5,14 @@ import Modal from '../ui/Modal';
 import StatCard from '../ui/StatCard';
 import { useNotification } from '../../App';
 import { 
-    EyeIcon, PencilSquareIcon, BuildingIcon, TagIcon, UploadIcon, UserGroupIcon, 
+    PencilSquareIcon, BuildingIcon, TagIcon, UploadIcon, UserGroupIcon, 
     UserIcon, KeyIcon, StoreIcon, CarIcon, TrashIcon,
     DocumentArrowDownIcon, ActionViewIcon, TableCellsIcon, DocumentTextIcon, SearchIcon, ChevronDownIcon,
     MotorbikeIcon, BikeIcon
 } from '../ui/Icons';
 import { loadScript } from '../../utils/scriptLoader';
 import { normalizePhoneNumber, formatLicensePlate, vehicleTypeLabels, translateVehicleType, sortUnitsComparator, compressImageToWebP, parseUnitCode } from '../../utils/helpers';
+import { mapExcelHeaders } from '../../utils/importHelpers';
 
 
 // Declare external libraries
@@ -235,7 +236,7 @@ const ResidentViewModal: React.FC<{
                             </div>
                         </section>
                         <section>
-                            <h3 className="text-lg font-bold text-primary border-b border-gray-200 pb-2 mb-4 uppercase tracking-wide">Danh sách Phương tiện ({activeVehicles.length})</h3>
+                            <h3 className="text-lg font-bold text-primary border-b border-gray-200 pb-2 mb-4 uppercase tracking-wide">Danh sách Phương tiện (${activeVehicles.length})</h3>
                             {activeVehicles.length > 0 ? (
                                 <div className="border border-gray-200 rounded-lg overflow-hidden">
                                     <table className="min-w-full divide-y divide-gray-200 text-sm">
@@ -386,7 +387,6 @@ const ResidentDetailModal: React.FC<{
             onClose(); // Only close on successful save
         } catch (error) {
             // Error toast is shown in the parent `handleSaveResident` function.
-            // The modal remains open for the user to retry or cancel.
         } finally {
             setIsSaving(false);
         }
@@ -396,7 +396,7 @@ const ResidentDetailModal: React.FC<{
         const file = e.target.files?.[0];
         if (!file) return;
     
-        if (file.size > 10 * 1024 * 1024) { // 10MB limit before compression
+        if (file.size > 10 * 1024 * 1024) { // 10MB limit
             showToast('Kích thước ảnh gốc phải nhỏ hơn 10MB.', 'error');
             return;
         }
@@ -416,20 +416,10 @@ const ResidentDetailModal: React.FC<{
                 uploadedAt: new Date().toISOString()
             };
             
-            setFormData(prev => ({
-                ...prev,
-                owner: {
-                    ...prev.owner,
-                    documents: {
-                        ...prev.owner.documents,
-                        [docType]: newDoc
-                    }
-                }
-            }));
+            setFormData(prev => ({ ...prev, owner: { ...prev.owner, documents: { ...prev.owner.documents, [docType]: newDoc } } }));
             showToast(`Đã tải lên ${newDoc.name}`, 'success');
         } catch (error) {
             showToast('Lỗi khi nén và xử lý ảnh.', 'error');
-            console.error(error);
         }
         if(e.target) e.target.value = '';
     };
@@ -439,21 +429,12 @@ const ResidentDetailModal: React.FC<{
             setFormData(prev => {
                 const newDocs = { ...prev.owner.documents };
                 delete newDocs[docType];
-                return {
-                    ...prev,
-                    owner: {
-                        ...prev.owner,
-                        documents: newDocs
-                    }
-                };
+                return { ...prev, owner: { ...prev.owner, documents: newDocs } };
             });
         }
     };
     
-    const FileUploadField: React.FC<{
-        docType: 'nationalId' | 'title';
-        label: string;
-    }> = ({ docType, label }) => {
+    const FileUploadField: React.FC<{ docType: 'nationalId' | 'title'; label: string; }> = ({ docType, label }) => {
         const doc = formData.owner.documents?.[docType];
         return (
             <div className="border dark:border-dark-border rounded-md p-3 bg-gray-50 dark:bg-gray-800/50">
@@ -538,7 +519,6 @@ const ResidentDetailModal: React.FC<{
     );
 };
 
-// --- REWRITTEN: Smart Data Import Modal ---
 const DataImportModal: React.FC<{
     onClose: () => void;
     onImport: (updates: any[]) => void;
@@ -564,76 +544,14 @@ const DataImportModal: React.FC<{
                 if (json.length > 0) {
                     const headers = json[0].map((h: any) => String(h).trim());
                     setRawHeaders(headers);
-                    setMappedHeaders(detectColumns(headers));
-                    setPreview(json.slice(1).filter(row => row.some((cell: any) => cell !== ""))); // Keep rows with at least one non-empty cell
+                    setMappedHeaders(mapExcelHeaders(headers));
+                    setPreview(json.slice(1).filter(row => row.some((cell: any) => cell !== "")));
                 }
             };
             reader.readAsArrayBuffer(selectedFile);
         }
     };
 
-    const detectColumns = (headers: string[]) => {
-        const headerMap: { [key: string]: string } = {};
-        const usedHeaders = new Set<string>();
-
-        const ownerKeywords = ['họ tên', 'chủ hộ', 'tên chủ', 'name'];
-        const unitKeywords = ['số căn hộ', 'mã căn', 'căn hộ', 'unit', 'room'];
-        const unitExclusionKeywords = ['họ tên', 'chủ', 'name'];
-
-        // Priority 1: ownerName
-        headers.forEach(header => {
-            const normalizedHeader = header.toLowerCase();
-            if (usedHeaders.has(header)) return;
-
-            if (ownerKeywords.some(kw => normalizedHeader.includes(kw))) {
-                headerMap[header] = 'ownerName';
-                usedHeaders.add(header);
-            }
-        });
-
-        // Priority 2: unitId with exclusion
-        headers.forEach(header => {
-            const normalizedHeader = header.toLowerCase();
-            if (usedHeaders.has(header)) return;
-
-            const isUnitCandidate = unitKeywords.some(kw => normalizedHeader.includes(kw));
-            const isExcluded = unitExclusionKeywords.some(kw => normalizedHeader.includes(kw));
-
-            if (isUnitCandidate && !isExcluded) {
-                headerMap[header] = 'unitId';
-                usedHeaders.add(header);
-            }
-        });
-        
-        // Other mappings (can be lower priority)
-        const otherMappings: { [key: string]: string[] } = {
-            'status': ['status', 'trạng thái'],
-            'vehicles_motorbike': ['xe may', 'xe máy'],
-            'vehicles_ebike': ['xe điện', 'xe dien'],
-            'vehicles_bicycle': ['xe dap', 'xe đạp'],
-            'vehicles_car': ['o to', 'ô tô'],
-            'parkingStatus': ['parking', 'lốt đỗ'],
-            'area': ['diện tích', 'dien tich', 'dt', 'area'],
-            'phone': ['sđt', 'sdt', 'tel', 'mobile', 'điện thoại', 'dien thoai'],
-            'email': ['email'],
-        };
-
-        headers.forEach(header => {
-            const normalizedHeader = header.toLowerCase();
-            if (usedHeaders.has(header)) return;
-
-            for (const targetKey in otherMappings) {
-                if (otherMappings[targetKey].some(kw => normalizedHeader.includes(kw))) {
-                    headerMap[header] = targetKey;
-                    usedHeaders.add(header);
-                    break;
-                }
-            }
-        });
-
-        return headerMap;
-    };
-    
     const processExcelData = () => {
         if (!preview.length || !Object.keys(mappedHeaders).length) {
             showToast("Không có dữ liệu hợp lệ để xử lý.", "warn");
@@ -657,49 +575,11 @@ const DataImportModal: React.FC<{
 
             const vehicles: any[] = [];
             
-            // Motorbike
-            if (row.vehicles_motorbike) {
-                String(row.vehicles_motorbike).split(';').forEach(plate => {
-                    if (plate.trim()) vehicles.push({ PlateNumber: plate.trim(), Type: VehicleTier.MOTORBIKE, VehicleName: '' });
-                });
-            }
-            
-            // E-Bike (Hybrid Logic)
-            if (row.vehicles_ebike) {
-                const value = String(row.vehicles_ebike).trim();
-                const numValue = parseFloat(value);
-                if (!isNaN(numValue) && String(numValue) === value) { // It's a number count
-                    for (let i = 1; i <= numValue; i++) {
-                        vehicles.push({ PlateNumber: `EB-${unitIdStr}-${i}`, Type: VehicleTier.EBIKE, VehicleName: `Xe điện ${i}` });
-                    }
-                } else { // It's a plate string
-                    value.split(';').forEach(plate => {
-                        if (plate.trim()) vehicles.push({ PlateNumber: plate.trim(), Type: VehicleTier.EBIKE, VehicleName: '' });
-                    });
-                }
-            }
-
-            // Bicycle (Hybrid Logic)
-            if (row.vehicles_bicycle) {
-                const value = String(row.vehicles_bicycle).trim();
-                const numValue = parseFloat(value);
-                if (!isNaN(numValue) && String(numValue) === value) { // It's a number count
-                    for (let i = 1; i <= numValue; i++) {
-                        vehicles.push({ PlateNumber: `XB-${unitIdStr}-${i}`, Type: VehicleTier.BICYCLE, VehicleName: `Xe đạp ${i}` });
-                    }
-                } else { // It's a plate string
-                    value.split(';').forEach(plate => {
-                        if (plate.trim()) vehicles.push({ PlateNumber: plate.trim(), Type: VehicleTier.BICYCLE, VehicleName: '' });
-                    });
-                }
-            }
-
-            // Car
-            if (row.vehicles_car) {
-                 String(row.vehicles_car).split(';').forEach(plate => {
-                    if (plate.trim()) vehicles.push({ PlateNumber: plate.trim(), Type: VehicleTier.CAR, VehicleName: '' });
-                });
-            }
+            if (row.vehicles_motorbike) String(row.vehicles_motorbike).split(';').forEach(plate => { if (plate.trim()) vehicles.push({ PlateNumber: plate.trim(), Type: VehicleTier.MOTORBIKE, VehicleName: '' }); });
+            if (row.vehicles_ebike) String(row.vehicles_ebike).split(';').forEach(plate => { if (plate.trim()) vehicles.push({ PlateNumber: plate.trim(), Type: VehicleTier.EBIKE, VehicleName: '' }); });
+            if (row.vehicles_bicycle) String(row.vehicles_bicycle).split(';').forEach(plate => { if (plate.trim()) vehicles.push({ PlateNumber: plate.trim(), Type: VehicleTier.BICYCLE, VehicleName: '' }); });
+            if (row.vehicles_car) String(row.vehicles_car).split(';').forEach(plate => { if (plate.trim()) vehicles.push({ PlateNumber: plate.trim(), Type: VehicleTier.CAR, VehicleName: '' }); });
+            if (row.vehicles_car_a) String(row.vehicles_car_a).split(';').forEach(plate => { if (plate.trim()) vehicles.push({ PlateNumber: plate.trim(), Type: VehicleTier.CAR_A, VehicleName: '' }); });
 
             return {
                 unitId: unitIdStr,

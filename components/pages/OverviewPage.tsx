@@ -1,9 +1,11 @@
-import React, { useMemo } from 'react';
-import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer, PieChart, Pie, Cell, LabelList } from 'recharts';
+
+
+import React, { useMemo, useState } from 'react';
+import { BarChart, Bar, XAxis, YAxis, CartesianGrid, LabelList, ResponsiveContainer, PieChart, Pie, Cell, Tooltip, Legend } from 'recharts';
 import type { Unit, Owner, Vehicle, WaterReading, ChargeRaw, ActivityLog } from '../../types';
 import { VehicleTier } from '../../types';
 import StatCard from '../ui/StatCard';
-import { CarIcon, RevenueIcon, WarningIcon, DropletsIcon, ClipboardDocumentListIcon, CheckCircleIcon } from '../ui/Icons';
+import { CarIcon, RevenueIcon, WarningIcon, DropletsIcon, PieChartIcon, CheckCircleIcon } from '../ui/Icons';
 import { getPreviousPeriod, formatCurrency as formatFullCurrency } from '../../utils/helpers';
 
 const formatCurrency = (value: number) => {
@@ -73,7 +75,8 @@ interface OverviewPageProps {
 }
 
 const OverviewPage: React.FC<OverviewPageProps> = ({ allUnits, allVehicles, allWaterReadings, charges, activityLogs }) => {
-    
+    const [selectedMonth, setSelectedMonth] = useState<number>(11);
+
     const dashboardStats = useMemo(() => {
         const currentPeriod = '2025-11';
         const previousPeriod = getPreviousPeriod(currentPeriod);
@@ -124,16 +127,29 @@ const OverviewPage: React.FC<OverviewPageProps> = ({ allUnits, allVehicles, allW
                 revenue = generateMockRevenue();
             }
             
-            return { name: `Thg ${month}`, 'Doanh thu tháng': revenue };
+            return { name: `T${month}`, 'Doanh thu tháng': revenue };
         });
     }, [charges]);
     
-    const revenueStructureData = useMemo(() => {
-        const currentPeriod = '2025-11';
-        const currentCharges = charges.filter(c => c.Period === currentPeriod);
-        if (currentCharges.length === 0) return [];
+    const pieChartData = useMemo(() => {
+        if (!selectedMonth) return [];
 
-        const totals = currentCharges.reduce((acc, charge) => {
+        const period = `2025-${String(selectedMonth).padStart(2, '0')}`;
+        const chargesForMonth = charges.filter(c => c.Period === period);
+
+        const barDataForMonth = revenueChartData.find(d => d.name === `T${selectedMonth}`);
+        if (chargesForMonth.length === 0 && barDataForMonth && barDataForMonth['Doanh thu tháng'] > 0) {
+            const mockTotal = barDataForMonth['Doanh thu tháng'];
+            return [
+                { name: 'Phí Dịch Vụ', value: mockTotal * 0.6 },
+                { name: 'Phí Gửi Xe', value: mockTotal * 0.3 },
+                { name: 'Tiền Nước', value: mockTotal * 0.1 },
+            ];
+        }
+
+        if (chargesForMonth.length === 0) return [];
+
+        const totals = chargesForMonth.reduce((acc, charge) => {
             acc.service += charge.ServiceFee_Total;
             acc.parking += charge.ParkingFee_Total;
             acc.water += charge.WaterFee_Total;
@@ -146,7 +162,7 @@ const OverviewPage: React.FC<OverviewPageProps> = ({ allUnits, allVehicles, allW
             { name: 'Tiền Nước', value: totals.water },
         ].filter(item => item.value > 0);
 
-    }, [charges]);
+    }, [charges, selectedMonth, revenueChartData]);
 
     const currentMonthAlerts = useMemo(() => {
         const currentPeriod = '2025-11';
@@ -215,21 +231,30 @@ const OverviewPage: React.FC<OverviewPageProps> = ({ allUnits, allVehicles, allW
                     <h3 className="font-bold text-lg text-gray-800 dark:text-gray-200 mb-4">Doanh thu năm 2025</h3>
                     <ResponsiveContainer width="100%" height={300}>
                         <BarChart data={revenueChartData}>
-                            <CartesianGrid strokeDasharray="3 3" stroke="var(--color-border)" />
-                            <XAxis dataKey="name" tick={{ fill: 'var(--color-text-secondary)' }} />
-                            <YAxis tickFormatter={formatYAxisLabel} tick={{ fill: 'var(--color-text-secondary)' }} />
-                            <Tooltip 
-                                formatter={(value: number) => `${new Intl.NumberFormat('vi-VN').format(value)} ₫`}
-                                contentStyle={{ backgroundColor: 'var(--color-surface)', border: '1px solid var(--color-border)', borderRadius: '0.75rem' }}
-                                wrapperStyle={{ zIndex: 50 }}
+                            <CartesianGrid strokeDasharray="3 3" stroke="var(--light-border, #e5e7eb)" />
+                            <XAxis dataKey="name" tick={{ fill: 'var(--light-text-secondary, #6b7280)' }} />
+                            <YAxis 
+                                tickFormatter={formatYAxisLabel} 
+                                tick={{ fill: 'var(--light-text-secondary, #6b7280)' }} 
+                                domain={[0, (dataMax: number) => dataMax * 1.2]}
                             />
-                            <Legend />
-                            <Bar dataKey="Doanh thu tháng" fill="#3b82f6" radius={[4, 4, 0, 0]}>
+                            <Tooltip active={false} />
+                            <Legend wrapperStyle={{ display: 'none' }} />
+                            <Bar 
+                                dataKey="Doanh thu tháng" 
+                                fill="#3b82f6" 
+                                radius={[4, 4, 0, 0]}
+                                onClick={(data) => {
+                                    const monthNum = parseInt(data.name.substring(1));
+                                    if (!isNaN(monthNum)) setSelectedMonth(monthNum);
+                                }}
+                                className="cursor-pointer"
+                            >
                                 <LabelList 
                                     dataKey="Doanh thu tháng" 
                                     position="top" 
                                     formatter={(value: number) => value > 0 ? formatCurrency(value) : ''} 
-                                    fill="black" 
+                                    fill="var(--light-text-secondary, #6b7280)" 
                                     fontSize={10} 
                                     fontWeight="bold" 
                                 />
@@ -239,12 +264,12 @@ const OverviewPage: React.FC<OverviewPageProps> = ({ allUnits, allVehicles, allW
                 </div>
                 
                 <div className="bg-white dark:bg-dark-bg-secondary p-6 rounded-xl shadow-sm">
-                    <h3 className="font-bold text-lg text-gray-800 dark:text-gray-200 mb-4">Cơ cấu doanh thu Tháng 11/2025</h3>
+                    <h3 className="font-bold text-lg text-gray-800 dark:text-gray-200 mb-4">Cơ cấu doanh thu Tháng {selectedMonth}/2025</h3>
                     <ResponsiveContainer width="100%" height={300}>
-                         {revenueStructureData.length > 0 ? (
+                         {pieChartData.length > 0 ? (
                             <PieChart>
                                 <Pie
-                                    data={revenueStructureData}
+                                    data={pieChartData}
                                     cx="50%"
                                     cy="50%"
                                     labelLine={false}
@@ -253,7 +278,7 @@ const OverviewPage: React.FC<OverviewPageProps> = ({ allUnits, allVehicles, allW
                                     fill="#8884d8"
                                     dataKey="value"
                                 >
-                                    {revenueStructureData.map((entry, index) => (
+                                    {pieChartData.map((entry, index) => (
                                         <Cell key={`cell-${index}`} fill={COLORS[index % COLORS.length]} />
                                     ))}
                                 </Pie>
@@ -265,7 +290,12 @@ const OverviewPage: React.FC<OverviewPageProps> = ({ allUnits, allVehicles, allW
                                 <Legend />
                             </PieChart>
                          ) : (
-                             <div className="flex items-center justify-center h-full text-gray-500">Chưa có dữ liệu cho kỳ này.</div>
+                             <div className="relative w-full h-full">
+                                 <div className="absolute top-1/2 left-3/4 -translate-x-1/2 -translate-y-1/2 flex flex-col items-center text-gray-500">
+                                     <PieChartIcon className="w-20 h-20 text-gray-300 dark:text-gray-600 opacity-50"/>
+                                     <p className="mt-3 text-sm italic whitespace-nowrap">Chưa có dữ liệu cho kỳ này</p>
+                                 </div>
+                             </div>
                          )}
                     </ResponsiveContainer>
                 </div>
@@ -274,7 +304,7 @@ const OverviewPage: React.FC<OverviewPageProps> = ({ allUnits, allVehicles, allW
             <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
                 <div className="bg-white dark:bg-dark-bg-secondary p-6 rounded-xl shadow-sm">
                     <h3 className="font-bold text-lg text-gray-800 dark:text-gray-200 mb-4 flex items-center">
-                        <ClipboardDocumentListIcon className="w-6 h-6 mr-3 text-primary" />
+                        <PieChartIcon className="w-6 h-6 mr-3 text-primary" />
                         Hoạt động gần đây
                     </h3>
                     <ul className="space-y-4">

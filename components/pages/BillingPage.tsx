@@ -1,8 +1,8 @@
 
-
 import React, { useState, useCallback, useMemo, useRef } from 'react';
-import type { ChargeRaw, Adjustment, AllData, Role, PaymentStatus, InvoiceSettings, ActivityLog } from '../../types';
+import type { ChargeRaw, Adjustment, AllData, Role, PaymentStatus, InvoiceSettings } from '../../types';
 import { UnitType } from '../../types';
+import { LogPayload } from '../../App';
 import NoticePreviewModal from '../NoticePreviewModal';
 import { calculateChargesBatch } from '../../services/feeService';
 import { 
@@ -12,30 +12,28 @@ import {
     confirmSinglePayment,
     updatePaymentStatusBatch
 } from '../../services';
-import { useNotification } from '../../App';
+import { useNotification, useLogger } from '../../App';
 import { 
     SearchIcon, TagIcon, BuildingIcon, ChevronLeftIcon, 
-    ChevronRightIcon, CheckCircleIcon, WarningIcon, PrinterIcon, PaperAirplaneIcon,
-    CircularArrowRefreshIcon, ActionViewIcon,
-    CalculatorIcon2, LockClosedIcon, LockOpenIcon, ChevronDownIcon,
-    DocumentArrowDownIcon, TableCellsIcon, ArrowUpTrayIcon, RevenueIcon, PercentageIcon
+    ChevronRightIcon, CheckCircleIcon, WarningIcon,
+    CircularArrowRefreshIcon, ActionViewIcon, ActionPaidIcon,
+    CalculatorIcon2, LockClosedIcon, ChevronDownIcon,
+    DocumentArrowDownIcon, TableCellsIcon, ArrowUpTrayIcon, RevenueIcon, PercentageIcon, PaperAirplaneIcon
 } from '../ui/Icons';
 import { loadScript } from '../../utils/scriptLoader';
-// FIX: Added formatNumber to helpers and imported it here.
-import { formatCurrency, getPreviousPeriod, parseUnitCode, generateFeeDetails, processFooterHtml, formatNumber } from '../../utils/helpers';
+import { formatCurrency, getPreviousPeriod, parseUnitCode, generateEmailHtmlForCharge, renderInvoiceHTMLForPdf, formatNumber } from '../../utils/helpers';
 import StatCard from '../ui/StatCard';
+// FIX: Import Spinner component
+import Spinner from '../ui/Spinner';
 
-
-// Declare external libraries for TypeScript
 declare const jspdf: any;
 declare const html2canvas: any;
 declare const JSZip: any;
 declare const XLSX: any;
 
-// --- Real Email Sending Function using Google Apps Script ---
 interface Attachment {
     name: string;
-    data: string; // base64 encoded string
+    data: string;
 }
 
 const sendEmailAPI = async (
@@ -76,14 +74,13 @@ const sendEmailAPI = async (
             try {
                 const errorResult = await response.json();
                 if (errorResult.error) errorMsg = `Server error: ${errorResult.error}`;
-            } catch (e) { /* ignore if response is not json */ }
+            } catch (e) { /* ignore */ }
             return { success: false, error: errorMsg };
         }
         
         return { success: true };
 
     } catch (e: any) {
-        console.error("Apps Script fetch error:", e);
         if (e.name === 'TypeError' && e.message === 'Failed to fetch') {
             return { success: false, error: `Lỗi mạng hoặc CORS. Vui lòng kiểm tra lại URL Google Apps Script và đảm bảo đã public đúng cách.`};
         }
@@ -91,300 +88,17 @@ const sendEmailAPI = async (
     }
 };
 
-const getFooterHtml = (settings: InvoiceSettings, forChannel: 'pdf' | 'email') => {
-    const show = forChannel === 'pdf' ? settings.footerShowInPdf : settings.footerShowInEmail;
-    if (!show || !settings.footerHtml) return '';
-
-    const getFontSize = (size: 'sm' | 'md' | 'lg' = 'sm') => {
-        if (forChannel === 'email') return '12px'; // Fixed size for email
-        if (size === 'lg') return '14px';
-        if (size === 'md') return '12px';
-        return '10px';
-    };
-
-    const processedFooter = processFooterHtml(settings.footerHtml);
-    const align = settings.footerAlign || 'center';
-    const fontSize = getFontSize(settings.footerFontSize);
-
-    return `<div style="text-align: ${align}; font-size: ${fontSize}; color: #555; margin-top: 1rem; padding-top: 0.5rem; border-top: 1px dashed #ccc;">${processedFooter}</div>`;
-};
-
-
-const generateEmailHtmlForCharge = (charge: ChargeRaw, allData: AllData, invoiceSettings: InvoiceSettings, personalizedBody: string): string => {
-    const formatVND = (value: number | undefined | null) => new Intl.NumberFormat('vi-VN').format(Math.round(value || 0));
-    const formattedPersonalizedBody = personalizedBody.replace(/\n/g, '<br />');
-
-    const feeDetails = generateFeeDetails(charge, allData);
-
-    const paymentContent = `HUD3 LD - Phong ${charge.UnitID} - nop phi dich vu thang ${charge.Period.split('-')[1]}/${charge.Period.split('-')[0]}`;
-    const bankShortNameForQR = invoiceSettings.bankName.split(' - ')[0].trim();
-    const qrCodeUrl = `https://qr.sepay.vn/img?acc=${invoiceSettings.accountNumber}&bank=${bankShortNameForQR}&amount=${charge.TotalDue}&des=${encodeURIComponent(paymentContent)}`;
-
-    const footerHtml = getFooterHtml(invoiceSettings, 'email');
-
-    return `
-    <!DOCTYPE html>
-    <html lang="vi">
-    <head>
-        <meta charset="UTF-8">
-        <meta name="viewport" content="width=device-width, initial-scale=1.0">
-        <title>Phiếu thông báo phí dịch vụ</title>
-        <style>
-            body { font-family: Arial, sans-serif; margin: 0; padding: 0; background-color: #f4f6f8; }
-            .container { max-width: 800px; margin: 20px auto; background-color: #ffffff; border-radius: 8px; overflow: hidden; border: 1px solid #e5e7eb; }
-            .header, .footer { padding: 20px; }
-            .content { padding: 20px; }
-            h1 { font-size: 20px; font-weight: bold; color: #111827; margin: 0; }
-            p { margin: 0; }
-            table { width: 100%; border-collapse: collapse; font-size: 14px; }
-            th, td { padding: 10px; border: 1px solid #e5e7eb; text-align: left; color: #111827; }
-            th { background-color: #f9fafb; font-weight: 600; }
-            .text-right { text-align: right; }
-            .text-center { text-align: center; }
-            .font-bold { font-weight: bold; }
-            .total-row td { font-size: 16px; font-weight: bold; background-color: #f9fafb; }
-            .total-due { color: #dc2626; }
-            .qr-section { display: flex; align-items: flex-start; gap: 20px; margin-top: 24px; }
-            .payment-info { flex: 1 1 auto; min-width: 0; background-color: #eff6ff; border: 1px solid #dbeafe; padding: 16px; border-radius: 6px; color: #1e3a8a; }
-            .qr-code { flex: 0 0 100px; text-align: center; }
-            .qr-code img { width: 100px; height: 100px; }
-            
-            /* Dark Mode Styles */
-            :root { color-scheme: light dark; supported-color-schemes: light dark; }
-            @media (prefers-color-scheme: dark) {
-                body { background-color: #111827 !important; }
-                .container { background-color: #1f2937 !important; border-color: #374151 !important; }
-                h1, p, th, td, .footer { color: #f9fafb !important; }
-                th { background-color: #374151 !important; }
-                td, th { border-color: #374151 !important; }
-                .total-row td { background-color: #374151 !important; }
-                .payment-info { background-color: #1e3a8a !important; border-color: #3b82f6 !important; color: #e0e7ff !important; }
-                .payment-info code { background-color: #374151 !important; color: #e0e7ff !important; }
-            }
-        </style>
-    </head>
-    <body>
-        <div class="container">
-            <div class="content" style="padding-bottom: 0; border-bottom: 1px dashed #d1d5db; margin-bottom: 20px;">
-                <p style="margin-bottom: 20px; line-height: 1.6;">${formattedPersonalizedBody}</p>
-            </div>
-            <div class="header" style="display: flex; justify-content: space-between; align-items: flex-start;">
-                <div style="flex: 1;"><img src="${invoiceSettings.logoUrl}" alt="Logo" style="height: 64px; object-fit: contain;"/></div>
-                <div style="flex: 2; text-align: center;"><h1>PHIẾU THÔNG BÁO PHÍ DỊCH VỤ</h1><p>Kỳ: ${charge.Period}</p></div>
-                <div style="flex: 1; text-align: right; font-weight: 600; font-size: 12px;">BAN QUẢN LÝ VẬN HÀNH<br/>NHÀ CHUNG CƯ HUD3 LINH ĐÀM</div>
-            </div>
-            <div class="content">
-                <div style="margin-bottom: 16px; display: grid; grid-template-columns: 1fr 1fr; gap: 4px 24px; font-size: 14px;">
-                    <p><strong>Căn hộ:</strong> ${charge.UnitID}</p>
-                    <p><strong>Chủ hộ:</strong> ${charge.OwnerName}</p>
-                    <p><strong>Diện tích:</strong> ${charge.Area_m2} m²</p>
-                    <p><strong>SĐT:</strong> ${charge.Phone}</p>
-                </div>
-                <table>
-                    <thead>
-                        <tr>
-                            <th>Nội dung</th>
-                            <th class="text-center">Số lượng</th>
-                            <th class="text-right">Thành tiền (VND)</th>
-                            <th class="text-right">Thuế GTGT (VND)</th>
-                            <th class="text-right">Tổng cộng (VND)</th>
-                        </tr>
-                    </thead>
-                    <tbody>
-                        <tr>
-                            <td>Phí dịch vụ</td>
-                            <td class="text-center">${charge.Area_m2} m²</td>
-                            <td class="text-right">${formatVND(charge.ServiceFee_Base)}</td>
-                            <td class="text-right">${formatVND(charge.ServiceFee_VAT)}</td>
-                            <td class="text-right">${formatVND(charge.ServiceFee_Total)}</td>
-                        </tr>
-                        ${feeDetails.parking.map(item => `
-                            <tr>
-                                <td>${item.description}</td>
-                                <td class="text-center">${item.quantity}</td>
-                                <td class="text-right">${formatVND(item.base)}</td>
-                                <td class="text-right">${formatVND(item.vat)}</td>
-                                <td class="text-right">${formatVND(item.total)}</td>
-                            </tr>
-                        `).join('')}
-                        ${feeDetails.water.map(item => `
-                             <tr>
-                                <td>${item.description}</td>
-                                <td class="text-center">${item.quantity}</td>
-                                <td class="text-right">${formatVND(item.base)}</td>
-                                <td class="text-right">${formatVND(item.vat)}</td>
-                                <td class="text-right">${formatVND(item.total)}</td>
-                            </tr>
-                        `).join('')}
-                         ${feeDetails.adjustments.map(adj => `
-                            <tr>
-                                <td>${adj.Description}</td>
-                                <td></td>
-                                <td></td>
-                                <td></td>
-                                <td class="text-right">${formatVND(adj.Amount)}</td>
-                            </tr>
-                        `).join('')}
-                    </tbody>
-                    <tfoot>
-                        <tr class="total-row">
-                            <td colspan="4" class="text-right font-bold">TỔNG CỘNG THANH TOÁN</td>
-                            <td class="text-right font-bold total-due">${formatVND(charge.TotalDue)}</td>
-                        </tr>
-                    </tfoot>
-                </table>
-                <div class="qr-section">
-                    <div class="payment-info">
-                        <p style="font-size: 16px; font-weight: bold; margin-bottom: 8px;">Thông tin thanh toán:</p>
-                        <p><strong>Chủ TK:</strong> ${invoiceSettings.accountName}</p>
-                        <p><strong>Số TK:</strong> ${invoiceSettings.accountNumber} tại ${invoiceSettings.bankName}</p>
-                        <p style="margin-top: 8px;"><strong>Nội dung:</strong> <code style="background-color: #dbeafe; padding: 4px; border-radius: 4px; font-family: monospace; word-break: break-all;">${paymentContent}</code></p>
-                    </div>
-                    <div class="qr-code">
-                        <img src="${qrCodeUrl}" alt="QR Code" />
-                        <p style="font-size: 10px; font-weight: 500; margin-top: 4px; white-space: nowrap;">Quét mã để thanh toán</p>
-                    </div>
-                </div>
-            </div>
-            <div class="footer">
-                ${footerHtml}
-            </div>
-        </div>
-    </body>
-    </html>
-    `;
-};
-
-type LogPayload = Omit<ActivityLog, 'id' | 'ts' | 'actor_email' | 'actor_role' | 'undone' | 'undo_token' | 'undo_until' | 'before_snapshot'>;
-
 interface BillingPageProps {
     charges: ChargeRaw[];
     setCharges: (updater: React.SetStateAction<ChargeRaw[]>, logPayload?: LogPayload) => void;
     allData: AllData;
-    onUpdateAdjustments: (updater: React.SetStateAction<Adjustment[]>, details: string) => void;
+    onUpdateAdjustments: (updater: React.SetStateAction<Adjustment[]>, logPayload?: LogPayload) => void;
     role: Role;
     invoiceSettings: InvoiceSettings;
 }
 
 const BATCH_SIZE = 50; 
 type PrimaryActionState = 'calculate' | 'recalculate' | 'locked';
-
-// --- START: PDF Generation Helper ---
-const renderInvoiceHTML = (charge: ChargeRaw, allData: AllData, invoiceSettings: InvoiceSettings): string => {
-    const formatVND = (value: number | null | undefined) => {
-        if (typeof value !== 'number' || isNaN(value)) return '0';
-        return new Intl.NumberFormat('vi-VN').format(Math.round(value));
-    };
-    
-    const feeDetails = generateFeeDetails(charge, allData);
-    
-    // --- Define explicit styles for PDF rendering to override app theme ---
-    const textStyle = 'color: #000;';
-    const cellStyle = `padding: 6px 8px; border: 1px solid #e0e0e0; vertical-align: middle; ${textStyle}`;
-    const headerCellStyle = `padding: 6px 8px; border: 1px solid #e0e0e0; font-weight: bold; background-color: #f1f5f9; ${textStyle}`;
-    const textRight = 'text-align: right;';
-    const textCenter = 'text-align: center;';
-
-    const serviceRow = `
-        <tr>
-            <td style="${cellStyle}">Phí dịch vụ</td>
-            <td style="${cellStyle} ${textCenter}">${charge.Area_m2} m²</td>
-            <td style="${cellStyle} ${textRight}">${formatVND(charge.ServiceFee_Base)}</td>
-            <td style="${cellStyle} ${textRight}">${formatVND(charge.ServiceFee_VAT)}</td>
-            <td style="${cellStyle} ${textRight}">${formatVND(charge.ServiceFee_Total)}</td>
-        </tr>
-    `;
-
-    const parkingRows = feeDetails.parking.map(item => `
-        <tr>
-            <td style="${cellStyle}">${item.description}</td>
-            <td style="${cellStyle} ${textCenter}">${item.quantity}</td>
-            <td style="${cellStyle} ${textRight}">${formatVND(item.base)}</td>
-            <td style="${cellStyle} ${textRight}">${formatVND(item.vat)}</td>
-            <td style="${cellStyle} ${textRight}">${formatVND(item.total)}</td>
-        </tr>
-    `).join('');
-
-    const waterRows = feeDetails.water.map(item => `
-        <tr>
-            <td style="${cellStyle}">${item.description}</td>
-            <td style="${cellStyle} ${textCenter}">${item.quantity}</td>
-            <td style="${cellStyle} ${textRight}">${formatVND(item.base)}</td>
-            <td style="${cellStyle} ${textRight}">${formatVND(item.vat)}</td>
-            <td style="${cellStyle} ${textRight}">${formatVND(item.total)}</td>
-        </tr>
-    `).join('');
-    
-    const adjustmentRows = feeDetails.adjustments.map(adj => `
-        <tr>
-            <td style="${cellStyle}">${adj.Description}</td>
-            <td style="${cellStyle}"></td><td style="${cellStyle}"></td><td style="${cellStyle}"></td>
-            <td style="${cellStyle} ${textRight}">${formatVND(adj.Amount)}</td>
-        </tr>
-    `).join('');
-
-    const paymentContent = `HUD3 LD - Phong ${charge.UnitID} - nop phi dich vu thang ${charge.Period.split('-')[1]}/${charge.Period.split('-')[0]}`;
-    const bankShortNameForQR = invoiceSettings.bankName.split(' - ')[0].trim();
-    const qrCodeUrl = `https://qr.sepay.vn/img?acc=${invoiceSettings.accountNumber}&bank=${bankShortNameForQR}&amount=${charge.TotalDue}&des=${encodeURIComponent(paymentContent)}`;
-    
-    const footerHtml = getFooterHtml(invoiceSettings, 'pdf');
-
-    return `
-    <div id="phiieu" style="font-family: Arial, sans-serif; background: #fff; width: 210mm; height: 148mm; padding: 8mm; box-sizing: border-box; font-size: 12px; ${textStyle}">
-        <header style="display: flex; justify-content: space-between; align-items: flex-start; margin-bottom: 1rem; ${textStyle}">
-            <div style="flex: 1;"><img src="${invoiceSettings.logoUrl}" alt="Logo" style="height: 64px;"/></div>
-            <div style="flex: 2; text-align: center;">
-                <h1 style="font-size: 1.25rem; font-weight: bold; margin: 0; ${textStyle}">PHIẾU THÔNG BÁO PHÍ DỊCH VỤ</h1>
-                <p style="margin: 0; ${textStyle}">Kỳ: ${charge.Period}</p>
-            </div>
-            <div style="flex: 1; text-align: right; font-weight: 600; font-size: 11px; ${textStyle}">BAN QUẢN LÝ VẬN HÀNH<br>NHÀ CHUNG CƯ HUD3 LINH ĐÀM</div>
-        </header>
-        <section style="margin-bottom: 1rem; display: grid; grid-template-columns: repeat(4, 1fr); gap: 0.25rem 1.5rem; font-size: 0.875rem; ${textStyle}">
-            <div style="${textStyle}"><strong style="${textStyle}">Căn hộ:</strong> ${charge.UnitID}</div>
-            <div style="${textStyle}"><strong style="${textStyle}">Chủ hộ:</strong> ${charge.OwnerName}</div>
-            <div style="${textStyle}"><strong style="${textStyle}">Diện tích:</strong> ${charge.Area_m2} m²</div>
-            <div style="${textStyle}"><strong style="${textStyle}">SĐT:</strong> ${charge.Phone}</div>
-        </section>
-        <table style="width: 100%; border-collapse: collapse; font-size: 11px;">
-            <colgroup><col style="width: 40%;" /><col style="width: 15%;" /><col style="width: 15%;" /><col style="width: 15%;" /><col style="width: 15%;" /></colgroup>
-            <thead>
-                <tr>
-                    <th style="${headerCellStyle} text-align: left;">Nội dung</th>
-                    <th style="${headerCellStyle} ${textCenter}">Số lượng</th>
-                    <th style="${headerCellStyle} ${textRight}">Thành tiền (VND)</th>
-                    <th style="${headerCellStyle} ${textRight}">Thuế GTGT (VND)</th>
-                    <th style="${headerCellStyle} ${textRight}">Tổng cộng (VND)</th>
-                </tr>
-            </thead>
-            <tbody>
-                ${serviceRow}
-                ${parkingRows}
-                ${waterRows}
-                ${adjustmentRows}
-            </tbody>
-            <tfoot>
-                <tr style="background-color: #f1f5f9; font-weight: bold; font-size: 13px;">
-                    <td colspan="4" style="${cellStyle} ${textRight}">TỔNG CỘNG THANH TOÁN</td>
-                    <td style="${cellStyle} ${textRight} color: #dc2626 !important;">${formatVND(charge.TotalDue)}</td>
-                </tr>
-            </tfoot>
-        </table>
-        <div style="margin-top: 1rem; font-size: 11px; display: flex; justify-content: space-between; align-items: flex-start; gap: 12px; ${textStyle}">
-            <div style="flex: 1 1 auto; min-width: 0; background: #eaf3ff; border: 1px solid #cfe6ff; padding: 8px; border-radius: 6px; color: #0b3b6f;">
-                <p style="font-weight: bold; font-size: 13px; margin-bottom: 0.5rem; color: #0b3b6f;">Thông tin thanh toán:</p>
-                <div style="color: #0b3b6f;"><strong style="color: #0b3b6f;">Chủ TK:</strong> ${invoiceSettings.accountName}</div>
-                <div style="color: #0b3b6f;"><strong style="color: #0b3b6f;">Số TK:</strong> ${invoiceSettings.accountNumber} tại ${invoiceSettings.bankName}</div>
-                <p style="color: #0b3b6f;"><strong style="color: #0b3b6f;">Nội dung:</strong> <span style="font-family: monospace; background: #e2e8f0; padding: 4px; border-radius: 4px; color: #0b3b6f; word-break: break-all;">${paymentContent}</span></p>
-            </div>
-            <div style="flex: 0 0 90px; text-align: center; ${textStyle}">
-                <img src="${qrCodeUrl}" alt="QR Code" style="width: 90px; height: 90px; object-fit: contain;" />
-                <p style="font-weight: 500; font-size: 10px; margin-top: 4px; white-space: nowrap; ${textStyle}">Quét mã để thanh toán</p>
-            </div>
-        </div>
-        ${footerHtml}
-    </div>`;
-};
-// --- END: PDF Generation Helper ---
 
 const MonthPicker: React.FC<{
     currentPeriod: string;
@@ -449,12 +163,12 @@ const ExportProgressModal: React.FC<{
         <div className="fixed inset-0 bg-black bg-opacity-60 flex justify-center items-center z-50 p-4">
             <div className="bg-light-bg-secondary dark:bg-dark-bg-secondary p-6 rounded-lg shadow-xl w-full max-w-md">
                 <h4 className="text-lg font-bold mb-4">Exporting Invoices...</h4>
-                <div className="export-modal-progress-bar">
-                    <div style={{ width: `${percent}%` }}></div>
+                <div className="w-full bg-gray-200 rounded-full h-2.5 dark:bg-gray-700">
+                    <div className="bg-primary h-2.5 rounded-full" style={{ width: `${percent}%` }}></div>
                 </div>
                 <div className="text-center my-2 font-semibold">{`${done} / ${total} (${percent}%)`}</div>
                 <div className="flex justify-end mt-4">
-                    <button onClick={onCancel} data-tooltip="Huỷ xuất file" className="px-4 py-2 bg-gray-200 dark:bg-gray-600 rounded-md hover:bg-gray-300 dark:hover:bg-gray-500">Cancel</button>
+                    <button onClick={onCancel} className="px-4 py-2 bg-gray-200 dark:bg-gray-600 rounded-md hover:bg-gray-300 dark:hover:bg-gray-500">Cancel</button>
                 </div>
             </div>
         </div>
@@ -520,6 +234,7 @@ const FilterPill: React.FC<{
 
 const BillingPage: React.FC<BillingPageProps> = ({ charges, setCharges, allData, onUpdateAdjustments, role, invoiceSettings }) => {
     const { showToast } = useNotification();
+    const { logAction } = useLogger();
     const canCalculate = ['Admin', 'Accountant'].includes(role);
     const [isLoading, setIsLoading] = useState(false);
     const [progress, setProgress] = useState({ current: 0, total: 0 });
@@ -619,7 +334,7 @@ const BillingPage: React.FC<BillingPageProps> = ({ charges, setCharges, allData,
             
             return true;
         });
-    }, [charges, period, searchTerm, statusFilter, floorFilter, specialFilter, allData.units]);
+    }, [charges, period, searchTerm, statusFilter, floorFilter, specialFilter]);
     
     const sortedAndFilteredCharges = useMemo(() => {
         return [...filteredCharges].sort((a, b) => {
@@ -660,7 +375,6 @@ const BillingPage: React.FC<BillingPageProps> = ({ charges, setCharges, allData,
             showToast('Dữ liệu đã được làm mới.', 'success');
         } catch (error) { 
             showToast('Lỗi khi làm mới dữ liệu.', 'error');
-            console.error("Refresh data failed:", error);
         } 
         finally { setIsRefreshing(false); }
     }, [isRefreshing, allData, showToast, createSnapshot]);
@@ -685,8 +399,7 @@ const BillingPage: React.FC<BillingPageProps> = ({ charges, setCharges, allData,
 
             const calculationInputs = unitsToCalculate.map(unit => {
                 const owner = allData.owners.find(o => o.OwnerID === unit.OwnerID)!;
-                const waterReading = allData.waterReadings.find(r => r.UnitID === unit.UnitID && r.Period === getPreviousPeriod(period)) || { UnitID: unit.UnitID, Period: getPreviousPeriod(period), PrevIndex: 0, CurrIndex: 0, Rollover: false };
-                return { unit, owner, vehicles: allData.vehicles.filter(v => v.UnitID === unit.UnitID), waterReading, adjustments: allData.adjustments.filter(a => a.UnitID === unit.UnitID && a.Period === period) };
+                return { unit, owner, vehicles: allData.vehicles.filter(v => v.UnitID === unit.UnitID), adjustments: allData.adjustments.filter(a => a.UnitID === unit.UnitID && a.Period === period) };
             });
 
             const newChargesFromCalc = await calculateChargesBatch(period, calculationInputs, allData);
@@ -702,16 +415,18 @@ const BillingPage: React.FC<BillingPageProps> = ({ charges, setCharges, allData,
                 return [...chargesFromOtherPeriods, ...chargesToKeep, ...newChargesWithMeta];
             };
 
+            // FIX: Add before_snapshot for undo functionality
             setCharges(updater, {
                 module: 'Billing',
                 action: 'CALCULATE_CHARGES',
                 summary: `Tính phí cho kỳ ${period} - ${newChargesWithMeta.length} căn hộ`,
-                count: newChargesWithMeta.length
+                count: newChargesWithMeta.length,
+                ids: newChargesWithMeta.map(c => c.UnitID),
+                before_snapshot: charges,
             });
 
             showToast(`Tính phí hoàn tất cho ${newChargesWithMeta.length} căn hộ.`, 'success');
             
-            // Auto-lock the period after calculation
             setLockedPeriods(prev => {
                 const next = new Set(prev);
                 next.add(period);
@@ -749,11 +464,9 @@ const BillingPage: React.FC<BillingPageProps> = ({ charges, setCharges, allData,
         const isDoubleClick = (now - lastClickTime.current) < 350;
         lastClickTime.current = now;
 
-        const canLock = ['Admin', 'Accountant'].includes(role);
-    
         if (isDoubleClick) {
             if (primaryActionTimeout.current) clearTimeout(primaryActionTimeout.current);
-            if (!canLock) { showToast('Bạn không có quyền thực hiện hành động này.', 'error'); return; }
+            if (!canCalculate) { showToast('Bạn không có quyền thực hiện hành động này.', 'error'); return; }
             
             setLockedPeriods(prev => {
                 const next = new Set(prev);
@@ -781,7 +494,7 @@ const BillingPage: React.FC<BillingPageProps> = ({ charges, setCharges, allData,
                 }
             }, 250);
         }
-    }, [primaryActionState, period, role, showToast, runInitialCalculation, runRecalculation, isDataStale, setLockedPeriods]);
+    }, [primaryActionState, period, role, showToast, runInitialCalculation, runRecalculation, isDataStale, setLockedPeriods, canCalculate]);
 
     const handleBulkSetStatus = useCallback(async (targetStatus: 'paid' | 'unpaid') => {
         if (selectedUnits.size === 0) return;
@@ -795,22 +508,24 @@ const BillingPage: React.FC<BillingPageProps> = ({ charges, setCharges, allData,
                 const updatedCharge = { ...c, paymentStatus: targetStatus };
                 if (targetStatus === 'paid') {
                     updatedCharge.PaymentConfirmed = true;
-                    updatedCharge.TotalPaid = c.TotalDue; // Assume paid in full for bulk action
-                } else { // unpaid
+                    updatedCharge.TotalPaid = c.TotalDue;
+                } else {
                     updatedCharge.PaymentConfirmed = false;
-                    updatedCharge.TotalPaid = 0; // Reset paid amount
+                    updatedCharge.TotalPaid = 0;
                 }
                 return updatedCharge;
             }
             return c;
         });
     
+        // FIX: Add before_snapshot for undo functionality
         setCharges(updater, {
             module: 'Billing',
             action: 'BULK_UPDATE_CHARGE_STATUS',
             summary: `Đánh dấu '${targetStatus}' cho ${selectedUnits.size} căn hộ kỳ ${period}`,
             count: selectedUnits.size,
-            ids: unitIds
+            ids: unitIds,
+            before_snapshot: charges,
         });
     
         showToast(`Đã đánh dấu ${targetStatus} cho ${selectedUnits.size} căn`, 'success');
@@ -825,26 +540,17 @@ const BillingPage: React.FC<BillingPageProps> = ({ charges, setCharges, allData,
         if (targets.length === 0) { showToast('Không có dữ liệu để xuất báo cáo.', 'info'); return; }
 
         const BOM = "\uFEFF";
-        const headers = [
-            'Kỳ', 'Căn hộ', 'Chủ hộ', 'Diện tích (m2)', 
-            'Phí Dịch vụ', 'SL Ô tô', 'SL Xe máy', 'Phí Gửi xe', 
-            'Tiêu thụ nước (m3)', 'Tiền nước', 'Điều chỉnh', 
-            'Tổng phải thu', 'Đã nộp', 'Còn nợ', 'Trạng thái'
-        ];
+        const headers = ['Kỳ', 'Căn hộ', 'Chủ hộ', 'Diện tích (m2)', 'Phí Dịch vụ', 'SL Ô tô', 'SL Xe máy', 'Phí Gửi xe', 'Tiêu thụ nước (m3)', 'Tiền nước', 'Điều chỉnh', 'Tổng phải thu', 'Đã nộp', 'Còn nợ', 'Trạng thái'];
         const rows = [headers.join(',')];
 
         targets.forEach(c => {
             const diff = c.TotalDue - c.TotalPaid;
-            let statusText = 'Chờ xử lý';
-            if (c.paymentStatus === 'paid') statusText = 'Đã nộp';
-            if (c.paymentStatus === 'unpaid') statusText = 'Chưa nộp';
-            if (c.paymentStatus === 'reconciling') statusText = 'Chờ đối soát';
+            let statusText = 'Pending';
+            if (c.paymentStatus === 'paid') statusText = 'Paid';
+            if (c.paymentStatus === 'unpaid') statusText = 'Unpaid';
+            if (c.paymentStatus === 'reconciling') statusText = 'Reconciling';
             
-            const line = [
-                `"${c.Period}"`, `"${c.UnitID}"`, `"${c.OwnerName}"`, c.Area_m2,
-                c.ServiceFee_Total, c['#CAR'] + c['#CAR_A'], c['#MOTORBIKE'], c.ParkingFee_Total,
-                c.Water_m3, c.WaterFee_Total, c.Adjustments, c.TotalDue, c.TotalPaid, diff, `"${statusText}"`
-            ];
+            const line = [`"${c.Period}"`, `"${c.UnitID}"`, `"${c.OwnerName}"`, c.Area_m2, c.ServiceFee_Total, c['#CAR'] + c['#CAR_A'], c['#MOTORBIKE'], c.ParkingFee_Total, c.Water_m3, c.WaterFee_Total, c.Adjustments, c.TotalDue, c.TotalPaid, diff, `"${statusText}"`];
             rows.push(line.join(','));
         });
 
@@ -884,7 +590,7 @@ const BillingPage: React.FC<BillingPageProps> = ({ charges, setCharges, allData,
                 const host = document.createElement('div');
                 host.style.cssText = 'position:fixed; left:-9999px; top:0; width:210mm; height:148mm; background:#fff; z-index:-1;';
                 document.body.appendChild(host);
-                host.innerHTML = renderInvoiceHTML(charge, allData, invoiceSettings);
+                host.innerHTML = renderInvoiceHTMLForPdf(charge, allData, invoiceSettings);
                 await new Promise(r => setTimeout(r, 50));
                 const canvas = await html2canvas(host, { scale: 2, useCORS: true, logging: false, backgroundColor: '#ffffff' });
                 const { jsPDF } = jspdf;
@@ -940,7 +646,7 @@ const BillingPage: React.FC<BillingPageProps> = ({ charges, setCharges, allData,
                 const host = document.createElement('div');
                 host.style.cssText = 'position:fixed; left:-9999px; top:0; width:210mm; height:148mm; background:#fff; z-index:-1;';
                 document.body.appendChild(host);
-                host.innerHTML = renderInvoiceHTML(charge, allData, invoiceSettings);
+                host.innerHTML = renderInvoiceHTMLForPdf(charge, allData, invoiceSettings);
                 await new Promise(r => setTimeout(r, 50));
                 const canvas = await html2canvas(host, { scale: 2, useCORS: true, logging: false, backgroundColor: '#ffffff' });
                 const { jsPDF } = jspdf;
@@ -1004,7 +710,7 @@ const BillingPage: React.FC<BillingPageProps> = ({ charges, setCharges, allData,
             const host = document.createElement('div');
             host.style.cssText = 'position:fixed; left:-9999px; top:0; width:210mm; height:148mm; background:#fff; z-index:-1;';
             document.body.appendChild(host);
-            host.innerHTML = renderInvoiceHTML(charge, allData, invoiceSettings);
+            host.innerHTML = renderInvoiceHTMLForPdf(charge, allData, invoiceSettings);
             await new Promise(r => setTimeout(r, 50));
             const canvas = await html2canvas(host, { scale: 2, useCORS: true, logging: false, backgroundColor: '#ffffff' });
             const { jsPDF } = jspdf;
@@ -1053,11 +759,15 @@ const BillingPage: React.FC<BillingPageProps> = ({ charges, setCharges, allData,
                 ? { ...c, TotalPaid: finalPaidAmount, PaymentConfirmed: true, paymentStatus: 'paid' as PaymentStatus }
                 : c
         );
-        setCharges(chargeUpdater, {
+        
+        // FIX: Add before_snapshot for undo functionality
+        const logPayload: LogPayload = {
             module: 'Billing', action: 'CONFIRM_PAYMENT',
             summary: `Xác nhận thanh toán ${formatNumber(finalPaidAmount)} cho ${charge.UnitID}`,
-            count: 1, ids: [charge.UnitID]
-        });
+            count: 1, ids: [charge.UnitID],
+            before_snapshot: charges
+        };
+        setCharges(chargeUpdater, logPayload);
 
         // Update local state for adjustment if created
         const difference = finalPaidAmount - charge.TotalDue;
@@ -1066,7 +776,18 @@ const BillingPage: React.FC<BillingPageProps> = ({ charges, setCharges, allData,
             nextPeriodDate.setMonth(nextPeriodDate.getMonth() + 1);
             const nextPeriod = nextPeriodDate.toISOString().slice(0, 7);
             const newAdjustment: Adjustment = { UnitID: charge.UnitID, Period: nextPeriod, Amount: -difference, Description: `Công nợ kỳ trước`, SourcePeriod: period };
-            onUpdateAdjustments(prev => [...prev.filter(a => !(a.UnitID === newAdjustment.UnitID && a.SourcePeriod === newAdjustment.SourcePeriod)), newAdjustment], `Created adjustment for ${charge.UnitID} from period ${period}`);
+            
+            // FIX: Add before_snapshot for undo functionality
+            onUpdateAdjustments(
+                prev => [...prev.filter(a => !(a.UnitID === newAdjustment.UnitID && a.SourcePeriod === newAdjustment.SourcePeriod)), newAdjustment], 
+                {
+                    module: 'Billing',
+                    action: 'CREATE_ADJUSTMENT',
+                    summary: `Tạo điều chỉnh công nợ ${formatNumber(-difference)} cho ${charge.UnitID} từ kỳ ${period}`,
+                    ids: [charge.UnitID],
+                    before_snapshot: allData.adjustments
+                }
+            );
             showToast(`Đã tạo khoản điều chỉnh ${formatNumber(-difference)} cho kỳ sau.`, 'info');
         } else {
              showToast(`Đã xác nhận thanh toán đủ cho căn hộ ${charge.UnitID}.`, 'success');
@@ -1075,7 +796,6 @@ const BillingPage: React.FC<BillingPageProps> = ({ charges, setCharges, allData,
         setEditedPayments(prev => { const next = { ...prev }; delete next[charge.UnitID]; return next; });
     };
     
-    // --- START: Bank Statement Import Handler ---
     const handleStatementFileChange = async (event: React.ChangeEvent<HTMLInputElement>) => {
         const file = event.target.files?.[0];
         if (!file) return;
@@ -1092,13 +812,12 @@ const BillingPage: React.FC<BillingPageProps> = ({ charges, setCharges, allData,
                 const workbook = XLSX.read(data, { type: 'array' });
                 const sheetName = workbook.SheetNames[0];
                 const sheet = workbook.Sheets[sheetName];
-                const json: any[][] = XLSX.utils.sheet_to_json(sheet, { header: 1 });
+                const json: unknown[][] = XLSX.utils.sheet_to_json(sheet, { header: 1 });
 
                 let headerIndex = -1, colCredit = -1, colDesc = -1;
                 for (let i = 0; i < Math.min(20, json.length); i++) {
                     if (Array.isArray(json[i])) {
-                        // FIX: Explicitly type `cell` as `any` to resolve type ambiguity from XLSX library under strict type checking.
-                        const row = (json[i] as any[]).map((cell: any) => String(cell ?? '').toLowerCase());
+                        const row: string[] = json[i].map(cell => String(cell ?? "").toLowerCase());
                         const cIdx = row.findIndex(cell => cell.includes('so tien ghi co') || cell.includes('credit amount'));
                         const dIdx = row.findIndex(cell => cell.includes('noi dung') || cell.includes('transaction detail') || cell.includes('description'));
                         if (cIdx !== -1 && dIdx !== -1) { headerIndex = i; colCredit = cIdx; colDesc = dIdx; break; }
@@ -1112,7 +831,7 @@ const BillingPage: React.FC<BillingPageProps> = ({ charges, setCharges, allData,
 
                 for (let i = headerIndex + 1; i < json.length; i++) {
                     if (!Array.isArray(json[i])) continue;
-                    const row = json[i] as any[];
+                    const row = json[i] as unknown[];
                     if (!row[colCredit]) continue;
                     const amount = parseFloat(String(row[colCredit]).replace(/,/g, ''));
                     if (isNaN(amount) || amount <= 0) continue;
@@ -1132,7 +851,6 @@ const BillingPage: React.FC<BillingPageProps> = ({ charges, setCharges, allData,
                     if (matchedUnitID) amountMap.set(matchedUnitID, (amountMap.get(matchedUnitID) || 0) + amount);
                 }
                 
-                // Only keep updates for units that exist in the current period's charges
                 const currentPeriodCharges = new Set(charges.filter(c => c.Period === period).map(c => c.UnitID));
                 const updatesToApply = new Map<string, number>();
                 let totalReconciledAmount = 0;
@@ -1159,10 +877,12 @@ const BillingPage: React.FC<BillingPageProps> = ({ charges, setCharges, allData,
                         return charge;
                     });
                     
+                    // FIX: Add before_snapshot for undo functionality
                     setCharges(updater, {
                         module: 'Billing', action: 'IMPORT_BANK_STATEMENT',
                         summary: `Đối soát ${updatesToApply.size} giao dịch, tổng: ${formatCurrency(totalReconciledAmount)}`,
-                        count: updatesToApply.size, ids: Array.from(updatesToApply.keys())
+                        count: updatesToApply.size, ids: Array.from(updatesToApply.keys()),
+                        before_snapshot: charges
                     });
                     showToast(`Đã đối soát thành công ${updatesToApply.size} giao dịch. Trạng thái đã chuyển thành "Chờ đối soát".`, 'success');
                 } else {
@@ -1178,8 +898,7 @@ const BillingPage: React.FC<BillingPageProps> = ({ charges, setCharges, allData,
     };
 
     const handleImportStatementClick = () => { fileInputRef.current?.click(); };
-    // --- END: Bank Statement Import Handler ---
-
+    
     const kpiStats = useMemo(() => {
         const rows = charges.filter(c => c.Period === period);
         if (rows.length === 0) {
@@ -1197,60 +916,6 @@ const BillingPage: React.FC<BillingPageProps> = ({ charges, setCharges, allData,
     }, [charges, period]);
 
     const clearAllFilters = () => { setStatusFilter('all'); setFloorFilter('all'); setSearchTerm(''); setActiveKpiFilter('all'); setSpecialFilter(null); };
-    const handleSelectUnit = (id: string, isSel: boolean) => setSelectedUnits(p => { const n = new Set(p); isSel ? n.add(id) : n.delete(id); return n; });
-    const handleSelectAll = (e: React.ChangeEvent<HTMLInputElement>) => setSelectedUnits(e.target.checked ? new Set(sortedAndFilteredCharges.map(c => c.UnitID)) : new Set());
-
-    const renderStatusBadge = (charge: ChargeRaw) => {
-        // Priority 1: Payment Status
-        if (charge.paymentStatus === 'paid') {
-            return <span className="px-2.5 py-1 inline-flex text-xs font-semibold rounded-full bg-green-100 text-green-800 dark:bg-green-900/50 dark:text-green-300">Đã nộp</span>;
-        }
-        // Priority 2: Reconciliation Status
-        if (charge.paymentStatus === 'reconciling') {
-            return <span className="px-2.5 py-1 inline-flex text-xs font-semibold rounded-full bg-yellow-100 text-yellow-800 dark:bg-yellow-900/50 dark:text-yellow-300">Chờ đối soát</span>;
-        }
-        // Priority 3: Delivery Status (Both)
-        if (charge.isPrinted && charge.isSent) {
-            return <span className="px-2.5 py-1 inline-flex text-xs font-semibold rounded-full bg-blue-200 text-blue-800 dark:bg-blue-800/50 dark:text-blue-300">Đã in &amp; Gửi mail</span>;
-        }
-        // Priority 4: Delivery Status (Email only)
-        if (charge.isSent) {
-            return <span className="px-2.5 py-1 inline-flex text-xs font-semibold rounded-full bg-sky-100 text-sky-800 dark:bg-sky-900/50 dark:text-sky-300">Đã gửi mail</span>;
-        }
-        // Priority 5: Delivery Status (Print only)
-        if (charge.isPrinted) {
-            return <span className="px-2.5 py-1 inline-flex text-xs font-semibold rounded-full bg-orange-100 text-orange-800 dark:bg-orange-900/50 dark:text-orange-300">Đã in phiếu</span>;
-        }
-        // Priority 6: Default
-        return <span className="px-2.5 py-1 inline-flex text-xs font-semibold rounded-full bg-gray-100 text-gray-800 dark:bg-gray-700 dark:text-gray-300">Chờ xử lý</span>;
-    };
-
-    const isAllVisibleSelected = sortedAndFilteredCharges.length > 0 && selectedUnits.size > 0 && sortedAndFilteredCharges.every(c => selectedUnits.has(c.UnitID));
-
-    const renderMainActionButton = () => {
-        const canLock = ['Admin', 'Accountant'].includes(role);
-        const isDisabled = isLoading || !canCalculate || isRefreshing;
-
-        if (primaryActionState === 'locked') {
-            return ( <button onClick={handlePrimaryAction} className="h-10 px-4 bg-gray-700 text-white font-bold rounded-lg shadow-sm flex items-center gap-1.5 hover:bg-gray-800" title="Đang khóa tính phí. Nhấn đúp để mở khóa."> <LockClosedIcon className="w-5 h-5" /> Locked </button> );
-        }
-        
-        const tooltip = !canCalculate ? 'Bạn không có quyền.' : (isRefreshing ? 'Đang làm mới dữ liệu...' : (primaryActionState === 'recalculate' ? "Tính lại toàn bộ phí cho kỳ này" : "Tính phí cho kỳ hiện tại"));
-        const buttonClass = primaryActionState === 'recalculate' ? 'bg-yellow-500 hover:bg-yellow-600' : 'bg-green-600 hover:bg-green-700';
-        const buttonText = isLoading ? 'Đang tính...' : (primaryActionState === 'recalculate' ? 'Recalculate' : 'Calculate');
-        const Icon = primaryActionState === 'recalculate' ? CircularArrowRefreshIcon : CalculatorIcon2;
-
-        return (
-            <div className="relative" title={!isDisabled ? (canLock ? 'Nhấn đúp để khóa' : '') : tooltip}>
-                <button onClick={handlePrimaryAction} disabled={isDisabled} data-tooltip={tooltip} className={`h-10 px-4 text-white font-bold rounded-lg shadow-sm transition-colors flex items-center gap-1.5 ${buttonClass} disabled:bg-gray-400 disabled:cursor-not-allowed`}> <Icon className="w-5 w-5" /> {buttonText} </button>
-            </div>
-        );
-    };
-    
-    const totalDueString = formatCurrency(kpiStats.totalDue);
-    const totalPaidString = formatCurrency(kpiStats.totalPaid);
-    const differenceString = formatCurrency(kpiStats.difference);
-    const FONT_SIZE_THRESHOLD = 18;
 
     return (
         <div className="space-y-4 h-full flex flex-col">
@@ -1260,7 +925,7 @@ const BillingPage: React.FC<BillingPageProps> = ({ charges, setCharges, allData,
                 <div data-tooltip="Tổng phí của tất cả căn hộ trong kỳ" className={`cursor-pointer transition-all rounded-xl ${activeKpiFilter === 'all' ? 'ring-2 ring-primary' : ''}`} onClick={clearAllFilters}>
                     <StatCard 
                         label="Tổng phải thu" 
-                        value={<span className={`font-bold text-blue-600 ${totalDueString.length > FONT_SIZE_THRESHOLD ? 'text-xl' : 'text-2xl'}`}>{totalDueString}</span>} 
+                        value={formatCurrency(kpiStats.totalDue)}
                         icon={<RevenueIcon className="w-7 h-7 text-blue-600 dark:text-blue-400" />} 
                         iconBgClass="bg-blue-100 dark:bg-blue-900/50" 
                     />
@@ -1268,7 +933,7 @@ const BillingPage: React.FC<BillingPageProps> = ({ charges, setCharges, allData,
                 <div data-tooltip="Tổng số tiền đã nộp thực tế (đã xác nhận)" className={`cursor-pointer transition-all rounded-xl ${activeKpiFilter === 'paid' ? 'ring-2 ring-primary' : ''}`} onClick={() => { clearAllFilters(); setStatusFilter('paid'); setActiveKpiFilter('paid'); }}>
                     <StatCard 
                         label="Đã thanh toán" 
-                        value={<span className={`font-bold text-emerald-600 ${totalPaidString.length > FONT_SIZE_THRESHOLD ? 'text-xl' : 'text-2xl'}`}>{totalPaidString}</span>} 
+                        value={formatCurrency(kpiStats.totalPaid)} 
                         icon={<CheckCircleIcon className="w-7 h-7 text-emerald-600 dark:text-emerald-400" />} 
                         iconBgClass="bg-emerald-100 dark:bg-emerald-900/50" 
                     />
@@ -1276,7 +941,7 @@ const BillingPage: React.FC<BillingPageProps> = ({ charges, setCharges, allData,
                 <div data-tooltip="Lọc các hộ có chênh lệch giữa Phải thu và Đã nộp" className={`cursor-pointer transition-all rounded-xl ${activeKpiFilter === 'difference' ? 'ring-2 ring-primary' : ''}`} onClick={() => { clearAllFilters(); setSpecialFilter('has_difference'); setActiveKpiFilter('difference'); }}>
                      <StatCard 
                         label="Còn nợ / Chênh lệch" 
-                        value={<span className={`font-bold text-red-600 ${differenceString.length > FONT_SIZE_THRESHOLD ? 'text-xl' : 'text-2xl'}`}>{differenceString}</span>} 
+                        value={formatCurrency(kpiStats.difference)}
                         icon={<WarningIcon className="w-7 h-7 text-red-600 dark:text-red-400" />} 
                         iconBgClass="bg-red-100 dark:bg-red-900/50" 
                     />
@@ -1302,7 +967,6 @@ const BillingPage: React.FC<BillingPageProps> = ({ charges, setCharges, allData,
             
             <div className="bg-white dark:bg-dark-bg-secondary p-4 rounded-xl shadow-sm">
                 <div className="flex items-center gap-2 md:gap-4">
-                    {/* LEFT */}
                     <div className="flex items-center gap-2 flex-shrink-0">
                         <div className="relative flex items-center gap-1 p-1 bg-gray-100 dark:bg-gray-800 rounded-lg">
                             <button onClick={() => navigatePeriod('prev')} data-tooltip="Kỳ trước"><ChevronLeftIcon /></button>
@@ -1315,7 +979,6 @@ const BillingPage: React.FC<BillingPageProps> = ({ charges, setCharges, allData,
                         <button onClick={() => navigatePeriod('current')} data-tooltip="Về kỳ hiện tại" className="h-10 px-3 text-sm font-semibold rounded-lg border border-gray-300 dark:border-gray-600 bg-white dark:bg-dark-bg-secondary hover:bg-gray-50 dark:hover:bg-gray-700">Current</button>
                     </div>
 
-                    {/* CENTER */}
                     <div className="flex items-center gap-2 flex-grow">
                         <div className="relative flex-grow min-w-[150px] md:min-w-[200px]">
                             <SearchIcon className="absolute left-3 top-1/2 -translate-y-1/2 h-5 w-5 text-gray-400" />
@@ -1328,24 +991,29 @@ const BillingPage: React.FC<BillingPageProps> = ({ charges, setCharges, allData,
                                 onValueChange={setStatusFilter}
                                 tooltip="Lọc theo trạng thái"
                                 options={[
-                                    { value: 'all', label: 'Tất cả trạng thái' },
-                                    { value: 'paid', label: 'Đã nộp' },
-                                    { value: 'reconciling', label: 'Chờ đối soát' },
-                                    { value: 'unpaid', label: 'Chưa nộp' },
-                                    { value: 'pending', label: 'Chờ xử lý' },
+                                    { value: 'all', label: 'All Statuses' },
+                                    { value: 'paid', label: 'Paid' },
+                                    { value: 'reconciling', label: 'Reconciling' },
+                                    { value: 'unpaid', label: 'Unpaid' },
+                                    { value: 'pending', label: 'Pending' },
                                 ]}
                             />
                         </div>
                         <div className="hidden md:block"><FilterPill icon={<BuildingIcon className="h-5 w-5 text-gray-400" />} currentValue={floorFilter} onValueChange={setFloorFilter} tooltip="Lọc theo tầng" options={floors} /></div>
                     </div>
 
-                    {/* RIGHT */}
                     <div className="flex items-center gap-2 flex-shrink-0">
                         <button onClick={handleRefreshData} data-tooltip={isDataStale ? "Dữ liệu nguồn (xe, nước) đã thay đổi. Bấm để cập nhật." : "Làm mới dữ liệu nguồn"} disabled={isRefreshing || isLoading} className={`h-10 w-10 flex items-center justify-center font-semibold rounded-lg hover:bg-opacity-80 disabled:opacity-50 border ${ isDataStale ? 'bg-green-100 dark:bg-green-900/30 border-green-600 text-green-700 dark:text-green-300 animate-pulse' : 'border-gray-300 dark:border-gray-600 bg-white dark:bg-dark-bg-secondary text-gray-700 dark:text-gray-300 hover:bg-gray-50 dark:hover:bg-gray-700' }`}> 
                             <CircularArrowRefreshIcon /> 
                         </button>
                         
-                        {renderMainActionButton()}
+                        {/* FIX: Replace canLock with canCalculate */}
+                        <div className="relative" title={!isLoading && canCalculate ? 'Nhấn đúp để khóa/mở khóa' : ''}>
+                             <button onClick={handlePrimaryAction} disabled={isLoading || !canCalculate || isRefreshing} data-tooltip={primaryActionState === 'locked' ? 'Kỳ đang bị khóa. Nhấn đúp để mở.' : 'Tính phí cho kỳ'} className={`h-10 px-4 text-white font-bold rounded-lg shadow-sm transition-colors flex items-center gap-1.5 disabled:bg-gray-400 disabled:cursor-not-allowed ${primaryActionState === 'locked' ? 'bg-gray-700 hover:bg-gray-800' : (primaryActionState === 'recalculate' ? 'bg-yellow-500 hover:bg-yellow-600' : 'bg-green-600 hover:bg-green-700')}`}>
+                                {primaryActionState === 'locked' ? <LockClosedIcon /> : (isLoading ? <Spinner /> : (primaryActionState === 'recalculate' ? <CircularArrowRefreshIcon /> : <CalculatorIcon2 />))}
+                                {primaryActionState === 'locked' ? 'Locked' : (isLoading ? 'Calculating...' : (primaryActionState === 'recalculate' ? 'Recalculate' : 'Calculate'))}
+                            </button>
+                        </div>
                         
                         <button onClick={handleImportStatementClick} data-tooltip="Nhập sao kê để tự động đối soát" disabled={!canCalculate} className="h-10 px-4 font-semibold rounded-lg disabled:opacity-50 flex items-center gap-2 border border-primary text-primary hover:bg-primary/10 bg-white dark:bg-transparent">
                             <ArrowUpTrayIcon className="w-5 h-5" /> <span className="hidden lg:inline">Import</span>
@@ -1376,7 +1044,7 @@ const BillingPage: React.FC<BillingPageProps> = ({ charges, setCharges, allData,
                 <div className="overflow-y-auto">
                     <table className="min-w-full">
                         <thead className="bg-gray-50 dark:bg-slate-800 sticky top-0 z-10"><tr>
-                            <th className="px-4 py-2 w-12 text-center"><input type="checkbox" onChange={handleSelectAll} checked={isAllVisibleSelected} disabled={sortedAndFilteredCharges.length === 0}/></th>
+                            <th className="px-4 py-2 w-12 text-center"><input type="checkbox" onChange={e => setSelectedUnits(e.target.checked ? new Set(sortedAndFilteredCharges.map(c => c.UnitID)) : new Set())} checked={sortedAndFilteredCharges.length > 0 && selectedUnits.size > 0 && sortedAndFilteredCharges.every(c => selectedUnits.has(c.UnitID))} disabled={sortedAndFilteredCharges.length === 0}/></th>
                             <th className="px-4 py-3 text-left text-xs font-bold text-gray-700 dark:text-gray-300 uppercase tracking-wider">Căn hộ</th>
                             <th className="px-4 py-3 text-left text-xs font-bold text-gray-700 dark:text-gray-300 uppercase tracking-wider">Chủ SH</th>
                             <th className="px-4 py-3 text-right text-xs font-bold text-gray-700 dark:text-gray-300 uppercase tracking-wider">Tổng phí</th>
@@ -1393,10 +1061,10 @@ const BillingPage: React.FC<BillingPageProps> = ({ charges, setCharges, allData,
                                     const difference = finalPaidAmount - charge.TotalDue;
                                     return (
                                     <tr key={charge.UnitID} className="hover:bg-gray-50 dark:hover:bg-slate-800/50">
-                                        <td className="w-12 text-center"><input type="checkbox" checked={selectedUnits.has(charge.UnitID)} onChange={(e) => handleSelectUnit(charge.UnitID, e.target.checked)} /></td>
+                                        <td className="w-12 text-center"><input type="checkbox" checked={selectedUnits.has(charge.UnitID)} onChange={(e) => setSelectedUnits(p => { const n = new Set(p); e.target.checked ? n.add(charge.UnitID) : n.delete(charge.UnitID); return n; })} /></td>
                                         <td className="font-medium px-4 py-4 text-gray-900 dark:text-gray-200">{charge.UnitID}</td>
                                         <td className="px-4 py-4 text-gray-900 dark:text-gray-200">{charge.OwnerName}</td>
-                                        <td className="font-bold px-4 py-4 text-right text-gray-900 dark:text-gray-200"><span className="amount-wrapper">{formatNumber(charge.TotalDue)}</span></td>
+                                        <td className="font-bold px-4 py-4 text-right text-gray-900 dark:text-gray-200">{formatNumber(charge.TotalDue)}</td>
                                         <td className="px-4 py-4 text-right">
                                             <input 
                                                 type="text"
@@ -1409,7 +1077,15 @@ const BillingPage: React.FC<BillingPageProps> = ({ charges, setCharges, allData,
                                          <td className={`font-semibold px-4 py-4 text-right whitespace-nowrap ${difference > 0 ? 'text-green-600' : (difference < 0 ? 'text-red-600' : 'text-gray-900 dark:text-gray-200')}`}>
                                             {difference !== 0 ? formatNumber(difference) : ''}
                                         </td>
-                                        <td className="px-4 py-4 text-center">{renderStatusBadge(charge)}</td>
+                                        <td className="px-4 py-4 text-center">
+                                            {charge.paymentStatus === 'paid' ? <span className="px-2.5 py-1 inline-flex text-xs font-semibold rounded-full bg-green-100 text-green-800 dark:bg-green-900/50 dark:text-green-300">Paid</span> :
+                                             charge.paymentStatus === 'reconciling' ? <span className="px-2.5 py-1 inline-flex text-xs font-semibold rounded-full bg-yellow-100 text-yellow-800 dark:bg-yellow-900/50 dark:text-yellow-300">Reconciling</span> :
+                                             (charge.isPrinted && charge.isSent) ? <span className="px-2.5 py-1 inline-flex text-xs font-semibold rounded-full bg-blue-200 text-blue-800 dark:bg-blue-800/50 dark:text-blue-300">Printed & Sent</span> :
+                                             charge.isSent ? <span className="px-2.5 py-1 inline-flex text-xs font-semibold rounded-full bg-sky-100 text-sky-800 dark:bg-sky-900/50 dark:text-sky-300">Sent</span> :
+                                             charge.isPrinted ? <span className="px-2.5 py-1 inline-flex text-xs font-semibold rounded-full bg-orange-100 text-orange-800 dark:bg-orange-900/50 dark:text-orange-300">Printed</span> :
+                                             <span className="px-2.5 py-1 inline-flex text-xs font-semibold rounded-full bg-gray-100 text-gray-800 dark:bg-gray-700 dark:text-gray-300">Pending</span>
+                                            }
+                                        </td>
                                         <td className="px-4 py-4"><div className="flex justify-center items-center gap-2">
                                             <button 
                                                 onClick={() => handleConfirmPayment(charge)}
@@ -1417,7 +1093,7 @@ const BillingPage: React.FC<BillingPageProps> = ({ charges, setCharges, allData,
                                                 className="p-2 rounded-full hover:bg-gray-200 dark:hover:bg-gray-600 disabled:opacity-30"
                                                 data-tooltip="Xác nhận thanh toán"
                                             >
-                                                <CheckCircleIcon className="w-5 h-5 text-green-500" />
+                                                <ActionPaidIcon className="w-5 h-5 text-green-500" />
                                             </button>
                                             <button onClick={() => setPreviewCharge(charge)} className="p-2 rounded-full hover:bg-gray-200 dark:hover:bg-gray-600" data-tooltip="View & Send"><ActionViewIcon className="text-blue-500 w-5 h-5" /></button>
                                         </div></td>

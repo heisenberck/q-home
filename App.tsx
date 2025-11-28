@@ -1,3 +1,4 @@
+
 import React, { useState, useEffect, useCallback, createContext, lazy, Suspense } from 'react';
 import type { Role, UserPermission, Unit, Owner, Vehicle, WaterReading, ChargeRaw, TariffService, TariffParking, TariffWater, Adjustment, InvoiceSettings, ActivityLog, VehicleTier, TariffCollection } from './types';
 import { patchKiosAreas } from './constants';
@@ -85,7 +86,7 @@ const pageTitles: Record<Page, string> = {
     activityLog: 'Nhật ký Hoạt động',
 };
 
-type LogPayload = Omit<ActivityLog, 'id' | 'ts' | 'actor_email' | 'actor_role' | 'undone' | 'undo_token' | 'undo_until'>;
+export type LogPayload = Omit<ActivityLog, 'id' | 'ts' | 'actor_email' | 'actor_role' | 'undone' | 'undo_token' | 'undo_until'>;
 
 interface AppContextType {
     currentUser: UserPermission | null;
@@ -145,14 +146,15 @@ const App: React.FC = () => {
     const [invoiceSettings, setInvoiceSettings] = useState<InvoiceSettings>(initialInvoiceSettings);
     const [activityLogs, setActivityLogs] = useState<ActivityLog[]>([]);
 
-    const allDataRef = React.useRef({ units, owners, vehicles, waterReadings, charges, tariffs, users, adjustments, activityLogs });
+    // FIX: Add invoiceSettings to allDataRef to make it available for logging snapshots.
+    const allDataRef = React.useRef({ units, owners, vehicles, waterReadings, charges, tariffs, users, adjustments, activityLogs, invoiceSettings });
     useEffect(() => {
-        allDataRef.current = { units, owners, vehicles, waterReadings, charges, tariffs, users, adjustments, activityLogs };
-    }, [units, owners, vehicles, waterReadings, charges, tariffs, users, adjustments, activityLogs]);
+        allDataRef.current = { units, owners, vehicles, waterReadings, charges, tariffs, users, adjustments, activityLogs, invoiceSettings };
+    }, [units, owners, vehicles, waterReadings, charges, tariffs, users, adjustments, activityLogs, invoiceSettings]);
 
     const [currentUser, setCurrentUser] = useState<UserPermission | null>(null);
     const [usersLoaded, setUsersLoaded] = useState(false);
-    const [dataLoaded, setDataLoaded] = useState(false); // BUG FIX: Flag to prevent re-fetching
+    const [dataLoaded, setDataLoaded] = useState(false);
     const IS_PROD = isProduction();
 
     const showToast = useCallback((message: string, type: ToastType = 'info', duration?: number) => {
@@ -182,11 +184,9 @@ const App: React.FC = () => {
     }, []);
 
     useEffect(() => {
-        // BUG FIX: Add guard to prevent re-fetching if data is already loaded
         if (!currentUser || dataLoaded) return;
 
         const fetchData = async () => {
-            console.log('[System] Fetching all data...'); // BUG FIX: Add logging
             setLoadingState('loading');
             try {
                 const data = await loadAllData();
@@ -208,7 +208,7 @@ const App: React.FC = () => {
                     showToast("Sử dụng dữ liệu mẫu.", 'warn');
                 }
                 setLoadingState('loaded');
-                setDataLoaded(true); // BUG FIX: Set flag after successful fetch
+                setDataLoaded(true);
             } catch (error: any) {
                 console.error("Failed to load data:", error);
                 setErrorMessage("Không thể tải dữ liệu. Vui lòng kiểm tra kết nối và thử lại.");
@@ -240,7 +240,7 @@ const App: React.FC = () => {
 
     const handleLogout = useCallback(() => {
         setCurrentUser(null);
-        setDataLoaded(false); // BUG FIX: Reset flag on logout
+        setDataLoaded(false);
         showToast('Đã đăng xuất.', 'info');
     }, [showToast]);
 
@@ -265,49 +265,56 @@ const App: React.FC = () => {
 
     const createDataHandler = <T,>(
         stateSetter: React.Dispatch<React.SetStateAction<T>>,
-        saveFunction: (data: T) => Promise<any>,
-        stateKey: keyof typeof allDataRef.current
+        saveFunction: (data: T) => Promise<any>
     ) => useCallback(async (updater: React.SetStateAction<T>, logPayload?: LogPayload) => {
-        const currentState = allDataRef.current[stateKey] as T;
-        const newState = typeof updater === 'function' ? (updater as (prevState: T) => T)(currentState) : updater;
-        try {
-            await saveFunction(newState);
-            stateSetter(newState);
-            if (logPayload) logAction(logPayload);
-            showToast('Dữ liệu đã được lưu.', 'success');
-        } catch (error) {
-            console.error("Save failed:", error);
-            showToast('Lưu dữ liệu thất bại.', 'error');
-            throw error;
-        }
-    }, [logAction, showToast, stateSetter, saveFunction, stateKey]);
+        // Use functional update form to get the latest state
+        let newState: T;
+        stateSetter(prevState => {
+            newState = typeof updater === 'function' ? (updater as (prevState: T) => T)(prevState) : updater;
+            
+            // Optimistic UI update
+            saveFunction(newState).then(() => {
+                if (logPayload) logAction(logPayload);
+                showToast('Dữ liệu đã được lưu.', 'success');
+            }).catch(error => {
+                console.error("Save failed:", error);
+                showToast('Lưu dữ liệu thất bại. Khôi phục trạng thái cũ.', 'error');
+                // Rollback on failure
+                stateSetter(prevState);
+            });
+            
+            return newState;
+        });
+    }, [logAction, showToast, stateSetter, saveFunction]);
 
-    const handleSetCharges = createDataHandler(setCharges, saveChargesBatch, 'charges');
-    const handleSetAdjustments = createDataHandler(setAdjustments, saveAdjustments, 'adjustments');
-    const handleSetTariffs = createDataHandler(setTariffs, saveTariffs, 'tariffs');
-    const handleSetWaterReadings = createDataHandler(setWaterReadings, saveWaterReadings, 'waterReadings');
-    const handleSetUsers = createDataHandler(setUsers, saveUsers, 'users');
-    const handleSetVehicles = createDataHandler(setVehicles, saveVehicles, 'vehicles');
+    const handleSetCharges = createDataHandler(setCharges, saveChargesBatch);
+    const handleSetAdjustments = createDataHandler(setAdjustments, saveAdjustments);
+    const handleSetTariffs = createDataHandler(setTariffs, saveTariffs);
+    const handleSetWaterReadings = createDataHandler(setWaterReadings, saveWaterReadings);
+    const handleSetUsers = createDataHandler(setUsers, saveUsers);
+    const handleSetVehicles = createDataHandler(setVehicles, saveVehicles);
     
     const handleSetInvoiceSettings = useCallback(async (newSettings: InvoiceSettings) => {
+        const oldSettings = allDataRef.current.invoiceSettings;
         try {
+            setInvoiceSettings(newSettings); // Optimistic update
             await updateFeeSettings(newSettings);
-            setInvoiceSettings(newSettings);
             logAction({
                 module: 'Settings',
                 action: 'UPDATE_SETTINGS',
                 summary: 'Cập nhật Cài đặt Phiếu báo',
-                before_snapshot: invoiceSettings,
+                before_snapshot: oldSettings,
             });
             showToast('Đã lưu cài đặt.', 'success');
         } catch (error) {
+            setInvoiceSettings(oldSettings); // Rollback
             console.error("Error saving invoice settings:", error);
             showToast('Lưu cài đặt thất bại.', 'error');
-            throw error;
         }
-    }, [invoiceSettings, logAction, showToast]);
+    }, [logAction, showToast]);
     
     const handleSaveResident = useCallback(async (updatedData: { unit: Unit; owner: Owner; vehicles: Vehicle[] }) => {
+        const { units, owners, vehicles } = allDataRef.current;
         try {
             const result = await updateResidentData(units, owners, vehicles, updatedData);
             setUnits(result.units);
@@ -326,9 +333,10 @@ const App: React.FC = () => {
             showToast('Lỗi: Không thể lưu dữ liệu.', 'error');
             throw error;
         }
-    }, [vehicles, owners, units, showToast, logAction]);
+    }, [showToast, logAction]);
 
     const handleImportData = useCallback(async (updates: any[]) => {
+        const { units, owners, vehicles } = allDataRef.current;
         try {
             const result = await importResidentsBatch(units, owners, vehicles, updates);
             setUnits(result.units);
@@ -339,7 +347,7 @@ const App: React.FC = () => {
             console.error("Import error:", error);
             showToast("Lỗi khi nhập dữ liệu.", 'error');
         }
-    }, [units, owners, vehicles, showToast]);
+    }, [showToast]);
     
     const handleResetResidents = useCallback((unitIds: Set<string>) => {
         const ownerIdsToReset = new Set<string>();
@@ -351,8 +359,8 @@ const App: React.FC = () => {
                 }
                 return u;
             });
-            setOwners(prev => prev.map(o => ownerIdsToReset.has(o.OwnerID) ? { ...o, OwnerName: '[Trống]', Phone: '', Email: '' } : o));
-            setVehicles(prev => prev.filter(v => !unitIds.has(v.UnitID)));
+            setOwners(prevOwners => prevOwners.map(o => ownerIdsToReset.has(o.OwnerID) ? { ...o, OwnerName: '[Trống]', Phone: '', Email: '' } : o));
+            setVehicles(prevVehicles => prevVehicles.filter(v => !unitIds.has(v.UnitID)));
             return newUnits;
         });
         showToast(`Đã xoá thông tin của ${unitIds.size} hồ sơ (tạm thời).`, 'success');
@@ -403,7 +411,7 @@ const App: React.FC = () => {
             case 'billing': return <BillingPage charges={charges} setCharges={handleSetCharges} allData={{ units, owners, vehicles, waterReadings, tariffs, adjustments }} onUpdateAdjustments={handleSetAdjustments} role={role!} invoiceSettings={invoiceSettings} />;
             case 'residents': return <ResidentsPage units={units} owners={owners} vehicles={vehicles} onSaveResident={handleSaveResident} onImportData={handleImportData} onDeleteResidents={handleResetResidents} role={role!} currentUser={currentUser!} />;
             case 'vehicles': return <VehiclesPage vehicles={vehicles} units={units} owners={owners} onSetVehicles={handleSetVehicles} role={role!} />;
-            case 'water': return <WaterPage waterReadings={waterReadings} setWaterReadings={handleSetWaterReadings} allUnits={units} role={role!} />;
+            case 'water': return <WaterPage waterReadings={waterReadings} setWaterReadings={handleSetWaterReadings} allUnits={units} role={role!} tariffs={tariffs} />;
             case 'pricing': return <PricingPage tariffs={tariffs} setTariffs={handleSetTariffs} role={role!} />;
             case 'users': return <UsersPage users={users} setUsers={handleSetUsers} role={role!} />;
             case 'settings': return <SettingsPage invoiceSettings={invoiceSettings} setInvoiceSettings={handleSetInvoiceSettings} role={role!} />;

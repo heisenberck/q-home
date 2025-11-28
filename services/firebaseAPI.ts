@@ -151,21 +151,49 @@ export const importResidentsBatch = async (
     currentUnits: Unit[], currentOwners: Owner[], currentVehicles: Vehicle[], updates: any[]
 ) => {
     const batch = writeBatch(db);
-    let created = 0, updated = 0;
+    let created = 0, updated = 0, vehicleCount = 0;
+
+    const unitIdsToUpdate = new Set(updates.map(up => up.unitId));
+    currentVehicles.forEach(v => {
+        if (unitIdsToUpdate.has(v.UnitID)) {
+            batch.update(doc(db, "vehicles", v.VehicleId), { isActive: false, log: `Deactivated on import ${new Date().toISOString()}` });
+        }
+    });
+
     updates.forEach(up => {
-        const existing = currentUnits.find(u => u.UnitID === up.unitId);
-        if (existing) {
-            batch.update(doc(db, "units", up.unitId), { Status: up.status, Area_m2: up.area });
-            batch.update(doc(db, "owners", existing.OwnerID), { OwnerName: up.ownerName, Phone: up.phone, Email: up.email });
+        const unitId = up.unitId;
+        const existingUnit = currentUnits.find(u => u.UnitID === unitId);
+
+        if (existingUnit) {
+            batch.update(doc(db, "units", unitId), { Status: up.status, Area_m2: up.area, UnitType: up.unitType });
+            batch.update(doc(db, "owners", existingUnit.OwnerID), { OwnerName: up.ownerName, Phone: up.phone, Email: up.email });
             updated++;
         } else {
             const newOwnerId = doc(collection(db, "owners")).id;
             batch.set(doc(db, "owners", newOwnerId), { OwnerID: newOwnerId, OwnerName: up.ownerName, Phone: up.phone, Email: up.email });
-            batch.set(doc(db, "units", up.unitId), { UnitID: up.unitId, OwnerID: newOwnerId, UnitType: up.unitType, Area_m2: up.area, Status: up.status });
+            batch.set(doc(db, "units", unitId), { UnitID: unitId, OwnerID: newOwnerId, UnitType: up.unitType, Area_m2: up.area, Status: up.status });
             created++;
         }
+        
+        if (up.vehicles && Array.isArray(up.vehicles)) {
+            up.vehicles.forEach((v: any) => {
+                const newVehicleRef = doc(collection(db, "vehicles"));
+                batch.set(newVehicleRef, {
+                    VehicleId: newVehicleRef.id,
+                    UnitID: unitId,
+                    Type: v.Type,
+                    VehicleName: v.VehicleName || '',
+                    PlateNumber: v.PlateNumber,
+                    StartDate: new Date().toISOString().split('T')[0],
+                    isActive: true,
+                    parkingStatus: up.parkingStatus || null,
+                });
+                vehicleCount++;
+            });
+        }
     });
+
     await batch.commit();
     const { units, owners, vehicles } = await loadAllData();
-    return { units, owners, vehicles, createdCount: created, updatedCount: updated, vehicleCount: 0 };
+    return { units, owners, vehicles, createdCount: created, updatedCount: updated, vehicleCount };
 };

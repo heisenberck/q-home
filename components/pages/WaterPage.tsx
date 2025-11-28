@@ -1,13 +1,16 @@
 
-
 import React, { useState, useMemo, useEffect, useRef } from 'react';
-import type { WaterReading, Unit, Role } from '../../types';
+import type { WaterReading, Unit, Role, TariffWater, TariffCollection } from '../../types';
 import { UnitType } from '../../types';
 import { useNotification } from '../../App';
-import { HomeIcon, StoreIcon, TrendingUpIcon, DropletsIcon, ChevronLeftIcon, ChevronRightIcon, CalendarDaysIcon, SearchIcon, BuildingIcon, UploadIcon, DocumentArrowDownIcon } from '../ui/Icons';
-import { LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer } from 'recharts';
-import { parseUnitCode, getPreviousPeriod, sortUnitsComparator } from '../../utils/helpers';
+import { HomeIcon, StoreIcon, TrendingUpIcon, DropletsIcon, ChevronLeftIcon, ChevronRightIcon, SearchIcon, UploadIcon, ListBulletIcon, SparklesIcon, ClipboardDocumentListIcon, DocumentArrowDownIcon, CurrencyDollarIcon } from '../ui/Icons';
+import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer } from 'recharts';
+import { parseUnitCode, getPreviousPeriod, sortUnitsComparator, formatCurrency } from '../../utils/helpers';
 import StatCard from '../ui/StatCard';
+import { processImportFile } from '../../utils/importHelpers';
+import Modal from '../ui/Modal';
+
+declare const XLSX: any;
 
 // --- START: Child Components ---
 const MonthPickerPopover: React.FC<{
@@ -61,465 +64,581 @@ const MonthPickerPopover: React.FC<{
         </div>
     );
 };
+
+const WaterHistoryModal: React.FC<{
+    unitId: string;
+    allUnitReadings: WaterReading[];
+    onClose: () => void;
+}> = ({ unitId, allUnitReadings, onClose }) => {
+    const historyData = useMemo(() => {
+        return allUnitReadings
+            .sort((a, b) => a.Period.localeCompare(b.Period))
+            .slice(-6) // Get last 6 months
+            .map(r => ({
+                period: r.Period.slice(5) + '/' + r.Period.slice(2, 4), // Format to MM/YY
+                fullPeriod: r.Period,
+                prevIndex: r.PrevIndex,
+                currIndex: r.CurrIndex,
+                consumption: r.CurrIndex - r.PrevIndex,
+            }));
+    }, [allUnitReadings]);
+
+    return (
+        <Modal title={`Lịch sử nước - Căn hộ ${unitId}`} onClose={onClose} size="3xl">
+            <div className="space-y-6">
+                <div>
+                    <h4 className="font-semibold mb-2 text-gray-800 dark:text-gray-200">Biểu đồ tiêu thụ (6 tháng gần nhất)</h4>
+                    <div className="h-64">
+                        <ResponsiveContainer width="100%" height="100%">
+                            <BarChart data={historyData} margin={{ top: 5, right: 20, left: -10, bottom: 5 }}>
+                                <CartesianGrid strokeDasharray="3 3" stroke="var(--light-border, #e5e7eb)" />
+                                <XAxis dataKey="period" tick={{ fill: 'var(--light-text-secondary, #6b7280)', fontSize: 12 }} />
+                                <YAxis unit=" m³" tick={{ fill: 'var(--light-text-secondary, #6b7280)', fontSize: 12 }} />
+                                <Tooltip
+                                    contentStyle={{
+                                        backgroundColor: 'var(--light-bg-secondary, white)',
+                                        border: '1px solid var(--light-border, #e5e7eb)',
+                                        borderRadius: '0.5rem',
+                                    }}
+                                    formatter={(value: number) => [`${value} m³`, 'Tiêu thụ']}
+                                />
+                                <Bar dataKey="consumption" name="Tiêu thụ" fill="#3b82f6" radius={[4, 4, 0, 0]} />
+                            </BarChart>
+                        </ResponsiveContainer>
+                    </div>
+                </div>
+                <div>
+                    <h4 className="font-semibold mb-2 text-gray-800 dark:text-gray-200">Bảng chi tiết</h4>
+                    <div className="overflow-auto border rounded-lg max-h-60 dark:border-dark-border">
+                        <table className="min-w-full text-sm">
+                            <thead className="bg-gray-50 dark:bg-slate-800 sticky top-0">
+                                <tr>
+                                    <th className="px-4 py-2 text-left font-semibold text-gray-600 dark:text-gray-300">Kỳ</th>
+                                    <th className="px-4 py-2 text-right font-semibold text-gray-600 dark:text-gray-300">Chỉ số cũ</th>
+                                    <th className="px-4 py-2 text-right font-semibold text-gray-600 dark:text-gray-300">Chỉ số mới</th>
+                                    <th className="px-4 py-2 text-right font-semibold text-gray-600 dark:text-gray-300">Tiêu thụ (m³)</th>
+                                </tr>
+                            </thead>
+                            <tbody className="divide-y divide-gray-200 dark:divide-gray-700">
+                                {historyData.length === 0 ? (
+                                    <tr><td colSpan={4} className="text-center p-4 text-gray-500">Chưa có dữ liệu lịch sử.</td></tr>
+                                ) : (
+                                    historyData.slice().reverse().map(item => (
+                                        <tr key={item.fullPeriod}>
+                                            <td className="px-4 py-2 font-medium text-gray-900 dark:text-gray-200">{item.fullPeriod}</td>
+                                            <td className="px-4 py-2 text-right text-gray-700 dark:text-gray-300">{item.prevIndex.toLocaleString('vi-VN')}</td>
+                                            <td className="px-4 py-2 text-right text-gray-700 dark:text-gray-300">{item.currIndex.toLocaleString('vi-VN')}</td>
+                                            <td className="px-4 py-2 text-right font-bold text-primary">{item.consumption.toLocaleString('vi-VN')}</td>
+                                        </tr>
+                                    ))
+                                )}
+                            </tbody>
+                        </table>
+                    </div>
+                </div>
+                 <div className="flex justify-end pt-4">
+                    <button onClick={onClose} className="px-4 py-2 bg-gray-200 dark:bg-gray-600 text-gray-800 dark:text-gray-200 rounded-md hover:bg-gray-300 dark:hover:bg-gray-500">
+                        Đóng
+                    </button>
+                </div>
+            </div>
+        </Modal>
+    );
+};
 // --- END: Child Components ---
+
+// --- START: Bill Calculation Helper ---
+const calculateWaterBill = (consumption: number, unitType: UnitType, tariffs: TariffWater[]): number => {
+    if (consumption <= 0 || !tariffs || tariffs.length === 0) return 0;
+
+    const sortedTiers = [...tariffs].sort((a, b) => a.From_m3 - b.From_m3);
+
+    if (unitType === UnitType.KIOS) {
+        const businessTariff = sortedTiers.find(t => t.To_m3 === null); // Highest tier is business rate
+        if (!businessTariff) return 0;
+        const net = consumption * businessTariff.UnitPrice;
+        const vat = net * (businessTariff.VAT_percent / 100);
+        return Math.round(net + vat);
+    }
+
+    // Apartment Calculation
+    let totalNet = 0;
+    let consumptionRemaining = consumption;
+    let previousTierEnd = 0;
+
+    for (const tier of sortedTiers) {
+        if (consumptionRemaining <= 0) break;
+
+        const currentTierEnd = tier.To_m3 ?? Infinity;
+        const tierCapacity = currentTierEnd - previousTierEnd;
+        const usageInTier = Math.min(consumptionRemaining, tierCapacity);
+
+        totalNet += usageInTier * tier.UnitPrice;
+        consumptionRemaining -= usageInTier;
+        previousTierEnd = currentTierEnd;
+    }
+
+    const vatPercent = sortedTiers[0]?.VAT_percent ?? 5;
+    const totalVat = totalNet * (vatPercent / 100);
+    return Math.round(totalNet + totalVat);
+};
+// --- END: Bill Calculation Helper ---
+
 
 interface WaterPageProps {
     waterReadings: WaterReading[];
-    setWaterReadings: (updater: React.SetStateAction<WaterReading[]>, summary?: string) => void;
+    setWaterReadings: (updater: React.SetStateAction<WaterReading[]>, logPayload?: any) => void;
     allUnits: Unit[];
     role: Role;
+    tariffs: TariffCollection;
 }
 
-const WaterPage: React.FC<WaterPageProps> = ({ waterReadings, setWaterReadings, allUnits, role }) => {
+const WaterPage: React.FC<WaterPageProps> = ({ waterReadings, setWaterReadings, allUnits, role, tariffs }) => {
     const { showToast } = useNotification();
     const canEdit = ['Admin', 'Operator', 'Accountant'].includes(role);
-    const currentISODate = new Date().toISOString().slice(0, 7);
     const [period, setPeriod] = useState('2025-11');
     
     const [searchTerm, setSearchTerm] = useState('');
     const [floorFilter, setFloorFilter] = useState('all');
-    const [kpiFilter, setKpiFilter] = useState<'residential' | 'business' | null>(null);
+    const [kpiFilter, setKpiFilter] = useState<'residential' | 'business' | 'unrecorded' | null>(null);
     
     const [validationErrors, setValidationErrors] = useState<Record<string, string>>({});
     const inputRefs = useRef<Record<string, HTMLInputElement>>({});
     const [isMonthPickerOpen, setIsMonthPickerOpen] = useState(false);
-    const [selectedUnitId, setSelectedUnitId] = useState<string | null>(null);
+    
+    const [isDataLocked, setIsDataLocked] = useState(false);
     const fileInputRef = useRef<HTMLInputElement>(null);
     
-    // Hydrate readings for the current period
-    useEffect(() => {
-        const previousPeriod = getPreviousPeriod(period);
-        const previousReadingsMap = new Map<string, WaterReading>(waterReadings.filter(r => r.Period === previousPeriod).map(r => [r.UnitID, r]));
-        const unitsWithCurrentReading = new Set(waterReadings.filter(r => r.Period === period).map(r => r.UnitID));
+    const [historyModalUnitId, setHistoryModalUnitId] = useState<string | null>(null);
+    const [selectedUnitId, setSelectedUnitId] = useState<string | null>(null);
 
-        const newReadingsForCurrentPeriod = allUnits
-            .filter(unit => !unitsWithCurrentReading.has(unit.UnitID))
-            .map(unit => {
-                const prevReading = previousReadingsMap.get(unit.UnitID);
-                const prevIndex = prevReading ? prevReading.CurrIndex : 0;
-                return {
-                    UnitID: unit.UnitID, Period: period,
-                    PrevIndex: prevIndex, CurrIndex: prevIndex,
-                    Rollover: false,
-                };
-            });
-        
-        if (newReadingsForCurrentPeriod.length > 0) {
-            setWaterReadings(prev => [...prev, ...newReadingsForCurrentPeriod]);
-        }
-        setSelectedUnitId(null); // Reset selection on period change
-    }, [period, allUnits, waterReadings, setWaterReadings]);
 
-    const firstRecordedPeriod = useMemo(() => {
-        if (waterReadings.length === 0) return null;
-        return waterReadings.reduce((earliest, current) => 
-            (current.Period && current.Period < earliest) ? current.Period : earliest, 
-            waterReadings[0].Period
-        );
-    }, [waterReadings]);
-
-    const readingsMapByPeriod = useMemo(() => {
-        const map = new Map<string, Map<string, WaterReading>>();
+    const waterReadingsMap = useMemo(() => {
+        const map = new Map<string, WaterReading[]>();
         waterReadings.forEach(r => {
-            if (!map.has(r.Period)) map.set(r.Period, new Map());
-            map.get(r.Period)!.set(r.UnitID, r);
+            if (!map.has(r.UnitID)) map.set(r.UnitID, []);
+            map.get(r.UnitID)!.push(r);
         });
         return map;
     }, [waterReadings]);
 
-    const unitsWithData = useMemo(() => {
-        const readingsForPeriod = readingsMapByPeriod.get(period) || new Map();
+    useEffect(() => {
+        const nextPeriodDate = new Date(period + '-02');
+        nextPeriodDate.setMonth(nextPeriodDate.getMonth() + 1);
+        const nextPeriod = nextPeriodDate.toISOString().slice(0, 7);
+        const hasDataInNextPeriod = waterReadings.some(r => r.Period === nextPeriod);
+        setIsDataLocked(hasDataInNextPeriod);
+    }, [period, waterReadings]);
+
+    const waterData = useMemo(() => {
+        const prevReadingPeriod = getPreviousPeriod(period);
+        const prevPeriodReadings = new Map<string, WaterReading>(waterReadings.filter(r => r.Period === prevReadingPeriod).map(r => [r.UnitID, r]));
+        const currentPeriodReadings = new Map<string, WaterReading>(waterReadings.filter(r => r.Period === period).map(r => [r.UnitID, r]));
         
         return allUnits
             .map(unit => {
-                const reading = readingsForPeriod.get(unit.UnitID);
-                const isFirstPeriod = period === firstRecordedPeriod;
-                const consumption = isFirstPeriod 
-                    ? 0 
-                    : (reading ? Math.max(0, reading.CurrIndex - reading.PrevIndex) : 0);
-                const hasBeenRecorded = reading ? reading.CurrIndex > reading.PrevIndex : false;
-                const isKios = unit.UnitType === UnitType.KIOS;
-                const isBusinessApt = unit.UnitType === UnitType.APARTMENT && unit.Status === 'Business';
+                const prevReading = prevPeriodReadings.get(unit.UnitID);
+                const currentReading = currentPeriodReadings.get(unit.UnitID);
+                
+                const prevIndex = prevReading?.CurrIndex ?? null;
+                const currIndex = currentReading?.CurrIndex ?? null;
 
+                let consumption: number | null = null;
+                if (prevIndex !== null && currIndex !== null) {
+                    consumption = currIndex - prevIndex;
+                } else if (prevIndex === null && currIndex !== null) {
+                    consumption = 0;
+                }
+                
                 return {
-                    unit,
-                    reading: reading || { UnitID: unit.UnitID, Period: period, PrevIndex: 0, CurrIndex: 0, Rollover: false },
-                    prevIndex: reading?.PrevIndex ?? 0,
-                    consumption: consumption,
-                    isRecorded: hasBeenRecorded,
-                    isBusiness: isKios || isBusinessApt,
-                    isResidential: unit.UnitType === UnitType.APARTMENT && unit.Status !== 'Business',
+                    unitId: unit.UnitID,
+                    unitType: unit.UnitType,
+                    prevIndex,
+                    currIndex,
+                    consumption,
                 };
             })
-            .sort((a, b) => sortUnitsComparator(a.unit, b.unit));
-    }, [allUnits, period, readingsMapByPeriod, firstRecordedPeriod]);
-    
-    const filteredUnits = useMemo(() => {
-        return unitsWithData.filter(item => {
-            const floor = String(parseUnitCode(item.unit.UnitID)?.floor);
-            if (floorFilter !== 'all' && floor !== floorFilter && !(floorFilter === '99' && item.unit.UnitID.startsWith('K'))) return false;
-            
-            if (kpiFilter === 'business' && !item.isBusiness) return false;
-            if (kpiFilter === 'residential' && !item.isResidential) return false;
-            
-            if (searchTerm && !item.unit.UnitID.toLowerCase().includes(searchTerm.toLowerCase())) return false;
-            
-            return true;
-        });
-    }, [unitsWithData, floorFilter, searchTerm, kpiFilter]);
+            .sort((a, b) => sortUnitsComparator({ UnitID: a.unitId }, { UnitID: b.unitId }));
+    }, [period, waterReadings, allUnits]);
 
-    const kpiStats = useMemo(() => {
-        // Current period calculation
-        let totalM3 = 0, totalM3Business = 0, resM3 = 0, resCountWithData = 0;
-        for (const item of unitsWithData) {
-            const m3 = item.consumption;
-            totalM3 += m3;
-            if(item.isBusiness) totalM3Business += m3;
-            if(item.isResidential) {
-                resM3 += m3;
-                if(item.isRecorded) resCountWithData++;
-            }
-        }
+     const historicalChartData = useMemo(() => {
+        const data = [];
+        let currentPeriodDate = new Date(period + '-02');
 
-        // Previous period calculation
-        const prevPeriod = getPreviousPeriod(period);
-        const prevReadingsForPeriod = readingsMapByPeriod.get(prevPeriod) || new Map();
-        let prevTotalM3 = 0, prevResM3 = 0, prevBusinessM3 = 0;
-        
-        for (const unit of allUnits) {
-            const reading = prevReadingsForPeriod.get(unit.UnitID);
-            if (!reading) continue;
+        for (let i = 0; i < 6; i++) {
+            const p = currentPeriodDate.toISOString().slice(0, 7);
+            let consumption = 0;
             
-            const isFirstPeriod = prevPeriod === firstRecordedPeriod;
-            const consumption = isFirstPeriod ? 0 : Math.max(0, reading.CurrIndex - reading.PrevIndex);
-            
-            prevTotalM3 += consumption;
-            const isKios = unit.UnitType === UnitType.KIOS;
-            const isBusinessApt = unit.UnitType === UnitType.APARTMENT && unit.Status === 'Business';
-            if (isKios || isBusinessApt) {
-                prevBusinessM3 += consumption;
+            if (selectedUnitId) {
+                const reading = waterReadings.find(r => r.UnitID === selectedUnitId && r.Period === p);
+                if (reading) {
+                    const prevPeriod = getPreviousPeriod(p);
+                    const hasPrev = waterReadings.some(r => r.UnitID === selectedUnitId && r.Period === prevPeriod);
+                    consumption = hasPrev ? Math.max(0, reading.CurrIndex - reading.PrevIndex) : 0;
+                }
             } else {
-                prevResM3 += consumption;
+                const prevP = getPreviousPeriod(p);
+                const readingsForP = waterReadings.filter(r => r.Period === p);
+                const prevUnitIds = new Set(waterReadings.filter(r => r.Period === prevP).map(r => r.UnitID));
+
+                consumption = readingsForP.reduce((total, reading) => {
+                    if (prevUnitIds.has(reading.UnitID)) {
+                        return total + Math.max(0, reading.CurrIndex - reading.PrevIndex);
+                    }
+                    return total;
+                }, 0);
             }
+
+            data.push({
+                name: `${String(currentPeriodDate.getMonth() + 1).padStart(2, '0')}/${currentPeriodDate.getFullYear().toString().slice(2)}`,
+                'Tiêu thụ': consumption,
+            });
+            currentPeriodDate.setMonth(currentPeriodDate.getMonth() - 1);
         }
+        return data.reverse();
+    }, [period, waterReadings, selectedUnitId]);
 
-        // Trend calculation function
-        const calculateTrend = (current: number, previous: number): number => {
-            if (previous === 0) {
-                return current > 0 ? Infinity : 0;
+    const analyticsData = useMemo(() => {
+        const currentPeriodData = waterData.filter(d => d.consumption !== null && d.consumption >= 0);
+
+        const top5Highest = [...currentPeriodData]
+            .sort((a, b) => (b.consumption ?? 0) - (a.consumption ?? 0))
+            .slice(0, 5);
+
+        const prevPeriod = getPreviousPeriod(period);
+        const prevPeriodConsumptionMap = new Map<string, number>();
+        waterReadings.filter(r => r.Period === prevPeriod).forEach(r => {
+            const prevPrevReading = waterReadings.find(pr => pr.UnitID === r.UnitID && pr.Period === getPreviousPeriod(prevPeriod));
+            if (prevPrevReading || r.PrevIndex === 0) { // Also count if it's the first real month
+                prevPeriodConsumptionMap.set(r.UnitID, Math.max(0, r.CurrIndex - r.PrevIndex));
             }
-            return ((current - previous) / previous) * 100;
-        };
-        
-        return {
-            totalM3,
-            totalM3Residential: resM3,
-            totalM3Business,
-            avgM3Apts: resCountWithData > 0 ? (resM3 / resCountWithData).toFixed(1) : '0.0',
-            totalTrend: calculateTrend(totalM3, prevTotalM3),
-            resTrend: calculateTrend(resM3, prevResM3),
-            businessTrend: calculateTrend(totalM3Business, prevBusinessM3),
-        };
-    }, [unitsWithData, period, readingsMapByPeriod, allUnits, firstRecordedPeriod]);
+        });
 
-    const historyData = useMemo(() => {
+        const top5Increases = currentPeriodData
+            .map(d => {
+                const prevConsumption = prevPeriodConsumptionMap.get(d.unitId);
+                if (prevConsumption !== undefined && d.consumption! > prevConsumption) {
+                    return {
+                        unitId: d.unitId,
+                        increase: d.consumption! - prevConsumption,
+                        current: d.consumption!,
+                        previous: prevConsumption
+                    };
+                }
+                return null;
+            })
+            .filter((item): item is NonNullable<typeof item> => item !== null)
+            .sort((a, b) => b.increase - a.increase)
+            .slice(0, 5);
+        
+        return { top5Highest, top5Increases };
+    }, [waterData, period, waterReadings]);
+
+    const individualUnitAnalytics = useMemo(() => {
         if (!selectedUnitId) return null;
 
-        const data = [];
-        let currentPeriodForChart = period;
-        for (let i = 0; i < 6; i++) {
-            const reading = readingsMapByPeriod.get(currentPeriodForChart)?.get(selectedUnitId);
-            const isFirstPeriod = currentPeriodForChart === firstRecordedPeriod;
-            const consumption = isFirstPeriod ? 0 : (reading ? Math.max(0, reading.CurrIndex - reading.PrevIndex) : 0);
-            
-            const monthName = new Date(currentPeriodForChart + '-02').toLocaleString('en-US', { month: 'short' });
-            data.unshift({ name: monthName, consumption });
-            
-            currentPeriodForChart = getPreviousPeriod(currentPeriodForChart);
-        }
-        
-        const consumptions = data.map(d => d.consumption);
-        const validConsumptions = consumptions.filter(c => c > 0);
-        
-        return {
-            chartData: data,
-            stats: {
-                max: validConsumptions.length > 0 ? Math.max(...validConsumptions) : 0,
-                min: validConsumptions.length > 0 ? Math.min(...validConsumptions) : 0,
-                avg: validConsumptions.length > 0 ? (validConsumptions.reduce((a, b) => a + b, 0) / validConsumptions.length).toFixed(1) : '0.0',
-            }
-        };
-    }, [selectedUnitId, period, readingsMapByPeriod, firstRecordedPeriod]);
+        const readingsForUnit = waterReadings
+            .filter(r => r.UnitID === selectedUnitId)
+            .sort((a, b) => b.Period.localeCompare(a.Period))
+            .slice(0, 12);
 
-
-    const handleReadingChange = (unitId: string, value: string) => {
-        if (!canEdit) return;
-        const numericValue = parseInt(value, 10);
+        if (readingsForUnit.length === 0) return { highest: null, lowest: null, average: 0 };
         
-        setWaterReadings(prev => {
-            const currentReading = prev.find(r => r.UnitID === unitId && r.Period === period);
-            const prevIndexForThisUnit = currentReading?.PrevIndex ?? 0;
-            return prev.map(r => (r.UnitID === unitId && r.Period === period) ? { ...r, CurrIndex: isNaN(numericValue) ? prevIndexForThisUnit : numericValue } : r);
+        const consumptions = readingsForUnit.map(r => {
+            const prevP = getPreviousPeriod(r.Period);
+            const hasPrev = waterReadings.some(pr => pr.UnitID === r.UnitID && pr.Period === prevP);
+            const consumption = hasPrev ? Math.max(0, r.CurrIndex - r.PrevIndex) : 0;
+            return { period: r.Period, consumption };
         });
-    };
+        
+        const validConsumptions = consumptions.filter(c => c.consumption > 0);
+        if (validConsumptions.length === 0) return { highest: null, lowest: null, average: 0 };
+        
+        const highest = validConsumptions.reduce((max, current) => current.consumption > max.consumption ? current : max, validConsumptions[0]);
+        const lowest = validConsumptions.reduce((min, current) => current.consumption < min.consumption ? current : min, validConsumptions[0]);
+        const total = consumptions.reduce((sum, current) => sum + current.consumption, 0);
+        const average = total / consumptions.length;
 
-    const handleInputBlur = (unitId: string, currentIndex: number, previousIndex: number) => {
-        if (currentIndex < previousIndex) {
-            setValidationErrors(prev => ({ ...prev, [unitId]: `Chỉ số phải ≥ ${previousIndex}` }));
-        } else {
-            setValidationErrors(prev => {
-                const next = { ...prev };
-                delete next[unitId];
-                return next;
-            });
-            showToast(`Đã cập nhật chỉ số cho căn hộ ${unitId}`, 'success', 2000);
-        }
-    };
+        return { highest, lowest, average };
+    }, [selectedUnitId, waterReadings]);
     
-    const handleKeyDown = (e: React.KeyboardEvent<HTMLInputElement>, currentIndex: number) => {
-        if (e.key === 'Enter') {
-            e.preventDefault();
-            const nextUnit = filteredUnits[currentIndex + 1];
-            if (nextUnit) {
-                inputRefs.current[nextUnit.unit.UnitID]?.focus();
-            }
-        }
-    };
+    const totalWaterBill = useMemo(() => {
+        return waterData.reduce((total, unitData) => {
+            if (unitData.consumption === null || unitData.consumption < 0) return total;
+            const bill = calculateWaterBill(unitData.consumption, unitData.unitType, tariffs.water);
+            return total + bill;
+        }, 0);
+    }, [waterData, tariffs.water]);
 
-    const navigatePeriod = (direction: 'prev' | 'next') => {
-        const d = new Date(period + '-02');
-        d.setMonth(d.getMonth() + (direction === 'next' ? 1 : -1));
-        const newPeriodDate = new Date(d.getFullYear(), d.getMonth(), 1);
-        const currentPeriodDate = new Date(new Date().getFullYear(), new Date().getMonth(), 1);
-        if (direction === 'next' && newPeriodDate > currentPeriodDate) {
-            showToast("Không thể xem kỳ tương lai.", "info");
+    const selectedUnitBill = useMemo(() => {
+        if (!selectedUnitId) return 0;
+        const selectedUnitData = waterData.find(d => d.unitId === selectedUnitId);
+        if (!selectedUnitData || selectedUnitData.consumption === null || selectedUnitData.consumption < 0) return 0;
+        return calculateWaterBill(selectedUnitData.consumption, selectedUnitData.unitType, tariffs.water);
+    }, [selectedUnitId, waterData, tariffs.water]);
+
+    const filteredWaterData = useMemo(() => {
+        return waterData.filter(d => {
+            if (kpiFilter) {
+                if (kpiFilter === 'residential' && d.unitType !== UnitType.APARTMENT) return false;
+                if (kpiFilter === 'business' && d.unitType !== UnitType.KIOS) return false;
+                if (kpiFilter === 'unrecorded' && d.currIndex !== null) return false;
+            }
+
+            if (floorFilter !== 'all') {
+                const floor = parseUnitCode(d.unitId)?.floor;
+                const unitFloor = d.unitType === UnitType.KIOS ? 'KIOS' : String(floor);
+                if (unitFloor !== floorFilter) return false;
+            }
+
+            if (searchTerm && !d.unitId.toLowerCase().includes(searchTerm.toLowerCase())) return false;
+            return true;
+        });
+    }, [waterData, searchTerm, floorFilter, kpiFilter]);
+
+    const kpiStats = useMemo(() => {
+        const residentialData = waterData.filter(d => d.unitType === UnitType.APARTMENT);
+        const businessData = waterData.filter(d => d.unitType === UnitType.KIOS);
+        return {
+            totalConsumption: waterData.reduce((acc, d) => acc + (d.consumption ?? 0), 0),
+            residentialConsumption: residentialData.reduce((acc, d) => acc + (d.consumption ?? 0), 0),
+            businessConsumption: businessData.reduce((acc, d) => acc + (d.consumption ?? 0), 0),
+            unrecordedCount: waterData.filter(d => d.currIndex === null).length
+        };
+    }, [waterData]);
+
+    const floors = useMemo(() => {
+        const floorNumbers = Array.from(new Set(allUnits.filter(u => u.UnitType === UnitType.APARTMENT).map(u => u.UnitID.slice(0, -2)))).sort((a, b) => parseInt(String(a), 10) - parseInt(String(b), 10));
+        return [{ value: 'all', label: 'Tất cả các tầng' }, ...floorNumbers.map(f => ({ value: f, label: `Tầng ${f}` })), { value: 'KIOS', label: 'Kios' }];
+    }, [allUnits]);
+
+    const handleSave = (unitId: string, newIndexStr: string) => {
+        const newIndex = parseInt(newIndexStr, 10);
+        const currentData = waterData.find(d => d.unitId === unitId);
+        
+        const errors = { ...validationErrors };
+        
+        if (!currentData || isNaN(newIndex) || newIndex < 0) {
+            errors[unitId] = "Chỉ số không hợp lệ.";
+            setValidationErrors(errors);
             return;
         }
-        setPeriod(d.toISOString().slice(0, 7));
-    };
 
-    const handleDownloadTemplate = () => {
-        const headers = ['UnitID', 'PrevIndex', 'CurrIndex'].join(',');
+        const prevReadingPeriod = getPreviousPeriod(period);
+        const prevReading = waterReadings.find(r => r.Period === prevReadingPeriod && r.UnitID === unitId);
+
+        if (prevReading && newIndex < prevReading.CurrIndex) {
+            errors[unitId] = "Chỉ số mới phải lớn hơn hoặc bằng chỉ số cũ.";
+            setValidationErrors(errors);
+            return;
+        }
+
+        delete errors[unitId];
+        setValidationErrors(errors);
+
+        const newReading: WaterReading = {
+            UnitID: unitId,
+            Period: period,
+            PrevIndex: prevReading?.CurrIndex ?? 0,
+            CurrIndex: newIndex,
+            Rollover: false,
+        };
         
-        const rows = unitsWithData.map(item => {
-            return [
-                item.unit.UnitID,
-                item.reading.PrevIndex,
-                '' // Leave current index blank for user to fill
-            ].join(',');
+        const updater = (prev: WaterReading[]) => {
+            const otherReadings = prev.filter(r => !(r.UnitID === unitId && r.Period === period));
+            return [...otherReadings, newReading];
+        };
+
+        setWaterReadings(updater, {
+            module: 'Water',
+            action: 'UPDATE_WATER_READING',
+            summary: `Cập nhật số nước cho ${unitId} kỳ ${period}: ${newIndex}`,
+            ids: [unitId]
         });
-
-        const csvString = [headers, ...rows].join('\n');
-        const blob = new Blob([`\uFEFF${csvString}`], { type: 'text/csv;charset=utf-8;' });
-        const link = document.createElement("a");
-        link.href = URL.createObjectURL(blob);
-        link.download = `water_template_${period}.csv`;
-        link.click();
-        URL.revokeObjectURL(link.href);
-        showToast('Đã tải xuống file template.', 'success');
+        showToast(`Đã lưu chỉ số nước cho căn hộ ${unitId}.`, 'success');
     };
-
-    const handleImportClick = () => {
-        if (!canEdit) return;
-        fileInputRef.current?.click();
-    };
-
-    const handleFileChange = (event: React.ChangeEvent<HTMLInputElement>) => {
-        if (!canEdit) return;
+    
+    const handleFileChange = async (event: React.ChangeEvent<HTMLInputElement>) => {
         const file = event.target.files?.[0];
         if (!file) return;
 
-        const reader = new FileReader();
-        reader.onload = (e) => {
-            try {
-                const text = e.target?.result as string;
-                const lines = text.split('\n').map(l => l.trim()).filter(Boolean);
-                if (lines.length < 2) throw new Error("File rỗng hoặc không có dữ liệu.");
-
-                const headerLine = lines[0].toLowerCase();
-                const headers = headerLine.split(',').map(h => h.trim().replace(/"/g, ''));
+        try {
+            const columnMappings = {
+                unitId: ['căn hộ', 'unit', 'mã căn'],
+                reading: ['chỉ số', 'reading', 'index', 'số nước', 'chỉ số mới'],
+            };
+            const data = await processImportFile(file, columnMappings);
+            
+            const newReadings: { unitId: string, newIndex: number }[] = [];
+            data.forEach((row: any) => {
+                const unitId = String(row.unitId).trim();
+                const reading = parseInt(String(row.reading), 10);
                 
-                const unitIdIndex = headers.indexOf('unitid');
-                const currIndexIndex = headers.indexOf('currindex');
-
-                if (unitIdIndex === -1 || currIndexIndex === -1) {
-                    throw new Error("File CSV phải có cột 'UnitID' và 'CurrIndex'.");
-                }
-                
-                let updatedCount = 0;
-                let skippedCount = 0;
-                const errors: string[] = [];
-                
-                const updatedReadings = [...waterReadings];
-                const readingsForPeriodMap = new Map<string, WaterReading>(
-                    updatedReadings.filter(r => r.Period === period).map(r => [r.UnitID, r])
-                );
-
-                for (let i = 1; i < lines.length; i++) {
-                    const values = lines[i].split(',');
-                    // @google/genai-fix: Safely handle potentially undefined values from CSV parsing.
-                    const unitId = (values[unitIdIndex] || '').trim().replace(/"/g, '');
-                    // @google/genai-fix: Safely handle potentially undefined values from CSV parsing.
-                    const currIndexStr = (values[currIndexIndex] || '').trim().replace(/"/g, '');
-                    
-                    if (!unitId || currIndexStr == null || currIndexStr === '') {
-                        skippedCount++;
-                        continue;
-                    }
-
-                    const currIndex = parseInt(currIndexStr, 10);
-                    const existingReading = readingsForPeriodMap.get(unitId);
-
-                    if (!existingReading) {
-                        skippedCount++;
-                        errors.push(`Dòng ${i + 1}: Căn hộ ${unitId} không tồn tại trong kỳ này.`);
-                        continue;
-                    }
-
-                    if (isNaN(currIndex) || currIndex < 0) {
-                        skippedCount++;
-                        errors.push(`Dòng ${i + 1}: Chỉ số mới '${currIndexStr}' của căn hộ ${unitId} không hợp lệ.`);
-                        continue;
-                    }
-
-                    if (currIndex < existingReading.PrevIndex) {
-                        skippedCount++;
-                        errors.push(`Dòng ${i + 1}: Chỉ số mới (${currIndex}) của căn hộ ${unitId} nhỏ hơn chỉ số cũ (${existingReading.PrevIndex}).`);
-                        continue;
-                    }
-                    
-                    // Update in map
-                    readingsForPeriodMap.set(unitId, { ...existingReading, CurrIndex: currIndex });
-                    updatedCount++;
-                }
-                setWaterReadings(prev => [
-                    ...prev.filter(r => r.Period !== period),
-                    ...Array.from(readingsForPeriodMap.values())
-                ]);
-
-                if (errors.length > 0) {
-                    showToast(`Hoàn tất. Cập nhật ${updatedCount}, bỏ qua ${skippedCount} dòng. Lỗi: ${errors.join('; ')}`, 'warn', 10000);
+                if (allUnits.some(u => u.UnitID === unitId) && !isNaN(reading) && reading >= 0) {
+                    newReadings.push({ unitId, newIndex: reading });
                 } else {
-                    showToast(`Nhập thành công ${updatedCount} chỉ số.`, 'success');
+                    showToast(`Dòng không hợp lệ: Căn hộ '${row.unitId}' hoặc chỉ số '${row.reading}'`, 'warn');
                 }
-            } catch (error: any) {
-                showToast(`Lỗi khi đọc file: ${error.message}`, 'error');
-            } finally {
-                if (fileInputRef.current) fileInputRef.current.value = "";
+            });
+
+            if (newReadings.length > 0) {
+                 const prevReadingPeriod = getPreviousPeriod(period);
+                 const prevReadingsMap = new Map<string, number>(waterReadings.filter(r => r.Period === prevReadingPeriod).map(r => [r.UnitID, r.CurrIndex]));
+
+                 const readingsToSave: WaterReading[] = newReadings.map(({ unitId, newIndex }) => ({
+                    UnitID: unitId,
+                    Period: period,
+                    PrevIndex: prevReadingsMap.get(unitId) ?? 0,
+                    CurrIndex: newIndex,
+                    Rollover: false,
+                 }));
+
+                 const updater = (prev: WaterReading[]) => {
+                    const existingUnitIds = new Set(readingsToSave.map(r => r.UnitID));
+                    const otherReadings = prev.filter(r => !(r.Period === period && existingUnitIds.has(r.UnitID)));
+                    return [...otherReadings, ...readingsToSave];
+                };
+                
+                setWaterReadings(updater, {
+                    module: 'Water', action: 'IMPORT_WATER_READINGS',
+                    summary: `Nhập ${readingsToSave.length} chỉ số nước cho kỳ ${period}`,
+                    count: readingsToSave.length
+                });
+
+                showToast(`Đã nhập thành công ${readingsToSave.length} chỉ số nước.`, 'success');
             }
-        };
-        reader.readAsText(file);
+
+        } catch (error: any) {
+            showToast(error.message, 'error');
+        } finally {
+            if (fileInputRef.current) {
+                fileInputRef.current.value = "";
+            }
+        }
     };
 
-    const floors = useMemo(() => {
-        const floorNumbers = Array.from(new Set(allUnits.filter(u => u.UnitType === UnitType.APARTMENT).map(u => String(parseUnitCode(u.UnitID)?.floor ?? '')))).filter(Boolean).sort((a, b) => parseInt(a, 10) - parseInt(b, 10));
-        return [{ value: 'all', label: 'Tất cả các tầng' }, ...floorNumbers.map(f => ({ value: f, label: `Tầng ${f}` })), { value: '99', label: 'KIOS' }];
-    }, [allUnits]);
+    const handleDownloadTemplate = () => {
+        if (typeof XLSX === 'undefined') {
+            showToast('Thư viện Excel chưa sẵn sàng, vui lòng thử lại sau giây lát.', 'warn');
+            return;
+        }
+        
+        const sortedUnits = [...allUnits].sort(sortUnitsComparator);
+        const data = sortedUnits.map(unit => ({
+            "Căn hộ": unit.UnitID,
+            "Chỉ số mới": ""
+        }));
 
-    const headerPeriod = new Date(period + '-02').toLocaleString('vi-VN', { month: 'numeric', year: 'numeric' });
+        const worksheet = XLSX.utils.json_to_sheet(data);
+        const workbook = XLSX.utils.book_new();
+        XLSX.utils.book_append_sheet(workbook, worksheet, "Data");
+        
+        worksheet['!cols'] = [{ wch: 15 }, { wch: 15 }];
+
+        XLSX.writeFile(workbook, `Template_GhiSoNuoc_Ky_${period}.xlsx`);
+        showToast('Đã tải xuống file mẫu.', 'success');
+    };
 
     return (
-        <div className="h-full flex flex-col space-y-6">
-            <input type="file" ref={fileInputRef} onChange={handleFileChange} accept=".csv" className="hidden" />
-            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6">
-                <div className={`cursor-pointer transition-all rounded-xl ${!kpiFilter ? 'ring-2 ring-primary' : ''}`} onClick={() => setKpiFilter(null)}>
-                    <StatCard 
-                        label="Tổng tiêu thụ" 
-                        value={`${kpiStats.totalM3.toLocaleString('vi-VN')} m³`} 
-                        icon={<DropletsIcon className="w-7 h-7 text-blue-600 dark:text-blue-400" />} 
-                        iconBgClass="bg-blue-100 dark:bg-blue-900/50"
-                        trend={kpiStats.totalTrend}
-                    />
-                </div>
-                <div className={`cursor-pointer transition-all rounded-xl ${kpiFilter === 'residential' ? 'ring-2 ring-primary' : ''}`} onClick={() => setKpiFilter('residential')}>
-                    <StatCard 
-                        label="Hộ dân" 
-                        value={`${kpiStats.totalM3Residential.toLocaleString('vi-VN')} m³`} 
-                        icon={<HomeIcon className="w-7 h-7 text-green-600 dark:text-green-400" />} 
-                        iconBgClass="bg-green-100 dark:bg-green-900/50"
-                        trend={kpiStats.resTrend}
-                    />
-                </div>
-                <div className={`cursor-pointer transition-all rounded-xl ${kpiFilter === 'business' ? 'ring-2 ring-primary' : ''}`} onClick={() => setKpiFilter('business')}>
-                    <StatCard 
-                        label="Kinh doanh" 
-                        value={`${kpiStats.totalM3Business.toLocaleString('vi-VN')} m³`} 
-                        icon={<StoreIcon className="w-7 h-7 text-orange-600 dark:text-orange-400" />} 
-                        iconBgClass="bg-orange-100 dark:bg-orange-900/50"
-                        trend={kpiStats.businessTrend}
-                    />
-                </div>
-                <StatCard 
-                    label="TB Hộ dân" 
-                    value={`${kpiStats.avgM3Apts} m³/hộ`} 
-                    icon={<TrendingUpIcon className="w-7 h-7 text-indigo-600 dark:text-indigo-400" />} 
-                    iconBgClass="bg-indigo-100 dark:bg-indigo-900/50"
+        <div className="grid grid-cols-1 lg:grid-cols-3 gap-6 h-full">
+            {historyModalUnitId && (
+                <WaterHistoryModal
+                    unitId={historyModalUnitId}
+                    allUnitReadings={waterReadingsMap.get(historyModalUnitId) || []}
+                    onClose={() => setHistoryModalUnitId(null)}
                 />
-            </div>
+            )}
+            <input type="file" ref={fileInputRef} onChange={handleFileChange} accept=".xlsx, .xls, .csv" className="hidden" />
 
-             <div className="bg-white dark:bg-dark-bg-secondary p-4 rounded-xl shadow-sm">
-                <div className="flex flex-wrap items-center gap-4">
-                    <div className="relative flex items-center gap-1 p-1 bg-gray-100 dark:bg-gray-800 rounded-lg">
-                        <button onClick={() => navigatePeriod('prev')} data-tooltip="Kỳ trước"><ChevronLeftIcon /></button>
-                        <button onClick={() => setIsMonthPickerOpen(p => !p)} className="p-1.5 w-40 font-semibold hover:bg-gray-200 dark:hover:bg-slate-700 rounded-md" data-tooltip="Chọn kỳ">
-                           {new Date(period + '-02').toLocaleString('vi-VN', { month: '2-digit', year: 'numeric' })}
-                        </button>
-                         {isMonthPickerOpen && <MonthPickerPopover currentPeriod={period} onSelectPeriod={setPeriod} onClose={() => setIsMonthPickerOpen(false)}/>}
-                        <button onClick={() => navigatePeriod('next')} data-tooltip="Kỳ sau"><ChevronRightIcon /></button>
+            {/* Left Column */}
+            <div className="lg:col-span-2 flex flex-col gap-6">
+                <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6">
+                    <div className="cursor-pointer" onClick={() => setKpiFilter(null)}>
+                        <StatCard label="Tổng tiêu thụ" value={`${kpiStats.totalConsumption.toLocaleString('vi-VN')} m³`} icon={<DropletsIcon className="w-7 h-7 text-indigo-600 dark:text-indigo-400" />} iconBgClass="bg-indigo-100 dark:bg-indigo-900/50" />
                     </div>
+                    <div className="cursor-pointer" onClick={() => setKpiFilter('residential')}>
+                        <StatCard label="Hộ dân cư" value={`${kpiStats.residentialConsumption.toLocaleString('vi-VN')} m³`} icon={<HomeIcon className="w-7 h-7 text-green-600 dark:text-green-400" />} iconBgClass="bg-green-100 dark:bg-green-900/50" />
+                    </div>
+                    <div className="cursor-pointer" onClick={() => setKpiFilter('business')}>
+                        <StatCard label="Hộ kinh doanh" value={`${kpiStats.businessConsumption.toLocaleString('vi-VN')} m³`} icon={<StoreIcon className="w-7 h-7 text-amber-600 dark:text-amber-400" />} iconBgClass="bg-amber-100 dark:bg-amber-900/50" />
+                    </div>
+                    <div className="cursor-pointer" onClick={() => setKpiFilter('unrecorded')}>
+                        <StatCard label="Chưa ghi nhận" value={`${kpiStats.unrecordedCount} hộ`} icon={<TrendingUpIcon className="w-7 h-7 text-red-600 dark:text-red-400" />} iconBgClass="bg-red-100 dark:bg-red-900/50" />
+                    </div>
+                </div>
 
-                    <div className="relative flex-grow min-w-[200px]">
-                        <SearchIcon className="absolute left-3 top-1/2 -translate-y-1/2 h-5 w-5 text-gray-400" />
-                        <input type="text" placeholder="Tìm theo mã căn hộ..." value={searchTerm} onChange={e => setSearchTerm(e.target.value)} className="w-full h-10 pl-10 pr-3 border rounded-lg bg-white dark:bg-dark-bg-secondary border-gray-300 dark:border-gray-600"/>
-                    </div>
-                    
-                    <div className="relative min-w-[180px]">
-                        <BuildingIcon className="absolute left-3 top-1/2 -translate-y-1/2 h-5 w-5 text-gray-400" />
-                        <select value={floorFilter} onChange={e => setFloorFilter(e.target.value)} className="w-full h-10 pl-10 pr-3 border rounded-lg bg-white dark:bg-dark-bg-secondary border-gray-300 dark:border-gray-600 appearance-none">
+                <div className="bg-white dark:bg-dark-bg-secondary p-4 rounded-xl shadow-sm">
+                    <div className="flex flex-wrap items-center gap-4">
+                        <div className="relative flex items-center gap-1 p-1 bg-gray-100 dark:bg-gray-800 rounded-lg">
+                            <button onClick={() => setPeriod(getPreviousPeriod(period))} data-tooltip="Kỳ trước"><ChevronLeftIcon /></button>
+                            <button onClick={() => setIsMonthPickerOpen(p => !p)} className="p-1.5 w-32 font-semibold hover:bg-gray-200 dark:hover:bg-slate-700 rounded-md" data-tooltip="Chọn kỳ">
+                                {new Date(period + '-02').toLocaleDateString('vi-VN', { month: '2-digit', year: 'numeric' })}
+                            </button>
+                            {isMonthPickerOpen && <MonthPickerPopover currentPeriod={period} onSelectPeriod={setPeriod} onClose={() => setIsMonthPickerOpen(false)} />}
+                            <button onClick={() => setPeriod(new Date(new Date(period + '-02').setMonth(new Date(period + '-02').getMonth() + 1)).toISOString().slice(0, 7))} data-tooltip="Kỳ sau"><ChevronRightIcon /></button>
+                        </div>
+                        <div className="relative flex-grow min-w-[200px]">
+                            <SearchIcon className="absolute left-3 top-1/2 -translate-y-1/2 h-5 w-5 text-gray-400" />
+                            <input type="text" placeholder="Tìm căn hộ..." value={searchTerm} onChange={e => setSearchTerm(e.target.value)} className="w-full pl-10 p-2 border rounded-lg bg-white border-gray-300 text-gray-900 dark:bg-gray-800 dark:border-gray-600 dark:text-white"/>
+                        </div>
+                        <select value={floorFilter} onChange={e => setFloorFilter(e.target.value)} className="p-2 border rounded-lg bg-white border-gray-300 text-gray-900 dark:bg-dark-bg-secondary dark:border-gray-600 dark:text-white">
                             {floors.map(f => <option key={f.value} value={f.value}>{f.label}</option>)}
                         </select>
+                        <div className="ml-auto flex items-center gap-2">
+                            <button onClick={handleDownloadTemplate} disabled={!canEdit} className="px-4 py-2 bg-green-600 text-white font-semibold rounded-md flex items-center gap-2 disabled:bg-gray-400">
+                                <DocumentArrowDownIcon /> Template
+                            </button>
+                            <button onClick={() => fileInputRef.current?.click()} disabled={!canEdit || isDataLocked} className="px-4 py-2 bg-primary text-white font-semibold rounded-md flex items-center gap-2 disabled:bg-gray-400">
+                                <UploadIcon /> Import
+                            </button>
+                        </div>
                     </div>
-
-                    <div className="ml-auto flex items-center gap-2 flex-shrink-0">
-                        <button onClick={handleDownloadTemplate} data-tooltip="Tải file mẫu" className="h-10 px-3 font-semibold rounded-lg hover:bg-opacity-80 disabled:opacity-50 flex items-center gap-2 border border-gray-300 dark:border-gray-600 bg-white dark:bg-dark-bg-secondary text-gray-700 dark:text-gray-300 hover:bg-gray-50"><DocumentArrowDownIcon/></button>
-                        <button onClick={handleImportClick} data-tooltip="Nhập từ file" disabled={!canEdit} className="h-10 px-3 font-semibold rounded-lg hover:bg-opacity-80 disabled:opacity-50 flex items-center gap-2 border border-blue-600 text-blue-600 hover:bg-blue-100 dark:hover:bg-blue-900/30 bg-white dark:bg-transparent"><UploadIcon/></button>
-                    </div>
+                    {isDataLocked && <p className="text-sm text-yellow-600 dark:text-yellow-400 mt-3 font-semibold text-center">Đã có dữ liệu cho kỳ sau, không thể chỉnh sửa kỳ này.</p>}
                 </div>
-            </div>
 
-            <div className="flex-1 grid grid-cols-1 lg:grid-cols-3 gap-6 overflow-hidden">
-                <div className="lg:col-span-2 bg-white dark:bg-dark-bg-secondary rounded-xl shadow-sm flex flex-col overflow-hidden">
+                <div className="bg-white dark:bg-dark-bg-secondary rounded-xl shadow-sm flex-1 flex flex-col overflow-hidden">
                     <div className="overflow-y-auto">
                         <table className="min-w-full">
-                            <thead className="bg-gray-50 dark:bg-slate-800 sticky top-0 z-10">
+                            <thead className="bg-gray-50 dark:bg-slate-800 sticky top-0 z-10 shadow-sm">
                                 <tr>
                                     <th className="px-4 py-3 text-left text-xs font-bold text-gray-700 dark:text-gray-300 uppercase tracking-wider">Căn hộ</th>
-                                    <th className="px-4 py-3 text-right text-xs font-bold text-gray-700 dark:text-gray-300 uppercase tracking-wider">{`Chỉ số T${headerPeriod}`}</th>
+                                    <th className="px-4 py-3 text-right text-xs font-bold text-gray-700 dark:text-gray-300 uppercase tracking-wider">Chỉ số cũ (m³)</th>
+                                    <th className="px-4 py-3 text-right text-xs font-bold text-gray-700 dark:text-gray-300 uppercase tracking-wider">Chỉ số mới (m³)</th>
                                     <th className="px-4 py-3 text-right text-xs font-bold text-gray-700 dark:text-gray-300 uppercase tracking-wider">Tiêu thụ (m³)</th>
+                                    <th className="px-4 py-3 text-center text-xs font-bold text-gray-700 dark:text-gray-300 uppercase tracking-wider">Hành động</th>
                                 </tr>
                             </thead>
                             <tbody className="divide-y divide-gray-200 dark:divide-gray-700">
-                                {filteredUnits.map((item, index) => (
-                                    <tr 
-                                        key={item.unit.UnitID} 
-                                        className={`hover:bg-gray-50 dark:hover:bg-slate-800/50 cursor-pointer ${selectedUnitId === item.unit.UnitID ? 'bg-blue-50 dark:bg-blue-900/20' : ''}`}
-                                        onClick={() => setSelectedUnitId(item.unit.UnitID)}
+                            {filteredWaterData.map(({ unitId, prevIndex, currIndex, consumption }) => (
+                                    <tr key={unitId} 
+                                        className={`hover:bg-gray-50 dark:hover:bg-slate-800/50 cursor-pointer transition-colors ${selectedUnitId === unitId ? 'bg-blue-50 dark:bg-blue-900/40' : ''}`}
+                                        onClick={() => setSelectedUnitId(prev => prev === unitId ? null : unitId)}
                                     >
-                                        <td className="font-medium px-4 py-1 text-gray-900 dark:text-gray-200">{item.unit.UnitID}</td>
-                                        <td className="px-4 py-1 text-right">
-                                            <input 
-                                                ref={el => { if (el) inputRefs.current[item.unit.UnitID] = el }}
+                                        <td className="font-medium px-4 py-2 text-sm text-gray-900 dark:text-gray-200">{unitId}</td>
+                                        <td className="px-4 py-2 text-right text-sm text-gray-500 dark:text-gray-400">{prevIndex?.toLocaleString('vi-VN') ?? '-'}</td>
+                                        <td className="px-4 py-2 text-right">
+                                            <input
+                                                ref={el => { if (el) inputRefs.current[unitId] = el; }}
                                                 type="number"
-                                                value={item.reading.CurrIndex}
-                                                onChange={e => handleReadingChange(item.unit.UnitID, e.target.value)}
-                                                onBlur={() => handleInputBlur(item.unit.UnitID, item.reading.CurrIndex, item.prevIndex)}
-                                                onKeyDown={e => handleKeyDown(e, index)}
-                                                disabled={!canEdit}
-                                                className={`w-32 text-right p-2 text-sm border rounded-md bg-white text-gray-900 focus:ring-2 focus:ring-primary ${validationErrors[item.unit.UnitID] ? 'border-red-500' : 'border-gray-300'}`}
+                                                defaultValue={currIndex ?? ''}
+                                                onClick={(e) => e.stopPropagation()}
+                                                onBlur={(e) => handleSave(unitId, e.target.value)}
+                                                onKeyDown={(e) => e.key === 'Enter' && (e.target as HTMLInputElement).blur()}
+                                                disabled={!canEdit || isDataLocked}
+                                                className={`w-32 text-right p-2 text-sm border rounded-md bg-white border-gray-300 text-gray-900 focus:ring-2 focus:ring-primary disabled:bg-transparent disabled:border-transparent ${validationErrors[unitId] ? 'border-red-500' : ''}`}
                                             />
                                         </td>
-                                        <td className={`font-bold px-4 py-1 text-right text-lg ${item.consumption > 0 ? 'text-blue-600 dark:text-blue-400' : ''}`}>
-                                            {item.isRecorded || (period === firstRecordedPeriod) ? item.consumption.toLocaleString('vi-VN') : '-'}
+                                        <td className={`px-4 py-2 text-right font-bold text-sm ${consumption === 0 && prevIndex === null ? 'text-gray-400' : 'text-primary'}`}>
+                                            {consumption === 0 && prevIndex === null ? '-' : consumption?.toLocaleString('vi-VN') ?? '?'}
+                                        </td>
+                                        <td className="px-4 py-2 text-center">
+                                            <button
+                                                onClick={(e) => { e.stopPropagation(); setHistoryModalUnitId(unitId); }}
+                                                className="p-2 rounded-full hover:bg-gray-200 dark:hover:bg-gray-700"
+                                                data-tooltip="Xem lịch sử"
+                                            >
+                                                <ListBulletIcon className="w-5 h-5 text-gray-600 dark:text-gray-400" />
+                                            </button>
                                         </td>
                                     </tr>
                                 ))}
@@ -527,30 +646,91 @@ const WaterPage: React.FC<WaterPageProps> = ({ waterReadings, setWaterReadings, 
                         </table>
                     </div>
                 </div>
-                <div className="bg-white dark:bg-dark-bg-secondary rounded-xl shadow-sm p-6 overflow-y-auto">
-                    <h3 className="text-lg font-bold mb-4">Lịch sử tiêu thụ 6 kỳ gần nhất</h3>
-                    {selectedUnitId && historyData ? (
-                        <div>
-                            <h4 className="text-xl font-bold text-primary mb-4">{selectedUnitId}</h4>
-                             <ResponsiveContainer width="100%" height={250}>
-                                <LineChart data={historyData.chartData}>
-                                    <CartesianGrid strokeDasharray="3 3" />
-                                    <XAxis dataKey="name" />
-                                    <YAxis />
-                                    <Tooltip formatter={(value) => `${value} m³`}/>
-                                    <Legend />
-                                    <Line type="monotone" dataKey="consumption" name="Tiêu thụ" stroke="#3b82f6" strokeWidth={2} />
-                                </LineChart>
+            </div>
+
+            {/* Right Column */}
+            <div className="lg:col-span-1">
+                <div className="bg-white dark:bg-dark-bg-secondary p-6 rounded-xl shadow-sm sticky top-6 space-y-6">
+                    <div>
+                        <h3 className="text-lg font-bold mb-4 text-gray-800 dark:text-gray-200">
+                            {selectedUnitId ? `Lịch sử tiêu thụ (Căn hộ ${selectedUnitId})` : 'Lịch sử tiêu thụ 6 tháng'}
+                        </h3>
+                        <div className="h-80">
+                            <ResponsiveContainer width="100%" height="100%">
+                                <BarChart data={historicalChartData} margin={{ top: 5, right: 20, left: -10, bottom: 5 }}>
+                                    <CartesianGrid strokeDasharray="3 3" stroke="var(--light-border, #e5e7eb)" />
+                                    <XAxis dataKey="name" tick={{ fill: 'var(--light-text-secondary, #6b7280)', fontSize: 12 }} />
+                                    <YAxis unit=" m³" tick={{ fill: 'var(--light-text-secondary, #6b7280)', fontSize: 12 }} />
+                                    <Tooltip
+                                        contentStyle={{ backgroundColor: 'var(--light-bg-secondary, white)', border: '1px solid var(--light-border, #e5e7eb)', borderRadius: '0.5rem' }}
+                                        formatter={(value: number) => [`${value.toLocaleString('vi-VN')} m³`, selectedUnitId ? `Tiêu thụ: ${selectedUnitId}` : 'Tổng tiêu thụ']}
+                                    />
+                                    <Bar dataKey="Tiêu thụ" fill="#3b82f6" radius={[4, 4, 0, 0]} />
+                                </BarChart>
                             </ResponsiveContainer>
-                             <div className="mt-6 grid grid-cols-3 gap-4 text-center">
-                                <div><p className="text-xs text-gray-500">Thấp nhất</p><p className="font-bold text-lg">{historyData.stats.min} m³</p></div>
-                                <div><p className="text-xs text-gray-500">Cao nhất</p><p className="font-bold text-lg">{historyData.stats.max} m³</p></div>
-                                <div><p className="text-xs text-gray-500">Trung bình</p><p className="font-bold text-lg">{historyData.stats.avg} m³</p></div>
-                            </div>
                         </div>
-                    ) : (
-                        <div className="flex items-center justify-center h-full text-gray-500">Chọn một căn hộ để xem lịch sử</div>
-                    )}
+                    </div>
+
+                    <div className="border-t dark:border-dark-border pt-4">
+                        <h4 className="font-semibold text-gray-800 dark:text-gray-200 mb-2 flex items-center gap-2">
+                            <CurrencyDollarIcon/> Tổng tiền nước tháng
+                        </h4>
+                        <div className="text-center bg-gray-50 dark:bg-gray-800/50 p-3 rounded-md">
+                            <span className="text-3xl font-bold text-primary">
+                                {formatCurrency(selectedUnitId ? selectedUnitBill : totalWaterBill)}
+                            </span>
+                            {selectedUnitId && <p className="text-xs text-gray-500 mt-1">Cho căn hộ {selectedUnitId}</p>}
+                        </div>
+                    </div>
+                    
+                    <div className="border-t dark:border-dark-border pt-4">
+                        {selectedUnitId && individualUnitAnalytics ? (
+                            <div>
+                                <h4 className="font-semibold text-gray-800 dark:text-gray-200 mb-3 flex items-center gap-2"><ClipboardDocumentListIcon/> Thống kê chi tiết (12 tháng)</h4>
+                                <div className="space-y-2 text-sm">
+                                    <div className="flex justify-between p-2 bg-gray-50 dark:bg-gray-800/50 rounded-md items-center">
+                                        <span className="text-gray-500 dark:text-gray-400">Trung bình tháng:</span>
+                                        <span className="font-bold text-lg">{individualUnitAnalytics.average.toFixed(1)} m³</span>
+                                    </div>
+                                    <div className="flex justify-between p-2 bg-gray-50 dark:bg-gray-800/50 rounded-md items-center">
+                                        <span className="text-gray-500 dark:text-gray-400">Cao nhất:</span>
+                                        {individualUnitAnalytics.highest ? (<span className="font-semibold">{individualUnitAnalytics.highest.consumption} m³ <span className="text-xs text-gray-400 font-normal">({individualUnitAnalytics.highest.period})</span></span>) : <span>N/A</span>}
+                                    </div>
+                                    <div className="flex justify-between p-2 bg-gray-50 dark:bg-gray-800/50 rounded-md items-center">
+                                        <span className="text-gray-500 dark:text-gray-400">Thấp nhất:</span>
+                                        {individualUnitAnalytics.lowest ? (<span className="font-semibold">{individualUnitAnalytics.lowest.consumption} m³ <span className="text-xs text-gray-400 font-normal">({individualUnitAnalytics.lowest.period})</span></span>) : <span>N/A</span>}
+                                    </div>
+                                </div>
+                            </div>
+                        ) : (
+                            <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+                                <div>
+                                    <h4 className="font-semibold text-gray-800 dark:text-gray-200 mb-2 flex items-center gap-2"><TrendingUpIcon/> Top 5 tiêu thụ cao</h4>
+                                    <ul className="space-y-1 text-sm">
+                                        {analyticsData.top5Highest.map(item => (
+                                            <li key={item.unitId} className="flex justify-between items-center p-1.5 rounded hover:bg-gray-100 dark:hover:bg-gray-800/50">
+                                                <span className="font-medium text-gray-700 dark:text-gray-300">{item.unitId}</span>
+                                                <span className="font-bold text-blue-600 dark:text-blue-400">{item.consumption?.toLocaleString('vi-VN')} m³</span>
+                                            </li>
+                                        ))}
+                                            {analyticsData.top5Highest.length === 0 && <li className="text-center text-gray-500 text-xs py-2">Chưa có dữ liệu</li>}
+                                    </ul>
+                                </div>
+                                <div>
+                                    <h4 className="font-semibold text-gray-800 dark:text-gray-200 mb-2 flex items-center gap-2"><SparklesIcon/> Top 5 tăng đột biến</h4>
+                                    <ul className="space-y-1 text-sm">
+                                        {analyticsData.top5Increases.map(item => (
+                                            <li key={item.unitId} className="flex justify-between items-center p-1.5 rounded hover:bg-gray-100 dark:hover:bg-gray-800/50">
+                                                <span className="font-medium text-gray-700 dark:text-gray-300">{item.unitId}</span>
+                                                <span className="font-bold text-red-500 dark:text-red-400" title={`Kỳ trước: ${item.previous} m³`}>+{item.increase.toLocaleString('vi-VN')} m³</span>
+                                            </li>
+                                        ))}
+                                        {analyticsData.top5Increases.length === 0 && <li className="text-center text-gray-500 text-xs py-2">Chưa có dữ liệu</li>}
+                                    </ul>
+                                </div>
+                            </div>
+                        )}
+                    </div>
                 </div>
             </div>
         </div>

@@ -1,10 +1,11 @@
+
 import React, { useState, useMemo, useCallback } from 'react';
 import type { Vehicle, Unit, Owner, Role, VehicleDocument } from '../../types';
 import { VehicleTier } from '../../types';
 import Modal from '../ui/Modal';
 import StatCard from '../ui/StatCard';
 import { useNotification } from '../../App';
-import { CarIcon, SearchIcon, PencilSquareIcon, DocumentArrowDownIcon, WarningIcon, ListBulletIcon, ActionViewIcon, UploadIcon, TrashIcon, DocumentTextIcon, EyeIcon, MotorbikeIcon, BikeIcon, BoltIcon } from '../ui/Icons';
+import { CarIcon, SearchIcon, PencilSquareIcon, DocumentArrowDownIcon, WarningIcon, ListBulletIcon, ActionViewIcon, UploadIcon, TrashIcon, DocumentTextIcon, EyeIcon, MotorbikeIcon, BikeIcon, EBikeIcon } from '../ui/Icons';
 import { formatLicensePlate, translateVehicleType, vehicleTypeLabels, compressImageToWebP } from '../../utils/helpers';
 
 const PARKING_CAPACITY = {
@@ -491,7 +492,7 @@ const VehiclesPage: React.FC<VehiclesPageProps> = ({ vehicles, units, owners, on
                     <StatCard label="SL Xe máy" value={kpiStats.totalMotorbikes} icon={<MotorbikeIcon className="w-7 h-7 text-orange-600" />} iconBgClass="bg-orange-100 dark:bg-orange-900/50" />
                 </div>
                  <div className={`cursor-pointer rounded-xl transition-all ${typeFilter === VehicleTier.EBIKE ? 'ring-2 ring-primary' : ''}`} onClick={() => setTypeFilter(p => p === VehicleTier.EBIKE ? 'all' : VehicleTier.EBIKE)}>
-                    <StatCard label="SL Xe điện" value={kpiStats.totalEBikes} icon={<BoltIcon className="w-7 h-7 text-purple-600" />} iconBgClass="bg-purple-100 dark:bg-purple-900/50" />
+                    <StatCard label="SL Xe điện" value={kpiStats.totalEBikes} icon={<EBikeIcon className="w-7 h-7 text-purple-600" />} iconBgClass="bg-purple-100 dark:bg-purple-900/50" />
                 </div>
                 <div className={`cursor-pointer rounded-xl transition-all ${typeFilter === VehicleTier.BICYCLE ? 'ring-2 ring-primary' : ''}`} onClick={() => setTypeFilter(p => p === VehicleTier.BICYCLE ? 'all' : VehicleTier.BICYCLE)}>
                     <StatCard label="SL Xe đạp" value={kpiStats.totalBicycles} icon={<BikeIcon className="w-7 h-7 text-gray-600" />} iconBgClass="bg-gray-200 dark:bg-gray-700" />

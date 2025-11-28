@@ -137,19 +137,51 @@ export const importResidentsBatch = async (
 ) => {
     console.log("MockAPI: importResidentsBatch");
     let createdCount = 0, updatedCount = 0, vehicleCount = 0;
+    const unitIdsToUpdate = new Set(updates.map(up => up.unitId));
+
+    // Deactivate old vehicles
+    vehicles = vehicles.map(v => {
+        if (unitIdsToUpdate.has(v.UnitID)) {
+            return { ...v, isActive: false };
+        }
+        return v;
+    });
+
     updates.forEach(update => {
         const unitId = String(update.unitId).trim();
-        let unit = currentUnits.find(u => u.UnitID === unitId);
-        if (!unit) {
-            const newOwnerId = `OWN_MOCK_${Date.now()}_${Math.random()}`;
-            const newOwner = { OwnerID: newOwnerId, OwnerName: update.ownerName, Phone: update.phone, Email: update.email };
-            owners.push(newOwner);
-            const newUnit = { UnitID: unitId, OwnerID: newOwnerId, UnitType: update.unitType, Area_m2: update.area, Status: update.status };
-            units.push(newUnit);
-            createdCount++;
-        } else {
+        let unit = units.find(u => u.UnitID === unitId);
+
+        if (unit) {
+            // Update existing unit and owner
+            units = units.map(u => u.UnitID === unitId ? { ...u, Status: update.status, Area_m2: update.area, UnitType: update.unitType } : u);
+            owners = owners.map(o => o.OwnerID === unit!.OwnerID ? { ...o, OwnerName: update.ownerName, Phone: update.phone, Email: update.email } : o);
             updatedCount++;
+        } else {
+            // Create new unit and owner
+            const newOwnerId = `OWN_MOCK_${Date.now()}_${Math.random()}`;
+            owners.push({ OwnerID: newOwnerId, OwnerName: update.ownerName, Phone: update.phone, Email: update.email });
+            units.push({ UnitID: unitId, OwnerID: newOwnerId, UnitType: update.unitType, Area_m2: update.area, Status: update.status });
+            createdCount++;
+        }
+        
+        // Add new vehicles
+        if (update.vehicles && Array.isArray(update.vehicles)) {
+            update.vehicles.forEach((v: any) => {
+                const newVehicle: Vehicle = {
+                    VehicleId: `VEH_MOCK_${Date.now()}_${Math.random()}`,
+                    UnitID: unitId,
+                    Type: v.Type,
+                    VehicleName: v.VehicleName || '',
+                    PlateNumber: v.PlateNumber,
+                    StartDate: new Date().toISOString().split('T')[0],
+                    isActive: true,
+                    parkingStatus: update.parkingStatus || null,
+                };
+                vehicles.push(newVehicle);
+                vehicleCount++;
+            });
         }
     });
+    
     return Promise.resolve({ units, owners, vehicles, createdCount, updatedCount, vehicleCount });
 };
