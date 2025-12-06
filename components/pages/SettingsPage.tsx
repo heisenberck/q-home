@@ -1,5 +1,3 @@
-
-
 import React, { useState, useEffect } from 'react';
 import type { InvoiceSettings, Role } from '../../types';
 import { useNotification } from '../../App';
@@ -61,22 +59,7 @@ interface SettingsPageProps {
 const DEFAULT_CONTENT_SETTINGS = {
     senderName: 'BQT HUD3 LINH DAM',
     emailSubject: '[BQL HUD3] THONG BAO PHI DICH VU KY {{period}} CHO CAN HO {{unit_id}}',
-    emailBody: `<div style="font-family: Arial, sans-serif; color: #333; line-height: 1.6;">
-  <p>Kính gửi Quý chủ hộ <strong>{{owner_name}}</strong>,</p>
-  <p>Ban Quản lý (BQL) tòa nhà <strong>{{building_name}}</strong> trân trọng thông báo phí dịch vụ kỳ <strong>{{period}}</strong> của căn hộ <strong>{{unit_id}}</strong>.</p>
-<div style="margin-bottom: 10px;">
-  <strong>Thông tin chuyển khoản:</strong>
-</div>
-<ul style="list-style: none; padding: 0; margin: 0;">
-  <li style="margin-bottom: 8px;">Ngân hàng: <strong>{{bank_name}}</strong></li>
-  <li style="margin-bottom: 8px;">Chủ TK: <strong>{{bank_account_name}}</strong></li>
-  <li style="margin-bottom: 8px;">Số TK: <span style="font-family: monospace; background: #fff; padding: 2px 6px; border: 1px solid #ccc; font-weight: bold;">{{bank_account_number}}</span></li>
-  <li style="margin-bottom: 8px;">Nội dung: <span style="font-family: monospace; background: #fff; padding: 2px 6px; border: 1px solid #ccc; font-weight: bold;">{{transfer_content}}</span></li>
-</ul>
-<div style="text-align: center; margin-top: 20px; border-top: 1px solid #eee; padding-top: 15px;">
-  <p style="margin-bottom: 10px; font-weight: bold;">Hoặc quét mã QR:</p>
-  <img src="{{qr_url}}" alt="QR Code" style="width: 150px; height: 150px; border: 1px solid #ddd; padding: 5px; background: #fff;" />
-</div>`,
+    emailBody: `Kinh gui Quy chu ho {{owner_name}},\n\nBan Quan ly (BQL) toa nha HUD3 Linh Dam tran trong thong bao phi dich vu ky {{period}} cua can ho {{unit_id}}.\n\nTong so tien can thanh toan la: {{total_due}}.\n\nVui long xem chi tiet phi dich vu ngay duoi day.\n\nTran trong,\nBQL Chung cu HUD3 Linh Dam.`,
     footerHtml: `© {{YEAR}} BQL Chung cu HUD3 Linh Dam. Hotline: 0834.88.66.86`,
     footerShowInPdf: true,
     footerShowInEmail: true,
@@ -305,7 +288,7 @@ const SettingsPage: React.FC<SettingsPageProps> = ({ invoiceSettings, setInvoice
                     </div>
                     <div>
                         <label htmlFor="emailBody" className={labelStyle}>Nội dung Mail</label>
-                        <textarea id="emailBody" rows={15} value={localSettings.emailBody || ''} onChange={handleSettingChange} disabled={!canEdit} className={inputStyle}></textarea>
+                        <textarea id="emailBody" rows={8} value={localSettings.emailBody || ''} onChange={handleSettingChange} disabled={!canEdit} className={inputStyle}></textarea>
                         <p className="mt-2 text-xs text-light-text-secondary dark:text-dark-text-secondary">
                             Sử dụng các biến: <code className="font-mono bg-gray-200 dark:bg-gray-700 p-1 rounded-sm">{'{{unit_id}}'}</code>, <code className="font-mono bg-gray-200 dark:bg-gray-700 p-1 rounded-sm">{'{{owner_name}}'}</code>, <code className="font-mono bg-gray-200 dark:bg-gray-700 p-1 rounded-sm">{'{{period}}'}</code>, <code className="font-mono bg-gray-200 dark:bg-gray-700 p-1 rounded-sm">{'{{total_due}}'}</code>.
                         </p>
