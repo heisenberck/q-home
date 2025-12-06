@@ -1,11 +1,9 @@
-
 import React, { useState, useMemo } from 'react';
 import type { UserPermission, Role } from '../../types';
 import { useAuth, useNotification } from '../../App';
 import Modal from '../ui/Modal';
 import { 
-    KeyIcon, EnvelopeIcon, ShieldCheckIcon, ArrowPathIcon, 
-    TrashIcon, CheckCircleIcon, WarningIcon, PencilSquareIcon,
+    KeyIcon, CheckCircleIcon, WarningIcon, PencilSquareIcon,
     SearchIcon 
 } from '../ui/Icons';
 

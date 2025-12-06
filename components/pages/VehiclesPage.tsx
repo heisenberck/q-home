@@ -1,12 +1,15 @@
-
-import React, { useState, useMemo, useCallback } from 'react';
-import type { Vehicle, Unit, Owner, Role, VehicleDocument } from '../../types';
+import React, { useState, useMemo, useCallback, useEffect } from 'react';
+import { PieChart, Pie, Cell, Tooltip, Legend, ResponsiveContainer } from 'recharts';
+import type { Vehicle, VehicleDocument, Unit, Owner, Role } from '../../types';
 import { VehicleTier } from '../../types';
+import { useNotification } from '../../App';
 import Modal from '../ui/Modal';
 import StatCard from '../ui/StatCard';
-import { useNotification } from '../../App';
-import { CarIcon, SearchIcon, PencilSquareIcon, DocumentArrowDownIcon, WarningIcon, ListBulletIcon, ActionViewIcon, UploadIcon, TrashIcon, DocumentTextIcon, EyeIcon, MotorbikeIcon, BikeIcon, EBikeIcon } from '../ui/Icons';
-import { formatLicensePlate, translateVehicleType, vehicleTypeLabels, compressImageToWebP } from '../../utils/helpers';
+import { 
+    CarIcon, SearchIcon, PencilSquareIcon, WarningIcon, UploadIcon, 
+    TrashIcon, DocumentTextIcon, MotorbikeIcon, BikeIcon, EBikeIcon, ChevronLeftIcon, ChevronRightIcon 
+} from '../ui/Icons';
+import { formatLicensePlate, translateVehicleType, vehicleTypeLabels, compressImageToWebP, timeAgo } from '../../utils/helpers';
 
 const PARKING_CAPACITY = {
     main: 89,
@@ -75,7 +78,6 @@ const VehicleEditModal: React.FC<{
         if (name === 'parkingStatus' && value === '') {
             setVehicle(prev => ({ ...prev, parkingStatus: null }));
         } else if (name === 'Type') {
-            // When changing type, if it's not a car anymore, reset parkingStatus
             const newType = value as VehicleTier;
             const newIsCar = newType === VehicleTier.CAR || newType === VehicleTier.CAR_A;
             setVehicle(prev => ({ 
@@ -129,7 +131,6 @@ const VehicleEditModal: React.FC<{
             showToast('Lỗi khi nén ảnh.', 'error');
             console.error(error);
         }
-        // Reset file input
         if (e.target) e.target.value = '';
     };
 
@@ -189,7 +190,7 @@ const VehicleEditModal: React.FC<{
                     </div>
                     <div>
                         <label className="block text-sm font-medium text-light-text-secondary dark:text-dark-text-secondary">Loại xe</label>
-                         <select name="Type" value={vehicle.Type === VehicleTier.EBIKE ? VehicleTier.EBIKE : vehicle.Type} onChange={handleChange} className={inputStyle}>
+                         <select name="Type" value={vehicle.Type} onChange={handleChange} className={inputStyle}>
                             <option value={VehicleTier.CAR}>{vehicleTypeLabels.car}</option>
                             <option value={VehicleTier.CAR_A}>{vehicleTypeLabels.car_a}</option>
                             <option value={VehicleTier.MOTORBIKE}>{vehicleTypeLabels.motorbike}</option>
@@ -223,8 +224,6 @@ const VehicleEditModal: React.FC<{
                         </select>
                     </div>
                 </div>
-
-                {/* Attachments Section */}
                 <div className="border-t dark:border-dark-border pt-4">
                     <h4 className="text-sm font-bold text-light-text-primary dark:text-dark-text-primary mb-3 flex items-center gap-2">
                         <DocumentTextIcon className="w-5 h-5" /> Hồ sơ đính kèm
@@ -235,7 +234,6 @@ const VehicleEditModal: React.FC<{
                     </div>
                     <p className="text-xs text-gray-500 mt-2">Hỗ trợ ảnh. File sẽ được nén dưới 200KB.</p>
                 </div>
-
                  <div>
                     <label className="block text-sm font-medium text-light-text-secondary dark:text-dark-text-secondary">Ghi chú (Lịch sử thay đổi...)</label>
                     <textarea name="log" value={vehicle.log || ''} onChange={handleChange} className={inputStyle} rows={3} />
@@ -249,73 +247,175 @@ const VehicleEditModal: React.FC<{
     );
 };
 
-// --- Vehicle View Modal ---
-const VehicleViewModal: React.FC<{
-    vehicle: any; // Using any to accept the enhanced vehicle type easily
-    onClose: () => void;
-}> = ({ vehicle, onClose }) => {
-    const [previewDoc, setPreviewDoc] = useState<VehicleDocument | null>(null);
-    const docTypes = [
-        { key: 'registration' as const, label: 'Đăng ký xe' },
-        { key: 'vehiclePhoto' as const, label: 'Ảnh chụp xe' },
-    ];
+// --- NEW: Vehicle Dashboard Panel (Right side, default) ---
+const VehicleDashboard: React.FC<{ vehicles: any[], onSelectVehicle: (vehicle: any) => void }> = ({ vehicles, onSelectVehicle }) => {
+    const dashboardData = useMemo(() => {
+        const active = vehicles.filter(v => v.isActive);
+        const typeCounts = active.reduce((acc: Record<string, number>, v) => {
+            const key = v.Type;
+            acc[key] = (acc[key] || 0) + 1;
+            return acc;
+        }, {});
+
+        const pieData = Object.entries(typeCounts).map(([name, value]) => ({
+            name: translateVehicleType(name as VehicleTier),
+            value,
+        }));
+
+        const vehicleCountsByUnit = active.reduce((acc: Record<string, number>, v) => {
+            acc[v.UnitID] = (acc[v.UnitID] || 0) + 1;
+            return acc;
+        }, {});
+
+        const topOwners = Object.entries(vehicleCountsByUnit).sort((a, b) => b[1] - a[1]).slice(0, 5);
+        const recentUpdates = [...active].sort((a, b) => new Date(b.updatedAt || b.StartDate).getTime() - new Date(a.updatedAt || a.StartDate).getTime()).slice(0, 5);
+
+        return { pieData, topOwners, recentUpdates };
+    }, [vehicles]);
+
+    const [activeSlide, setActiveSlide] = useState(0);
+    const slides = ['pie', 'topOwners'];
+    
+    useEffect(() => {
+        const timer = setInterval(() => {
+            // FIX: Explicitly type the 'prev' parameter as a number to resolve the arithmetic operation type error.
+            setActiveSlide((prev: number) => (prev + 1) % slides.length)
+        }, 5000);
+        return () => clearInterval(timer);
+    }, [slides.length]);
+
+    const COLORS = ['#3b82f6', '#f97316', '#8b5cf6', '#22c55e'];
 
     return (
-        <Modal title={`Chi tiết xe: ${vehicle.PlateNumber}`} onClose={onClose} size="2xl">
-             {previewDoc && <DocumentPreviewModal doc={previewDoc} onClose={() => setPreviewDoc(null)} />}
-            <div className="space-y-6">
-                <section>
-                    <h3 className="text-lg font-semibold border-b pb-2 mb-3 dark:border-dark-border">Thông tin Chủ hộ & Căn hộ</h3>
-                    <div className="grid grid-cols-2 gap-x-4 gap-y-2 text-sm">
-                        <div className="font-medium text-gray-500 dark:text-gray-400">Chủ hộ:</div>
-                        <div>{vehicle.ownerName}</div>
-                        <div className="font-medium text-gray-500 dark:text-gray-400">Căn hộ:</div>
-                        <div>{vehicle.UnitID}</div>
-                        <div className="font-medium text-gray-500 dark:text-gray-400">Số điện thoại:</div>
-                        <div>{vehicle.ownerPhone}</div>
-                    </div>
-                </section>
-                
-                <section>
-                    <h3 className="text-lg font-semibold border-b pb-2 mb-3 dark:border-dark-border">Thông tin Phương tiện</h3>
-                    <div className="grid grid-cols-2 gap-x-4 gap-y-2 text-sm">
-                        <div className="font-medium text-gray-500 dark:text-gray-400">Loại xe:</div>
-                        <div>{translateVehicleType(vehicle.Type)}</div>
-                        <div className="font-medium text-gray-500 dark:text-gray-400">Tên xe:</div>
-                        <div>{vehicle.VehicleName}</div>
-                        <div className="font-medium text-gray-500 dark:text-gray-400">Biển số:</div>
-                        <div className="font-mono">{vehicle.PlateNumber}</div>
-                        <div className="font-medium text-gray-500 dark:text-gray-400">Ngày ĐK:</div>
-                        <div>{new Date(vehicle.StartDate).toLocaleDateString('vi-VN')}</div>
-                        <div className="font-medium text-gray-500 dark:text-gray-400">Trạng thái đỗ:</div>
-                        <div>{vehicle.parkingStatus || 'Không áp dụng'}</div>
-                    </div>
-                </section>
-
-                <section>
-                    <h3 className="text-lg font-semibold border-b pb-2 mb-3 dark:border-dark-border">Hồ sơ đính kèm</h3>
-                    <div className="space-y-2">
-                        {docTypes.map(({ key, label }) => {
-                            const doc = vehicle.documents?.[key];
-                            return (
-                                <div key={key} className="flex justify-between items-center text-sm p-2 bg-gray-50 dark:bg-gray-700/50 rounded-md">
-                                    <span className="font-medium">{label}:</span>
-                                    {doc ? (
-                                         <div className="flex items-center gap-3">
-                                            <span className="text-xs text-gray-500 truncate max-w-[120px]">{doc.name}</span>
-                                            <button onClick={() => setPreviewDoc(doc)} className="text-blue-600 hover:underline text-xs font-semibold">Xem</button>
-                                            <a href={doc.url} download={doc.name} className="text-gray-600 hover:text-gray-900 text-xs"><DocumentArrowDownIcon className="w-4 h-4"/></a>
-                                         </div>
-                                    ) : (
-                                        <span className="text-gray-400 italic text-xs">Chưa có file</span>
-                                    )}
-                                </div>
-                            );
-                        })}
-                    </div>
-                </section>
+        <div className="p-6 h-full flex flex-col">
+            <div className="relative flex-shrink-0">
+                <h3 className="text-xl font-bold mb-4">Thống kê nổi bật</h3>
+                <div className="h-[250px]">
+                    {slides[activeSlide] === 'pie' && (
+                        <div key="pie" className="animate-fade-in-down">
+                            <h4 className="text-sm font-semibold text-center mb-2">Tỷ lệ các loại xe</h4>
+                            <ResponsiveContainer width="100%" height={200}>
+                                <PieChart>
+                                    <Pie data={dashboardData.pieData} dataKey="value" nameKey="name" cx="50%" cy="50%" outerRadius={70} labelLine={false} label={({ cx, cy, midAngle, innerRadius, outerRadius, percent }) => {
+                                        if (percent < 0.05) return null;
+                                        const radius = innerRadius + (outerRadius - innerRadius) * 0.5;
+                                        const x = cx + radius * Math.cos(-midAngle * Math.PI / 180);
+                                        const y = cy + radius * Math.sin(-midAngle * Math.PI / 180);
+                                        return <text x={x} y={y} fill="white" textAnchor="middle" dominantBaseline="central" fontSize="12" fontWeight="bold">{`${(percent * 100).toFixed(0)}%`}</text>;
+                                    }}>
+                                        {dashboardData.pieData.map((entry, index) => <Cell key={`cell-${index}`} fill={COLORS[index % COLORS.length]} />)}
+                                    </Pie>
+                                    <Tooltip />
+                                    <Legend iconSize={10} />
+                                </PieChart>
+                            </ResponsiveContainer>
+                        </div>
+                    )}
+                    {slides[activeSlide] === 'topOwners' && (
+                         <div key="top" className="animate-fade-in-down">
+                            <h4 className="text-sm font-semibold text-center mb-4">Top 5 căn hộ nhiều xe nhất</h4>
+                            <ul className="space-y-2">
+                                {dashboardData.topOwners.map(([unitId, count]) => (
+                                    <li key={unitId} className="flex justify-between items-center text-sm p-2 bg-gray-50 dark:bg-gray-800/50 rounded-md">
+                                        <span className="font-medium">Căn hộ {unitId}</span>
+                                        <span className="font-bold text-primary">{count} xe</span>
+                                    </li>
+                                ))}
+                            </ul>
+                        </div>
+                    )}
+                </div>
+                 <button onClick={() => setActiveSlide(p => (Number(p) - 1 + slides.length) % slides.length)} className="absolute -left-3 top-1/2 -translate-y-1/2 p-1 bg-white dark:bg-gray-700 rounded-full shadow-md z-10"><ChevronLeftIcon /></button>
+                 <button onClick={() => setActiveSlide(p => (Number(p) + 1) % slides.length)} className="absolute -right-3 top-1/2 -translate-y-1/2 p-1 bg-white dark:bg-gray-700 rounded-full shadow-md z-10"><ChevronRightIcon /></button>
             </div>
-        </Modal>
+            <div className="border-t dark:border-dark-border mt-6 pt-6 flex-1 flex flex-col min-h-0">
+                <h3 className="text-lg font-bold mb-4">Các xe mới cập nhật</h3>
+                <ul className="space-y-3 overflow-y-auto pr-2">
+                   {dashboardData.recentUpdates.map(v => (
+                       <li key={v.VehicleId} onClick={() => onSelectVehicle(v)} className="flex items-center gap-4 p-2 rounded-md hover:bg-gray-100 dark:hover:bg-gray-700 cursor-pointer">
+                           <div className="text-gray-500 dark:text-gray-400">{v.Type.includes('car') ? <CarIcon/> : (v.Type === VehicleTier.MOTORBIKE ? <MotorbikeIcon /> : <BikeIcon/>)}</div>
+                           <div className="flex-grow">
+                               <p className="font-semibold text-sm">{v.PlateNumber} <span className="text-xs font-normal text-gray-500">- Căn hộ {v.UnitID}</span></p>
+                               <p className="text-xs text-gray-500">{timeAgo(v.updatedAt || v.StartDate)}</p>
+                           </div>
+                       </li>
+                   ))}
+                </ul>
+            </div>
+        </div>
+    );
+};
+
+// --- Vehicle Detail Panel (Right side, on select) ---
+const VehicleDetailPanel: React.FC<{ vehicle: any, onEdit: (vehicle: any) => void, onDelete: () => void }> = ({ vehicle, onEdit, onDelete }) => {
+    return (
+        <div className="p-6 h-full space-y-6">
+            <header className="flex flex-col items-center text-center">
+                <div className="text-gray-400 dark:text-gray-500 mb-2">{vehicle.Type.includes('car') ? <CarIcon className="w-12 h-12"/> : <MotorbikeIcon className="w-12 h-12"/>}</div>
+                <h2 className="text-3xl font-bold font-mono tracking-wider text-gray-900 dark:text-white">{vehicle.PlateNumber}</h2>
+                {vehicle.parkingStatus && <span className="mt-2 text-sm font-semibold px-3 py-1 bg-blue-100 text-blue-800 dark:bg-blue-900/50 dark:text-blue-300 rounded-full">{vehicle.parkingStatus}</span>}
+            </header>
+            
+            <div className="border-t dark:border-dark-border pt-4">
+                <h3 className="text-sm font-semibold uppercase text-gray-500 mb-3">Thông tin xe</h3>
+                <div className="space-y-2 text-sm">
+                    <div className="flex justify-between"><span className="text-gray-500 dark:text-gray-400">Tên/Nhãn hiệu:</span><span className="font-semibold text-gray-900 dark:text-gray-200">{vehicle.VehicleName || 'Chưa có'}</span></div>
+                    <div className="flex justify-between"><span className="text-gray-500 dark:text-gray-400">Ngày đăng ký:</span><span className="font-semibold text-gray-900 dark:text-gray-200">{new Date(vehicle.StartDate).toLocaleDateString('vi-VN')}</span></div>
+                </div>
+            </div>
+
+            <div className="border-t dark:border-dark-border pt-4">
+                 <h3 className="text-sm font-semibold uppercase text-gray-500 mb-3">Chủ sở hữu</h3>
+                 <div className="space-y-2 text-sm">
+                    <div className="flex justify-between"><span className="text-gray-500 dark:text-gray-400">Chủ hộ:</span><span className="font-semibold text-gray-900 dark:text-gray-200">{vehicle.ownerName}</span></div>
+                    <div className="flex justify-between"><span className="text-gray-500 dark:text-gray-400">Căn hộ:</span><span className="font-semibold text-gray-900 dark:text-gray-200">{vehicle.UnitID}</span></div>
+                    <div className="flex justify-between"><span className="text-gray-500 dark:text-gray-400">SĐT:</span><span className="font-semibold text-gray-900 dark:text-gray-200">{vehicle.ownerPhone}</span></div>
+                </div>
+            </div>
+
+            <div className="border-t dark:border-dark-border pt-4">
+                <h3 className="text-sm font-semibold uppercase text-gray-500 mb-3">Hình ảnh</h3>
+                <div className="grid grid-cols-2 gap-4">
+                    {vehicle.documents?.vehiclePhoto ? <img src={vehicle.documents.vehiclePhoto.url} className="w-full h-24 object-cover rounded-md border" alt="Ảnh xe"/> : <div className="w-full h-24 bg-gray-100 rounded-md flex items-center justify-center text-xs text-gray-400">Ảnh xe</div>}
+                    {vehicle.documents?.registration ? <img src={vehicle.documents.registration.url} className="w-full h-24 object-cover rounded-md border" alt="Ảnh đăng ký"/> : <div className="w-full h-24 bg-gray-100 rounded-md flex items-center justify-center text-xs text-gray-400">Ảnh đăng ký</div>}
+                </div>
+            </div>
+
+            <div className="border-t dark:border-dark-border pt-4 flex gap-3">
+                <button onClick={() => onEdit(vehicle)} className="flex-1 px-4 py-2 bg-primary text-white font-semibold rounded-md shadow-sm hover:bg-primary-focus">Chỉnh sửa</button>
+                <button onClick={onDelete} className="flex-1 px-4 py-2 bg-red-600 text-white font-semibold rounded-md shadow-sm hover:bg-red-700">Xóa</button>
+            </div>
+        </div>
+    );
+};
+
+const ParkingStatusBadge: React.FC<{ status: Vehicle['parkingStatus'], queueNumber?: number }> = ({ status, queueNumber }) => {
+    if (!status) return null;
+
+    let text = status;
+    let classes = '';
+
+    switch (status) {
+        case 'Lốt chính':
+            classes = 'bg-green-100 text-green-800 dark:bg-green-900/50 dark:text-green-300';
+            break;
+        case 'Lốt tạm':
+            classes = 'bg-yellow-100 text-yellow-800 dark:bg-yellow-900/50 dark:text-yellow-300';
+            break;
+        case 'Xếp lốt':
+            classes = 'bg-purple-100 text-purple-800 dark:bg-purple-900/50 dark:text-purple-300';
+            if (queueNumber) {
+                text = `Xếp lốt - ${queueNumber}`;
+            }
+            break;
+        default:
+            return null;
+    }
+
+    return (
+        <span className={`px-2.5 py-1 text-xs font-semibold rounded-full ${classes}`}>
+            {text}
+        </span>
     );
 };
 
@@ -324,7 +424,7 @@ interface VehiclesPageProps {
     vehicles: Vehicle[];
     units: Unit[];
     owners: Owner[];
-    onSetVehicles: (vehicles: Vehicle[]) => void;
+    onSetVehicles: (updater: React.SetStateAction<Vehicle[]>, logPayload?: any) => void;
     role: Role;
 }
 
@@ -335,30 +435,32 @@ const VehiclesPage: React.FC<VehiclesPageProps> = ({ vehicles, units, owners, on
     const [typeFilter, setTypeFilter] = useState('all');
     const [parkingStatusFilter, setParkingStatusFilter] = useState('all');
     const [editingVehicle, setEditingVehicle] = useState<Vehicle | null>(null);
-    const [viewingVehicle, setViewingVehicle] = useState<any | null>(null);
+    const [selectedVehicle, setSelectedVehicle] = useState<any | null>(null);
 
     const ownersMap = useMemo(() => new Map(owners.map(o => [o.OwnerID, o])), [owners]);
     const unitsMap = useMemo(() => new Map(units.map(u => [u.UnitID, u])), [units]);
 
+    const xepLotQueue = useMemo(() => {
+        const queueMap = new Map<string, number>();
+        vehicles
+            .filter(v => v.isActive && v.parkingStatus === 'Xếp lốt' && (v.Type === VehicleTier.CAR || v.Type === VehicleTier.CAR_A))
+            .sort((a, b) => new Date(a.StartDate).getTime() - new Date(b.StartDate).getTime())
+            .forEach((v, index) => {
+                queueMap.set(v.VehicleId, index + 1);
+            });
+        return queueMap;
+    }, [vehicles]);
+
     const enhancedVehicles = useMemo(() => vehicles
-        .filter(v => v.isActive)
         .map(v => {
             const unit = unitsMap.get(v.UnitID);
             const owner = unit ? ownersMap.get(unit.OwnerID) : undefined;
             return { ...v, ownerName: owner?.OwnerName ?? 'N/A', ownerPhone: owner?.Phone ?? '' };
-        })
-        .sort((a, b) => {
-            const pa = parseUnitCode(a.UnitID);
-            const pb = parseUnitCode(b.UnitID);
-            if (pa && pb) {
-                if (pa.floor !== pb.floor) return pa.floor - pb.floor;
-                if (pa.apt !== pb.apt) return pa.apt - pb.apt;
-            }
-            return new Date(a.StartDate).getTime() - new Date(b.StartDate).getTime();
         }),
     [vehicles, unitsMap, ownersMap]);
 
     const filteredVehicles = useMemo(() => enhancedVehicles.filter(v => {
+        if (!v.isActive) return false;
         if (typeFilter !== 'all') {
             if (typeFilter === 'all_cars') {
                 if (v.Type !== VehicleTier.CAR && v.Type !== VehicleTier.CAR_A) return false;
@@ -366,200 +468,166 @@ const VehiclesPage: React.FC<VehiclesPageProps> = ({ vehicles, units, owners, on
                 return false;
             }
         }
-
-        if (parkingStatusFilter !== 'all' && v.parkingStatus !== (parkingStatusFilter === 'none' ? null : parkingStatusFilter)) return false;
-        
-        if (searchTerm && !(
-            v.PlateNumber.toLowerCase().includes(searchTerm.toLowerCase()) ||
-            v.UnitID.toLowerCase().includes(searchTerm.toLowerCase()) ||
-            (v.ownerName || '').toLowerCase().includes(searchTerm.toLowerCase())
-        )) return false;
-        
+        if (parkingStatusFilter !== 'all') {
+            const targetStatus = parkingStatusFilter === 'none' ? null : parkingStatusFilter;
+            if (v.parkingStatus !== targetStatus && !(targetStatus === null && v.parkingStatus === undefined)) return false;
+        }
+        const s = searchTerm.toLowerCase();
+        if (s && !(v.PlateNumber.toLowerCase().includes(s) || v.UnitID.toLowerCase().includes(s) || v.ownerName.toLowerCase().includes(s))) return false;
         return true;
+    }).sort((a, b) => {
+        const pa = parseUnitCode(a.UnitID) || { floor: 999, apt: 999 };
+        const pb = parseUnitCode(b.UnitID) || { floor: 999, apt: 999 };
+        if (pa.floor !== pb.floor) {
+            return pa.floor - pb.floor;
+        }
+        return pa.apt - pb.apt;
     }), [enhancedVehicles, searchTerm, typeFilter, parkingStatusFilter]);
     
     const kpiStats = useMemo(() => {
-        const activeVehicles = enhancedVehicles;
+        const active = enhancedVehicles.filter(v => v.isActive);
+        const totalCars = active.filter(v => v.Type === VehicleTier.CAR || v.Type === VehicleTier.CAR_A).length;
+        const mainParkingUsage = active.filter(v => (v.Type === VehicleTier.CAR || v.Type === VehicleTier.CAR_A) && v.parkingStatus === 'Lốt chính').length;
+        const tempParkingUsage = active.filter(v => (v.Type === VehicleTier.CAR || v.Type === VehicleTier.CAR_A) && v.parkingStatus === 'Lốt tạm').length;
+        const queuedForParking = active.filter(v => (v.Type === VehicleTier.CAR || v.Type === VehicleTier.CAR_A) && v.parkingStatus === 'Xếp lốt').length;
+
         return {
-            totalCars: activeVehicles.filter(v => v.Type === VehicleTier.CAR || v.Type === VehicleTier.CAR_A).length,
-            totalMotorbikes: activeVehicles.filter(v => v.Type === VehicleTier.MOTORBIKE).length,
-            totalEBikes: activeVehicles.filter(v => v.Type === VehicleTier.EBIKE).length,
-            totalBicycles: activeVehicles.filter(v => v.Type === VehicleTier.BICYCLE).length,
-        }
-    }, [enhancedVehicles]);
-    
-    const waitingList = useMemo(() => {
-        return enhancedVehicles
-            .filter(v => (v.Type === VehicleTier.CAR || v.Type === VehicleTier.CAR_A) && v.parkingStatus === 'Xếp lốt')
-            .sort((a, b) => new Date(a.StartDate).getTime() - new Date(b.StartDate).getTime());
+            totalCars,
+            totalMotorbikes: active.filter(v => v.Type === VehicleTier.MOTORBIKE).length,
+            totalEBikes: active.filter(v => v.Type === VehicleTier.EBIKE).length,
+            totalBicycles: active.filter(v => v.Type === VehicleTier.BICYCLE).length,
+            mainParkingUsage,
+            tempParkingUsage,
+            queuedForParking,
+        };
     }, [enhancedVehicles]);
 
-    const handleSave = (updatedVehicle: Vehicle) => {
-        const oldVehicle = vehicles.find(v => v.VehicleId === updatedVehicle.VehicleId);
-        const newVehicles = vehicles.map(v => v.VehicleId === updatedVehicle.VehicleId ? updatedVehicle : v);
-        onSetVehicles(newVehicles);
-        setEditingVehicle(null);
-        showToast(`Đã cập nhật thông tin xe ${updatedVehicle.PlateNumber}.`, 'success');
-
-        const wasParked = oldVehicle?.parkingStatus === 'Lốt chính' || oldVehicle?.parkingStatus === 'Lốt tạm';
-        const isNowNotParked = updatedVehicle.parkingStatus !== 'Lốt chính' && updatedVehicle.parkingStatus !== 'Lốt tạm';
-
-        if (wasParked && isNowNotParked) {
-            const nextInLine = waitingList[0];
-            if (nextInLine) {
-                showToast(`Lốt đỗ xe đã trống. Đề xuất duyệt xe ${nextInLine.PlateNumber} (đăng ký ${new Date(nextInLine.StartDate).toLocaleDateString('vi-VN')}) vào lốt.`, 'info', 8000);
-            }
-        }
-    };
-
-    const handleExport = () => {
-        if (filteredVehicles.length === 0) {
-            showToast('Không có dữ liệu để xuất.', 'info');
+    const handleEdit = (vehicle: Vehicle) => {
+        if (!canEdit) {
+            showToast('Bạn không có quyền chỉnh sửa.', 'error');
             return;
         }
-
-        const headers = ['Căn hộ', 'Chủ hộ', 'SĐT', 'Loại xe', 'Tên xe', 'Biển số', 'Ngày ĐK', 'Trạng thái đỗ'];
-        const csvRows = [headers.join(',')];
-
-        filteredVehicles.forEach(v => {
-            const row = [
-                v.UnitID,
-                `"${v.ownerName}"`,
-                `"${v.ownerPhone}"`,
-                v.Type,
-                `"${v.VehicleName}"`,
-                v.PlateNumber,
-                new Date(v.StartDate).toLocaleDateString('vi-VN'),
-                v.parkingStatus || ''
-            ];
-            csvRows.push(row.join(','));
-        });
-
-        const csvString = csvRows.join('\n');
-        const blob = new Blob([`\uFEFF${csvString}`], { type: 'text/csv;charset=utf-8;' });
-        const link = document.createElement("a");
-        link.href = URL.createObjectURL(blob);
-        link.download = `DanhSachPhuongTien_${new Date().toISOString().slice(0, 10)}.csv`;
-        link.click();
-        URL.revokeObjectURL(link.href);
-        showToast(`Đã xuất thành công ${filteredVehicles.length} dòng.`, 'success');
+        setEditingVehicle(vehicle);
     };
-    
-    const renderParkingStatusBadge = (v: Vehicle) => {
-        const isCar = v.Type === VehicleTier.CAR || v.Type === VehicleTier.CAR_A;
-        if (!isCar) return <span className="text-gray-400 text-xs">N/A</span>;
-        
-        if (!v.parkingStatus) return <span className="text-gray-400 text-xs">Chưa có</span>;
-        
-        let label: string | null = v.parkingStatus || null;
-        if (v.parkingStatus === 'Xếp lốt') {
-            const index = waitingList.findIndex(car => car.VehicleId === v.VehicleId);
-            if (index !== -1) {
-                label = `Xếp lốt - ${index + 1}`;
-            }
+
+    const handleSave = (updatedVehicle: Vehicle) => {
+        const logSummary = `Cập nhật thông tin xe BKS ${updatedVehicle.PlateNumber}`;
+        onSetVehicles(
+            prev => prev.map(v => v.VehicleId === updatedVehicle.VehicleId ? { ...updatedVehicle, updatedAt: new Date().toISOString() } : v),
+            { module: 'Vehicles', action: 'UPDATE_VEHICLE', summary: logSummary, ids: [updatedVehicle.VehicleId] }
+        );
+        showToast('Cập nhật thành công!', 'success');
+        setEditingVehicle(null);
+        if (selectedVehicle?.VehicleId === updatedVehicle.VehicleId) {
+            // Refresh detail view
+            const unit = unitsMap.get(updatedVehicle.UnitID);
+            const owner = unit ? ownersMap.get(unit.OwnerID) : undefined;
+            setSelectedVehicle({ ...updatedVehicle, ownerName: owner?.OwnerName ?? 'N/A', ownerPhone: owner?.Phone ?? '' });
         }
-        
-        const styles = {
-            'Lốt chính': 'bg-green-100 text-green-800 dark:bg-green-900/50 dark:text-green-300',
-            'Lốt tạm': 'bg-yellow-100 text-yellow-800 dark:bg-yellow-900/50 dark:text-yellow-300',
-            'Xếp lốt': 'bg-blue-100 text-blue-800 dark:bg-blue-900/50 dark:text-blue-300',
-        };
-        const statusKey = v.parkingStatus as keyof typeof styles;
-        return <span className={`px-2 py-1 text-xs font-semibold rounded-full ${styles[statusKey]}`}>{label}</span>;
     };
 
-     const renderTypeBadge = (type: VehicleTier) => {
-        const styles: Record<VehicleTier, string> = {
-            [VehicleTier.CAR]: 'bg-blue-100 text-blue-800 dark:bg-blue-900/50 dark:text-blue-300',
-            [VehicleTier.CAR_A]: 'bg-sky-100 text-sky-800 dark:bg-sky-900/50 dark:text-sky-300',
-            [VehicleTier.MOTORBIKE]: 'bg-orange-100 text-orange-800 dark:bg-orange-900/50 dark:text-orange-300',
-            [VehicleTier.EBIKE]: 'bg-purple-100 text-purple-800 dark:bg-purple-900/50 dark:text-purple-300',
-            [VehicleTier.BICYCLE]: 'bg-gray-200 text-gray-800 dark:bg-gray-700 dark:text-gray-300',
-        };
-        return <span className={`px-2.5 py-1 text-xs font-semibold rounded-full ${styles[type]}`}>{translateVehicleType(type)}</span>;
+    const handleDelete = (vehicleToDelete: Vehicle) => {
+        if (!canEdit) {
+            showToast('Bạn không có quyền xóa.', 'error');
+            return;
+        }
+        if (window.confirm(`Bạn có chắc muốn xóa xe BKS: ${vehicleToDelete.PlateNumber}?`)) {
+            const logSummary = `Xóa (lưu trữ) xe BKS ${vehicleToDelete.PlateNumber}`;
+            onSetVehicles(
+                prev => prev.map(v => v.VehicleId === vehicleToDelete.VehicleId ? { ...v, isActive: false, log: `Deleted on ${new Date().toLocaleDateString()}` } : v),
+                { module: 'Vehicles', action: 'DELETE_VEHICLE', summary: logSummary, ids: [vehicleToDelete.VehicleId] }
+            );
+            showToast(`Đã xóa xe ${vehicleToDelete.PlateNumber}.`, 'success');
+            setSelectedVehicle(null);
+        }
     };
-    
+
     return (
-        <div className="h-full flex flex-col space-y-6">
+        <div className="flex gap-6 h-full overflow-hidden">
             {editingVehicle && <VehicleEditModal vehicle={editingVehicle} onSave={handleSave} onClose={() => setEditingVehicle(null)} />}
-            {viewingVehicle && <VehicleViewModal vehicle={viewingVehicle} onClose={() => setViewingVehicle(null)} />}
             
-            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6">
-                <div className={`cursor-pointer rounded-xl transition-all ${typeFilter === 'all_cars' ? 'ring-2 ring-primary' : ''}`} onClick={() => setTypeFilter(p => p === 'all_cars' ? 'all' : 'all_cars')}>
-                    <StatCard label="SL Ô tô" value={kpiStats.totalCars} icon={<CarIcon className="w-7 h-7 text-blue-600" />} iconBgClass="bg-blue-100 dark:bg-blue-900/50" />
+            {/* Left Column */}
+            <div className="w-2/3 flex flex-col gap-4 min-w-0">
+                <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
+                    <StatCard label="Tổng số Ô tô" value={kpiStats.totalCars} icon={<CarIcon className="w-6 h-6 text-blue-600"/>} />
+                    <StatCard label="Tổng số Xe máy" value={kpiStats.totalMotorbikes + kpiStats.totalEBikes} icon={<MotorbikeIcon className="w-6 h-6 text-orange-600"/>} />
+                    <StatCard label="Lốt đỗ chính" value={`${kpiStats.mainParkingUsage} / ${PARKING_CAPACITY.main}`} subtext={`${((kpiStats.mainParkingUsage / PARKING_CAPACITY.main) * 100).toFixed(0)}%`} icon={<CarIcon className="w-6 h-6 text-green-600"/>} />
+                    <StatCard label="Đang chờ lốt" value={kpiStats.queuedForParking} icon={<WarningIcon className="w-6 h-6 text-red-600"/>} />
                 </div>
-                <div className={`cursor-pointer rounded-xl transition-all ${typeFilter === VehicleTier.MOTORBIKE ? 'ring-2 ring-primary' : ''}`} onClick={() => setTypeFilter(p => p === VehicleTier.MOTORBIKE ? 'all' : VehicleTier.MOTORBIKE)}>
-                    <StatCard label="SL Xe máy" value={kpiStats.totalMotorbikes} icon={<MotorbikeIcon className="w-7 h-7 text-orange-600" />} iconBgClass="bg-orange-100 dark:bg-orange-900/50" />
+                
+                <div className="bg-white dark:bg-dark-bg-secondary p-4 rounded-xl shadow-sm">
+                    <div className="flex items-center gap-4">
+                        <div className="relative flex-grow">
+                            <SearchIcon className="absolute left-3 top-1/2 -translate-y-1/2 h-5 w-5 text-gray-400" />
+                            <input type="text" placeholder="Tìm biển số, căn hộ, chủ hộ..." value={searchTerm} onChange={e => setSearchTerm(e.target.value)} className="w-full h-10 pl-10 pr-3 border rounded-lg bg-white dark:bg-dark-bg-secondary border-gray-300 dark:border-gray-600"/>
+                        </div>
+                        <select value={typeFilter} onChange={e => setTypeFilter(e.target.value)} className="h-10 px-3 border rounded-lg bg-white dark:bg-dark-bg-secondary border-gray-300 dark:border-gray-600">
+                            <option value="all">Tất cả loại xe</option>
+                            <option value="all_cars">Tất cả Ô tô</option>
+                            <option value={VehicleTier.MOTORBIKE}>Xe máy</option>
+                            <option value={VehicleTier.EBIKE}>Xe điện</option>
+                            <option value={VehicleTier.BICYCLE}>Xe đạp</option>
+                        </select>
+                        <select value={parkingStatusFilter} onChange={e => setParkingStatusFilter(e.target.value)} className="h-10 px-3 border rounded-lg bg-white dark:bg-dark-bg-secondary border-gray-300 dark:border-gray-600">
+                            <option value="all">Tất cả trạng thái đỗ</option>
+                            <option value="Lốt chính">Lốt chính</option>
+                            <option value="Lốt tạm">Lốt tạm</option>
+                            <option value="Xếp lốt">Xếp lốt</option>
+                            <option value="none">Chưa có</option>
+                        </select>
+                    </div>
                 </div>
-                 <div className={`cursor-pointer rounded-xl transition-all ${typeFilter === VehicleTier.EBIKE ? 'ring-2 ring-primary' : ''}`} onClick={() => setTypeFilter(p => p === VehicleTier.EBIKE ? 'all' : VehicleTier.EBIKE)}>
-                    <StatCard label="SL Xe điện" value={kpiStats.totalEBikes} icon={<EBikeIcon className="w-7 h-7 text-purple-600" />} iconBgClass="bg-purple-100 dark:bg-purple-900/50" />
-                </div>
-                <div className={`cursor-pointer rounded-xl transition-all ${typeFilter === VehicleTier.BICYCLE ? 'ring-2 ring-primary' : ''}`} onClick={() => setTypeFilter(p => p === VehicleTier.BICYCLE ? 'all' : VehicleTier.BICYCLE)}>
-                    <StatCard label="SL Xe đạp" value={kpiStats.totalBicycles} icon={<BikeIcon className="w-7 h-7 text-gray-600" />} iconBgClass="bg-gray-200 dark:bg-gray-700" />
-                </div>
-            </div>
-            
-            <div className="bg-white dark:bg-dark-bg-secondary p-4 rounded-xl shadow-sm">
-                <div className="flex flex-wrap items-center gap-4">
-                    <div className="relative flex-grow min-w-[200px]"><SearchIcon className="absolute left-3 top-1/2 -translate-y-1/2 h-5 w-5 text-gray-400" /><input type="text" placeholder="Tìm biển số, căn hộ, chủ hộ..." value={searchTerm} onChange={e => setSearchTerm(e.target.value)} className="w-full pl-10 p-2 border rounded-lg bg-white border-gray-300 text-gray-900 dark:bg-gray-800 dark:border-gray-600 dark:text-white"/></div>
-                     <select value={parkingStatusFilter} onChange={e => setParkingStatusFilter(e.target.value)} className="p-2 border rounded-lg bg-white border-gray-300 text-gray-900 dark:bg-dark-bg-secondary dark:border-gray-600 dark:text-white"><option value="all">Tất cả trạng thái đỗ</option><option value="Lốt chính">Lốt chính</option><option value="Lốt tạm">Lốt tạm</option><option value="Xếp lốt">Xếp lốt</option><option value="none">Chưa có</option></select>
-                    <div className="relative group inline-block ml-auto">
-                        <button onClick={handleExport} className="h-10 px-4 text-sm font-semibold rounded-lg flex items-center gap-2 border border-gray-500 text-gray-700 dark:text-gray-300 hover:bg-gray-500/10">
-                            <DocumentArrowDownIcon /> <span className="hidden lg:inline">Export</span>
-                        </button>
+
+                <div className="bg-white dark:bg-dark-bg-secondary rounded-xl shadow-sm flex-1 flex flex-col min-h-0">
+                    <div className="overflow-y-auto pr-2">
+                        <table className="min-w-full">
+                            <thead className="bg-gray-50 dark:bg-slate-800 sticky top-0 z-10">
+                                <tr>
+                                    <th className="px-4 py-3 text-left text-xs font-bold text-gray-700 dark:text-gray-300 uppercase tracking-wider">Căn hộ</th>
+                                    <th className="px-4 py-3 text-left text-xs font-bold text-gray-700 dark:text-gray-300 uppercase tracking-wider">Chủ hộ</th>
+                                    <th className="px-4 py-3 text-left text-xs font-bold text-gray-700 dark:text-gray-300 uppercase tracking-wider">Biển số</th>
+                                    <th className="px-4 py-3 text-left text-xs font-bold text-gray-700 dark:text-gray-300 uppercase tracking-wider">Loại xe</th>
+                                    <th className="px-4 py-3 text-center text-xs font-bold text-gray-700 dark:text-gray-300 uppercase tracking-wider">Trạng thái đỗ</th>
+                                    <th className="px-4 py-3 text-center text-xs font-bold text-gray-700 dark:text-gray-300 uppercase tracking-wider">Hành động</th>
+                                </tr>
+                            </thead>
+                            <tbody className="divide-y divide-gray-200 dark:divide-gray-700">
+                                {filteredVehicles.map(v => (
+                                    <tr key={v.VehicleId} onClick={() => setSelectedVehicle(v)} className={`cursor-pointer ${selectedVehicle?.VehicleId === v.VehicleId ? 'bg-blue-50 dark:bg-blue-900/40' : 'hover:bg-gray-50 dark:hover:bg-slate-800/50'}`}>
+                                        <td className="font-semibold px-4 py-4 text-sm text-gray-900 dark:text-gray-200">{v.UnitID}</td>
+                                        <td className="px-4 py-4 text-sm font-bold text-gray-900 dark:text-gray-200">{v.ownerName}</td>
+                                        <td className="px-4 py-4 text-sm font-mono text-gray-700 dark:text-gray-300">{v.PlateNumber}</td>
+                                        <td className="px-4 py-4 text-sm text-gray-900 dark:text-gray-200">{translateVehicleType(v.Type)}</td>
+                                        <td className="px-4 py-4 text-sm text-center">
+                                            <ParkingStatusBadge status={v.parkingStatus} queueNumber={xepLotQueue.get(v.VehicleId)} />
+                                        </td>
+                                        <td className="px-4 py-4">
+                                            <div className="flex justify-center items-center gap-2">
+                                                <button onClick={(e) => { e.stopPropagation(); handleEdit(v); }} disabled={!canEdit} className="p-2 rounded-full hover:bg-gray-200 dark:hover:bg-gray-600 disabled:opacity-30" data-tooltip="Sửa">
+                                                    <PencilSquareIcon className="w-5 h-5 text-blue-500" />
+                                                </button>
+                                            </div>
+                                        </td>
+                                    </tr>
+                                ))}
+                            </tbody>
+                        </table>
                     </div>
                 </div>
             </div>
 
-            <div className="bg-white dark:bg-dark-bg-secondary rounded-xl shadow-sm flex-1 flex flex-col overflow-hidden">
-                <div className="overflow-y-auto">
-                    <table className="min-w-full">
-                        <thead className="bg-gray-50 dark:bg-slate-800 sticky top-0 z-10">
-                            <tr>
-                                <th className="px-4 py-3 text-left text-xs font-bold text-gray-700 dark:text-gray-300 uppercase tracking-wider">Căn hộ</th>
-                                <th className="px-4 py-3 text-left text-xs font-bold text-gray-700 dark:text-gray-300 uppercase tracking-wider">Chủ hộ</th>
-                                <th className="px-4 py-3 text-left text-xs font-bold text-gray-700 dark:text-gray-300 uppercase tracking-wider">Loại xe</th>
-                                <th className="px-4 py-3 text-left text-xs font-bold text-gray-700 dark:text-gray-300 uppercase tracking-wider">Tên xe</th>
-                                <th className="px-4 py-3 text-left text-xs font-bold text-gray-700 dark:text-gray-300 uppercase tracking-wider">Biển số</th>
-                                <th className="px-4 py-3 text-left text-xs font-bold text-gray-700 dark:text-gray-300 uppercase tracking-wider">Ngày ĐK</th>
-                                <th className="px-4 py-3 text-left text-xs font-bold text-gray-700 dark:text-gray-300 uppercase tracking-wider">Trạng thái đỗ</th>
-                                <th className="px-4 py-3 text-center text-xs font-bold text-gray-700 dark:text-gray-300 uppercase tracking-wider">Hành động</th>
-                            </tr>
-                        </thead>
-                        <tbody className="divide-y divide-gray-200 dark:divide-gray-700">
-                            {filteredVehicles.map(v => (
-                                <tr key={v.VehicleId} className="hover:bg-gray-50 dark:hover:bg-slate-800/50">
-                                    <td className="font-medium px-4 py-4 text-sm text-gray-900 dark:text-gray-200">{v.UnitID}</td>
-                                    <td className="px-4 py-4 text-sm text-gray-900 dark:text-gray-200">{v.ownerName}</td>
-                                    <td className="px-4 py-4 text-sm">{renderTypeBadge(v.Type)}</td>
-                                    <td className="px-4 py-4 text-sm text-gray-900 dark:text-gray-200">{v.VehicleName}</td>
-                                    <td className="font-mono px-4 py-4 text-sm text-gray-900 dark:text-gray-200">{v.PlateNumber}</td>
-                                    <td className="px-4 py-4 text-sm text-gray-900 dark:text-gray-200">{new Date(v.StartDate).toLocaleDateString('vi-VN')}</td>
-                                    <td className="px-4 py-4 text-sm">{renderParkingStatusBadge(v)}</td>
-                                    <td className="text-center px-4 py-4">
-                                        <div className="flex justify-center items-center gap-2">
-                                            <button 
-                                                onClick={() => setViewingVehicle(v)} 
-                                                className="p-2 rounded-full hover:bg-gray-200 dark:hover:bg-gray-600 text-gray-500 hover:text-gray-700"
-                                                data-tooltip="Xem chi tiết"
-                                            >
-                                                <ActionViewIcon className="w-5 h-5" />
-                                            </button>
-                                            <button 
-                                                onClick={() => setEditingVehicle(v)} 
-                                                disabled={!canEdit} 
-                                                className="p-2 rounded-full hover:bg-gray-200 dark:hover:bg-gray-600 disabled:opacity-30"
-                                                data-tooltip="Sửa thông tin"
-                                            >
-                                                <PencilSquareIcon className="w-5 h-5 text-blue-500" />
-                                            </button>
-                                        </div>
-                                    </td>
-                                </tr>
-                            ))}
-                        </tbody>
-                    </table>
-                </div>
+            {/* Right Column */}
+            <div className="w-1/3 bg-white dark:bg-dark-bg-secondary rounded-xl shadow-sm overflow-y-auto">
+                {selectedVehicle ? (
+                    <VehicleDetailPanel 
+                        key={selectedVehicle.VehicleId} 
+                        vehicle={selectedVehicle}
+                        onEdit={handleEdit}
+                        onDelete={() => handleDelete(selectedVehicle)}
+                    />
+                ) : (
+                    <VehicleDashboard vehicles={enhancedVehicles} onSelectVehicle={setSelectedVehicle} />
+                )}
             </div>
         </div>
     );

@@ -7,8 +7,6 @@ const IS_PROD = isProduction();
 
 const api = IS_PROD ? firebaseAPI : mockAPI;
 
-console.log(`[System] Running in ${IS_PROD ? 'PRODUCTION' : 'DEVELOPMENT (Mock Mode)'}`);
-
 export const {
     loadAllData,
     updateFeeSettings,

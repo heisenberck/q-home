@@ -1,14 +1,17 @@
-
 import React, { useState, useMemo, useEffect, useRef } from 'react';
+import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer } from 'recharts';
 import type { WaterReading, Unit, Role, TariffWater, TariffCollection } from '../../types';
 import { UnitType } from '../../types';
 import { useNotification } from '../../App';
-import { HomeIcon, StoreIcon, TrendingUpIcon, DropletsIcon, ChevronLeftIcon, ChevronRightIcon, SearchIcon, UploadIcon, ListBulletIcon, SparklesIcon, ClipboardDocumentListIcon, DocumentArrowDownIcon, CurrencyDollarIcon } from '../ui/Icons';
-import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer } from 'recharts';
-import { parseUnitCode, getPreviousPeriod, sortUnitsComparator, formatCurrency } from '../../utils/helpers';
-import StatCard from '../ui/StatCard';
-import { processImportFile } from '../../utils/importHelpers';
 import Modal from '../ui/Modal';
+import StatCard from '../ui/StatCard';
+import { 
+    HomeIcon, StoreIcon, TrendingUpIcon, DropletsIcon, ChevronLeftIcon, ChevronRightIcon, 
+    SearchIcon, UploadIcon, SparklesIcon, ClipboardDocumentListIcon, 
+    DocumentArrowDownIcon, WarningIcon
+} from '../ui/Icons';
+import { parseUnitCode, getPreviousPeriod, sortUnitsComparator, formatCurrency } from '../../utils/helpers';
+import { processImportFile } from '../../utils/importHelpers';
 
 declare const XLSX: any;
 
@@ -196,7 +199,7 @@ interface WaterPageProps {
 const WaterPage: React.FC<WaterPageProps> = ({ waterReadings, setWaterReadings, allUnits, role, tariffs }) => {
     const { showToast } = useNotification();
     const canEdit = ['Admin', 'Operator', 'Accountant'].includes(role);
-    const [period, setPeriod] = useState('2025-11');
+    const [period, setPeriod] = useState(new Date().toISOString().slice(0, 7));
     
     const [searchTerm, setSearchTerm] = useState('');
     const [floorFilter, setFloorFilter] = useState('all');
@@ -363,11 +366,11 @@ const WaterPage: React.FC<WaterPageProps> = ({ waterReadings, setWaterReadings, 
     }, [selectedUnitId, waterReadings]);
     
     const totalWaterBill = useMemo(() => {
-        return waterData.reduce((total, unitData) => {
+        return Math.round(waterData.reduce((total, unitData) => {
             if (unitData.consumption === null || unitData.consumption < 0) return total;
             const bill = calculateWaterBill(unitData.consumption, unitData.unitType, tariffs.water);
             return total + bill;
-        }, 0);
+        }, 0));
     }, [waterData, tariffs.water]);
 
     const selectedUnitBill = useMemo(() => {
@@ -452,64 +455,92 @@ const WaterPage: React.FC<WaterPageProps> = ({ waterReadings, setWaterReadings, 
         setWaterReadings(updater, {
             module: 'Water',
             action: 'UPDATE_WATER_READING',
-            summary: `Cập nhật số nước cho ${unitId} kỳ ${period}: ${newIndex}`,
-            ids: [unitId]
+            summary: `Cập nhật số nước cho ${unitId} kỳ ${period}`,
+            ids: [unitId],
         });
-        showToast(`Đã lưu chỉ số nước cho căn hộ ${unitId}.`, 'success');
+    
+        showToast(`Đã lưu chỉ số mới cho căn hộ ${unitId}.`, 'success');
     };
     
+    const handleImportClick = () => {
+        if (isDataLocked) {
+            showToast('Kỳ đã bị khóa do đã có dữ liệu ở kỳ sau. Không thể nhập.', 'warn');
+            return;
+        }
+        fileInputRef.current?.click();
+    };
+
     const handleFileChange = async (event: React.ChangeEvent<HTMLInputElement>) => {
         const file = event.target.files?.[0];
         if (!file) return;
 
         try {
-            const columnMappings = {
-                unitId: ['căn hộ', 'unit', 'mã căn'],
-                reading: ['chỉ số', 'reading', 'index', 'số nước', 'chỉ số mới'],
-            };
-            const data = await processImportFile(file, columnMappings);
-            
-            const newReadings: { unitId: string, newIndex: number }[] = [];
-            data.forEach((row: any) => {
-                const unitId = String(row.unitId).trim();
-                const reading = parseInt(String(row.reading), 10);
-                
-                if (allUnits.some(u => u.UnitID === unitId) && !isNaN(reading) && reading >= 0) {
-                    newReadings.push({ unitId, newIndex: reading });
-                } else {
-                    showToast(`Dòng không hợp lệ: Căn hộ '${row.unitId}' hoặc chỉ số '${row.reading}'`, 'warn');
-                }
+            const parsedData = await processImportFile(file, {
+                unitId: ['căn hộ', 'unit'],
+                reading: ['chỉ số', 'reading'],
             });
 
-            if (newReadings.length > 0) {
-                 const prevReadingPeriod = getPreviousPeriod(period);
-                 const prevReadingsMap = new Map<string, number>(waterReadings.filter(r => r.Period === prevReadingPeriod).map(r => [r.UnitID, r.CurrIndex]));
+            if (parsedData.length === 0) {
+                showToast('Không tìm thấy dữ liệu hợp lệ trong file.', 'warn');
+                return;
+            }
 
-                 const readingsToSave: WaterReading[] = newReadings.map(({ unitId, newIndex }) => ({
+            const prevPeriod = getPreviousPeriod(period);
+            const prevReadingsMap = new Map<string, WaterReading>(
+                waterReadings.filter(r => r.Period === prevPeriod).map(r => [r.UnitID, r])
+            );
+            const allUnitIds = new Set(allUnits.map(u => u.UnitID));
+            const newReadings: WaterReading[] = [];
+            let successCount = 0;
+            let errorCount = 0;
+
+            for (const row of parsedData) {
+                const unitId = String(row.unitId).trim();
+                const newIndex = parseInt(String(row.reading), 10);
+
+                if (!allUnitIds.has(unitId) || isNaN(newIndex)) {
+                    errorCount++;
+                    continue;
+                }
+
+                const prevIndex = prevReadingsMap.get(unitId)?.CurrIndex ?? 0;
+                if (newIndex < prevIndex) {
+                    errorCount++;
+                    continue;
+                }
+
+                newReadings.push({
                     UnitID: unitId,
                     Period: period,
-                    PrevIndex: prevReadingsMap.get(unitId) ?? 0,
+                    PrevIndex: prevIndex,
                     CurrIndex: newIndex,
                     Rollover: false,
-                 }));
-
-                 const updater = (prev: WaterReading[]) => {
-                    const existingUnitIds = new Set(readingsToSave.map(r => r.UnitID));
-                    const otherReadings = prev.filter(r => !(r.Period === period && existingUnitIds.has(r.UnitID)));
-                    return [...otherReadings, ...readingsToSave];
-                };
-                
-                setWaterReadings(updater, {
-                    module: 'Water', action: 'IMPORT_WATER_READINGS',
-                    summary: `Nhập ${readingsToSave.length} chỉ số nước cho kỳ ${period}`,
-                    count: readingsToSave.length
                 });
+                successCount++;
+            }
 
-                showToast(`Đã nhập thành công ${readingsToSave.length} chỉ số nước.`, 'success');
+            if (successCount > 0) {
+                const updater = (prev: WaterReading[]) => {
+                    const otherReadings = prev.filter(r => r.Period !== period);
+                    const existingForPeriod = prev.filter(r => r.Period === period);
+                    const newReadingsMap = new Map(newReadings.map(r => [r.UnitID, r]));
+                    const mergedForPeriod = existingForPeriod.map(r => newReadingsMap.get(r.UnitID) ?? r);
+                    const trulyNew = newReadings.filter(r => !existingForPeriod.some(er => er.UnitID === r.UnitID));
+                    return [...otherReadings, ...mergedForPeriod, ...trulyNew];
+                };
+                setWaterReadings(updater, {
+                    module: 'Water',
+                    action: 'IMPORT_WATER_READINGS',
+                    summary: `Nhập ${successCount} chỉ số nước từ file cho kỳ ${period}`,
+                    count: successCount,
+                });
+                showToast(`Nhập thành công ${successCount} chỉ số. ${errorCount} dòng lỗi.`, 'success');
+            } else {
+                showToast(`Không có chỉ số hợp lệ nào được nhập. ${errorCount} dòng lỗi.`, 'warn');
             }
 
         } catch (error: any) {
-            showToast(error.message, 'error');
+            showToast(`Lỗi khi xử lý file: ${error.message}`, 'error');
         } finally {
             if (fileInputRef.current) {
                 fileInputRef.current.value = "";
@@ -518,220 +549,160 @@ const WaterPage: React.FC<WaterPageProps> = ({ waterReadings, setWaterReadings, 
     };
 
     const handleDownloadTemplate = () => {
-        if (typeof XLSX === 'undefined') {
-            showToast('Thư viện Excel chưa sẵn sàng, vui lòng thử lại sau giây lát.', 'warn');
-            return;
-        }
-        
-        const sortedUnits = [...allUnits].sort(sortUnitsComparator);
-        const data = sortedUnits.map(unit => ({
-            "Căn hộ": unit.UnitID,
-            "Chỉ số mới": ""
+        const data = waterData.map(d => ({
+            'Mã Căn Hộ': d.unitId,
+            'Chỉ Số Cũ': d.prevIndex ?? 'N/A',
+            'Chỉ Số Mới (Nhập vào đây)': ''
         }));
-
         const worksheet = XLSX.utils.json_to_sheet(data);
         const workbook = XLSX.utils.book_new();
-        XLSX.utils.book_append_sheet(workbook, worksheet, "Data");
-        
-        worksheet['!cols'] = [{ wch: 15 }, { wch: 15 }];
-
-        XLSX.writeFile(workbook, `Template_GhiSoNuoc_Ky_${period}.xlsx`);
-        showToast('Đã tải xuống file mẫu.', 'success');
+        XLSX.utils.book_append_sheet(workbook, worksheet, "WaterReadings");
+        XLSX.writeFile(workbook, `Water_Template_${period}.xlsx`);
     };
 
     return (
-        <div className="grid grid-cols-1 lg:grid-cols-3 gap-6 h-full">
+        <div className="flex gap-6 h-full overflow-hidden">
+            <input type="file" ref={fileInputRef} onChange={handleFileChange} accept=".xlsx, .xls, .csv" className="hidden" />
             {historyModalUnitId && (
-                <WaterHistoryModal
-                    unitId={historyModalUnitId}
-                    allUnitReadings={waterReadingsMap.get(historyModalUnitId) || []}
+                <WaterHistoryModal 
+                    unitId={historyModalUnitId} 
+                    allUnitReadings={waterReadingsMap.get(historyModalUnitId) || []} 
                     onClose={() => setHistoryModalUnitId(null)}
                 />
             )}
-            <input type="file" ref={fileInputRef} onChange={handleFileChange} accept=".xlsx, .xls, .csv" className="hidden" />
-
-            {/* Left Column */}
-            <div className="lg:col-span-2 flex flex-col gap-6">
-                <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6">
-                    <div className="cursor-pointer" onClick={() => setKpiFilter(null)}>
-                        <StatCard label="Tổng tiêu thụ" value={`${kpiStats.totalConsumption.toLocaleString('vi-VN')} m³`} icon={<DropletsIcon className="w-7 h-7 text-indigo-600 dark:text-indigo-400" />} iconBgClass="bg-indigo-100 dark:bg-indigo-900/50" />
+            
+            {/* Left Column: Data Grid */}
+            <div className="w-2/3 flex flex-col gap-4 min-w-0">
+                {/* KPI Cards */}
+                <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
+                    <div onClick={() => setKpiFilter(null)} className="cursor-pointer">
+                        <StatCard label="Tổng tiêu thụ" value={`${kpiStats.totalConsumption.toLocaleString()} m³`} icon={<DropletsIcon className="w-6 h-6 text-blue-600"/>} />
                     </div>
-                    <div className="cursor-pointer" onClick={() => setKpiFilter('residential')}>
-                        <StatCard label="Hộ dân cư" value={`${kpiStats.residentialConsumption.toLocaleString('vi-VN')} m³`} icon={<HomeIcon className="w-7 h-7 text-green-600 dark:text-green-400" />} iconBgClass="bg-green-100 dark:bg-green-900/50" />
+                    <div onClick={() => setKpiFilter('residential')} className="cursor-pointer">
+                        <StatCard label="Hộ dân" value={`${kpiStats.residentialConsumption.toLocaleString()} m³`} icon={<HomeIcon className="w-6 h-6 text-green-600"/>} />
                     </div>
-                    <div className="cursor-pointer" onClick={() => setKpiFilter('business')}>
-                        <StatCard label="Hộ kinh doanh" value={`${kpiStats.businessConsumption.toLocaleString('vi-VN')} m³`} icon={<StoreIcon className="w-7 h-7 text-amber-600 dark:text-amber-400" />} iconBgClass="bg-amber-100 dark:bg-amber-900/50" />
+                    <div onClick={() => setKpiFilter('business')} className="cursor-pointer">
+                        <StatCard label="Kinh doanh" value={`${kpiStats.businessConsumption.toLocaleString()} m³`} icon={<StoreIcon className="w-6 h-6 text-orange-600"/>} />
                     </div>
-                    <div className="cursor-pointer" onClick={() => setKpiFilter('unrecorded')}>
-                        <StatCard label="Chưa ghi nhận" value={`${kpiStats.unrecordedCount} hộ`} icon={<TrendingUpIcon className="w-7 h-7 text-red-600 dark:text-red-400" />} iconBgClass="bg-red-100 dark:bg-red-900/50" />
+                    <div onClick={() => setKpiFilter('unrecorded')} className="cursor-pointer">
+                        <StatCard label="Chưa ghi số" value={`${kpiStats.unrecordedCount} hộ`} icon={<WarningIcon className="w-6 h-6 text-red-600"/>} />
                     </div>
                 </div>
 
-                <div className="bg-white dark:bg-dark-bg-secondary p-4 rounded-xl shadow-sm">
-                    <div className="flex flex-wrap items-center gap-4">
-                        <div className="relative flex items-center gap-1 p-1 bg-gray-100 dark:bg-gray-800 rounded-lg">
-                            <button onClick={() => setPeriod(getPreviousPeriod(period))} data-tooltip="Kỳ trước"><ChevronLeftIcon /></button>
-                            <button onClick={() => setIsMonthPickerOpen(p => !p)} className="p-1.5 w-32 font-semibold hover:bg-gray-200 dark:hover:bg-slate-700 rounded-md" data-tooltip="Chọn kỳ">
-                                {new Date(period + '-02').toLocaleDateString('vi-VN', { month: '2-digit', year: 'numeric' })}
+                {/* Filter & Action Bar */}
+                <div className="bg-white dark:bg-dark-bg-secondary p-4 rounded-xl shadow-sm flex-shrink-0">
+                     <div className="flex items-center gap-4">
+                         <div className="relative flex items-center gap-1 p-1 bg-gray-100 dark:bg-gray-800 rounded-lg">
+                            <button onClick={() => setPeriod(getPreviousPeriod(period))}><ChevronLeftIcon /></button>
+                            <button onClick={() => setIsMonthPickerOpen(true)} className="p-1.5 w-32 font-semibold hover:bg-gray-200 dark:hover:bg-slate-700 rounded-md">
+                                {new Date(period + '-02').toLocaleDateString('en-US', { month: 'short', year: 'numeric' })}
                             </button>
-                            {isMonthPickerOpen && <MonthPickerPopover currentPeriod={period} onSelectPeriod={setPeriod} onClose={() => setIsMonthPickerOpen(false)} />}
-                            <button onClick={() => setPeriod(new Date(new Date(period + '-02').setMonth(new Date(period + '-02').getMonth() + 1)).toISOString().slice(0, 7))} data-tooltip="Kỳ sau"><ChevronRightIcon /></button>
-                        </div>
-                        <div className="relative flex-grow min-w-[200px]">
+                            {isMonthPickerOpen && <MonthPickerPopover currentPeriod={period} onSelectPeriod={setPeriod} onClose={() => setIsMonthPickerOpen(false)}/>}
+                            <button onClick={() => setPeriod(p => { const d=new Date(p+'-02'); d.setMonth(d.getMonth()+1); return d.toISOString().slice(0,7);})}><ChevronRightIcon /></button>
+                         </div>
+                         <div className="relative flex-grow">
                             <SearchIcon className="absolute left-3 top-1/2 -translate-y-1/2 h-5 w-5 text-gray-400" />
-                            <input type="text" placeholder="Tìm căn hộ..." value={searchTerm} onChange={e => setSearchTerm(e.target.value)} className="w-full pl-10 p-2 border rounded-lg bg-white border-gray-300 text-gray-900 dark:bg-gray-800 dark:border-gray-600 dark:text-white"/>
-                        </div>
-                        <select value={floorFilter} onChange={e => setFloorFilter(e.target.value)} className="p-2 border rounded-lg bg-white border-gray-300 text-gray-900 dark:bg-dark-bg-secondary dark:border-gray-600 dark:text-white">
+                            <input type="text" placeholder="Tìm căn hộ..." value={searchTerm} onChange={e => setSearchTerm(e.target.value)} className="w-full h-10 pl-10 pr-3 border rounded-lg bg-white dark:bg-dark-bg-secondary border-gray-300 dark:border-gray-600"/>
+                         </div>
+                         <select value={floorFilter} onChange={e => setFloorFilter(e.target.value)} className="h-10 px-3 border rounded-lg bg-white dark:bg-dark-bg-secondary border-gray-300 dark:border-gray-600">
                             {floors.map(f => <option key={f.value} value={f.value}>{f.label}</option>)}
-                        </select>
-                        <div className="ml-auto flex items-center gap-2">
-                            <button onClick={handleDownloadTemplate} disabled={!canEdit} className="px-4 py-2 bg-green-600 text-white font-semibold rounded-md flex items-center gap-2 disabled:bg-gray-400">
-                                <DocumentArrowDownIcon /> Template
-                            </button>
-                            <button onClick={() => fileInputRef.current?.click()} disabled={!canEdit || isDataLocked} className="px-4 py-2 bg-primary text-white font-semibold rounded-md flex items-center gap-2 disabled:bg-gray-400">
-                                <UploadIcon /> Import
-                            </button>
+                         </select>
+                         <div className="flex items-center gap-2">
+                            <button onClick={handleImportClick} disabled={!canEdit} className="h-10 px-4 font-semibold rounded-lg flex items-center gap-2 border border-primary text-primary hover:bg-primary/10 bg-white dark:bg-transparent disabled:opacity-50"><UploadIcon /> Import</button>
+                            <button onClick={handleDownloadTemplate} className="h-10 px-4 font-semibold rounded-lg flex items-center gap-2 border border-gray-500 text-gray-700 hover:bg-gray-500/10"><DocumentArrowDownIcon /> Tải mẫu</button>
                         </div>
                     </div>
-                    {isDataLocked && <p className="text-sm text-yellow-600 dark:text-yellow-400 mt-3 font-semibold text-center">Đã có dữ liệu cho kỳ sau, không thể chỉnh sửa kỳ này.</p>}
+                    {isDataLocked && <p className="text-center text-xs text-yellow-600 font-semibold mt-2">Đã có dữ liệu ở kỳ sau, không thể chỉnh sửa kỳ này.</p>}
                 </div>
 
+                {/* Data Grid */}
                 <div className="bg-white dark:bg-dark-bg-secondary rounded-xl shadow-sm flex-1 flex flex-col overflow-hidden">
-                    <div className="overflow-y-auto">
-                        <table className="min-w-full">
-                            <thead className="bg-gray-50 dark:bg-slate-800 sticky top-0 z-10 shadow-sm">
+                    <div className="overflow-y-auto pr-2">
+                         <table className="min-w-full">
+                            <thead className="bg-gray-50 dark:bg-slate-800 sticky top-0 z-10">
                                 <tr>
                                     <th className="px-4 py-3 text-left text-xs font-bold text-gray-700 dark:text-gray-300 uppercase tracking-wider">Căn hộ</th>
-                                    <th className="px-4 py-3 text-right text-xs font-bold text-gray-700 dark:text-gray-300 uppercase tracking-wider">Chỉ số cũ (m³)</th>
-                                    <th className="px-4 py-3 text-right text-xs font-bold text-gray-700 dark:text-gray-300 uppercase tracking-wider">Chỉ số mới (m³)</th>
+                                    <th className="px-4 py-3 text-right text-xs font-bold text-gray-700 dark:text-gray-300 uppercase tracking-wider">Chỉ số cũ</th>
+                                    <th className="px-4 py-3 text-right text-xs font-bold text-gray-700 dark:text-gray-300 uppercase tracking-wider">Chỉ số mới</th>
                                     <th className="px-4 py-3 text-right text-xs font-bold text-gray-700 dark:text-gray-300 uppercase tracking-wider">Tiêu thụ (m³)</th>
-                                    <th className="px-4 py-3 text-center text-xs font-bold text-gray-700 dark:text-gray-300 uppercase tracking-wider">Hành động</th>
+                                    <th className="px-4 py-3 text-center text-xs font-bold text-gray-700 dark:text-gray-300 uppercase tracking-wider">Lịch sử</th>
                                 </tr>
                             </thead>
                             <tbody className="divide-y divide-gray-200 dark:divide-gray-700">
-                            {filteredWaterData.map(({ unitId, prevIndex, currIndex, consumption }) => (
-                                    <tr key={unitId} 
-                                        className={`hover:bg-gray-50 dark:hover:bg-slate-800/50 cursor-pointer transition-colors ${selectedUnitId === unitId ? 'bg-blue-50 dark:bg-blue-900/40' : ''}`}
-                                        onClick={() => setSelectedUnitId(prev => prev === unitId ? null : unitId)}
-                                    >
-                                        <td className="font-medium px-4 py-2 text-sm text-gray-900 dark:text-gray-200">{unitId}</td>
-                                        <td className="px-4 py-2 text-right text-sm text-gray-500 dark:text-gray-400">{prevIndex?.toLocaleString('vi-VN') ?? '-'}</td>
-                                        <td className="px-4 py-2 text-right">
+                                 {filteredWaterData.map(d => (
+                                    <tr key={d.unitId} onClick={() => setSelectedUnitId(p => p === d.unitId ? null : d.unitId)} className={`cursor-pointer transition-colors ${selectedUnitId === d.unitId ? 'bg-blue-50 dark:bg-blue-900/40' : 'hover:bg-gray-50 dark:hover:bg-slate-800/50'}`}>
+                                        <td className="font-semibold px-4 py-3 text-sm text-gray-900 dark:text-gray-200">{d.unitId}</td>
+                                        <td className="px-4 py-3 text-right text-sm text-gray-500 dark:text-gray-400">{d.prevIndex?.toLocaleString('vi-VN') ?? 'N/A'}</td>
+                                        <td className="px-4 py-3 text-right">
                                             <input
-                                                ref={el => { if (el) inputRefs.current[unitId] = el; }}
+                                                ref={el => { if (el) inputRefs.current[d.unitId] = el; }}
                                                 type="number"
-                                                defaultValue={currIndex ?? ''}
-                                                onClick={(e) => e.stopPropagation()}
-                                                onBlur={(e) => handleSave(unitId, e.target.value)}
-                                                onKeyDown={(e) => e.key === 'Enter' && (e.target as HTMLInputElement).blur()}
+                                                defaultValue={d.currIndex ?? ''}
+                                                onBlur={e => handleSave(d.unitId, e.target.value)}
+                                                onKeyDown={e => { if (e.key === 'Enter') (e.target as HTMLInputElement).blur(); }}
                                                 disabled={!canEdit || isDataLocked}
-                                                className={`w-32 text-right p-2 text-sm border rounded-md bg-white border-gray-300 text-gray-900 focus:ring-2 focus:ring-primary disabled:bg-transparent disabled:border-transparent ${validationErrors[unitId] ? 'border-red-500' : ''}`}
+                                                className={`w-32 text-right p-2 text-sm border rounded-md bg-white text-gray-900 dark:bg-gray-700 dark:border-gray-600 focus:ring-2 focus:ring-primary ${validationErrors[d.unitId] ? 'border-red-500' : 'border-gray-300'} disabled:bg-transparent disabled:border-transparent`}
                                             />
+                                            {validationErrors[d.unitId] && <p className="text-red-500 text-xs text-right mt-1">{validationErrors[d.unitId]}</p>}
                                         </td>
-                                        <td className={`px-4 py-2 text-right font-bold text-sm ${consumption === 0 && prevIndex === null ? 'text-gray-400' : 'text-primary'}`}>
-                                            {consumption === 0 && prevIndex === null ? '-' : consumption?.toLocaleString('vi-VN') ?? '?'}
+                                        <td className={`font-bold px-4 py-3 text-right text-sm ${d.consumption && d.consumption > 30 ? 'text-red-600' : (d.consumption && d.consumption > 20 ? 'text-yellow-600' : 'text-primary')}`}>
+                                            {d.consumption !== null ? `${d.consumption.toLocaleString('vi-VN')} m³` : 'Chưa có'}
                                         </td>
-                                        <td className="px-4 py-2 text-center">
-                                            <button
-                                                onClick={(e) => { e.stopPropagation(); setHistoryModalUnitId(unitId); }}
-                                                className="p-2 rounded-full hover:bg-gray-200 dark:hover:bg-gray-700"
-                                                data-tooltip="Xem lịch sử"
-                                            >
-                                                <ListBulletIcon className="w-5 h-5 text-gray-600 dark:text-gray-400" />
-                                            </button>
+                                        <td className="px-4 py-3 text-center">
+                                            <button onClick={(e) => { e.stopPropagation(); setHistoryModalUnitId(d.unitId); }} className="p-2 rounded-full hover:bg-gray-200 dark:hover:bg-gray-600"><ClipboardDocumentListIcon className="w-5 h-5 text-gray-500"/></button>
                                         </td>
                                     </tr>
                                 ))}
                             </tbody>
-                        </table>
+                         </table>
                     </div>
                 </div>
             </div>
 
-            {/* Right Column */}
-            <div className="lg:col-span-1">
-                <div className="bg-white dark:bg-dark-bg-secondary p-6 rounded-xl shadow-sm sticky top-6 space-y-6">
-                    <div>
-                        <h3 className="text-lg font-bold mb-4 text-gray-800 dark:text-gray-200">
-                            {selectedUnitId ? `Lịch sử tiêu thụ (Căn hộ ${selectedUnitId})` : 'Lịch sử tiêu thụ 6 tháng'}
-                        </h3>
-                        <div className="h-80">
-                            <ResponsiveContainer width="100%" height="100%">
-                                <BarChart data={historicalChartData} margin={{ top: 5, right: 20, left: -10, bottom: 5 }}>
-                                    <CartesianGrid strokeDasharray="3 3" stroke="var(--light-border, #e5e7eb)" />
-                                    <XAxis dataKey="name" tick={{ fill: 'var(--light-text-secondary, #6b7280)', fontSize: 12 }} />
-                                    <YAxis unit=" m³" tick={{ fill: 'var(--light-text-secondary, #6b7280)', fontSize: 12 }} />
-                                    <Tooltip
-                                        contentStyle={{ backgroundColor: 'var(--light-bg-secondary, white)', border: '1px solid var(--light-border, #e5e7eb)', borderRadius: '0.5rem' }}
-                                        formatter={(value: number) => [`${value.toLocaleString('vi-VN')} m³`, selectedUnitId ? `Tiêu thụ: ${selectedUnitId}` : 'Tổng tiêu thụ']}
-                                    />
-                                    <Bar dataKey="Tiêu thụ" fill="#3b82f6" radius={[4, 4, 0, 0]} />
-                                </BarChart>
-                            </ResponsiveContainer>
-                        </div>
+            {/* Right Column: Analytics */}
+            <div className="w-1/3 bg-white dark:bg-dark-bg-secondary rounded-xl shadow-sm overflow-y-auto p-6 space-y-6">
+                <h3 className="text-xl font-bold text-gray-900 dark:text-gray-200">{selectedUnitId ? `Phân tích: Căn hộ ${selectedUnitId}` : 'Phân tích Chung'}</h3>
+                
+                <div className="border-t pt-4 dark:border-dark-border">
+                    <div className="flex justify-between items-center mb-2">
+                        <h4 className="font-semibold">{selectedUnitId ? 'Hóa đơn nước (ước tính)' : 'Tổng hóa đơn nước (ước tính)'}</h4>
+                        <p className="text-xl font-bold text-emerald-600">{formatCurrency(selectedUnitId ? selectedUnitBill : totalWaterBill)}</p>
                     </div>
-
-                    <div className="border-t dark:border-dark-border pt-4">
-                        <h4 className="font-semibold text-gray-800 dark:text-gray-200 mb-2 flex items-center gap-2">
-                            <CurrencyDollarIcon/> Tổng tiền nước tháng
-                        </h4>
-                        <div className="text-center bg-gray-50 dark:bg-gray-800/50 p-3 rounded-md">
-                            <span className="text-3xl font-bold text-primary">
-                                {formatCurrency(selectedUnitId ? selectedUnitBill : totalWaterBill)}
-                            </span>
-                            {selectedUnitId && <p className="text-xs text-gray-500 mt-1">Cho căn hộ {selectedUnitId}</p>}
-                        </div>
-                    </div>
-                    
-                    <div className="border-t dark:border-dark-border pt-4">
-                        {selectedUnitId && individualUnitAnalytics ? (
-                            <div>
-                                <h4 className="font-semibold text-gray-800 dark:text-gray-200 mb-3 flex items-center gap-2"><ClipboardDocumentListIcon/> Thống kê chi tiết (12 tháng)</h4>
-                                <div className="space-y-2 text-sm">
-                                    <div className="flex justify-between p-2 bg-gray-50 dark:bg-gray-800/50 rounded-md items-center">
-                                        <span className="text-gray-500 dark:text-gray-400">Trung bình tháng:</span>
-                                        <span className="font-bold text-lg">{individualUnitAnalytics.average.toFixed(1)} m³</span>
-                                    </div>
-                                    <div className="flex justify-between p-2 bg-gray-50 dark:bg-gray-800/50 rounded-md items-center">
-                                        <span className="text-gray-500 dark:text-gray-400">Cao nhất:</span>
-                                        {individualUnitAnalytics.highest ? (<span className="font-semibold">{individualUnitAnalytics.highest.consumption} m³ <span className="text-xs text-gray-400 font-normal">({individualUnitAnalytics.highest.period})</span></span>) : <span>N/A</span>}
-                                    </div>
-                                    <div className="flex justify-between p-2 bg-gray-50 dark:bg-gray-800/50 rounded-md items-center">
-                                        <span className="text-gray-500 dark:text-gray-400">Thấp nhất:</span>
-                                        {individualUnitAnalytics.lowest ? (<span className="font-semibold">{individualUnitAnalytics.lowest.consumption} m³ <span className="text-xs text-gray-400 font-normal">({individualUnitAnalytics.lowest.period})</span></span>) : <span>N/A</span>}
-                                    </div>
-                                </div>
-                            </div>
-                        ) : (
-                            <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-                                <div>
-                                    <h4 className="font-semibold text-gray-800 dark:text-gray-200 mb-2 flex items-center gap-2"><TrendingUpIcon/> Top 5 tiêu thụ cao</h4>
-                                    <ul className="space-y-1 text-sm">
-                                        {analyticsData.top5Highest.map(item => (
-                                            <li key={item.unitId} className="flex justify-between items-center p-1.5 rounded hover:bg-gray-100 dark:hover:bg-gray-800/50">
-                                                <span className="font-medium text-gray-700 dark:text-gray-300">{item.unitId}</span>
-                                                <span className="font-bold text-blue-600 dark:text-blue-400">{item.consumption?.toLocaleString('vi-VN')} m³</span>
-                                            </li>
-                                        ))}
-                                            {analyticsData.top5Highest.length === 0 && <li className="text-center text-gray-500 text-xs py-2">Chưa có dữ liệu</li>}
-                                    </ul>
-                                </div>
-                                <div>
-                                    <h4 className="font-semibold text-gray-800 dark:text-gray-200 mb-2 flex items-center gap-2"><SparklesIcon/> Top 5 tăng đột biến</h4>
-                                    <ul className="space-y-1 text-sm">
-                                        {analyticsData.top5Increases.map(item => (
-                                            <li key={item.unitId} className="flex justify-between items-center p-1.5 rounded hover:bg-gray-100 dark:hover:bg-gray-800/50">
-                                                <span className="font-medium text-gray-700 dark:text-gray-300">{item.unitId}</span>
-                                                <span className="font-bold text-red-500 dark:text-red-400" title={`Kỳ trước: ${item.previous} m³`}>+{item.increase.toLocaleString('vi-VN')} m³</span>
-                                            </li>
-                                        ))}
-                                        {analyticsData.top5Increases.length === 0 && <li className="text-center text-gray-500 text-xs py-2">Chưa có dữ liệu</li>}
-                                    </ul>
-                                </div>
-                            </div>
-                        )}
+                    <h4 className="font-semibold mb-2">Tiêu thụ 6 tháng qua</h4>
+                    <div className="h-56">
+                        <ResponsiveContainer width="100%" height="100%">
+                             <BarChart data={historicalChartData} margin={{ top: 5, right: 20, left: -10, bottom: 5 }}>
+                                <CartesianGrid strokeDasharray="3 3" stroke="var(--light-border, #e5e7eb)" />
+                                <XAxis dataKey="name" tick={{ fill: 'var(--light-text-secondary, #6b7280)', fontSize: 12 }} />
+                                <YAxis unit=" m³" tick={{ fill: 'var(--light-text-secondary, #6b7280)', fontSize: 12 }} />
+                                <Tooltip formatter={(v: number) => [`${v} m³`, 'Tiêu thụ']} contentStyle={{ backgroundColor: 'var(--light-bg-secondary, white)', border: '1px solid var(--light-border, #e5e7eb)', borderRadius: '0.5rem' }}/>
+                                <Bar dataKey="Tiêu thụ" fill="#3b82f6" radius={[4, 4, 0, 0]} />
+                            </BarChart>
+                        </ResponsiveContainer>
                     </div>
                 </div>
+
+                {selectedUnitId && individualUnitAnalytics && (
+                    <div className="border-t pt-4 dark:border-dark-border space-y-3">
+                        <h4 className="font-semibold">Thống kê riêng</h4>
+                        <div className="flex justify-between text-sm p-2 bg-gray-50 dark:bg-gray-800/50 rounded-md"><span>Tiêu thụ trung bình (12 tháng):</span> <span className="font-bold">{individualUnitAnalytics.average.toFixed(1)} m³</span></div>
+                        {individualUnitAnalytics.highest && <div className="flex justify-between text-sm p-2 bg-gray-50 dark:bg-gray-800/50 rounded-md"><span>Tháng cao nhất ({individualUnitAnalytics.highest.period}):</span> <span className="font-bold">{individualUnitAnalytics.highest.consumption} m³</span></div>}
+                        {individualUnitAnalytics.lowest && <div className="flex justify-between text-sm p-2 bg-gray-50 dark:bg-gray-800/50 rounded-md"><span>Tháng thấp nhất ({individualUnitAnalytics.lowest.period}):</span> <span className="font-bold">{individualUnitAnalytics.lowest.consumption} m³</span></div>}
+                    </div>
+                )}
+
+                {!selectedUnitId && (
+                    <div className="border-t pt-4 dark:border-dark-border space-y-3">
+                        <h4 className="font-semibold flex items-center gap-2"><SparklesIcon className="w-5 h-5 text-purple-500"/> Top 5 tiêu thụ cao nhất kỳ này</h4>
+                        <ul className="space-y-1 text-sm">{analyticsData.top5Highest.map(d => <li key={d.unitId} className="flex justify-between p-1.5 rounded hover:bg-gray-100 dark:hover:bg-gray-700"><span>Căn hộ {d.unitId}</span><span className="font-bold">{d.consumption} m³</span></li>)}</ul>
+                    </div>
+                )}
+                {!selectedUnitId && (
+                    <div className="border-t pt-4 dark:border-dark-border space-y-3">
+                        <h4 className="font-semibold flex items-center gap-2"><TrendingUpIcon className="w-5 h-5 text-red-500"/> Top 5 tăng đột biến so với kỳ trước</h4>
+                        <ul className="space-y-1 text-sm">{analyticsData.top5Increases.map(d => <li key={d.unitId} className="flex justify-between p-1.5 rounded hover:bg-gray-100 dark:hover:bg-gray-700"><span>Căn hộ {d.unitId}</span><span className="font-bold text-red-500">+{d.increase} m³</span></li>)}</ul>
+                    </div>
+                )}
             </div>
         </div>
     );

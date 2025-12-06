@@ -191,6 +191,21 @@ const SettingsPage: React.FC<SettingsPageProps> = ({ invoiceSettings, setInvoice
                         <label htmlFor="bankName" className={labelStyle}>Ngân hàng & Chi nhánh</label>
                         <input id="bankName" type="text" value={localSettings.bankName} onChange={handleSettingChange} disabled={!canEdit} className={inputStyle}/>
                     </div>
+                    <div className="md:col-span-2">
+                        <label htmlFor="transferContentTemplate" className={labelStyle}>Mẫu nội dung chuyển khoản</label>
+                        <input 
+                            id="transferContentTemplate" 
+                            type="text" 
+                            placeholder="VD: HUD3 {{unitId}} T{{period}}" 
+                            value={localSettings.transferContentTemplate || ''} 
+                            onChange={handleSettingChange} 
+                            disabled={!canEdit} 
+                            className={inputStyle}
+                        />
+                        <p className="mt-2 text-xs text-light-text-secondary dark:text-dark-text-secondary">
+                            Sử dụng biến <code className="font-mono bg-gray-200 dark:bg-gray-700 p-1 rounded-sm">{'{{unitId}}'}</code> cho Mã căn, <code className="font-mono bg-gray-200 dark:bg-gray-700 p-1 rounded-sm">{'{{period}}'}</code> cho Tháng. Ví dụ kết quả: HUD3 202 T12.
+                        </p>
+                    </div>
                 </div>
             </div>
 

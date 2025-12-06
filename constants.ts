@@ -46,6 +46,7 @@ const generateMockUnitsAndOwners = () => {
                 OwnerName: `${firstNames[Math.floor(Math.random() * firstNames.length)]} ${lastNames[Math.floor(Math.random() * lastNames.length)]}`,
                 Phone: `09${Math.floor(10000000 + Math.random() * 90000000)}`,
                 Email: `user${ownerCounter}@email.com`,
+                updatedAt: new Date(Date.now() - Math.random() * 30 * 24 * 60 * 60 * 1000).toISOString(), // Randomly in the last 30 days
             };
             owners.push(owner);
 
@@ -72,6 +73,7 @@ const generateMockUnitsAndOwners = () => {
             OwnerName: `Chủ KIOS ${i.toString().padStart(2, '0')}`,
             Phone: `098${Math.floor(1000000 + Math.random() * 9000000)}`,
             Email: `kios${i.toString().padStart(2, '0')}@email.com`,
+            updatedAt: new Date(Date.now() - Math.random() * 30 * 24 * 60 * 60 * 1000).toISOString(),
         };
         owners.push(owner);
 
@@ -233,10 +235,10 @@ export const MOCK_TARIFFS_PARKING: TariffParking[] = [
 
 // UPDATED: New water fee tariffs
 export const MOCK_TARIFFS_WATER: TariffWater[] = [
-    { From_m3: 0, To_m3: 10, UnitPrice: 9775, VAT_percent: 5, ValidFrom: '2025-01-01', ValidTo: null },
-    { From_m3: 11, To_m3: 20, UnitPrice: 11385, VAT_percent: 5, ValidFrom: '2025-01-01', ValidTo: null },
-    { From_m3: 21, To_m3: 30, UnitPrice: 18400, VAT_percent: 5, ValidFrom: '2025-01-01', ValidTo: null },
-    { From_m3: 31, To_m3: null, UnitPrice: 31050, VAT_percent: 5, ValidFrom: '2025-01-01', ValidTo: null },
+    { From_m3: 0, To_m3: 10, UnitPrice: 9310, VAT_percent: 5, ValidFrom: '2025-01-01', ValidTo: null },
+    { From_m3: 11, To_m3: 20, UnitPrice: 10843, VAT_percent: 5, ValidFrom: '2025-01-01', ValidTo: null },
+    { From_m3: 21, To_m3: 30, UnitPrice: 17524, VAT_percent: 5, ValidFrom: '2025-01-01', ValidTo: null },
+    { From_m3: 31, To_m3: null, UnitPrice: 29571, VAT_percent: 5, ValidFrom: '2025-01-01', ValidTo: null },
 ];
 
 export const MOCK_ADJUSTMENTS: Adjustment[] = [

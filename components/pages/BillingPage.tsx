@@ -1,10 +1,22 @@
 
+
+
+
+
+
+
+
+
+
+
+
+
+
 import React, { useState, useCallback, useMemo, useRef } from 'react';
 import type { ChargeRaw, Adjustment, AllData, Role, PaymentStatus, InvoiceSettings } from '../../types';
 import { UnitType } from '../../types';
 import { LogPayload } from '../../App';
-import NoticePreviewModal from '../NoticePreviewModal';
-import { calculateChargesBatch } from '../../services/feeService';
+import { useNotification, useLogger } from '../../App';
 import { 
     saveChargesBatch as saveChargesBatchAPI, 
     updateChargeStatuses, 
@@ -12,19 +24,19 @@ import {
     confirmSinglePayment,
     updatePaymentStatusBatch
 } from '../../services';
-import { useNotification, useLogger } from '../../App';
+import { calculateChargesBatch } from '../../services/feeService';
+import NoticePreviewModal from '../NoticePreviewModal';
+import StatCard from '../ui/StatCard';
+import Spinner from '../ui/Spinner';
 import { 
     SearchIcon, TagIcon, BuildingIcon, ChevronLeftIcon, 
     ChevronRightIcon, CheckCircleIcon, WarningIcon,
     CircularArrowRefreshIcon, ActionViewIcon, ActionPaidIcon,
     CalculatorIcon2, LockClosedIcon, ChevronDownIcon,
-    DocumentArrowDownIcon, TableCellsIcon, ArrowUpTrayIcon, RevenueIcon, PercentageIcon, PaperAirplaneIcon
+    DocumentArrowDownIcon, TableCellsIcon, ArrowUpTrayIcon, RevenueIcon, PercentageIcon, PaperAirplaneIcon, ChevronUpIcon
 } from '../ui/Icons';
 import { loadScript } from '../../utils/scriptLoader';
-import { formatCurrency, getPreviousPeriod, parseUnitCode, generateEmailHtmlForCharge, renderInvoiceHTMLForPdf, formatNumber } from '../../utils/helpers';
-import StatCard from '../ui/StatCard';
-// FIX: Import Spinner component
-import Spinner from '../ui/Spinner';
+import { formatCurrency, parseUnitCode, generateEmailHtmlForCharge, renderInvoiceHTMLForPdf, formatNumber } from '../../utils/helpers';
 
 declare const jspdf: any;
 declare const html2canvas: any;
@@ -242,6 +254,7 @@ const BillingPage: React.FC<BillingPageProps> = ({ charges, setCharges, allData,
     const [searchTerm, setSearchTerm] = useState('');
     const [statusFilter, setStatusFilter] = useState('all');
     const [selectedUnits, setSelectedUnits] = useState<Set<string>>(new Set());
+    const [period, setPeriod] = useState(new Date().toISOString().slice(0, 7));
     
     const [isRefreshing, setIsRefreshing] = useState(false);
     const [primaryActionState, setPrimaryActionState] = useState<PrimaryActionState>('calculate');
@@ -265,9 +278,10 @@ const BillingPage: React.FC<BillingPageProps> = ({ charges, setCharges, allData,
 
     const [isDataStale, setIsDataStale] = useState(false);
     const [dataSnapshot, setDataSnapshot] = useState('');
+    const [isStatsExpanded, setIsStatsExpanded] = useState(true);
 
     const currentISODate = new Date().toISOString().slice(0, 7);
-    const [period, setPeriod] = useState('2025-11');
+    
 
     const createSnapshot = useCallback((data: AllData) => {
         return JSON.stringify({
@@ -817,7 +831,8 @@ const BillingPage: React.FC<BillingPageProps> = ({ charges, setCharges, allData,
                 let headerIndex = -1, colCredit = -1, colDesc = -1;
                 for (let i = 0; i < Math.min(20, json.length); i++) {
                     if (Array.isArray(json[i])) {
-                        const row: string[] = json[i].map(cell => String(cell ?? "").toLowerCase());
+                        // FIX: Cast json[i] from unknown[] to any[] to allow the use of array methods like .map().
+                        const row: string[] = (json[i] as any[]).map(cell => String(cell ?? "").toLowerCase());
                         const cIdx = row.findIndex(cell => cell.includes('so tien ghi co') || cell.includes('credit amount'));
                         const dIdx = row.findIndex(cell => cell.includes('noi dung') || cell.includes('transaction detail') || cell.includes('description'));
                         if (cIdx !== -1 && dIdx !== -1) { headerIndex = i; colCredit = cIdx; colDesc = dIdx; break; }
@@ -833,7 +848,7 @@ const BillingPage: React.FC<BillingPageProps> = ({ charges, setCharges, allData,
                     if (!Array.isArray(json[i])) continue;
                     const row = json[i] as unknown[];
                     if (!row[colCredit]) continue;
-                    const amount = parseFloat(String(row[colCredit]).replace(/,/g, ''));
+                    const amount = Math.round(parseFloat(String(row[colCredit]).replace(/,/g, '')));
                     if (isNaN(amount) || amount <= 0) continue;
 
                     const description = String(row[colDesc] || '');
@@ -904,9 +919,9 @@ const BillingPage: React.FC<BillingPageProps> = ({ charges, setCharges, allData,
         if (rows.length === 0) {
             return { totalDue: 0, totalPaid: 0, difference: 0, paidCount: 0, totalCount: 0, progress: 0 };
         }
-        const totalDue = rows.reduce((s, r) => s + r.TotalDue, 0);
+        const totalDue = Math.round(rows.reduce((s, r) => s + r.TotalDue, 0));
         const paidRows = rows.filter(r => r.paymentStatus === 'paid');
-        const totalPaid = paidRows.reduce((s, r) => s + r.TotalPaid, 0);
+        const totalPaid = Math.round(paidRows.reduce((s, r) => s + r.TotalPaid, 0));
         const difference = totalDue - totalPaid;
         const paidCount = paidRows.length;
         const totalCount = rows.length;
@@ -921,48 +936,61 @@ const BillingPage: React.FC<BillingPageProps> = ({ charges, setCharges, allData,
         <div className="space-y-4 h-full flex flex-col">
             <input type="file" ref={fileInputRef} onChange={handleStatementFileChange} accept=".xlsx, .xls, .csv" className="hidden" />
 
-            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6">
-                <div data-tooltip="Tổng phí của tất cả căn hộ trong kỳ" className={`cursor-pointer transition-all rounded-xl ${activeKpiFilter === 'all' ? 'ring-2 ring-primary' : ''}`} onClick={clearAllFilters}>
-                    <StatCard 
-                        label="Tổng phải thu" 
-                        value={formatCurrency(kpiStats.totalDue)}
-                        icon={<RevenueIcon className="w-7 h-7 text-blue-600 dark:text-blue-400" />} 
-                        iconBgClass="bg-blue-100 dark:bg-blue-900/50" 
-                    />
+             <div className="relative bg-white dark:bg-dark-bg-secondary p-4 rounded-xl shadow-sm">
+                <div className="absolute top-2 right-2 z-10">
+                    <button 
+                        onClick={() => setIsStatsExpanded(p => !p)} 
+                        className="p-1.5 rounded-full hover:bg-gray-200 dark:hover:bg-slate-700"
+                        data-tooltip={isStatsExpanded ? "Thu gọn" : "Mở rộng"}
+                    >
+                        {isStatsExpanded ? <ChevronUpIcon /> : <ChevronDownIcon />}
+                    </button>
                 </div>
-                <div data-tooltip="Tổng số tiền đã nộp thực tế (đã xác nhận)" className={`cursor-pointer transition-all rounded-xl ${activeKpiFilter === 'paid' ? 'ring-2 ring-primary' : ''}`} onClick={() => { clearAllFilters(); setStatusFilter('paid'); setActiveKpiFilter('paid'); }}>
-                    <StatCard 
-                        label="Đã thanh toán" 
-                        value={formatCurrency(kpiStats.totalPaid)} 
-                        icon={<CheckCircleIcon className="w-7 h-7 text-emerald-600 dark:text-emerald-400" />} 
-                        iconBgClass="bg-emerald-100 dark:bg-emerald-900/50" 
-                    />
-                </div>
-                <div data-tooltip="Lọc các hộ có chênh lệch giữa Phải thu và Đã nộp" className={`cursor-pointer transition-all rounded-xl ${activeKpiFilter === 'difference' ? 'ring-2 ring-primary' : ''}`} onClick={() => { clearAllFilters(); setSpecialFilter('has_difference'); setActiveKpiFilter('difference'); }}>
-                     <StatCard 
-                        label="Còn nợ / Chênh lệch" 
-                        value={formatCurrency(kpiStats.difference)}
-                        icon={<WarningIcon className="w-7 h-7 text-red-600 dark:text-red-400" />} 
-                        iconBgClass="bg-red-100 dark:bg-red-900/50" 
-                    />
-                </div>
-                <div className={`bg-white dark:bg-dark-bg-secondary p-5 rounded-xl shadow-sm flex items-center gap-5 cursor-pointer transition-all h-full ${activeKpiFilter === 'progress' ? 'ring-2 ring-primary' : ''}`} onClick={() => { clearAllFilters(); setSpecialFilter('not_paid'); setActiveKpiFilter('progress'); }}>
-                    <div className="flex-shrink-0 w-14 h-14 flex items-center justify-center rounded-full bg-purple-100 dark:bg-purple-900/50">
-                        <PercentageIcon className="w-7 h-7 text-purple-600 dark:text-purple-400" />
-                    </div>
-                    <div className="flex-1">
-                        <p className="text-sm font-medium text-gray-500 dark:text-gray-400">Tiến độ thu</p>
-                        <div className="mt-1">
-                            <div className="flex items-baseline gap-2">
-                                <p className="text-2xl font-bold text-gray-900 dark:text-gray-200">{kpiStats.progress.toFixed(0)}%</p>
-                                <p className="text-sm font-medium text-gray-500">({kpiStats.paidCount}/{kpiStats.totalCount})</p>
+                {isStatsExpanded && (
+                    <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6">
+                        <div data-tooltip="Tổng phí của tất cả căn hộ trong kỳ" className={`cursor-pointer transition-all rounded-xl ${activeKpiFilter === 'all' ? 'ring-2 ring-primary' : ''}`} onClick={clearAllFilters}>
+                            <StatCard 
+                                label="Tổng phải thu" 
+                                value={formatCurrency(kpiStats.totalDue)}
+                                icon={<RevenueIcon className="w-7 h-7 text-blue-600 dark:text-blue-400" />} 
+                                iconBgClass="bg-blue-100 dark:bg-blue-900/50" 
+                            />
+                        </div>
+                        <div data-tooltip="Tổng số tiền đã nộp thực tế (đã xác nhận)" className={`cursor-pointer transition-all rounded-xl ${activeKpiFilter === 'paid' ? 'ring-2 ring-primary' : ''}`} onClick={() => { clearAllFilters(); setStatusFilter('paid'); setActiveKpiFilter('paid'); }}>
+                            <StatCard 
+                                label="Đã thanh toán" 
+                                value={formatCurrency(kpiStats.totalPaid)} 
+                                icon={<CheckCircleIcon className="w-7 h-7 text-emerald-600 dark:text-emerald-400" />} 
+                                iconBgClass="bg-emerald-100 dark:bg-emerald-900/50" 
+                            />
+                        </div>
+                        <div data-tooltip="Lọc các hộ có chênh lệch giữa Phải thu và Đã nộp" className={`cursor-pointer transition-all rounded-xl ${activeKpiFilter === 'difference' ? 'ring-2 ring-primary' : ''}`} onClick={() => { clearAllFilters(); setSpecialFilter('has_difference'); setActiveKpiFilter('difference'); }}>
+                             <StatCard 
+                                label="Còn nợ / Chênh lệch" 
+                                value={formatCurrency(kpiStats.difference)}
+                                icon={<WarningIcon className="w-7 h-7 text-red-600 dark:text-red-400" />} 
+                                iconBgClass="bg-red-100 dark:bg-red-900/50" 
+                            />
+                        </div>
+                        <div className={`bg-white dark:bg-dark-bg-secondary p-5 rounded-xl shadow-sm flex items-center gap-5 cursor-pointer transition-all h-full ${activeKpiFilter === 'progress' ? 'ring-2 ring-primary' : ''}`} onClick={() => { clearAllFilters(); setSpecialFilter('not_paid'); setActiveKpiFilter('progress'); }}>
+                            <div className="flex-shrink-0 w-14 h-14 flex items-center justify-center rounded-full bg-purple-100 dark:bg-purple-900/50">
+                                <PercentageIcon className="w-7 h-7 text-purple-600 dark:text-purple-400" />
                             </div>
-                            <div className="w-full bg-gray-200 rounded-full h-1.5 dark:bg-gray-700 mt-2">
-                                <div className="bg-purple-600 h-1.5 rounded-full transition-all duration-500" style={{ width: `${kpiStats.progress}%` }}></div>
+                            <div className="flex-1">
+                                <p className="text-sm font-medium text-gray-500 dark:text-gray-400">Tiến độ thu</p>
+                                <div className="mt-1">
+                                    <div className="flex items-baseline gap-2">
+                                        <p className="text-2xl font-bold text-gray-900 dark:text-gray-200">{kpiStats.progress.toFixed(0)}%</p>
+                                        <p className="text-sm font-medium text-gray-500">({kpiStats.paidCount}/{kpiStats.totalCount})</p>
+                                    </div>
+                                    <div className="w-full bg-gray-200 rounded-full h-1.5 dark:bg-gray-700 mt-2">
+                                        <div className="bg-purple-600 h-1.5 rounded-full transition-all duration-500" style={{ width: `${kpiStats.progress}%` }}></div>
+                                    </div>
+                                </div>
                             </div>
                         </div>
                     </div>
-                </div>
+                )}
             </div>
             
             <div className="bg-white dark:bg-dark-bg-secondary p-4 rounded-xl shadow-sm">

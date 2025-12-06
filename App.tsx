@@ -1,8 +1,10 @@
 
+
 import React, { useState, useEffect, useCallback, createContext, lazy, Suspense } from 'react';
-import type { Role, UserPermission, Unit, Owner, Vehicle, WaterReading, ChargeRaw, TariffService, TariffParking, TariffWater, Adjustment, InvoiceSettings, ActivityLog, VehicleTier, TariffCollection } from './types';
+
+// FIX: Import AllData type
+import type { Role, UserPermission, Unit, Owner, Vehicle, WaterReading, ChargeRaw, TariffService, TariffParking, TariffWater, Adjustment, InvoiceSettings, ActivityLog, VehicleTier, TariffCollection, AllData } from './types';
 import { patchKiosAreas } from './constants';
-import { UnitType } from './types';
 
 import { loadAllData, updateFeeSettings, updateResidentData, saveChargesBatch, updatePaymentStatusBatch, wipeAllBusinessData, saveUsers, saveTariffs, saveAdjustments, saveWaterReadings, saveVehicles, importResidentsBatch } from './services';
 
@@ -11,7 +13,6 @@ import Sidebar from './components/layout/Sidebar';
 import FooterToast, { type ToastMessage, type ToastType } from './components/ui/Toast';
 import LoginPage from './components/pages/LoginPage';
 import Spinner from './components/ui/Spinner';
-import { processFooterHtml } from './utils/helpers';
 import { isProduction } from './utils/env';
 
 const OverviewPage = lazy(() => import('./components/pages/OverviewPage'));
@@ -62,6 +63,7 @@ Vui long xem chi tiet phi dich vu ngay duoi day.
 Tran trong,
 BQL Chung cu HUD3 Linh Dam.`,
     appsScriptUrl: '',
+    transferContentTemplate: 'HUD3 {{unitId}} T{{period}}',
     footerHtml: `© {{YEAR}} BQL Chung cu HUD3 Linh Dam. Hotline: 0834.88.66.86`,
     footerShowInPdf: true,
     footerShowInEmail: true,
@@ -162,8 +164,12 @@ const App: React.FC = () => {
         setToasts(prevToasts => [...prevToasts, newToast]);
     }, []);
 
-    const handleCloseToast = useCallback(() => {
-        setToasts(prevToasts => prevToasts.slice(1));
+    const handleCloseToast = useCallback((id: number) => {
+        setToasts(prevToasts => prevToasts.filter(toast => toast.id !== id));
+    }, []);
+
+    const handleClearAllToasts = useCallback(() => {
+        setToasts([]);
     }, []);
 
     useEffect(() => {
@@ -313,7 +319,7 @@ const App: React.FC = () => {
         }
     }, [logAction, showToast]);
     
-    const handleSaveResident = useCallback(async (updatedData: { unit: Unit; owner: Owner; vehicles: Vehicle[] }) => {
+    const handleSaveResident = useCallback(async (updatedData: { unit: Unit; owner: Owner; vehicles: Vehicle[] }, reason: string) => {
         const { units, owners, vehicles } = allDataRef.current;
         try {
             const result = await updateResidentData(units, owners, vehicles, updatedData);
@@ -324,7 +330,7 @@ const App: React.FC = () => {
             logAction({
                 module: 'Residents',
                 action: 'UPDATE_RESIDENT',
-                summary: `Cập nhật hồ sơ căn hộ ${updatedData.unit.UnitID}`,
+                summary: `Cập nhật hồ sơ căn hộ ${updatedData.unit.UnitID}. Lý do: ${reason}`,
                 ids: [updatedData.unit.UnitID],
                 before_snapshot: { units, owners, vehicles }
             });
@@ -406,10 +412,13 @@ const App: React.FC = () => {
     }, [showToast]);
 
     const renderPage = () => {
+        const allDataForBilling: AllData = { units, owners, vehicles, waterReadings, tariffs, adjustments, activityLogs };
         switch (activePage) {
             case 'overview': return <OverviewPage allUnits={units} allOwners={owners} allVehicles={vehicles} allWaterReadings={waterReadings} charges={charges} activityLogs={activityLogs} />;
-            case 'billing': return <BillingPage charges={charges} setCharges={handleSetCharges} allData={{ units, owners, vehicles, waterReadings, tariffs, adjustments }} onUpdateAdjustments={handleSetAdjustments} role={role!} invoiceSettings={invoiceSettings} />;
-            case 'residents': return <ResidentsPage units={units} owners={owners} vehicles={vehicles} onSaveResident={handleSaveResident} onImportData={handleImportData} onDeleteResidents={handleResetResidents} role={role!} currentUser={currentUser!} />;
+            // FIX: Pass activityLogs to BillingPage's allData prop
+            case 'billing': return <BillingPage charges={charges} setCharges={handleSetCharges} allData={allDataForBilling} onUpdateAdjustments={handleSetAdjustments} role={role!} invoiceSettings={invoiceSettings} />;
+            // FIX: Pass activityLogs to ResidentsPage
+            case 'residents': return <ResidentsPage units={units} owners={owners} vehicles={vehicles} activityLogs={activityLogs} onSaveResident={handleSaveResident} onImportData={handleImportData} onDeleteResidents={handleResetResidents} role={role!} currentUser={currentUser!} />;
             case 'vehicles': return <VehiclesPage vehicles={vehicles} units={units} owners={owners} onSetVehicles={handleSetVehicles} role={role!} />;
             case 'water': return <WaterPage waterReadings={waterReadings} setWaterReadings={handleSetWaterReadings} allUnits={units} role={role!} tariffs={tariffs} />;
             case 'pricing': return <PricingPage tariffs={tariffs} setTariffs={handleSetTariffs} role={role!} />;
@@ -446,7 +455,7 @@ const App: React.FC = () => {
     }
 
     if (!currentUser) {
-        return <AppContext.Provider value={contextValue}><LoginPage users={users} onLogin={handleInitialLogin} /><FooterToast toast={toasts[0] || null} onClose={handleCloseToast} /></AppContext.Provider>;
+        return <AppContext.Provider value={contextValue}><LoginPage users={users} onLogin={handleInitialLogin} /><FooterToast toasts={toasts} onClose={handleCloseToast} onClearAll={handleClearAllToasts} /></AppContext.Provider>;
     }
 
     return (
@@ -460,7 +469,7 @@ const App: React.FC = () => {
                             {renderPage()}
                         </Suspense>
                     </main>
-                    <FooterToast toast={toasts[0] || null} onClose={handleCloseToast} />
+                    <FooterToast toasts={toasts} onClose={handleCloseToast} onClearAll={handleClearAllToasts} />
                 </div>
             </div>
         </AppContext.Provider>

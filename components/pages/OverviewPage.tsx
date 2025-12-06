@@ -1,12 +1,11 @@
-
-
 import React, { useMemo, useState } from 'react';
 import { BarChart, Bar, XAxis, YAxis, CartesianGrid, LabelList, ResponsiveContainer, PieChart, Pie, Cell, Tooltip, Legend } from 'recharts';
 import type { Unit, Owner, Vehicle, WaterReading, ChargeRaw, ActivityLog } from '../../types';
 import { VehicleTier } from '../../types';
 import StatCard from '../ui/StatCard';
-import { CarIcon, RevenueIcon, WarningIcon, DropletsIcon, PieChartIcon, CheckCircleIcon } from '../ui/Icons';
-import { getPreviousPeriod, formatCurrency as formatFullCurrency } from '../../utils/helpers';
+import { CarIcon, RevenueIcon, WarningIcon, DropletsIcon, PieChartIcon, CheckCircleIcon, ChevronUpIcon, ChevronDownIcon } from '../ui/Icons';
+import { getPreviousPeriod, formatCurrency as formatFullCurrency, timeAgo } from '../../utils/helpers';
+import { isProduction } from '../../utils/env';
 
 const formatCurrency = (value: number) => {
     if (value >= 1_000_000_000) {
@@ -33,36 +32,46 @@ const formatYAxisLabel = (value: number): string => {
 
 const COLORS = ['#3b82f6', '#16a34a', '#f97316']; // Blue (Service), Green (Parking), Orange (Water)
 const RADIAN = Math.PI / 180;
-const renderCustomizedLabel = ({ cx, cy, midAngle, innerRadius, outerRadius, percent }: any) => {
-    const radius = innerRadius + (outerRadius - innerRadius) * 0.5;
-    const x = cx + radius * Math.cos(-midAngle * RADIAN);
-    const y = cy + radius * Math.sin(-midAngle * RADIAN);
 
-    if (percent < 0.05) return null; // Don't render label for small slices
+const renderCombinedLabel = (props: any) => {
+    const { cx, cy, midAngle, outerRadius, percent, name, value } = props;
+
+    // Inside label: %
+    const radiusInside = outerRadius * 0.5;
+    const xInside = cx + radiusInside * Math.cos(-midAngle * RADIAN);
+    const yInside = cy + radiusInside * Math.sin(-midAngle * RADIAN);
+
+    // Outside label with line
+    const sin = Math.sin(-midAngle * RADIAN);
+    const cos = Math.cos(-midAngle * RADIAN);
+    const sx = cx + (outerRadius + 5) * cos;
+    const sy = cy + (outerRadius + 5) * sin;
+    const mx = cx + (outerRadius + 20) * cos;
+    const my = cy + (outerRadius + 20) * sin;
+    const ex = mx + (cos >= 0 ? 1 : -1) * 22;
+    const ey = my;
+    const textAnchor = cos >= 0 ? 'start' : 'end';
+
+    if (percent < 0.05) return null;
 
     return (
-        <text x={x} y={y} fill="white" textAnchor={x > cx ? 'start' : 'end'} dominantBaseline="central" className="font-bold text-xs">
-            {`${(percent * 100).toFixed(0)}%`}
-        </text>
+        <g>
+            {/* Inside Label */}
+            <text x={xInside} y={yInside} fill="white" textAnchor="middle" dominantBaseline="central" className="font-bold text-sm">
+                {`${(percent * 100).toFixed(0)}%`}
+            </text>
+
+            {/* Outside Line and Label */}
+            <path d={`M${sx},${sy}L${mx},${my}L${ex},${ey}`} stroke="#9ca3af" fill="none" />
+            <circle cx={sx} cy={sy} r={2} fill="#9ca3af" stroke="white" />
+            <text x={ex + (cos >= 0 ? 1 : -1) * 4} y={ey} textAnchor={textAnchor} fill="#6b7280" fontSize="12px">
+                {name}
+            </text>
+            <text x={ex + (cos >= 0 ? 1 : -1) * 4} y={ey} dy={14} textAnchor={textAnchor} fill="#374151" fontSize="12px" fontWeight="bold">
+                {formatFullCurrency(value)}
+            </text>
+        </g>
     );
-};
-
-const timeAgo = (dateString: string) => {
-    const date = new Date(dateString);
-    const now = new Date();
-    const seconds = Math.floor((now.getTime() - date.getTime()) / 1000);
-
-    let interval = seconds / 31536000;
-    if (interval > 1) return `${Math.floor(interval)} năm trước`;
-    interval = seconds / 2592000;
-    if (interval > 1) return `${Math.floor(interval)} tháng trước`;
-    interval = seconds / 86400;
-    if (interval > 1) return `${Math.floor(interval)} ngày trước`;
-    interval = seconds / 3600;
-    if (interval > 1) return `${Math.floor(interval)} giờ trước`;
-    interval = seconds / 60;
-    if (interval > 1) return `${Math.floor(interval)} phút trước`;
-    return `${Math.floor(seconds)} giây trước`;
 };
 
 interface OverviewPageProps {
@@ -75,17 +84,17 @@ interface OverviewPageProps {
 }
 
 const OverviewPage: React.FC<OverviewPageProps> = ({ allUnits, allVehicles, allWaterReadings, charges, activityLogs }) => {
-    const [selectedMonth, setSelectedMonth] = useState<number>(11);
+    const [isStatsExpanded, setIsStatsExpanded] = useState(true);
 
     const dashboardStats = useMemo(() => {
-        const currentPeriod = '2025-11';
+        const currentPeriod = new Date().toISOString().slice(0, 7);
         const previousPeriod = getPreviousPeriod(currentPeriod);
         
         const currentCharges = charges.filter(c => c.Period === currentPeriod);
         const previousCharges = charges.filter(c => c.Period === previousPeriod);
 
-        const currentRevenue = currentCharges.reduce((sum, c) => sum + c.TotalPaid, 0);
-        const previousRevenue = previousCharges.reduce((sum, c) => sum + c.TotalPaid, 0);
+        const currentRevenue = Math.round(currentCharges.reduce((sum, c) => sum + c.TotalPaid, 0));
+        const previousRevenue = Math.round(previousCharges.reduce((sum, c) => sum + c.TotalPaid, 0));
         const revenueTrend = previousRevenue > 0 ? ((currentRevenue - previousRevenue) / previousRevenue) * 100 : (currentRevenue > 0 ? Infinity : 0);
 
         const outstandingUnitsCount = charges.filter(c => c.paymentStatus !== 'paid').length;
@@ -110,10 +119,11 @@ const OverviewPage: React.FC<OverviewPageProps> = ({ allUnits, allVehicles, allW
             totalWaterConsumption,
             waterConsumptionTrend,
         };
-    }, [allUnits, allVehicles, allWaterReadings, charges]);
+    }, [allVehicles, charges]);
 
     const revenueChartData = useMemo(() => {
-        const generateMockRevenue = () => 120_000_000 + Math.random() * 60_000_000;
+        const IS_PROD = isProduction();
+        const hasAnyData = charges.length > 0;
 
         const months = Array.from({ length: 12 }, (_, i) => i + 1);
         return months.map(month => {
@@ -122,9 +132,11 @@ const OverviewPage: React.FC<OverviewPageProps> = ({ allUnits, allVehicles, allW
             
             let revenue = 0;
             if (chargesForMonth.length > 0) {
-                revenue = chargesForMonth.reduce((sum, c) => sum + c.TotalDue, 0);
-            } else if (month < 11) {
-                revenue = generateMockRevenue();
+                revenue = Math.round(chargesForMonth.reduce((sum, c) => sum + c.TotalDue, 0));
+            } else if (!IS_PROD && hasAnyData) {
+                 if (month < 11) { // Retain some mock data for past months in dev if not wiped
+                    revenue = Math.round(120_000_000 + Math.random() * 60_000_000);
+                 }
             }
             
             return { name: `T${month}`, 'Doanh thu tháng': revenue };
@@ -132,22 +144,23 @@ const OverviewPage: React.FC<OverviewPageProps> = ({ allUnits, allVehicles, allW
     }, [charges]);
     
     const pieChartData = useMemo(() => {
-        if (!selectedMonth) return [];
+        const currentPeriod = new Date().toISOString().slice(0, 7);
+        const chargesForMonth = charges.filter(c => c.Period === currentPeriod);
+        
+        const IS_PROD = isProduction();
+        const hasAnyData = charges.length > 0;
 
-        const period = `2025-${String(selectedMonth).padStart(2, '0')}`;
-        const chargesForMonth = charges.filter(c => c.Period === period);
-
-        const barDataForMonth = revenueChartData.find(d => d.name === `T${selectedMonth}`);
-        if (chargesForMonth.length === 0 && barDataForMonth && barDataForMonth['Doanh thu tháng'] > 0) {
-            const mockTotal = barDataForMonth['Doanh thu tháng'];
-            return [
-                { name: 'Phí Dịch Vụ', value: mockTotal * 0.6 },
-                { name: 'Phí Gửi Xe', value: mockTotal * 0.3 },
-                { name: 'Tiền Nước', value: mockTotal * 0.1 },
-            ];
+        if (chargesForMonth.length === 0) {
+             if (!IS_PROD && hasAnyData) {
+                const mockTotal = 150_000_000;
+                 return [
+                    { name: 'Phí Dịch Vụ', value: Math.round(mockTotal * 0.6) },
+                    { name: 'Phí Gửi Xe', value: Math.round(mockTotal * 0.3) },
+                    { name: 'Tiền Nước', value: Math.round(mockTotal * 0.1) },
+                ];
+             }
+             return [];
         }
-
-        if (chargesForMonth.length === 0) return [];
 
         const totals = chargesForMonth.reduce((acc, charge) => {
             acc.service += charge.ServiceFee_Total;
@@ -157,15 +170,15 @@ const OverviewPage: React.FC<OverviewPageProps> = ({ allUnits, allVehicles, allW
         }, { service: 0, parking: 0, water: 0 });
 
         return [
-            { name: 'Phí Dịch Vụ', value: totals.service },
-            { name: 'Phí Gửi Xe', value: totals.parking },
-            { name: 'Tiền Nước', value: totals.water },
+            { name: 'Phí Dịch Vụ', value: Math.round(totals.service) },
+            { name: 'Phí Gửi Xe', value: Math.round(totals.parking) },
+            { name: 'Tiền Nước', value: Math.round(totals.water) },
         ].filter(item => item.value > 0);
 
-    }, [charges, selectedMonth, revenueChartData]);
+    }, [charges]);
 
     const currentMonthAlerts = useMemo(() => {
-        const currentPeriod = '2025-11';
+        const currentPeriod = new Date().toISOString().slice(0, 7);
         const chargesForCurrentMonth = charges.filter(c => c.Period === currentPeriod);
 
         if (chargesForCurrentMonth.length === 0) {
@@ -174,13 +187,14 @@ const OverviewPage: React.FC<OverviewPageProps> = ({ allUnits, allVehicles, allW
 
         const unpaidCharges = chargesForCurrentMonth.filter(c => c.paymentStatus !== 'paid');
         const unpaidCount = unpaidCharges.length;
-        const unpaidTotal = unpaidCharges.reduce((sum, c) => sum + (c.TotalDue - c.TotalPaid), 0);
+        const unpaidTotal = Math.round(unpaidCharges.reduce((sum, c) => sum + (c.TotalDue - c.TotalPaid), 0));
 
         return { unpaidCount, unpaidTotal };
     }, [charges]);
     
     const unrecordedWaterUnits = useMemo(() => {
-        const checkPeriod = getPreviousPeriod('2025-11'); // '2025-10'
+        const currentPeriod = new Date().toISOString().slice(0, 7);
+        const checkPeriod = getPreviousPeriod(currentPeriod);
         const readingsForPeriod = new Set(
             allWaterReadings
                 .filter(r => r.Period === checkPeriod && r.CurrIndex > r.PrevIndex)
@@ -190,40 +204,56 @@ const OverviewPage: React.FC<OverviewPageProps> = ({ allUnits, allVehicles, allW
     }, [allUnits, allWaterReadings]);
 
     const chargesForCurrentPeriodExist = useMemo(() => {
-        const currentPeriod = '2025-11';
+        const currentPeriod = new Date().toISOString().slice(0, 7);
         return charges.some(c => c.Period === currentPeriod);
     }, [charges]);
+    
+    const currentMonth = new Date().getMonth() + 1;
 
 
     return (
         <div className="space-y-8">
-            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-6">
-                <StatCard 
-                    label={`Doanh thu T${new Date('2025-11-01').getMonth() + 1}`} 
-                    value={formatCurrency(dashboardStats.currentRevenue)} 
-                    icon={<RevenueIcon className="w-7 h-7 text-emerald-600 dark:text-emerald-400"/>} 
-                    iconBgClass="bg-emerald-100 dark:bg-emerald-900/50"
-                    trend={dashboardStats.revenueTrend}
-                />
-                <StatCard 
-                    label="Căn hộ nợ phí" 
-                    value={<span className="text-red-600 dark:text-red-400">{dashboardStats.outstandingUnitsCount}</span>}
-                    icon={<WarningIcon className="w-7 h-7 text-red-600 dark:text-red-400"/>} 
-                    iconBgClass="bg-red-100 dark:bg-red-900/50"
-                />
-                <StatCard 
-                    label="Ô tô / Xe máy" 
-                    value={`${dashboardStats.totalCars} / ${dashboardStats.totalMotorbikes}`} 
-                    icon={<CarIcon className="w-7 h-7 text-amber-600 dark:text-amber-400"/>} 
-                    iconBgClass="bg-amber-100 dark:bg-amber-900/50"
-                />
-                <StatCard 
-                    label={`Tiêu thụ nước T${new Date(getPreviousPeriod('2025-11')).getMonth() + 1}`} 
-                    value={`${dashboardStats.totalWaterConsumption.toLocaleString('vi-VN')} m³`} 
-                    icon={<DropletsIcon className="w-7 h-7 text-indigo-600 dark:text-indigo-400"/>} 
-                    iconBgClass="bg-indigo-100 dark:bg-indigo-900/50"
-                    trend={dashboardStats.waterConsumptionTrend}
-                />
+            <div>
+                <div className="flex justify-between items-center mb-4">
+                    <h2 className="text-2xl font-bold text-gray-900 dark:text-gray-200">Thống kê nhanh</h2>
+                    <button
+                        onClick={() => setIsStatsExpanded(p => !p)}
+                        className="p-1.5 rounded-full hover:bg-gray-200 dark:hover:bg-slate-700"
+                        data-tooltip={isStatsExpanded ? "Thu gọn" : "Mở rộng"}
+                    >
+                        {isStatsExpanded ? <ChevronUpIcon /> : <ChevronDownIcon />}
+                    </button>
+                </div>
+                {isStatsExpanded && (
+                    <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-6">
+                        <StatCard 
+                            label={`Doanh thu T${currentMonth}`} 
+                            value={formatCurrency(dashboardStats.currentRevenue)} 
+                            icon={<RevenueIcon className="w-7 h-7 text-emerald-600 dark:text-emerald-400"/>} 
+                            iconBgClass="bg-emerald-100 dark:bg-emerald-900/50"
+                            trend={dashboardStats.revenueTrend}
+                        />
+                        <StatCard 
+                            label="Căn hộ nợ phí" 
+                            value={<span className="text-red-600 dark:text-red-400">{dashboardStats.outstandingUnitsCount}</span>}
+                            icon={<WarningIcon className="w-7 h-7 text-red-600 dark:text-red-400"/>} 
+                            iconBgClass="bg-red-100 dark:bg-red-900/50"
+                        />
+                        <StatCard 
+                            label="Ô tô / Xe máy" 
+                            value={`${dashboardStats.totalCars} / ${dashboardStats.totalMotorbikes}`} 
+                            icon={<CarIcon className="w-7 h-7 text-amber-600 dark:text-amber-400"/>} 
+                            iconBgClass="bg-amber-100 dark:bg-amber-900/50"
+                        />
+                        <StatCard 
+                            label={`Tiêu thụ nước T${currentMonth}`} 
+                            value={`${dashboardStats.totalWaterConsumption.toLocaleString('vi-VN')} m³`} 
+                            icon={<DropletsIcon className="w-7 h-7 text-indigo-600 dark:text-indigo-400"/>} 
+                            iconBgClass="bg-indigo-100 dark:bg-indigo-900/50"
+                            trend={dashboardStats.waterConsumptionTrend}
+                        />
+                    </div>
+                )}
             </div>
 
             <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
@@ -244,10 +274,6 @@ const OverviewPage: React.FC<OverviewPageProps> = ({ allUnits, allVehicles, allW
                                 dataKey="Doanh thu tháng" 
                                 fill="#3b82f6" 
                                 radius={[4, 4, 0, 0]}
-                                onClick={(data) => {
-                                    const monthNum = parseInt(data.name.substring(1));
-                                    if (!isNaN(monthNum)) setSelectedMonth(monthNum);
-                                }}
                                 className="cursor-pointer"
                             >
                                 <LabelList 
@@ -264,17 +290,17 @@ const OverviewPage: React.FC<OverviewPageProps> = ({ allUnits, allVehicles, allW
                 </div>
                 
                 <div className="bg-white dark:bg-dark-bg-secondary p-6 rounded-xl shadow-sm">
-                    <h3 className="font-bold text-lg text-gray-800 dark:text-gray-200 mb-4">Cơ cấu doanh thu Tháng {selectedMonth}/2025</h3>
+                    <h3 className="font-bold text-lg text-gray-800 dark:text-gray-200 mb-4">Cơ cấu doanh thu Tháng {currentMonth}/2025</h3>
                     <ResponsiveContainer width="100%" height={300}>
                          {pieChartData.length > 0 ? (
-                            <PieChart>
+                            <PieChart margin={{ top: 20, right: 30, bottom: 20, left: 30 }}>
                                 <Pie
                                     data={pieChartData}
                                     cx="50%"
                                     cy="50%"
                                     labelLine={false}
-                                    label={renderCustomizedLabel}
-                                    outerRadius={110}
+                                    label={renderCombinedLabel}
+                                    outerRadius={80}
                                     fill="#8884d8"
                                     dataKey="value"
                                 >
@@ -282,16 +308,12 @@ const OverviewPage: React.FC<OverviewPageProps> = ({ allUnits, allVehicles, allW
                                         <Cell key={`cell-${index}`} fill={COLORS[index % COLORS.length]} />
                                     ))}
                                 </Pie>
-                                <Tooltip formatter={(value: number, name: string, props: any) => {
-                                    const formattedValue = formatFullCurrency(value);
-                                    const percent = (props.payload.percent * 100).toFixed(0);
-                                    return [`${formattedValue} (${percent}%)`, name];
-                                }} />
-                                <Legend />
+                                <Tooltip formatter={(value: number) => formatFullCurrency(value)} />
+                                <Legend wrapperStyle={{ fontSize: '12px', marginTop: '16px' }} />
                             </PieChart>
                          ) : (
                              <div className="relative w-full h-full">
-                                 <div className="absolute top-1/2 left-3/4 -translate-x-1/2 -translate-y-1/2 flex flex-col items-center text-gray-500">
+                                 <div className="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 flex flex-col items-center text-gray-500">
                                      <PieChartIcon className="w-20 h-20 text-gray-300 dark:text-gray-600 opacity-50"/>
                                      <p className="mt-3 text-sm italic whitespace-nowrap">Chưa có dữ liệu cho kỳ này</p>
                                  </div>
@@ -332,7 +354,7 @@ const OverviewPage: React.FC<OverviewPageProps> = ({ allUnits, allVehicles, allW
                      <div className="space-y-4">
                         {currentMonthAlerts.unpaidCount > 0 && (
                             <div>
-                                <h4 className="text-sm font-semibold text-red-600 dark:text-red-400">Phí chưa thanh toán (Tháng {new Date('2025-11').getMonth() + 1})</h4>
+                                <h4 className="text-sm font-semibold text-red-600 dark:text-red-400">Phí chưa thanh toán (Tháng {currentMonth})</h4>
                                 <p className="mt-2 text-sm text-gray-600 dark:text-gray-400">
                                     Có <strong className="text-gray-900 dark:text-gray-100">{currentMonthAlerts.unpaidCount}</strong> hộ chưa hoàn thành thanh toán phí, với tổng số tiền là <strong className="text-gray-900 dark:text-gray-100">{formatFullCurrency(currentMonthAlerts.unpaidTotal)}</strong>.
                                 </p>
@@ -341,7 +363,7 @@ const OverviewPage: React.FC<OverviewPageProps> = ({ allUnits, allVehicles, allW
 
                         {unrecordedWaterUnits.length > 0 && (
                             <div>
-                                <h4 className="text-sm font-semibold text-blue-600 dark:text-blue-400">Chưa chốt số nước kỳ T{new Date(getPreviousPeriod('2025-11')).getMonth()+1}</h4>
+                                <h4 className="text-sm font-semibold text-blue-600 dark:text-blue-400">Chưa chốt số nước kỳ T{new Date(getPreviousPeriod(new Date().toISOString().slice(0,7))).getMonth()+1}</h4>
                                 <p className="mt-2 text-sm text-gray-600 dark:text-gray-400">
                                     Có <strong className="text-gray-900 dark:text-gray-100">{unrecordedWaterUnits.length}</strong> căn hộ chưa có số nước, cần cập nhật để tính phí. 
                                     <span className="text-xs italic"> (VD: {unrecordedWaterUnits.slice(0, 5).map(u => u.UnitID).join(', ')}, ...)</span>

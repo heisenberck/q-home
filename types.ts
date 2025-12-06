@@ -35,9 +35,15 @@ export interface Owner {
     OwnerName: string;
     Phone: string;
     Email: string;
+    // NEW: Fields for resident detail panel
+    avatarUrl?: string;
+    secondOwnerName?: string;
+    secondOwnerPhone?: string;
+    updatedAt?: string; // ISO string for tracking updates
     documents?: {
         nationalId?: VehicleDocument; // CCCD
         title?: VehicleDocument;      // Sổ đỏ / Hợp đồng
+        others?: VehicleDocument[];   // Other documents
     };
 }
 
@@ -176,6 +182,7 @@ export interface AllData {
     waterReadings: WaterReading[];
     tariffs: TariffCollection;
     adjustments: Adjustment[];
+    activityLogs: ActivityLog[]; // Added activity logs to AllData
 }
 
 export interface InvoiceSettings {
@@ -188,6 +195,7 @@ export interface InvoiceSettings {
     emailSubject?: string;
     emailBody?: string;
     appsScriptUrl?: string;
+    transferContentTemplate?: string; // NEW: Added for customizable transfer content
     // Footer Settings
     footerHtml?: string;
     footerShowInPdf?: boolean;

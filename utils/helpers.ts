@@ -1,3 +1,5 @@
+
+
 import { UnitType, ParkingTariffTier, VehicleTier, InvoiceSettings } from '../types';
 import type { ChargeRaw, AllData, Adjustment, Unit } from '../types';
 
@@ -67,6 +69,44 @@ export const processFooterHtml = (
         processedHtml = processedHtml.replace(new RegExp(key.replace(/[-\/\\^$*+?.()|[\]{}]/g, '\\$&'), 'g'), allVariables[key as keyof typeof allVariables]);
     }
     return processedHtml;
+};
+
+export const timeAgo = (dateString?: string): string => {
+    if (!dateString) return 'không rõ';
+    const date = new Date(dateString);
+    const now = new Date();
+    const seconds = Math.floor((now.getTime() - date.getTime()) / 1000);
+
+    if (seconds < 2) return 'vừa xong';
+    if (seconds < 60) return `${seconds} giây trước`;
+    
+    const minutes = Math.floor(seconds / 60);
+    if (minutes < 60) return `${minutes} phút trước`;
+    
+    const hours = Math.floor(minutes / 60);
+    if (hours < 24) return `${hours} giờ trước`;
+    
+    const days = Math.floor(hours / 24);
+    if (days < 7) return `${days} ngày trước`;
+    
+    return date.toLocaleDateString('vi-VN', { day: '2-digit', month: '2-digit', year: 'numeric' });
+};
+
+export const generateTransferContent = (charge: ChargeRaw, settings: InvoiceSettings): string => {
+    // Default value if the setting is null/undefined
+    let template = settings.transferContentTemplate || 'HUD3 {{unitId}} T{{period}}';
+
+    // Fallback if user messes up the template by removing required variables
+    if (!template.includes('{{unitId}}') || !template.includes('{{period}}')) {
+        template = 'HUD3 {{unitId}} T{{period}}';
+    }
+    
+    // Extract just the month number, e.g., "12" from "2025-12"
+    const month = charge.Period.split('-')[1];
+
+    return template
+        .replace(/{{\s*unitId\s*}}/g, charge.UnitID)
+        .replace(/{{\s*period\s*}}/g, month);
 };
 
 
@@ -206,11 +246,12 @@ export const renderInvoiceHTMLForPdf = (charge: ChargeRaw, allData: AllData, inv
         </tr>
     `).join('');
 
-    const paymentContent = `HUD3 LD - Phong ${charge.UnitID} - nop phi dich vu thang ${charge.Period.split('-')[1]}/${charge.Period.split('-')[0]}`;
+    const paymentContent = generateTransferContent(charge, invoiceSettings);
     const bankShortNameForQR = invoiceSettings.bankName.split(' - ')[0].trim();
     const qrCodeUrl = `https://qr.sepay.vn/img?acc=${invoiceSettings.accountNumber}&bank=${bankShortNameForQR}&amount=${charge.TotalDue}&des=${encodeURIComponent(paymentContent)}`;
     
     const footerHtml = getFooterHtmlForChannel(invoiceSettings, 'pdf');
+    const buildingName = (invoiceSettings.buildingName || 'HUD3 LINH ĐÀM').toUpperCase();
 
     return `
     <div id="phiieu" style="font-family: Arial, sans-serif; background: #fff; width: 210mm; height: 148mm; padding: 8mm; box-sizing: border-box; font-size: 12px; ${textStyle}">
@@ -220,7 +261,7 @@ export const renderInvoiceHTMLForPdf = (charge: ChargeRaw, allData: AllData, inv
                 <h1 style="font-size: 1.25rem; font-weight: bold; margin: 0; ${textStyle}">PHIẾU THÔNG BÁO PHÍ DỊCH VỤ</h1>
                 <p style="margin: 0; ${textStyle}">Kỳ: ${charge.Period}</p>
             </div>
-            <div style="flex: 1; text-align: right; font-weight: 600; font-size: 11px; ${textStyle}">BAN QUẢN LÝ VẬN HÀNH<br>NHÀ CHUNG CƯ HUD3 LINH ĐÀM</div>
+            <div style="flex: 1; text-align: right; font-weight: 600; font-size: 11px; ${textStyle}">BAN QUẢN LÝ VẬN HÀNH<br>NHÀ CHUNG CƯ ${buildingName}</div>
         </header>
         <section style="margin-bottom: 1rem; display: grid; grid-template-columns: repeat(4, 1fr); gap: 0.25rem 1.5rem; font-size: 0.875rem; ${textStyle}">
             <div style="${textStyle}"><strong style="${textStyle}">Căn hộ:</strong> ${charge.UnitID}</div>
@@ -253,11 +294,28 @@ export const renderInvoiceHTMLForPdf = (charge: ChargeRaw, allData: AllData, inv
             </tfoot>
         </table>
         <div style="margin-top: 1rem; font-size: 11px; display: flex; justify-content: space-between; align-items: flex-start; gap: 12px; ${textStyle}">
-            <div style="flex: 1 1 auto; min-width: 0; background: #eaf3ff; border: 1px solid #cfe6ff; padding: 8px; border-radius: 6px; color: #0b3b6f;">
-                <p style="font-weight: bold; font-size: 13px; margin-bottom: 0.5rem; color: #0b3b6f;">Thông tin thanh toán:</p>
-                <div style="color: #0b3b6f;"><strong style="color: #0b3b6f;">Chủ TK:</strong> ${invoiceSettings.accountName}</div>
-                <div style="color: #0b3b6f;"><strong style="color: #0b3b6f;">Số TK:</strong> ${invoiceSettings.accountNumber} tại ${invoiceSettings.bankName}</div>
-                <p style="color: #0b3b6f;"><strong style="color: #0b3b6f;">Nội dung:</strong> <span style="font-family: monospace; background: #e2e8f0; padding: 4px; border-radius: 4px; color: #0b3b6f; word-break: break-all;">${paymentContent}</span></p>
+            <div style="flex: 1 1 auto; min-width: 0;">
+                <p style="font-weight: bold; font-size: 13px; margin-bottom: 0.5rem; ${textStyle}">Thông tin thanh toán:</p>
+                <table style="width: 100%; font-size: 11px; border-spacing: 0; text-align: left;">
+                    <tbody>
+                        <tr>
+                            <td style="font-weight: 500; color: #4b5563; padding: 2px 1rem 2px 0; vertical-align: top;">Chủ TK:</td>
+                            <td style="font-weight: 600; padding: 2px 0; ${textStyle}">${invoiceSettings.accountName}</td>
+                        </tr>
+                        <tr>
+                            <td style="font-weight: 500; color: #4b5563; padding: 2px 1rem 2px 0; vertical-align: top;">Số TK:</td>
+                            <td style="font-weight: 600; padding: 2px 0; ${textStyle}">${invoiceSettings.accountNumber}</td>
+                        </tr>
+                        <tr>
+                            <td style="font-weight: 500; color: #4b5563; padding: 2px 1rem 2px 0; vertical-align: top;">Ngân hàng:</td>
+                            <td style="font-weight: 600; padding: 2px 0; ${textStyle}">${invoiceSettings.bankName}</td>
+                        </tr>
+                        <tr>
+                            <td style="font-weight: 500; color: #4b5563; padding: 2px 1rem 2px 0; vertical-align: top;">Nội dung:</td>
+                            <td style="font-weight: bold; color: #000; font-family: monospace; word-break: break-all; padding: 2px 0;">${paymentContent}</td>
+                        </tr>
+                    </tbody>
+                </table>
             </div>
             <div style="flex: 0 0 90px; text-align: center; ${textStyle}">
                 <img src="${qrCodeUrl}" alt="QR Code" style="width: 90px; height: 90px; object-fit: contain;" />
@@ -274,11 +332,12 @@ export const generateEmailHtmlForCharge = (charge: ChargeRaw, allData: AllData, 
 
     const feeDetails = generateFeeDetails(charge, allData);
 
-    const paymentContent = `HUD3 LD - Phong ${charge.UnitID} - nop phi dich vu thang ${charge.Period.split('-')[1]}/${charge.Period.split('-')[0]}`;
+    const paymentContent = generateTransferContent(charge, invoiceSettings);
     const bankShortNameForQR = invoiceSettings.bankName.split(' - ')[0].trim();
     const qrCodeUrl = `https://qr.sepay.vn/img?acc=${invoiceSettings.accountNumber}&bank=${bankShortNameForQR}&amount=${charge.TotalDue}&des=${encodeURIComponent(paymentContent)}`;
 
     const footerHtml = getFooterHtmlForChannel(invoiceSettings, 'email');
+    const buildingName = (invoiceSettings.buildingName || 'HUD3 LINH ĐÀM').toUpperCase();
 
     // This is the full HTML document for the email body.
     return `
@@ -329,7 +388,7 @@ export const generateEmailHtmlForCharge = (charge: ChargeRaw, allData: AllData, 
             <div class="header" style="display: flex; justify-content: space-between; align-items: flex-start;">
                 <div style="flex: 1;"><img src="${invoiceSettings.logoUrl}" alt="Logo" style="height: 64px; object-fit: contain;"/></div>
                 <div style="flex: 2; text-align: center;"><h1>PHIẾU THÔNG BÁO PHÍ DỊCH VỤ</h1><p>Kỳ: ${charge.Period}</p></div>
-                <div style="flex: 1; text-align: right; font-weight: 600; font-size: 12px;">BAN QUẢN LÝ VẬN HÀNH<br/>NHÀ CHUNG CƯ HUD3 LINH ĐÀM</div>
+                <div style="flex: 1; text-align: right; font-weight: 600; font-size: 12px;">BAN QUẢN LÝ VẬN HÀNH<br/>NHÀ CHUNG CƯ ${buildingName}</div>
             </div>
             <div class="content">
                 <div style="margin-bottom: 16px; display: grid; grid-template-columns: 1fr 1fr; gap: 4px 24px; font-size: 14px;">
@@ -500,4 +559,24 @@ export const compressImageToWebP = (file: File): Promise<string> => {
         };
         reader.onerror = (error) => reject(error);
     });
+};
+
+const pastelColors = [
+    { bg: 'bg-blue-50 dark:bg-blue-900/50', text: 'text-blue-800 dark:text-blue-300', border: 'border-blue-200 dark:border-blue-700/50' },
+    { bg: 'bg-emerald-50 dark:bg-emerald-900/50', text: 'text-emerald-800 dark:text-emerald-300', border: 'border-emerald-200 dark:border-emerald-700/50' },
+    { bg: 'bg-purple-50 dark:bg-purple-900/50', text: 'text-purple-800 dark:text-purple-300', border: 'border-purple-200 dark:border-purple-700/50' },
+    { bg: 'bg-orange-50 dark:bg-orange-900/50', text: 'text-orange-800 dark:text-orange-300', border: 'border-orange-200 dark:border-orange-700/50' },
+    { bg: 'bg-rose-50 dark:bg-rose-900/50', text: 'text-rose-800 dark:text-rose-300', border: 'border-rose-200 dark:border-rose-700/50' },
+    { bg: 'bg-sky-50 dark:bg-sky-900/50', text: 'text-sky-800 dark:text-sky-300', border: 'border-sky-200 dark:border-sky-700/50' },
+    { bg: 'bg-amber-50 dark:bg-amber-900/50', text: 'text-amber-800 dark:text-amber-300', border: 'border-amber-200 dark:border-amber-700/50' },
+];
+
+export const getPastelColorForName = (name: string | undefined) => {
+    if (!name) return pastelColors[0];
+    let hash = 0;
+    for (let i = 0; i < name.length; i++) {
+        hash = name.charCodeAt(i) + ((hash << 5) - hash);
+    }
+    const index = Math.abs(hash % pastelColors.length);
+    return pastelColors[index];
 };

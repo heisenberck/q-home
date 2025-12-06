@@ -1,4 +1,5 @@
 
+
 import type { ChargeRaw, Unit, Owner, Vehicle, WaterReading, Adjustment, AllData, PaymentStatus } from '../types';
 import { UnitType, VehicleTier, ParkingTariffTier } from '../types';
 import { getPreviousPeriod } from '../utils/helpers';
@@ -78,7 +79,13 @@ const calcServiceFee = (unit: Unit, tariffs: AllData['tariffs']) => {
 
 const calcVehicleFee = (vehicles: Vehicle[], period: string, tariffs: AllData['tariffs']) => {
     const endOfMonth = new Date(new Date(period + '-02').getFullYear(), new Date(period + '-02').getMonth() + 1, 0);
-    const activeVehicles = vehicles.filter(v => v.isActive && new Date(v.StartDate) <= endOfMonth);
+    
+    // FIX: Exclude vehicles with 'Xếp lốt' status from fee calculation.
+    const activeVehicles = vehicles.filter(v => 
+        v.isActive && 
+        new Date(v.StartDate) <= endOfMonth &&
+        v.parkingStatus !== 'Xếp lốt'
+    );
     
     const carCount = activeVehicles.filter(v => v.Type === VehicleTier.CAR).length;
     const carACount = activeVehicles.filter(v => v.Type === VehicleTier.CAR_A).length;
@@ -115,30 +122,38 @@ const calcVehicleFee = (vehicles: Vehicle[], period: string, tariffs: AllData['t
 };
 
 const calcWaterFee = (unit: Unit, period: string, allData: AllData) => {
-    const readingPeriod = getPreviousPeriod(period);
-    const usage = getWaterUsage(unit.UnitID, readingPeriod, allData.waterReadings);
+    // UPDATED LOGIC: For billing period T, use water consumption from reading period T.
+    const usage = getWaterUsage(unit.UnitID, period, allData.waterReadings);
     
     if (usage <= 0) return { usage, ...applyVAT(0, 0) };
 
     const sortedTiers = [...allData.tariffs.water].sort((a, b) => a.From_m3 - b.From_m3);
-    const businessTariff = sortedTiers.find(t => t.To_m3 === null); // Highest tier is business rate
-
+    
     if (isBusinessUnit(unit)) {
+        const businessTariff = sortedTiers.find(t => t.To_m3 === null); // Highest tier is business rate
         if (!businessTariff) return { usage, ...applyVAT(0, 0) };
         const taxed = applyVAT(usage * businessTariff.UnitPrice, businessTariff.VAT_percent);
         return { usage, ...taxed };
     }
 
+    // Progressive (lũy tiến) calculation for apartments
     let net = 0;
-    let consumptionLeft = usage;
-    for (const tier of sortedTiers) {
-        if (consumptionLeft <= 0) break;
-        
-        const tierRange = (tier.To_m3 ?? Infinity) - tier.From_m3 + 1;
-        const usageInTier = Math.min(consumptionLeft, tierRange);
+    let consumptionRemaining = usage;
+    
+    // Tier blocks: first 10, next 10, next 10, rest
+    const tierSizes = [10, 10, 10, Infinity];
 
-        net += usageInTier * tier.UnitPrice;
-        consumptionLeft -= usageInTier;
+    for (let i = 0; i < sortedTiers.length; i++) {
+        if (consumptionRemaining <= 0) break;
+        
+        const tier = sortedTiers[i];
+        if (!tier) continue; // Should not happen if data is correct
+        
+        const tierSize = tierSizes[i]; // Assumes sortedTiers and tierSizes are aligned
+        const usageInThisTier = Math.min(consumptionRemaining, tierSize);
+
+        net += usageInThisTier * tier.UnitPrice;
+        consumptionRemaining -= usageInThisTier;
     }
     
     const vatPercent = sortedTiers[0]?.VAT_percent ?? 5; // Assume all water has same VAT
@@ -150,7 +165,7 @@ export const calculateChargesBatch = async (
     calculationInputs: CalculationInput[],
     allData: AllData
 // FIX: The function returns an array of charges, so the Promise should resolve to an array type.
-): Promise<Omit<ChargeRaw, 'CreatedAt' | 'Locked'>[]> => {
+): Promise<Omit<ChargeRaw, 'CreatedAt' | 'Locked' | 'isPrinted' | 'isSent'>[]> => {
     
     const results = calculationInputs.map(input => {
         const { unit, owner, vehicles, adjustments } = input;

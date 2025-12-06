@@ -1,6 +1,6 @@
 import React, { useState, useMemo } from 'react';
 import type { ActivityLog, Role } from '../../types';
-import { ArrowUturnLeftIcon, ClipboardDocumentListIcon, SearchIcon } from '../ui/Icons';
+import { ArrowUturnLeftIcon, SearchIcon } from '../ui/Icons';
 
 interface ActivityLogPageProps {
     logs: ActivityLog[];

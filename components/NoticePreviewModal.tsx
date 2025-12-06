@@ -4,7 +4,7 @@ import React from 'react';
 import type { ChargeRaw, AllData, InvoiceSettings } from '../types';
 import Modal from './ui/Modal';
 import { PaperAirplaneIcon } from './ui/Icons';
-import { generateFeeDetails, processFooterHtml, formatNumber } from '../utils/helpers';
+import { generateFeeDetails, processFooterHtml, formatNumber, generateTransferContent } from '../utils/helpers';
 
 interface NoticePreviewModalProps {
     charge: ChargeRaw;
@@ -17,7 +17,7 @@ interface NoticePreviewModalProps {
 const NoticePreviewModal: React.FC<NoticePreviewModalProps> = ({ charge, onClose, invoiceSettings, allData, onSendEmail }) => {
     const feeDetails = generateFeeDetails(charge, allData);
 
-    const paymentContent = `HUD3 LD - Phong ${charge.UnitID} - nop phi dich vu thang ${charge.Period.split('-')[1]}/${charge.Period.split('-')[0]}`;
+    const paymentContent = generateTransferContent(charge, invoiceSettings);
     const bankShortNameForQR = invoiceSettings.bankName.split(' - ')[0].trim();
     const qrCodeUrl = `https://qr.sepay.vn/img?acc=${invoiceSettings.accountNumber}&bank=${bankShortNameForQR}&amount=${charge.TotalDue}&des=${encodeURIComponent(paymentContent)}`;
     
@@ -29,6 +29,8 @@ const NoticePreviewModal: React.FC<NoticePreviewModalProps> = ({ charge, onClose
         return `<div class="text-gray-500" style="text-align: ${align}; font-size: ${fontSize}; margin-top: 1rem; padding-top: 0.5rem; border-top: 1px dashed #ccc;">${processedFooter}</div>`;
     };
     const footerHtml = getFooterHtmlForViewer(invoiceSettings);
+    
+    const buildingName = (invoiceSettings.buildingName || 'HUD3 LINH ĐÀM').toUpperCase();
 
     const htmlContent = `
     <div class="font-sans bg-white text-gray-900 p-6 rounded-lg max-w-4xl mx-auto" style="font-family: Arial, sans-serif;">
@@ -38,7 +40,7 @@ const NoticePreviewModal: React.FC<NoticePreviewModalProps> = ({ charge, onClose
                 <h1 class="text-xl font-bold uppercase">Phiếu thông báo phí dịch vụ</h1>
                 <p>Kỳ: ${charge.Period}</p>
             </div>
-            <div class="flex-1 text-right font-semibold text-xs">BAN QUẢN LÝ VẬN HÀNH<br/>NHÀ CHUNG CƯ HUD3 LINH ĐÀM</div>
+            <div class="flex-1 text-right font-semibold text-xs">BAN QUẢN LÝ VẬN HÀNH<br/>NHÀ CHUNG CƯ ${buildingName}</div>
         </header>
         <section class="mb-4 grid grid-cols-2 gap-x-6 gap-y-1 text-sm">
             <p><strong>Căn hộ:</strong> ${charge.UnitID}</p>
@@ -100,11 +102,28 @@ const NoticePreviewModal: React.FC<NoticePreviewModalProps> = ({ charge, onClose
             </tfoot>
         </table>
         <div class="mt-6 flex items-start gap-4">
-            <div class="flex-auto bg-blue-50 border border-blue-200 p-4 rounded-md text-blue-800 text-sm">
+            <div class="flex-auto">
                 <p class="font-bold text-base mb-2">Thông tin thanh toán:</p>
-                <p><strong>Chủ TK:</strong> ${invoiceSettings.accountName}</p>
-                <p><strong>Số TK:</strong> ${invoiceSettings.accountNumber} tại ${invoiceSettings.bankName}</p>
-                <p class="mt-2"><strong>Nội dung:</strong> <code class="bg-blue-200 p-1 rounded font-mono break-all">${paymentContent}</code></p>
+                <table class="text-sm">
+                    <tbody>
+                        <tr>
+                            <td class="font-medium text-gray-600 pr-4 align-top py-0.5">Chủ TK:</td>
+                            <td class="font-semibold text-gray-800 py-0.5">${invoiceSettings.accountName}</td>
+                        </tr>
+                        <tr>
+                            <td class="font-medium text-gray-600 pr-4 align-top py-0.5">Số TK:</td>
+                            <td class="font-semibold text-gray-800 py-0.5">${invoiceSettings.accountNumber}</td>
+                        </tr>
+                        <tr>
+                            <td class="font-medium text-gray-600 pr-4 align-top py-0.5">Ngân hàng:</td>
+                            <td class="font-semibold text-gray-800 py-0.5">${invoiceSettings.bankName}</td>
+                        </tr>
+                        <tr>
+                            <td class="font-medium text-gray-600 pr-4 align-top py-0.5">Nội dung:</td>
+                            <td class="font-bold text-black font-mono break-words py-0.5">${paymentContent}</td>
+                        </tr>
+                    </tbody>
+                </table>
             </div>
             <div class="flex-shrink-0 text-center">
                 <img src="${qrCodeUrl}" alt="QR Code" class="w-24 h-24" />
