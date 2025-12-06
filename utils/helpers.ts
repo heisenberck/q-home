@@ -326,18 +326,29 @@ export const renderInvoiceHTMLForPdf = (charge: ChargeRaw, allData: AllData, inv
     </div>`;
 };
 
-export const generateEmailHtmlForCharge = (charge: ChargeRaw, allData: AllData, invoiceSettings: InvoiceSettings, personalizedBody: string): string => {
-    const formatVND = (value: number | undefined | null) => new Intl.NumberFormat('vi-VN').format(Math.round(value || 0));
-    const formattedPersonalizedBody = personalizedBody.replace(/\n/g, '<br />');
+export const generateEmailHtmlForCharge = (charge: ChargeRaw, allData: AllData, invoiceSettings: InvoiceSettings): string => {
+    // 1. Get the template from settings
+    const template = invoiceSettings.emailBody || '';
 
-    const feeDetails = generateFeeDetails(charge, allData);
-
-    const paymentContent = generateTransferContent(charge, invoiceSettings);
+    // 2. Generate dynamic values
+    const transferContent = generateTransferContent(charge, invoiceSettings);
     const bankShortNameForQR = invoiceSettings.bankName.split(' - ')[0].trim();
-    const qrCodeUrl = `https://qr.sepay.vn/img?acc=${invoiceSettings.accountNumber}&bank=${bankShortNameForQR}&amount=${charge.TotalDue}&des=${encodeURIComponent(paymentContent)}`;
-
+    const qrCodeUrl = `https://qr.sepay.vn/img?acc=${invoiceSettings.accountNumber}&bank=${bankShortNameForQR}&amount=${charge.TotalDue}&des=${encodeURIComponent(transferContent)}`;
+    
+    // 3. Perform replacements
+    const processedBody = template
+        .replace(/{{owner_name}}/g, charge.OwnerName)
+        .replace(/{{building_name}}/g, invoiceSettings.buildingName || 'Chung cư')
+        .replace(/{{period}}/g, charge.Period)
+        .replace(/{{unit_id}}/g, charge.UnitID)
+        .replace(/{{total_due}}/g, formatCurrency(charge.TotalDue))
+        .replace(/{{bank_name}}/g, invoiceSettings.bankName)
+        .replace(/{{bank_account_name}}/g, invoiceSettings.accountName)
+        .replace(/{{bank_account_number}}/g, invoiceSettings.accountNumber)
+        .replace(/{{transfer_content}}/g, transferContent)
+        .replace(/{{qr_url}}/g, qrCodeUrl);
+        
     const footerHtml = getFooterHtmlForChannel(invoiceSettings, 'email');
-    const buildingName = (invoiceSettings.buildingName || 'HUD3 LINH ĐÀM').toUpperCase();
 
     // This is the full HTML document for the email body.
     return `
@@ -350,122 +361,24 @@ export const generateEmailHtmlForCharge = (charge: ChargeRaw, allData: AllData, 
         <style>
             body { font-family: Arial, sans-serif; margin: 0; padding: 0; background-color: #f4f6f8; }
             .container { max-width: 800px; margin: 20px auto; background-color: #ffffff; border-radius: 8px; overflow: hidden; border: 1px solid #e5e7eb; }
-            .header, .footer { padding: 20px; }
             .content { padding: 20px; }
-            h1 { font-size: 20px; font-weight: bold; color: #111827; margin: 0; }
-            p { margin: 0; }
-            table { width: 100%; border-collapse: collapse; font-size: 14px; }
-            th, td { padding: 10px; border: 1px solid #e5e7eb; text-align: left; color: #111827; }
-            th { background-color: #f9fafb; font-weight: 600; }
-            .text-right { text-align: right; }
-            .text-center { text-align: center; }
-            .font-bold { font-weight: bold; }
-            .total-row td { font-size: 16px; font-weight: bold; background-color: #f9fafb; }
-            .total-due { color: #dc2626; }
-            .qr-section { display: flex; align-items: flex-start; gap: 20px; margin-top: 24px; }
-            .payment-info { flex: 1 1 auto; min-width: 0; background-color: #eff6ff; border: 1px solid #dbeafe; padding: 16px; border-radius: 6px; color: #1e3a8a; }
-            .qr-code { flex: 0 0 100px; text-align: center; }
-            .qr-code img { width: 100px; height: 100px; }
+            .footer { padding: 20px; }
             
             /* Dark Mode Styles */
             @media (prefers-color-scheme: dark) {
                 body { background-color: #111827 !important; }
                 .container { background-color: #1f2937 !important; border-color: #374151 !important; }
-                h1, p, th, td, .footer, div { color: #f9fafb !important; }
-                th { background-color: #374151 !important; }
-                td, th { border-color: #374151 !important; }
-                .total-row td { background-color: #374151 !important; }
-                .payment-info { background-color: #1e3a8a !important; border-color: #3b82f6 !important; color: #e0e7ff !important; }
-                .payment-info code { background-color: #374151 !important; color: #e0e7ff !important; }
+                /* General text color override */
+                h1, p, th, td, .footer, div, strong, li, span, a { color: #f9fafb !important; }
             }
         </style>
     </head>
     <body>
         <div class="container">
-            <div class="content" style="padding-bottom: 0; border-bottom: 1px dashed #d1d5db; margin-bottom: 20px;">
-                <p style="margin-bottom: 20px; line-height: 1.6;">${formattedPersonalizedBody}</p>
-            </div>
-            <div class="header" style="display: flex; justify-content: space-between; align-items: flex-start;">
-                <div style="flex: 1;"><img src="${invoiceSettings.logoUrl}" alt="Logo" style="height: 64px; object-fit: contain;"/></div>
-                <div style="flex: 2; text-align: center;"><h1>PHIẾU THÔNG BÁO PHÍ DỊCH VỤ</h1><p>Kỳ: ${charge.Period}</p></div>
-                <div style="flex: 1; text-align: right; font-weight: 600; font-size: 12px;">BAN QUẢN LÝ VẬN HÀNH<br/>NHÀ CHUNG CƯ ${buildingName}</div>
-            </div>
             <div class="content">
-                <div style="margin-bottom: 16px; display: grid; grid-template-columns: 1fr 1fr; gap: 4px 24px; font-size: 14px;">
-                    <p><strong>Căn hộ:</strong> ${charge.UnitID}</p>
-                    <p><strong>Chủ hộ:</strong> ${charge.OwnerName}</p>
-                    <p><strong>Diện tích:</strong> ${charge.Area_m2} m²</p>
-                    <p><strong>SĐT:</strong> ${charge.Phone}</p>
-                </div>
-                <table>
-                    <thead>
-                        <tr>
-                            <th>Nội dung</th>
-                            <th class="text-center">Số lượng</th>
-                            <th class="text-right">Thành tiền (VND)</th>
-                            <th class="text-right">Thuế GTGT (VND)</th>
-                            <th class="text-right">Tổng cộng (VND)</th>
-                        </tr>
-                    </thead>
-                    <tbody>
-                        <tr>
-                            <td>Phí dịch vụ</td>
-                            <td class="text-center">${charge.Area_m2} m²</td>
-                            <td class="text-right">${formatVND(charge.ServiceFee_Base)}</td>
-                            <td class="text-right">${formatVND(charge.ServiceFee_VAT)}</td>
-                            <td class="text-right">${formatVND(charge.ServiceFee_Total)}</td>
-                        </tr>
-                        ${feeDetails.parking.map(item => `
-                            <tr>
-                                <td>${item.description}</td>
-                                <td class="text-center">${item.quantity}</td>
-                                <td class="text-right">${formatVND(item.base)}</td>
-                                <td class="text-right">${formatVND(item.vat)}</td>
-                                <td class="text-right">${formatVND(item.total)}</td>
-                            </tr>
-                        `).join('')}
-                        ${feeDetails.water.map(item => `
-                             <tr>
-                                <td>${item.description}</td>
-                                <td class="text-center">${item.quantity}</td>
-                                <td class="text-right">${formatVND(item.base)}</td>
-                                <td class="text-right">${formatVND(item.vat)}</td>
-                                <td class="text-right">${formatVND(item.total)}</td>
-                            </tr>
-                        `).join('')}
-                         ${feeDetails.adjustments.map(adj => `
-                            <tr>
-                                <td>${adj.Description}</td>
-                                <td></td>
-                                <td></td>
-                                <td></td>
-                                <td class="text-right">${formatVND(adj.Amount)}</td>
-                            </tr>
-                        `).join('')}
-                    </tbody>
-                    <tfoot>
-                        <tr class="total-row">
-                            <td colspan="4" class="text-right font-bold">TỔNG CỘNG THANH TOÁN</td>
-                            <td class="text-right font-bold total-due">${formatVND(charge.TotalDue)}</td>
-                        </tr>
-                    </tfoot>
-                </table>
-                <div class="qr-section">
-                    <div class="payment-info">
-                        <p style="font-size: 16px; font-weight: bold; margin-bottom: 8px;">Thông tin thanh toán:</p>
-                        <p><strong>Chủ TK:</strong> ${invoiceSettings.accountName}</p>
-                        <p><strong>Số TK:</strong> ${invoiceSettings.accountNumber} tại ${invoiceSettings.bankName}</p>
-                        <p style="margin-top: 8px;"><strong>Nội dung:</strong> <code style="background-color: #dbeafe; padding: 4px; border-radius: 4px; font-family: monospace; word-break: break-all;">${paymentContent}</code></p>
-                    </div>
-                    <div class="qr-code">
-                        <img src="${qrCodeUrl}" alt="QR Code" />
-                        <p style="font-size: 10px; font-weight: 500; margin-top: 4px; white-space: nowrap;">Quét mã để thanh toán</p>
-                    </div>
-                </div>
+                ${processedBody}
             </div>
-            <div class="footer">
-                ${footerHtml}
-            </div>
+            ${footerHtml ? `<div class="footer">${footerHtml}</div>` : ''}
         </div>
     </body>
     </html>

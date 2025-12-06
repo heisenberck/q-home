@@ -1160,6 +1160,7 @@ const ResidentDetailPanel: React.FC<{
 const ResidentDashboard: React.FC<{ units: Unit[], owners: Owner[], vehicles: Vehicle[], activityLogs: ActivityLog[] }> = ({ units, owners, vehicles, activityLogs }) => {
     const [isStatsExpanded, setIsStatsExpanded] = useState(true);
     const [activeSlide, setActiveSlide] = useState(0);
+    const [isPaused, setIsPaused] = useState(false);
 
     const highlights = useMemo(() => {
         const totalUnits = units.length;
@@ -1221,16 +1222,15 @@ const ResidentDashboard: React.FC<{ units: Unit[], owners: Owner[], vehicles: Ve
     ], [highlights]);
 
     useEffect(() => {
-        if (!isStatsExpanded) return;
+        if (!isStatsExpanded || isPaused) return;
         const timer = setInterval(() => {
-            // FIX: Explicitly type the 'prev' parameter as a number to resolve the arithmetic operation type error.
             setActiveSlide((prev: number) => (prev + 1) % slides.length);
         }, 5000);
         return () => clearInterval(timer);
-    }, [slides.length, isStatsExpanded]);
+    }, [slides.length, isStatsExpanded, isPaused]);
 
-    const goToNext = () => setActiveSlide(prev => ((prev || 0) + 1) % slides.length);
-    const goToPrev = () => setActiveSlide(prev => ((prev || 0) - 1 + slides.length) % slides.length);
+    const goToNext = () => setActiveSlide(prev => (prev + 1) % slides.length);
+    const goToPrev = () => setActiveSlide(prev => (prev - 1 + slides.length) % slides.length);
 
     const currentSlideData = slides[activeSlide];
     
@@ -1248,7 +1248,11 @@ const ResidentDashboard: React.FC<{ units: Unit[], owners: Owner[], vehicles: Ve
             </div>
             
             {isStatsExpanded && (
-                <div className="relative mt-4 flex-shrink-0">
+                <div
+                    className="relative mt-4 flex-shrink-0"
+                    onMouseEnter={() => setIsPaused(true)}
+                    onMouseLeave={() => setIsPaused(false)}
+                >
                     <div key={activeSlide} className="bg-white dark:bg-dark-bg-secondary p-6 rounded-xl shadow-sm border dark:border-dark-border flex flex-col items-center justify-center text-center h-[220px] animate-fade-in-down">
                         {currentSlideData.icon}
                         <p className="text-sm font-semibold text-gray-600 dark:text-gray-300 mt-3">{currentSlideData.title}</p>
