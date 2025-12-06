@@ -7,7 +7,7 @@ import Modal from '../ui/Modal';
 import StatCard from '../ui/StatCard';
 import { 
     CarIcon, SearchIcon, PencilSquareIcon, WarningIcon, UploadIcon, 
-    TrashIcon, DocumentTextIcon, MotorbikeIcon, BikeIcon, EBikeIcon, ChevronLeftIcon, ChevronRightIcon 
+    TrashIcon, DocumentTextIcon, MotorbikeIcon, BikeIcon, EBikeIcon, ChevronLeftIcon, ChevronRightIcon, ShieldCheckIcon 
 } from '../ui/Icons';
 import { formatLicensePlate, translateVehicleType, vehicleTypeLabels, compressImageToWebP, timeAgo } from '../../utils/helpers';
 
@@ -248,7 +248,8 @@ const VehicleEditModal: React.FC<{
 };
 
 // --- NEW: Vehicle Dashboard Panel (Right side, default) ---
-const VehicleDashboard: React.FC<{ vehicles: any[], onSelectVehicle: (vehicle: any) => void }> = ({ vehicles, onSelectVehicle }) => {
+// FIX: Update prop types for vehicles and onSelectVehicle to use EnhancedVehicle for better type safety.
+const VehicleDashboard: React.FC<{ vehicles: EnhancedVehicle[], onSelectVehicle: (vehicle: EnhancedVehicle) => void }> = ({ vehicles, onSelectVehicle }) => {
     const dashboardData = useMemo(() => {
         const active = vehicles.filter(v => v.isActive);
         const typeCounts = active.reduce((acc: Record<string, number>, v) => {
@@ -274,21 +275,27 @@ const VehicleDashboard: React.FC<{ vehicles: any[], onSelectVehicle: (vehicle: a
     }, [vehicles]);
 
     const [activeSlide, setActiveSlide] = useState(0);
+    const [isPaused, setIsPaused] = useState(false);
     const slides = ['pie', 'topOwners'];
     
     useEffect(() => {
+        if (isPaused) return;
         const timer = setInterval(() => {
             // FIX: Explicitly type the 'prev' parameter as a number to resolve the arithmetic operation type error.
             setActiveSlide((prev: number) => (prev + 1) % slides.length)
         }, 5000);
         return () => clearInterval(timer);
-    }, [slides.length]);
+    }, [slides.length, isPaused]);
 
     const COLORS = ['#3b82f6', '#f97316', '#8b5cf6', '#22c55e'];
 
     return (
         <div className="p-6 h-full flex flex-col">
-            <div className="relative flex-shrink-0">
+            <div 
+                className="relative flex-shrink-0"
+                onMouseEnter={() => setIsPaused(true)}
+                onMouseLeave={() => setIsPaused(false)}
+            >
                 <h3 className="text-xl font-bold mb-4">Thống kê nổi bật</h3>
                 <div className="h-[250px]">
                     {slides[activeSlide] === 'pie' && (
@@ -325,8 +332,9 @@ const VehicleDashboard: React.FC<{ vehicles: any[], onSelectVehicle: (vehicle: a
                         </div>
                     )}
                 </div>
-                 <button onClick={() => setActiveSlide(p => (Number(p) - 1 + slides.length) % slides.length)} className="absolute -left-3 top-1/2 -translate-y-1/2 p-1 bg-white dark:bg-gray-700 rounded-full shadow-md z-10"><ChevronLeftIcon /></button>
-                 <button onClick={() => setActiveSlide(p => (Number(p) + 1) % slides.length)} className="absolute -right-3 top-1/2 -translate-y-1/2 p-1 bg-white dark:bg-gray-700 rounded-full shadow-md z-10"><ChevronRightIcon /></button>
+                {/* FIX: Explicitly type the 'p' parameter in state setters to resolve arithmetic operation type errors. */}
+                 <button onClick={() => setActiveSlide((p: number) => (p - 1 + slides.length) % slides.length)} className="absolute -left-3 top-1/2 -translate-y-1/2 p-1 bg-white dark:bg-gray-700 rounded-full shadow-md z-10"><ChevronLeftIcon /></button>
+                 <button onClick={() => setActiveSlide((p: number) => (p + 1) % slides.length)} className="absolute -right-3 top-1/2 -translate-y-1/2 p-1 bg-white dark:bg-gray-700 rounded-full shadow-md z-10"><ChevronRightIcon /></button>
             </div>
             <div className="border-t dark:border-dark-border mt-6 pt-6 flex-1 flex flex-col min-h-0">
                 <h3 className="text-lg font-bold mb-4">Các xe mới cập nhật</h3>
@@ -347,7 +355,8 @@ const VehicleDashboard: React.FC<{ vehicles: any[], onSelectVehicle: (vehicle: a
 };
 
 // --- Vehicle Detail Panel (Right side, on select) ---
-const VehicleDetailPanel: React.FC<{ vehicle: any, onEdit: (vehicle: any) => void, onDelete: () => void }> = ({ vehicle, onEdit, onDelete }) => {
+// FIX: Update vehicle prop to use EnhancedVehicle type for type safety, resolving rendering errors.
+const VehicleDetailPanel: React.FC<{ vehicle: EnhancedVehicle, onEdit: (vehicle: any) => void, onDelete: () => void }> = ({ vehicle, onEdit, onDelete }) => {
     return (
         <div className="p-6 h-full space-y-6">
             <header className="flex flex-col items-center text-center">
@@ -392,7 +401,8 @@ const VehicleDetailPanel: React.FC<{ vehicle: any, onEdit: (vehicle: any) => voi
 const ParkingStatusBadge: React.FC<{ status: Vehicle['parkingStatus'], queueNumber?: number }> = ({ status, queueNumber }) => {
     if (!status) return null;
 
-    let text = status;
+    // FIX: Explicitly type `text` as a string to allow reassignment with a modified string.
+    let text: string = status;
     let classes = '';
 
     switch (status) {
@@ -427,6 +437,8 @@ interface VehiclesPageProps {
     onSetVehicles: (updater: React.SetStateAction<Vehicle[]>, logPayload?: any) => void;
     role: Role;
 }
+// FIX: Define a more specific type for vehicles with owner information to improve type safety.
+type EnhancedVehicle = Vehicle & { ownerName: string; ownerPhone: string };
 
 const VehiclesPage: React.FC<VehiclesPageProps> = ({ vehicles, units, owners, onSetVehicles, role }) => {
     const { showToast } = useNotification();
@@ -435,7 +447,8 @@ const VehiclesPage: React.FC<VehiclesPageProps> = ({ vehicles, units, owners, on
     const [typeFilter, setTypeFilter] = useState('all');
     const [parkingStatusFilter, setParkingStatusFilter] = useState('all');
     const [editingVehicle, setEditingVehicle] = useState<Vehicle | null>(null);
-    const [selectedVehicle, setSelectedVehicle] = useState<any | null>(null);
+    // FIX: Use the specific EnhancedVehicle type for the selected vehicle state.
+    const [selectedVehicle, setSelectedVehicle] = useState<EnhancedVehicle | null>(null);
 
     const ownersMap = useMemo(() => new Map(owners.map(o => [o.OwnerID, o])), [owners]);
     const unitsMap = useMemo(() => new Map(units.map(u => [u.UnitID, u])), [units]);
@@ -451,7 +464,8 @@ const VehiclesPage: React.FC<VehiclesPageProps> = ({ vehicles, units, owners, on
         return queueMap;
     }, [vehicles]);
 
-    const enhancedVehicles = useMemo(() => vehicles
+    // FIX: Provide an explicit return type for the useMemo hook.
+    const enhancedVehicles = useMemo((): EnhancedVehicle[] => vehicles
         .map(v => {
             const unit = unitsMap.get(v.UnitID);
             const owner = unit ? ownersMap.get(unit.OwnerID) : undefined;
@@ -486,16 +500,23 @@ const VehiclesPage: React.FC<VehiclesPageProps> = ({ vehicles, units, owners, on
     
     const kpiStats = useMemo(() => {
         const active = enhancedVehicles.filter(v => v.isActive);
-        const totalCars = active.filter(v => v.Type === VehicleTier.CAR || v.Type === VehicleTier.CAR_A).length;
-        const mainParkingUsage = active.filter(v => (v.Type === VehicleTier.CAR || v.Type === VehicleTier.CAR_A) && v.parkingStatus === 'Lốt chính').length;
-        const tempParkingUsage = active.filter(v => (v.Type === VehicleTier.CAR || v.Type === VehicleTier.CAR_A) && v.parkingStatus === 'Lốt tạm').length;
-        const queuedForParking = active.filter(v => (v.Type === VehicleTier.CAR || v.Type === VehicleTier.CAR_A) && v.parkingStatus === 'Xếp lốt').length;
+        
+        const totalNormalCars = active.filter(v => v.Type === VehicleTier.CAR).length;
+        const totalTypeACars = active.filter(v => v.Type === VehicleTier.CAR_A).length;
+
+        const totalMotorbikes = active.filter(v => v.Type === VehicleTier.MOTORBIKE).length;
+        const totalEBikes = active.filter(v => v.Type === VehicleTier.EBIKE).length;
+        
+        const allCars = active.filter(v => v.Type === VehicleTier.CAR || v.Type === VehicleTier.CAR_A);
+        const mainParkingUsage = allCars.filter(v => v.parkingStatus === 'Lốt chính').length;
+        const tempParkingUsage = allCars.filter(v => v.parkingStatus === 'Lốt tạm').length;
+        const queuedForParking = allCars.filter(v => v.parkingStatus === 'Xếp lốt').length;
 
         return {
-            totalCars,
-            totalMotorbikes: active.filter(v => v.Type === VehicleTier.MOTORBIKE).length,
-            totalEBikes: active.filter(v => v.Type === VehicleTier.EBIKE).length,
-            totalBicycles: active.filter(v => v.Type === VehicleTier.BICYCLE).length,
+            totalNormalCars,
+            totalTypeACars,
+            totalMotorbikes,
+            totalEBikes,
             mainParkingUsage,
             tempParkingUsage,
             queuedForParking,
@@ -549,9 +570,9 @@ const VehiclesPage: React.FC<VehiclesPageProps> = ({ vehicles, units, owners, on
             {/* Left Column */}
             <div className="w-2/3 flex flex-col gap-4 min-w-0">
                 <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
-                    <StatCard label="Tổng số Ô tô" value={kpiStats.totalCars} icon={<CarIcon className="w-6 h-6 text-blue-600"/>} />
-                    <StatCard label="Tổng số Xe máy" value={kpiStats.totalMotorbikes + kpiStats.totalEBikes} icon={<MotorbikeIcon className="w-6 h-6 text-orange-600"/>} />
-                    <StatCard label="Lốt đỗ chính" value={`${kpiStats.mainParkingUsage} / ${PARKING_CAPACITY.main}`} subtext={`${((kpiStats.mainParkingUsage / PARKING_CAPACITY.main) * 100).toFixed(0)}%`} icon={<CarIcon className="w-6 h-6 text-green-600"/>} />
+                    <StatCard label="Tổng số Ô tô" value={<>{kpiStats.totalNormalCars} <span className="text-gray-400">/</span> {kpiStats.totalTypeACars}</>} subtext="Thường / Hạng A" icon={<CarIcon className="w-6 h-6 text-blue-600"/>} />
+                    <StatCard label="Xe máy & Xe điện" value={<>{kpiStats.totalMotorbikes} <span className="text-gray-400">/</span> {kpiStats.totalEBikes}</>} subtext="Xe máy / Xe điện" icon={<MotorbikeIcon className="w-6 h-6 text-orange-600"/>} />
+                    <StatCard label="Tình trạng lốt (ô tô)" value={<>{kpiStats.mainParkingUsage} <span className="text-gray-400">/</span> {kpiStats.tempParkingUsage}</>} subtext="Lốt chính / Lốt phụ" icon={<ShieldCheckIcon className="w-6 h-6 text-green-600"/>} />
                     <StatCard label="Đang chờ lốt" value={kpiStats.queuedForParking} icon={<WarningIcon className="w-6 h-6 text-red-600"/>} />
                 </div>
                 

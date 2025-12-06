@@ -22,5 +22,8 @@ export const {
     saveAdjustments,
     saveWaterReadings,
     saveVehicles,
-    importResidentsBatch
+    importResidentsBatch,
+    // ADDED: Export new lock status functions
+    getLockStatus,
+    setLockStatus,
 } = api;

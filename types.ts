@@ -100,6 +100,7 @@ export interface WaterReading {
     PrevIndex: number;
     CurrIndex: number;
     Rollover: boolean; // Indicates if the meter has reset
+    consumption: number; // ADDED: Persisted consumption value (CurrIndex - PrevIndex)
 }
 
 export interface TariffService {

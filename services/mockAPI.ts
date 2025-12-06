@@ -24,6 +24,9 @@ let invoiceSettings: InvoiceSettings | null = {
     transferContentTemplate: 'HUD3 {{unitId}} T{{period}}',
 };
 
+// ADDED: In-memory store for water period lock status
+let waterLocks = new Map<string, boolean>();
+
 patchKiosAreas(units);
 
 export const loadAllData = async () => {
@@ -110,7 +113,11 @@ export const saveAdjustments = async (newAdjustments: Adjustment[]) => {
 };
 
 export const saveWaterReadings = async (newReadings: WaterReading[]) => {
-    waterReadings = newReadings;
+    // This mock function now also needs to handle the logic of merging updates.
+    // FIX: Use new Set() instead of new Map() for a list of keys. A Map requires key-value pairs.
+    const newReadingsSet = new Set(newReadings.map(r => `${r.Period}_${r.UnitID}`));
+    const updatedReadings = [...waterReadings.filter(r => !newReadingsSet.has(`${r.Period}_${r.UnitID}`)), ...newReadings];
+    waterReadings = updatedReadings;
     return Promise.resolve();
 };
 
@@ -170,4 +177,14 @@ export const importResidentsBatch = async (
     });
     
     return Promise.resolve({ units, owners, vehicles, createdCount, updatedCount, vehicleCount });
+};
+
+// --- NEW: Mock Water Lock Functions ---
+export const getLockStatus = async (month: string): Promise<boolean> => {
+    return Promise.resolve(waterLocks.get(month) ?? false);
+};
+
+export const setLockStatus = async (month: string, status: boolean): Promise<void> => {
+    waterLocks.set(month, status);
+    return Promise.resolve();
 };

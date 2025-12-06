@@ -40,7 +40,7 @@ export const mapExcelHeaders = (headers: string[]): { [key: string]: string } =>
         { field: 'email', keywords: ['email'] },
         
         // Fields for other import types (e.g., water)
-        { field: 'reading', keywords: ['chỉ số', 'reading', 'index', 'số nước', 'chỉ số mới'] },
+        { field: 'reading', keywords: ['chỉ số', 'reading', 'index', 'số nước', 'chỉ số mới', 'mới'] },
     ];
 
     // A single pass through the prioritized mappings ensures the correct field is matched first.

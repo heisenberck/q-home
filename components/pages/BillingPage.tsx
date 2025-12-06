@@ -10,8 +10,6 @@
 
 
 
-
-
 import React, { useState, useCallback, useMemo, useRef } from 'react';
 import type { ChargeRaw, Adjustment, AllData, Role, PaymentStatus, InvoiceSettings } from '../../types';
 import { UnitType } from '../../types';

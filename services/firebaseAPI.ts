@@ -197,3 +197,15 @@ export const importResidentsBatch = async (
     const { units, owners, vehicles } = await loadAllData();
     return { units, owners, vehicles, createdCount: created, updatedCount: updated, vehicleCount };
 };
+
+// --- NEW: Water Lock Functions ---
+export const getLockStatus = async (month: string): Promise<boolean> => {
+    const docRef = doc(db, 'water_locks', month);
+    const docSnap = await getDoc(docRef);
+    return docSnap.exists() ? docSnap.data().isLocked : false;
+};
+
+export const setLockStatus = async (month: string, status: boolean): Promise<void> => {
+    const docRef = doc(db, 'water_locks', month);
+    await setDoc(docRef, { isLocked: status });
+};

@@ -20,48 +20,25 @@ const applyVAT = (net: number, vatRate: number) => {
 const isBusinessUnit = (unit: Unit) => unit.UnitType === UnitType.KIOS || unit.Status === 'Business';
 
 /**
- * REWRITTEN (2024-07-29): Calculates water usage for a specific reading period based on the strict "Base Index Algorithm".
+ * REWRITTEN (2024-08-01): Retrieves the persisted water consumption for a specific billing period.
  *
  * Business Logic:
- * To calculate consumption for a given `readingPeriod`, the system MUST check for a valid reading in the immediately preceding period (`readingPeriod - 1`).
- *
- * - IF a reading for the preceding period does NOT exist:
- *   This is considered the first month of data entry for this unit.
- *   Consumption is set to 0 to establish a baseline index.
- *
- * - IF a reading for the preceding period EXISTS:
- *   Consumption is calculated as `current_period_index - previous_period_index`.
+ * The system now calculates and saves the `consumption` value at the time of data entry (manual or import).
+ * This function's sole responsibility is to read that pre-calculated, authoritative value from the database record.
+ * This ensures consistency between the Water Management page and the Billing module.
  *
  * @param unitId The ID of the unit.
- * @param readingPeriod The period (YYYY-MM) for which to calculate consumption (e.g., '2025-10' for the Nov billing cycle).
+ * @param readingPeriod The period (YYYY-MM) for which to retrieve consumption.
  * @param allWaterReadings The complete list of water readings from the database.
- * @returns The calculated water consumption in m³.
+ * @returns The persisted water consumption in m³. If no record or consumption value exists, returns 0.
  */
 const getWaterUsage = (unitId: string, readingPeriod: string, allWaterReadings: WaterReading[]): number => {
-    // Step 1: Find the reading for the current period. If it doesn't exist, no consumption can be calculated.
+    // Find the reading for the specified period.
     const readingForThisPeriod = allWaterReadings.find(r => r.UnitID === unitId && r.Period === readingPeriod);
-    if (!readingForThisPeriod) {
-        return 0;
-    }
 
-    // Step 2: Determine the immediately preceding period.
-    const previousPeriod = getPreviousPeriod(readingPeriod);
-
-    // Step 3: Find the reading for the preceding period.
-    const readingForPrevPeriod = allWaterReadings.find(r => r.UnitID === unitId && r.Period === previousPeriod);
-
-    // Step 4: Apply the "Base Index Algorithm".
-    // If there is no record for the previous month, this is the baseline month. Consumption must be 0.
-    if (!readingForPrevPeriod) {
-        return 0;
-    }
-    
-    // If a previous reading exists, calculate consumption based on the indexes of the current reading.
-    // The `PrevIndex` is expected to be hydrated correctly from the previous period's `CurrIndex`.
-    const consumption = readingForThisPeriod.CurrIndex - readingForThisPeriod.PrevIndex;
-
-    // Ensure consumption is not negative (e.g., due to meter rollover or data entry error).
-    return Math.max(0, Math.floor(consumption));
+    // Return the persisted consumption value.
+    // If the record doesn't exist or the consumption field is missing (for legacy data), default to 0.
+    return readingForThisPeriod?.consumption ?? 0;
 };
 
 
@@ -122,7 +99,7 @@ const calcVehicleFee = (vehicles: Vehicle[], period: string, tariffs: AllData['t
 };
 
 const calcWaterFee = (unit: Unit, period: string, allData: AllData) => {
-    // UPDATED LOGIC: For billing period T, use water consumption from reading period T.
+    // UPDATED LOGIC: Use the authoritative getWaterUsage function which now reads persisted consumption.
     const usage = getWaterUsage(unit.UnitID, period, allData.waterReadings);
     
     if (usage <= 0) return { usage, ...applyVAT(0, 0) };

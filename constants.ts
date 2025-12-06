@@ -166,13 +166,16 @@ const generateStableMockWaterReadings = (allUnits: Unit[]): WaterReading[] => {
     allUnits.forEach((unit, index) => {
         let lastIndex = 100 + (index * 50); // Start with a varied base index for each unit
         
-        periods.forEach(period => {
-            const consumption = unit.UnitType === UnitType.KIOS
+        periods.forEach((period, periodIndex) => {
+            const actualConsumption = unit.UnitType === UnitType.KIOS
                 ? 20 + ((index + parseInt(period.split('-')[1])) % 10) * 4 // KIOS: 20-56 m3
                 : 10 + ((index + parseInt(period.split('-')[1])) % 10) * 3; // Apartment: 10-37 m3
             
             const prevIndex = lastIndex;
-            const currIndex = prevIndex + consumption;
+            const currIndex = prevIndex + actualConsumption;
+
+            // Per new logic: consumption is 0 for the first period in a series to establish a baseline.
+            const consumption = periodIndex === 0 ? 0 : actualConsumption;
             
             readings.push({
                 UnitID: unit.UnitID,
@@ -180,6 +183,7 @@ const generateStableMockWaterReadings = (allUnits: Unit[]): WaterReading[] => {
                 PrevIndex: prevIndex,
                 CurrIndex: currIndex,
                 Rollover: false,
+                consumption, // Persisted consumption
             });
 
             lastIndex = currIndex; // The current index becomes the next period's previous index
@@ -211,6 +215,7 @@ const newReadingsForNovember: WaterReading[] = secondFloorUnits.map(unit => {
         PrevIndex: newPrevIndex,
         CurrIndex: newCurrIndex,
         Rollover: false,
+        consumption, // Persisted consumption
     };
 });
 

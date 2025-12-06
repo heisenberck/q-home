@@ -25,7 +25,8 @@ declare const XLSX: any; // SheetJS
 
 
 const StatusBadge: React.FC<{ status: 'Owner' | 'Rent' | 'Business' | string }> = ({ status }) => {
-    const styles: Record<string, { icon: React.ReactNode; text: string; classes: string }> = {
+    // FIX: Change icon type from React.ReactNode to React.ReactElement to allow cloning with new props.
+    const styles: Record<string, { icon: React.ReactElement; text: string; classes: string }> = {
         Owner: { icon: <UserIcon />, text: 'Chính chủ', classes: 'bg-green-100 text-green-800 dark:bg-green-900/50 dark:text-green-300' },
         Rent: { icon: <KeyIcon />, text: 'Hộ thuê', classes: 'bg-blue-100 text-blue-800 dark:bg-blue-900/50 dark:text-blue-300' },
         Business: { icon: <StoreIcon />, text: 'Kinh doanh', classes: 'bg-amber-100 text-amber-800 dark:bg-amber-900/50 dark:text-amber-300' }
@@ -34,7 +35,7 @@ const StatusBadge: React.FC<{ status: 'Owner' | 'Rent' | 'Business' | string }> 
     
     return (
         <span className={`inline-flex items-center gap-1.5 px-2.5 py-1 text-xs font-semibold rounded-full ${s.classes}`}>
-            {React.cloneElement(s.icon as React.ReactElement, {className: "w-4 h-4"})}
+            {React.cloneElement(s.icon, {className: "w-4 h-4"})}
             {s.text}
         </span>
     );
@@ -506,7 +507,7 @@ const ResidentDetailModal: React.FC<{
                         <div><label className="font-medium text-sm">SĐT chủ hộ</label><input name="Phone" value={formData.owner.Phone} onChange={handleOwnerChange} className={formElementStyle} /></div>
                          <div><label className="font-medium text-sm">Tên Vợ/Chồng</label><input name="secondOwnerName" value={formData.owner.secondOwnerName || ''} onChange={handleOwnerChange} className={formElementStyle} /></div>
                         <div><label className="font-medium text-sm">SĐT Vợ/Chồng</label><input name="secondOwnerPhone" value={formData.owner.secondOwnerPhone || ''} onChange={handleOwnerChange} className={formElementStyle} /></div>
-                        <div><label className="font-medium text-sm">Email</label><input type="email" name="Email" value={formData.owner.Email} onChange={handleOwnerChange} className={formElementStyle} /></div>
+                        <div className="md:col-span-2"><label className="font-medium text-sm">Email</label><input type="email" name="Email" value={formData.owner.Email} onChange={handleOwnerChange} className={formElementStyle} /></div>
                         <div>
                             <label className="font-medium text-sm">Trạng thái căn hộ</label>
                             <select name="Status" value={formData.unit.Status} onChange={handleUnitChange} className={formElementStyle}>
