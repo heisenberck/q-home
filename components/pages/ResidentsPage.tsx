@@ -1029,37 +1029,7 @@ const ResidentDetailPanel: React.FC<{
         [VehicleTier.EBIKE]: 4, [VehicleTier.BICYCLE]: 5,
     };
     
-    const activeVehicles = useMemo(() => {
-        const seenKeys = new Map<string, boolean>();
-        // First, filter for active vehicles and sort them
-        const sortedActive = vehicles
-            .filter(v => v.isActive)
-            .sort((a, b) => vehicleSortOrder[a.Type] - vehicleSortOrder[b.Type]);
-            
-        // Then, filter out duplicates
-        return sortedActive.filter(vehicle => {
-            let key: string;
-            // Use VehicleId for bicycles and e-bikes as their plates can be non-unique or auto-generated
-            if (vehicle.Type === VehicleTier.BICYCLE || vehicle.Type === VehicleTier.EBIKE) {
-                key = vehicle.VehicleId;
-            } else {
-                // For other types, use the normalized plate number as the key
-                key = (vehicle.PlateNumber || '').toLowerCase().trim().replace(/[\s.-]/g, '');
-            }
-
-            // If the key is empty (e.g., a car record without a plate), use the VehicleId as a fallback to prevent incorrect filtering
-            if (!key) {
-                key = vehicle.VehicleId;
-            }
-            
-            if (seenKeys.has(key)) {
-                return false; // This key has been seen, it's a duplicate
-            } else {
-                seenKeys.set(key, true);
-                return true; // This is the first time seeing this key
-            }
-        });
-    }, [vehicles]);
+    const activeVehicles = vehicles.filter(v => v.isActive).sort((a, b) => vehicleSortOrder[a.Type] - vehicleSortOrder[b.Type]);
 
     const combinedHistory = useMemo(() => {
         const historyLogs = activityLogs
@@ -1258,13 +1228,14 @@ const ResidentDashboard: React.FC<{ units: Unit[], owners: Owner[], vehicles: Ve
     useEffect(() => {
         if (!isStatsExpanded) return;
         const timer = setInterval(() => {
+            // FIX: Explicitly type the 'prev' parameter to ensure type safety in the state update.
             setActiveSlide((prev: number) => (prev + 1) % slides.length);
         }, 5000);
         return () => clearInterval(timer);
     }, [slides.length, isStatsExpanded]);
 
-    const goToNext = () => setActiveSlide(prev => ((prev || 0) + 1) % slides.length);
-    const goToPrev = () => setActiveSlide(prev => ((prev || 0) - 1 + slides.length) % slides.length);
+    const goToNext = () => setActiveSlide((prev: number) => (prev + 1) % slides.length);
+    const goToPrev = () => setActiveSlide((prev: number) => (prev - 1 + slides.length) % slides.length);
 
     const currentSlideData = slides[activeSlide];
     
