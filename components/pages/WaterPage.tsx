@@ -1,5 +1,6 @@
+
 import React, { useState, useMemo, useEffect, useRef } from 'react';
-import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer } from 'recharts';
+import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, LineChart, Line, Legend } from 'recharts';
 import type { WaterReading, Unit, Role, TariffWater, TariffCollection } from '../../types';
 import { UnitType } from '../../types';
 import { useNotification } from '../../App';
@@ -9,7 +10,7 @@ import {
     HomeIcon, StoreIcon, TrendingUpIcon, DropletsIcon, ChevronLeftIcon, ChevronRightIcon, 
     SearchIcon, UploadIcon, SparklesIcon, EyeIcon, 
     DocumentArrowDownIcon, WarningIcon,
-    SaveIcon, LockClosedIcon, // ADDED: Icons for lock feature
+    SaveIcon, LockClosedIcon, XMarkIcon,
 } from '../ui/Icons';
 import { parseUnitCode, getPreviousPeriod, sortUnitsComparator, formatCurrency } from '../../utils/helpers';
 import { processImportFile } from '../../utils/importHelpers';
@@ -71,87 +72,6 @@ const MonthPickerPopover: React.FC<{
     );
 };
 
-const WaterHistoryModal: React.FC<{
-    unitId: string;
-    allUnitReadings: WaterReading[];
-    onClose: () => void;
-}> = ({ unitId, allUnitReadings, onClose }) => {
-    const historyData = useMemo(() => {
-        return allUnitReadings
-            .sort((a, b) => a.Period.localeCompare(b.Period))
-            .slice(-6) // Get last 6 months
-            .map(r => ({
-                period: r.Period.slice(5) + '/' + r.Period.slice(2, 4), // Format to MM/YY
-                fullPeriod: r.Period,
-                prevIndex: r.PrevIndex,
-                currIndex: r.CurrIndex,
-                consumption: r.consumption,
-            }));
-    }, [allUnitReadings]);
-
-    return (
-        <Modal title={`Lịch sử nước - Căn hộ ${unitId}`} onClose={onClose} size="3xl">
-            <div className="space-y-6">
-                <div>
-                    <h4 className="font-semibold mb-2 text-gray-800 dark:text-gray-200">Biểu đồ tiêu thụ (6 tháng gần nhất)</h4>
-                    <div className="h-64">
-                        <ResponsiveContainer width="100%" height="100%">
-                            <BarChart data={historyData} margin={{ top: 5, right: 20, left: -10, bottom: 5 }}>
-                                <CartesianGrid strokeDasharray="3 3" stroke="var(--light-border, #e5e7eb)" />
-                                <XAxis dataKey="period" tick={{ fill: 'var(--light-text-secondary, #6b7280)', fontSize: 12 }} />
-                                <YAxis unit=" m³" tick={{ fill: 'var(--light-text-secondary, #6b7280)', fontSize: 12 }} />
-                                <Tooltip
-                                    contentStyle={{
-                                        backgroundColor: 'var(--light-bg-secondary, white)',
-                                        border: '1px solid var(--light-border, #e5e7eb)',
-                                        borderRadius: '0.5rem',
-                                    }}
-                                    formatter={(value: number) => [`${value} m³`, 'Tiêu thụ']}
-                                />
-                                <Bar dataKey="consumption" name="Tiêu thụ" fill="#3b82f6" radius={[4, 4, 0, 0]} />
-                            </BarChart>
-                        </ResponsiveContainer>
-                    </div>
-                </div>
-                <div>
-                    <h4 className="font-semibold mb-2 text-gray-800 dark:text-gray-200">Bảng chi tiết</h4>
-                    <div className="overflow-auto border rounded-lg max-h-60 dark:border-dark-border">
-                        <table className="min-w-full text-sm">
-                            <thead className="bg-gray-50 dark:bg-slate-800 sticky top-0">
-                                <tr>
-                                    <th className="px-4 py-2 text-left font-semibold text-gray-600 dark:text-gray-300">Kỳ</th>
-                                    <th className="px-4 py-2 text-right font-semibold text-gray-600 dark:text-gray-300">Chỉ số cũ</th>
-                                    <th className="px-4 py-2 text-right font-semibold text-gray-600 dark:text-gray-300">Chỉ số mới</th>
-                                    <th className="px-4 py-2 text-right font-semibold text-gray-600 dark:text-gray-300">Tiêu thụ (m³)</th>
-                                </tr>
-                            </thead>
-                            <tbody className="divide-y divide-gray-200 dark:divide-gray-700">
-                                {historyData.length === 0 ? (
-                                    <tr><td colSpan={4} className="text-center p-4 text-gray-500">Chưa có dữ liệu lịch sử.</td></tr>
-                                ) : (
-                                    historyData.slice().reverse().map(item => (
-                                        <tr key={item.fullPeriod}>
-                                            <td className="px-4 py-2 font-medium text-gray-900 dark:text-gray-200">{item.fullPeriod}</td>
-                                            <td className="px-4 py-2 text-right text-gray-700 dark:text-gray-300">{item.prevIndex.toLocaleString('vi-VN')}</td>
-                                            <td className="px-4 py-2 text-right text-gray-700 dark:text-gray-300">{item.currIndex.toLocaleString('vi-VN')}</td>
-                                            <td className="px-4 py-2 text-right font-bold text-primary">{item.consumption.toLocaleString('vi-VN')}</td>
-                                        </tr>
-                                    ))
-                                )}
-                            </tbody>
-                        </table>
-                    </div>
-                </div>
-                 <div className="flex justify-end pt-4">
-                    <button onClick={onClose} className="px-4 py-2 bg-gray-200 dark:bg-gray-600 text-gray-800 dark:text-gray-200 rounded-md hover:bg-gray-300 dark:hover:bg-gray-500">
-                        Đóng
-                    </button>
-                </div>
-            </div>
-        </Modal>
-    );
-};
-
 const ImportModal: React.FC<{
     onClose: () => void;
     onDownloadTemplate: () => void;
@@ -176,6 +96,46 @@ const ImportModal: React.FC<{
         </div>
     </Modal>
 );
+
+const FullListModal: React.FC<{
+    title: string;
+    data: any[];
+    type: 'highest' | 'increase';
+    onClose: () => void;
+}> = ({ title, data, type, onClose }) => {
+    const headers = type === 'highest'
+        ? ['Căn hộ', 'Chỉ số cũ', 'Chỉ số mới', 'Tiêu thụ']
+        : ['Căn hộ', 'Chỉ số cũ', 'Chỉ số mới', 'Tiêu thụ', 'Tăng trưởng'];
+
+    return (
+        <Modal title={title} onClose={onClose} size="2xl">
+            <div className="overflow-auto max-h-[70vh] border rounded-lg dark:border-dark-border bg-white text-gray-900 dark:text-gray-200">
+                <table className="min-w-full text-sm">
+                    <thead className="bg-gray-50 dark:bg-slate-800 sticky top-0">
+                        <tr>
+                            {headers.map(h => <th key={h} className={`px-4 py-2 text-left font-semibold text-gray-600 dark:text-gray-300 ${h !== 'Căn hộ' ? 'text-right' : ''}`}>{h}</th>)}
+                        </tr>
+                    </thead>
+                    <tbody className="divide-y divide-gray-200 dark:divide-gray-700">
+                        {data.map((item) => (
+                            <tr key={item.unitId}>
+                                <td className="px-4 py-2 font-medium text-gray-900 dark:text-gray-200">{item.unitId}</td>
+                                <td className="px-4 py-2 text-right text-gray-800 dark:text-gray-300">{item.prevIndex?.toLocaleString('vi-VN')}</td>
+                                <td className="px-4 py-2 text-right text-gray-800 dark:text-gray-300">{item.currIndex?.toLocaleString('vi-VN')}</td>
+                                <td className="px-4 py-2 text-right font-bold text-gray-900 dark:text-gray-200">{item.consumption?.toLocaleString('vi-VN')} m³</td>
+                                {type === 'increase' && (
+                                    <td className="px-4 py-2 text-right font-bold text-red-500">
+                                        {isFinite(item.percentIncrease) ? `+${item.percentIncrease.toFixed(1)}%` : 'Mới có số'}
+                                    </td>
+                                )}
+                            </tr>
+                        ))}
+                    </tbody>
+                </table>
+            </div>
+        </Modal>
+    );
+};
 // --- END: Child Components ---
 
 // --- START: Bill Calculation Helper ---
@@ -242,8 +202,9 @@ const WaterPage: React.FC<WaterPageProps> = ({ waterReadings, setWaterReadings, 
     const [isImportModalOpen, setIsImportModalOpen] = useState(false);
     const fileInputRef = useRef<HTMLInputElement>(null);
     
-    const [historyModalUnitId, setHistoryModalUnitId] = useState<string | null>(null);
     const [selectedUnitId, setSelectedUnitId] = useState<string | null>(null);
+    const [fullListModalData, setFullListModalData] = useState<{title: string; data: any[]; type: 'highest' | 'increase'} | null>(null);
+
 
     useEffect(() => {
         const fetchLockStatus = async () => {
@@ -296,14 +257,9 @@ const WaterPage: React.FC<WaterPageProps> = ({ waterReadings, setWaterReadings, 
             const p = currentPeriodDate.toISOString().slice(0, 7);
             let consumption = 0;
             
-            if (selectedUnitId) {
-                const reading = waterReadings.find(r => r.UnitID === selectedUnitId && r.Period === p);
-                consumption = reading?.consumption ?? 0;
-            } else {
-                const readingsForP = waterReadings.filter(r => r.Period === p);
-                consumption = readingsForP.reduce((total, reading) => total + (reading.consumption ?? 0), 0);
-            }
-
+            const readingsForP = waterReadings.filter(r => r.Period === p);
+            consumption = readingsForP.reduce((total, reading) => total + (reading.consumption ?? 0), 0);
+            
             data.push({
                 name: `${String(currentPeriodDate.getMonth() + 1).padStart(2, '0')}/${currentPeriodDate.getFullYear().toString().slice(2)}`,
                 'Tiêu thụ': consumption,
@@ -311,39 +267,42 @@ const WaterPage: React.FC<WaterPageProps> = ({ waterReadings, setWaterReadings, 
             currentPeriodDate.setMonth(currentPeriodDate.getMonth() - 1);
         }
         return data.reverse();
-    }, [period, waterReadings, selectedUnitId]);
+    }, [period, waterReadings]);
 
     const analyticsData = useMemo(() => {
-        const currentPeriodData = waterData.filter(d => d.consumption !== null && d.consumption >= 0);
-
-        const top5Highest = [...currentPeriodData]
-            .sort((a, b) => (b.consumption ?? 0) - (a.consumption ?? 0))
-            .slice(0, 5);
-
         const prevPeriod = getPreviousPeriod(period);
         const prevPeriodConsumptionMap = new Map<string, number>();
         waterReadings.filter(r => r.Period === prevPeriod).forEach(r => {
              prevPeriodConsumptionMap.set(r.UnitID, r.consumption ?? 0);
         });
 
-        const top5Increases = currentPeriodData
+        const fullHighestList = waterData
+            .filter(d => d.consumption !== null && d.consumption > 0)
+            .sort((a, b) => (b.consumption ?? 0) - (a.consumption ?? 0));
+        
+        const fullIncreaseList = waterData
             .map(d => {
                 const prevConsumption = prevPeriodConsumptionMap.get(d.unitId);
                 if (prevConsumption !== undefined && d.consumption! > prevConsumption) {
+                    const increase = d.consumption! - prevConsumption;
+                    const percentIncrease = prevConsumption > 0 ? (increase / prevConsumption) * 100 : Infinity;
                     return {
-                        unitId: d.unitId,
-                        increase: d.consumption! - prevConsumption,
-                        current: d.consumption!,
-                        previous: prevConsumption
+                       ...d,
+                       increase,
+                       percentIncrease
                     };
                 }
                 return null;
             })
             .filter((item): item is NonNullable<typeof item> => item !== null)
-            .sort((a, b) => b.increase - a.increase)
-            .slice(0, 5);
+            .sort((a, b) => b.percentIncrease - a.percentIncrease);
         
-        return { top5Highest, top5Increases };
+        return {
+            top5Highest: fullHighestList.slice(0, 5),
+            top5Increases: fullIncreaseList.slice(0, 5).map(item => ({ ...item, increase: item.increase, current: item.consumption, previous: item.consumption! - item.increase })),
+            fullHighestList,
+            fullIncreaseList,
+        };
     }, [waterData, period, waterReadings]);
 
     const individualUnitAnalytics = useMemo(() => {
@@ -580,7 +539,7 @@ const WaterPage: React.FC<WaterPageProps> = ({ waterReadings, setWaterReadings, 
     return (
         <div className="flex gap-6 h-full overflow-hidden">
             <input type="file" ref={fileInputRef} onChange={handleFileChange} accept=".xlsx, .xls, .csv" className="hidden" />
-            {historyModalUnitId && <WaterHistoryModal unitId={historyModalUnitId} allUnitReadings={waterReadingsMap.get(historyModalUnitId) || []} onClose={() => setHistoryModalUnitId(null)} />}
+            {fullListModalData && <FullListModal {...fullListModalData} onClose={() => setFullListModalData(null)} />}
             {isImportModalOpen && <ImportModal onClose={() => setIsImportModalOpen(false)} onDownloadTemplate={handleDownloadTemplate} onTriggerUpload={handleTriggerUpload} />}
 
             <div className="w-2/3 flex flex-col gap-4 min-w-0">
@@ -632,7 +591,7 @@ const WaterPage: React.FC<WaterPageProps> = ({ waterReadings, setWaterReadings, 
                             </thead>
                             <tbody className="divide-y divide-gray-200 dark:divide-gray-700">
                                  {filteredWaterData.map(d => (
-                                    <tr key={d.unitId} onClick={() => setSelectedUnitId(p => p === d.unitId ? null : d.unitId)} className={`cursor-pointer transition-colors ${selectedUnitId === d.unitId ? 'bg-blue-50 dark:bg-blue-900/40' : 'hover:bg-gray-50 dark:hover:bg-slate-800/50'}`}>
+                                    <tr key={d.unitId} className={`transition-colors ${selectedUnitId === d.unitId ? 'bg-blue-50 dark:bg-blue-900/40' : 'hover:bg-gray-50 dark:hover:bg-slate-800/50'}`}>
                                         <td className="font-semibold px-4 py-3 text-sm text-gray-900 dark:text-gray-200">{d.unitId}</td>
                                         <td className="px-4 py-3 text-right text-sm text-gray-500 dark:text-gray-400">{d.prevIndex?.toLocaleString('vi-VN') ?? 'N/A'}</td>
                                         <td className="px-4 py-3 text-right">
@@ -651,7 +610,7 @@ const WaterPage: React.FC<WaterPageProps> = ({ waterReadings, setWaterReadings, 
                                             {d.consumption !== null ? `${d.consumption.toLocaleString('vi-VN')} m³` : 'Chưa có'}
                                         </td>
                                         <td className="px-4 py-3 text-center">
-                                            <button onClick={(e) => { e.stopPropagation(); setHistoryModalUnitId(d.unitId); }} className="p-2 rounded-full hover:bg-gray-200 dark:hover:bg-gray-600"><EyeIcon className="w-5 h-5 text-blue-600"/></button>
+                                            <button onClick={() => setSelectedUnitId(d.unitId)} className="p-2 rounded-full hover:bg-gray-200 dark:hover:bg-gray-600"><EyeIcon className="w-5 h-5 text-blue-600"/></button>
                                         </td>
                                     </tr>
                                 ))}
@@ -661,47 +620,69 @@ const WaterPage: React.FC<WaterPageProps> = ({ waterReadings, setWaterReadings, 
                 </div>
             </div>
 
-            <div className="w-1/3 bg-white dark:bg-dark-bg-secondary rounded-xl shadow-sm overflow-y-auto p-6 space-y-6">
-                <h3 className="text-xl font-bold text-gray-900 dark:text-gray-200">{selectedUnitId ? `Phân tích: Căn hộ ${selectedUnitId}` : 'Phân tích Chung'}</h3>
-                
-                <div className="border-t pt-4 dark:border-dark-border">
-                    <div className="flex justify-between items-center mb-2">
-                        <h4 className="font-semibold">{selectedUnitId ? 'Hóa đơn nước (ước tính)' : 'Tổng hóa đơn nước (ước tính)'}</h4>
-                        <p className="text-xl font-bold text-emerald-600">{formatCurrency(selectedUnitId ? selectedUnitBill : totalWaterBill)}</p>
+            <div className="w-1/3 bg-white dark:bg-dark-bg-secondary rounded-xl shadow-sm overflow-y-auto p-6 space-y-6 relative">
+                {selectedUnitId ? (
+                    <div className="animate-fade-in-down">
+                        <button onClick={() => setSelectedUnitId(null)} className="absolute top-4 right-4 p-2 rounded-full hover:bg-gray-200 dark:hover:bg-gray-700 z-10" data-tooltip="Quay lại Phân tích chung"><XMarkIcon /></button>
+                        <h3 className="text-xl font-bold text-gray-900 dark:text-gray-200">Lịch sử: Căn hộ {selectedUnitId}</h3>
+                        <div className="border-t pt-4 mt-4 dark:border-dark-border">
+                            <div className="flex justify-between items-center mb-2">
+                                <h4 className="font-semibold">Hóa đơn nước (ước tính)</h4>
+                                <p className="text-xl font-bold text-emerald-600">{formatCurrency(selectedUnitBill)}</p>
+                            </div>
+                            <h4 className="font-semibold mb-2">Tiêu thụ 6 tháng qua</h4>
+                            <div className="h-56">
+                                <ResponsiveContainer width="100%" height="100%">
+                                    <BarChart data={waterReadingsMap.get(selectedUnitId)?.slice(-6).map(r => ({name: r.Period.slice(5,7), 'Tiêu thụ': r.consumption})) || []} margin={{ top: 5, right: 20, left: -10, bottom: 5 }}>
+                                        <CartesianGrid strokeDasharray="3 3" stroke="var(--light-border, #e5e7eb)" />
+                                        <XAxis dataKey="name" tick={{ fill: 'var(--light-text-secondary, #6b7280)', fontSize: 12 }} />
+                                        <YAxis unit=" m³" tick={{ fill: 'var(--light-text-secondary, #6b7280)', fontSize: 12 }} />
+                                        <Tooltip formatter={(v: number) => [`${v} m³`, 'Tiêu thụ']} contentStyle={{ backgroundColor: 'var(--light-bg-secondary, white)', border: '1px solid var(--light-border, #e5e7eb)', borderRadius: '0.5rem' }}/>
+                                        <Bar dataKey="Tiêu thụ" fill="#3b82f6" radius={[4, 4, 0, 0]} />
+                                    </BarChart>
+                                </ResponsiveContainer>
+                            </div>
+                        </div>
+                        {individualUnitAnalytics && (
+                             <div className="border-t pt-4 mt-4 dark:border-dark-border space-y-3">
+                                <h4 className="font-semibold">Thống kê riêng (12 tháng)</h4>
+                                <div className="flex justify-between text-sm p-2 bg-gray-50 dark:bg-gray-800/50 rounded-md"><span>Tiêu thụ trung bình:</span> <span className="font-bold">{individualUnitAnalytics.average.toFixed(1)} m³</span></div>
+                                {individualUnitAnalytics.highest && <div className="flex justify-between text-sm p-2 bg-gray-50 dark:bg-gray-800/50 rounded-md"><span>Tháng cao nhất ({individualUnitAnalytics.highest.Period}):</span> <span className="font-bold">{individualUnitAnalytics.highest.consumption} m³</span></div>}
+                                {individualUnitAnalytics.lowest && <div className="flex justify-between text-sm p-2 bg-gray-50 dark:bg-gray-800/50 rounded-md"><span>Tháng thấp nhất ({individualUnitAnalytics.lowest.Period}):</span> <span className="font-bold">{individualUnitAnalytics.lowest.consumption} m³</span></div>}
+                             </div>
+                        )}
                     </div>
-                    <h4 className="font-semibold mb-2">Tiêu thụ 6 tháng qua</h4>
-                    <div className="h-56">
-                        <ResponsiveContainer width="100%" height="100%">
-                             <BarChart data={historicalChartData} margin={{ top: 5, right: 20, left: -10, bottom: 5 }}>
-                                <CartesianGrid strokeDasharray="3 3" stroke="var(--light-border, #e5e7eb)" />
-                                <XAxis dataKey="name" tick={{ fill: 'var(--light-text-secondary, #6b7280)', fontSize: 12 }} />
-                                <YAxis unit=" m³" tick={{ fill: 'var(--light-text-secondary, #6b7280)', fontSize: 12 }} />
-                                <Tooltip formatter={(v: number) => [`${v} m³`, 'Tiêu thụ']} contentStyle={{ backgroundColor: 'var(--light-bg-secondary, white)', border: '1px solid var(--light-border, #e5e7eb)', borderRadius: '0.5rem' }}/>
-                                <Bar dataKey="Tiêu thụ" fill="#3b82f6" radius={[4, 4, 0, 0]} />
-                            </BarChart>
-                        </ResponsiveContainer>
-                    </div>
-                </div>
+                ) : (
+                    <div className="animate-fade-in-down">
+                        <h3 className="text-xl font-bold text-gray-900 dark:text-gray-200">Phân tích Chung</h3>
+                        <div className="border-t pt-4 mt-4 dark:border-dark-border">
+                             <div className="flex justify-between items-center mb-2">
+                                <h4 className="font-semibold">Tổng hóa đơn nước (ước tính)</h4>
+                                <p className="text-xl font-bold text-emerald-600">{formatCurrency(totalWaterBill)}</p>
+                            </div>
+                            <h4 className="font-semibold mb-2">Tổng tiêu thụ 6 tháng qua</h4>
+                            <div className="h-56">
+                                <ResponsiveContainer width="100%" height="100%">
+                                     <LineChart data={historicalChartData} margin={{ top: 5, right: 30, left: 0, bottom: 5 }}>
+                                        <CartesianGrid strokeDasharray="3 3" stroke="var(--light-border, #e5e7eb)" />
+                                        <XAxis dataKey="name" tick={{ fill: 'var(--light-text-secondary, #6b7280)', fontSize: 12 }} />
+                                        <YAxis unit=" m³" tick={{ fill: 'var(--light-text-secondary, #6b7280)', fontSize: 12 }} />
+                                        <Tooltip formatter={(v: number) => [`${v.toLocaleString('vi-VN')} m³`, 'Tổng tiêu thụ']} contentStyle={{ backgroundColor: 'var(--light-bg-secondary, white)', border: '1px solid var(--light-border, #e5e7eb)', borderRadius: '0.5rem' }}/>
+                                        <Legend />
+                                        <Line type="monotone" dataKey="Tiêu thụ" stroke="#3b82f6" activeDot={{ r: 8 }} strokeWidth={2} />
+                                    </LineChart>
+                                </ResponsiveContainer>
+                            </div>
+                        </div>
 
-                {selectedUnitId && individualUnitAnalytics && (
-                    <div className="border-t pt-4 dark:border-dark-border space-y-3">
-                        <h4 className="font-semibold">Thống kê riêng</h4>
-                        <div className="flex justify-between text-sm p-2 bg-gray-50 dark:bg-gray-800/50 rounded-md"><span>Tiêu thụ trung bình (12 tháng):</span> <span className="font-bold">{individualUnitAnalytics.average.toFixed(1)} m³</span></div>
-                        {individualUnitAnalytics.highest && <div className="flex justify-between text-sm p-2 bg-gray-50 dark:bg-gray-800/50 rounded-md"><span>Tháng cao nhất ({individualUnitAnalytics.highest.Period}):</span> <span className="font-bold">{individualUnitAnalytics.highest.consumption} m³</span></div>}
-                        {individualUnitAnalytics.lowest && <div className="flex justify-between text-sm p-2 bg-gray-50 dark:bg-gray-800/50 rounded-md"><span>Tháng thấp nhất ({individualUnitAnalytics.lowest.Period}):</span> <span className="font-bold">{individualUnitAnalytics.lowest.consumption} m³</span></div>}
-                    </div>
-                )}
-
-                {!selectedUnitId && (
-                    <div className="border-t pt-4 dark:border-dark-border space-y-3">
-                        <h4 className="font-semibold flex items-center gap-2"><SparklesIcon className="w-5 h-5 text-purple-500"/> Top 5 tiêu thụ cao nhất kỳ này</h4>
-                        <ul className="space-y-1 text-sm">{analyticsData.top5Highest.map(d => <li key={d.unitId} className="flex justify-between p-1.5 rounded hover:bg-gray-100 dark:hover:bg-gray-700"><span>Căn hộ {d.unitId}</span><span className="font-bold">{d.consumption} m³</span></li>)}</ul>
-                    </div>
-                )}
-                {!selectedUnitId && (
-                    <div className="border-t pt-4 dark:border-dark-border space-y-3">
-                        <h4 className="font-semibold flex items-center gap-2"><TrendingUpIcon className="w-5 h-5 text-red-500"/> Top 5 tăng đột biến so với kỳ trước</h4>
-                        <ul className="space-y-1 text-sm">{analyticsData.top5Increases.map(d => <li key={d.unitId} className="flex justify-between p-1.5 rounded hover:bg-gray-100 dark:hover:bg-gray-700"><span>Căn hộ {d.unitId}</span><span className="font-bold text-red-500">+{d.increase} m³</span></li>)}</ul>
+                        <div className="border-t pt-4 mt-4 dark:border-dark-border space-y-3">
+                             <h4 onClick={() => setFullListModalData({ title: 'Tất cả căn hộ tiêu thụ cao', data: analyticsData.fullHighestList, type: 'highest' })} className="font-semibold flex items-center gap-2 cursor-pointer hover:text-primary"><SparklesIcon className="w-5 h-5 text-purple-500"/> Top 5 tiêu thụ cao nhất kỳ này</h4>
+                            <ul className="space-y-1 text-sm">{analyticsData.top5Highest.map(d => <li key={d.unitId} className="flex justify-between p-1.5 rounded hover:bg-gray-100 dark:hover:bg-gray-700"><span>Căn hộ {d.unitId}</span><span className="font-bold">{d.consumption} m³</span></li>)}</ul>
+                        </div>
+                        <div className="border-t pt-4 mt-4 dark:border-dark-border space-y-3">
+                             <h4 onClick={() => setFullListModalData({ title: 'Tất cả căn hộ tăng đột biến', data: analyticsData.fullIncreaseList, type: 'increase' })} className="font-semibold flex items-center gap-2 cursor-pointer hover:text-primary"><TrendingUpIcon className="w-5 h-5 text-red-500"/> Top 5 tăng đột biến so với kỳ trước</h4>
+                            <ul className="space-y-1 text-sm">{analyticsData.top5Increases.map(d => <li key={d.unitId} className="flex justify-between p-1.5 rounded hover:bg-gray-100 dark:hover:bg-gray-700"><span>Căn hộ {d.unitId}</span><span className="font-bold text-red-500">+{d.increase} m³</span></li>)}</ul>
+                        </div>
                     </div>
                 )}
             </div>

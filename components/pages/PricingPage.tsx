@@ -1,5 +1,6 @@
 
 
+
 import React, { useState } from 'react';
 import type { TariffService, TariffParking, TariffWater, Role } from '../../types';
 import Modal from '../ui/Modal';
@@ -61,20 +62,20 @@ const PricingPage: React.FC<PricingPageProps> = ({ tariffs, setTariffs, role }) 
         headers: { label: string; align?: 'left' | 'right' | 'center' }[]; 
         children: React.ReactNode 
     }> = ({ title, headers, children }) => (
-        <div className="bg-white dark:bg-dark-bg-secondary p-6 rounded-xl shadow-sm">
-            <h3 className="text-xl font-bold mb-4 text-gray-800 dark:text-gray-200">{title}</h3>
-            <div className="overflow-auto max-h-[500px] border border-gray-200 dark:border-gray-700 rounded-lg">
+        <div className="bg-white p-6 rounded-xl shadow-sm">
+            <h3 className="text-xl font-bold mb-4 text-gray-800">{title}</h3>
+            <div className="overflow-auto max-h-[500px] border border-gray-200 rounded-lg">
                 <table className="min-w-full">
-                    <thead className="bg-gray-50 dark:bg-slate-800 sticky top-0 z-10 shadow-sm">
+                    <thead className="bg-gray-50 sticky top-0 z-10 shadow-sm">
                         <tr>
                             {headers.map((h, i) => (
-                                <th key={i} className={`px-4 py-3 text-xs font-bold uppercase tracking-wider text-gray-700 dark:text-gray-300 text-${h.align || 'left'}`}>
+                                <th key={i} className={`px-4 py-3 text-xs font-bold uppercase tracking-wider text-gray-700 text-${h.align || 'left'}`}>
                                     {h.label}
                                 </th>
                             ))}
                         </tr>
                     </thead>
-                    <tbody className="divide-y divide-gray-200 dark:divide-gray-700 bg-white dark:bg-dark-bg-secondary">
+                    <tbody className="divide-y divide-gray-200 bg-white">
                         {children}
                     </tbody>
                 </table>
@@ -96,7 +97,7 @@ const PricingPage: React.FC<PricingPageProps> = ({ tariffs, setTariffs, role }) 
                 ]}
             >
                 {tariffs.service.map((item, index) => (
-                    <tr key={index} className="hover:bg-gray-50 dark:hover:bg-slate-800/50 text-sm text-gray-900 dark:text-gray-200">
+                    <tr key={index} className="hover:bg-gray-50 text-sm text-gray-900">
                         <td className="px-4 py-4 font-medium">{item.LoaiHinh}</td>
                         <td className="px-4 py-4 text-right font-mono">{formatCurrency(item.ServiceFee_per_m2)}</td>
                         <td className="px-4 py-4 text-right">{item.VAT_percent}</td>
@@ -123,7 +124,7 @@ const PricingPage: React.FC<PricingPageProps> = ({ tariffs, setTariffs, role }) 
                 ]}
             >
                 {tariffs.parking.map((item, index) => (
-                    <tr key={index} className="hover:bg-gray-50 dark:hover:bg-slate-800/50 text-sm text-gray-900 dark:text-gray-200">
+                    <tr key={index} className="hover:bg-gray-50 text-sm text-gray-900">
                         <td className="px-4 py-4 font-medium">{item.Tier}</td>
                         <td className="px-4 py-4 text-right font-mono">{formatCurrency(item.Price_per_unit)}</td>
                         <td className="px-4 py-4 text-right">{item.VAT_percent}</td>
@@ -151,7 +152,7 @@ const PricingPage: React.FC<PricingPageProps> = ({ tariffs, setTariffs, role }) 
                 ]}
             >
                 {tariffs.water.map((item, index) => (
-                    <tr key={index} className="hover:bg-gray-50 dark:hover:bg-slate-800/50 text-sm text-gray-900 dark:text-gray-200">
+                    <tr key={index} className="hover:bg-gray-50 text-sm text-gray-900">
                         <td className="px-4 py-4 text-right">{item.From_m3}</td>
                         <td className="px-4 py-4 text-right">{item.To_m3 === null ? 'Trở lên' : item.To_m3}</td>
                         <td className="px-4 py-4 text-right font-mono">{formatCurrency(item.UnitPrice)}</td>
@@ -188,7 +189,7 @@ const EditForm: React.FC<{ item: any; onSave: (data: any) => void; onCancel: () 
         <form onSubmit={(e) => { e.preventDefault(); onSave(formData); }} className="space-y-4">
             {Object.entries(formData).map(([key, value]) => (
                  <div key={key}>
-                    <label className="block text-sm font-medium text-light-text-secondary dark:text-dark-text-secondary capitalize mb-1">
+                    <label className="block text-sm font-medium text-light-text-secondary capitalize mb-1">
                         {key.replace(/_/g, ' ')}
                     </label>
                     <input 
@@ -197,12 +198,12 @@ const EditForm: React.FC<{ item: any; onSave: (data: any) => void; onCancel: () 
                         value={String(value ?? '')}
                         onChange={handleChange}
                         disabled={['LoaiHinh', 'Tier', 'From_m3'].includes(key)}
-                        className="w-full p-2 border rounded-md bg-white border-gray-300 text-gray-900 dark:bg-gray-700 dark:border-gray-600 dark:text-white disabled:bg-gray-200 dark:disabled:bg-gray-800 disabled:cursor-not-allowed"
+                        className="w-full p-2 border rounded-md bg-white border-gray-300 text-gray-900 disabled:bg-gray-200 disabled:cursor-not-allowed"
                     />
                 </div>
             ))}
-            <div className="flex justify-end gap-2 pt-4 border-t border-light-border dark:border-dark-border">
-                <button type="button" onClick={onCancel} className="px-4 py-2 bg-gray-200 dark:bg-gray-600 rounded-md hover:bg-gray-300 dark:hover:bg-gray-500 text-light-text-primary dark:text-dark-text-primary">Hủy</button>
+            <div className="flex justify-end gap-2 pt-4 border-t border-light-border">
+                <button type="button" onClick={onCancel} className="px-4 py-2 bg-gray-200 rounded-md hover:bg-gray-300 text-light-text-primary">Hủy</button>
                 <button type="submit" className="px-4 py-2 bg-primary text-white rounded-md hover:bg-primary-focus">Lưu</button>
             </div>
         </form>

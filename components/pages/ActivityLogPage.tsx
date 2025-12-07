@@ -66,11 +66,11 @@ const ActivityLogPage: React.FC<ActivityLogPageProps> = ({ logs, onUndo, role })
 
     const totalPages = Math.ceil(filteredLogs.length / ITEMS_PER_PAGE);
 
-    const inputStyle = "p-2 border rounded-lg bg-white border-gray-300 text-gray-900 dark:bg-dark-bg-secondary dark:border-gray-600 dark:text-white";
+    const inputStyle = "p-2 border rounded-lg bg-white border-gray-300 text-gray-900";
 
     return (
         <div className="h-full flex flex-col space-y-6">
-            <div className="bg-white dark:bg-dark-bg-secondary p-4 rounded-xl shadow-sm">
+            <div className="bg-white p-4 rounded-xl shadow-sm">
                 <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
                     <div className="relative col-span-1 md:col-span-2 lg:col-span-1">
                         <SearchIcon className="absolute left-3 top-1/2 -translate-y-1/2 h-5 w-5 text-gray-400" />
@@ -82,37 +82,37 @@ const ActivityLogPage: React.FC<ActivityLogPageProps> = ({ logs, onUndo, role })
                 </div>
             </div>
 
-            <div className="bg-white dark:bg-dark-bg-secondary rounded-xl shadow-sm flex-1 flex flex-col overflow-hidden">
+            <div className="bg-white rounded-xl shadow-sm flex-1 flex flex-col overflow-hidden">
                 <div className="overflow-y-auto">
                     <table className="min-w-full">
-                        <thead className="bg-gray-50 dark:bg-slate-800 sticky top-0 z-10">
+                        <thead className="bg-gray-50 sticky top-0 z-10">
                             <tr>
-                                <th className="px-4 py-3 text-left text-xs font-bold text-gray-700 dark:text-gray-300 uppercase tracking-wider w-[15%]">Thời gian</th>
-                                <th className="px-4 py-3 text-left text-xs font-bold text-gray-700 dark:text-gray-300 uppercase tracking-wider w-[15%]">Người dùng</th>
-                                <th className="px-4 py-3 text-left text-xs font-bold text-gray-700 dark:text-gray-300 uppercase tracking-wider w-[10%]">Module</th>
-                                <th className="px-4 py-3 text-left text-xs font-bold text-gray-700 dark:text-gray-300 uppercase tracking-wider w-[15%]">Hành động</th>
-                                <th className="px-4 py-3 text-left text-xs font-bold text-gray-700 dark:text-gray-300 uppercase tracking-wider">Chi tiết</th>
-                                <th className="px-4 py-3 text-center text-xs font-bold text-gray-700 dark:text-gray-300 uppercase tracking-wider w-[5%]">Undo</th>
+                                <th className="px-4 py-3 text-left text-xs font-bold text-gray-700 uppercase tracking-wider w-[15%]">Thời gian</th>
+                                <th className="px-4 py-3 text-left text-xs font-bold text-gray-700 uppercase tracking-wider w-[15%]">Người dùng</th>
+                                <th className="px-4 py-3 text-left text-xs font-bold text-gray-700 uppercase tracking-wider w-[10%]">Module</th>
+                                <th className="px-4 py-3 text-left text-xs font-bold text-gray-700 uppercase tracking-wider w-[15%]">Hành động</th>
+                                <th className="px-4 py-3 text-left text-xs font-bold text-gray-700 uppercase tracking-wider">Chi tiết</th>
+                                <th className="px-4 py-3 text-center text-xs font-bold text-gray-700 uppercase tracking-wider w-[5%]">Undo</th>
                             </tr>
                         </thead>
-                        <tbody className="divide-y divide-gray-200 dark:divide-gray-700 text-sm">
+                        <tbody className="divide-y divide-gray-200 text-sm">
                             {paginatedLogs.length === 0 ? (
                                 <tr><td colSpan={6} className="text-center p-8 text-gray-500">Không có hoạt động nào phù hợp.</td></tr>
                             ) : (
                                 paginatedLogs.map(log => {
                                     const canUndo = !log.undone && log.undo_token && new Date() < new Date(log.undo_until!);
                                     return (
-                                        <tr key={log.id} className={`${log.undone ? 'opacity-40' : ''} hover:bg-gray-50 dark:hover:bg-slate-800/50`}>
-                                            <td className="px-4 py-4 font-mono text-xs text-gray-900 dark:text-gray-200">{new Date(log.ts).toLocaleString('vi-VN')}</td>
-                                            <td className="px-4 py-4 text-gray-900 dark:text-gray-200">{log.actor_email}<br/><span className="text-xs text-gray-500">{log.actor_role}</span></td>
-                                            <td className="px-4 py-4"><span className="px-2 py-1 text-xs font-semibold rounded-full bg-gray-200 dark:bg-gray-700 text-gray-900 dark:text-gray-200">{log.module}</span></td>
-                                            <td className="px-4 py-4 font-semibold font-mono text-xs text-gray-900 dark:text-gray-200">{log.action}</td>
-                                            <td className="px-4 py-4 text-gray-900 dark:text-gray-200">{log.summary}</td>
+                                        <tr key={log.id} className={`${log.undone ? 'opacity-40' : ''} hover:bg-gray-50`}>
+                                            <td className="px-4 py-4 font-mono text-xs text-gray-900">{new Date(log.ts).toLocaleString('vi-VN')}</td>
+                                            <td className="px-4 py-4 text-gray-900">{log.actor_email}<br/><span className="text-xs text-gray-500">{log.actor_role}</span></td>
+                                            <td className="px-4 py-4"><span className="px-2 py-1 text-xs font-semibold rounded-full bg-gray-200 text-gray-900">{log.module}</span></td>
+                                            <td className="px-4 py-4 font-semibold font-mono text-xs text-gray-900">{log.action}</td>
+                                            <td className="px-4 py-4 text-gray-900">{log.summary}</td>
                                             <td className="px-4 py-4 text-center">
                                                 <button 
                                                     onClick={() => handleUndoClick(log)}
                                                     disabled={!canUndo}
-                                                    className="p-1.5 rounded-full text-blue-600 hover:bg-blue-100 dark:hover:bg-blue-900/50 disabled:text-gray-400 disabled:bg-transparent disabled:cursor-not-allowed"
+                                                    className="p-1.5 rounded-full text-blue-600 hover:bg-blue-100 disabled:text-gray-400 disabled:bg-transparent disabled:cursor-not-allowed"
                                                     data-tooltip={log.undone ? 'Đã hoàn tác' : (!log.undo_token ? 'Không thể hoàn tác' : (canUndo ? 'Hoàn tác' : 'Hết hạn hoàn tác'))}
                                                 >
                                                     <ArrowUturnLeftIcon className="w-5 h-5"/>
@@ -127,11 +127,11 @@ const ActivityLogPage: React.FC<ActivityLogPageProps> = ({ logs, onUndo, role })
                 </div>
 
                 {totalPages > 1 && (
-                    <div className="p-3 border-t dark:border-dark-border flex justify-between items-center">
-                        <span className="text-sm font-medium text-gray-600 dark:text-gray-400">{`Trang ${currentPage} / ${totalPages}`}</span>
+                    <div className="p-3 border-t flex justify-between items-center">
+                        <span className="text-sm font-medium text-gray-600">{`Trang ${currentPage} / ${totalPages}`}</span>
                         <div className="flex gap-2">
-                             <button onClick={() => setCurrentPage(p => Math.max(1, p - 1))} disabled={currentPage === 1} className="px-3 py-1 text-sm bg-white dark:bg-dark-bg-secondary border dark:border-dark-border rounded-md disabled:opacity-50">Trước</button>
-                             <button onClick={() => setCurrentPage(p => Math.min(totalPages, p + 1))} disabled={currentPage === totalPages} className="px-3 py-1 text-sm bg-white dark:bg-dark-bg-secondary border dark:border-dark-border rounded-md disabled:opacity-50">Sau</button>
+                             <button onClick={() => setCurrentPage(p => Math.max(1, p - 1))} disabled={currentPage === 1} className="px-3 py-1 text-sm bg-white border rounded-md disabled:opacity-50">Trước</button>
+                             <button onClick={() => setCurrentPage(p => Math.min(totalPages, p + 1))} disabled={currentPage === totalPages} className="px-3 py-1 text-sm bg-white border rounded-md disabled:opacity-50">Sau</button>
                         </div>
                     </div>
                 )}

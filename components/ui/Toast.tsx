@@ -25,10 +25,10 @@ const ToastItem: React.FC<{ toast: ToastMessage; onClose: (id: number) => void }
   }, [toast, onClose]);
   
   const toastStyles = {
-    info: 'bg-blue-50 text-blue-800 dark:bg-blue-900/50 dark:text-blue-300 border-blue-200 dark:border-blue-700',
-    success: 'bg-green-50 text-green-800 dark:bg-green-900/50 dark:text-green-300 border-green-200 dark:border-green-700',
-    warn: 'bg-yellow-50 text-yellow-800 dark:bg-yellow-900/50 dark:text-yellow-300 border-yellow-200 dark:border-yellow-700',
-    error: 'bg-red-50 text-red-800 dark:bg-red-900/50 dark:text-red-300 border-red-200 dark:border-red-700',
+    info: 'bg-blue-50 text-blue-800 border-blue-200',
+    success: 'bg-green-50 text-green-800 border-green-200',
+    warn: 'bg-yellow-50 text-yellow-800 border-yellow-200',
+    error: 'bg-red-50 text-red-800 border-red-200',
   };
   
   const getIcon = (type: ToastType) => {
@@ -61,7 +61,7 @@ const ToastItem: React.FC<{ toast: ToastMessage; onClose: (id: number) => void }
       <button 
         aria-label="Đóng" 
         onClick={() => onClose(toast.id)}
-        className="-mr-1 -mt-1 p-1.5 rounded-full text-current opacity-60 hover:opacity-100 hover:bg-black/10 dark:hover:bg-white/10"
+        className="-mr-1 -mt-1 p-1.5 rounded-full text-current opacity-60 hover:opacity-100 hover:bg-black/10"
       >
         <svg xmlns="http://www.w3.org/2000/svg" className="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2.5}>
             <path strokeLinecap="round" strokeLinejoin="round" d="M6 18L18 6M6 6l12 12" />
@@ -89,7 +89,7 @@ const FooterToast: React.FC<FooterToastProps> = ({ toasts, onClose, onClearAll }
         {visibleToasts.length > 1 && (
             <button
                 onClick={onClearAll}
-                className="px-3 py-1 text-xs font-semibold text-gray-600 bg-white/80 backdrop-blur-sm border border-gray-300 rounded-full shadow-md hover:bg-gray-200 dark:bg-gray-800/80 dark:text-gray-300 dark:border-gray-600 dark:hover:bg-gray-700"
+                className="px-3 py-1 text-xs font-semibold text-gray-600 bg-white/80 backdrop-blur-sm border border-gray-300 rounded-full shadow-md hover:bg-gray-200"
             >
                 Xóa tất cả
             </button>

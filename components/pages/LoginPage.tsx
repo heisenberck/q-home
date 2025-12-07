@@ -79,7 +79,7 @@ const LoginPage: React.FC<LoginPageProps> = ({ users, onLogin }) => {
                 }}
             ></div>
 
-            <div className="max-w-md w-full bg-white/90 dark:bg-gray-800/90 backdrop-blur-md rounded-xl shadow-2xl overflow-hidden z-10 border border-white/20">
+            <div className="max-w-md w-full bg-white/90 backdrop-blur-md rounded-xl shadow-2xl overflow-hidden z-10 border border-white/20">
                 <div className="bg-primary p-8 text-center relative overflow-hidden">
                     <div className="absolute inset-0 bg-gradient-to-b from-white/10 to-transparent"></div>
                      <div className="relative z-10 flex justify-center mb-3">
@@ -96,16 +96,16 @@ const LoginPage: React.FC<LoginPageProps> = ({ users, onLogin }) => {
                 </div>
                 
                 <div className="p-8 pt-8">
-                    <h2 className="text-2xl font-bold text-gray-800 dark:text-white text-center mb-6">Đăng nhập</h2>
+                    <h2 className="text-2xl font-bold text-gray-800 text-center mb-6">Đăng nhập</h2>
                     
                     <form onSubmit={handleSubmit} className="space-y-5">
                         <div>
-                            <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">Email hoặc Tên đăng nhập</label>
+                            <label className="block text-sm font-medium text-gray-700 mb-1">Email hoặc Tên đăng nhập</label>
                             <input 
                                 type="text" 
                                 value={identifier}
                                 onChange={(e) => setIdentifier(e.target.value)}
-                                className="w-full px-4 py-3 rounded-lg border border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-700/50 text-gray-900 dark:text-white focus:ring-2 focus:ring-primary focus:border-transparent transition-all shadow-sm"
+                                className="w-full px-4 py-3 rounded-lg border border-gray-300 bg-white text-gray-900 focus:ring-2 focus:ring-primary focus:border-transparent transition-all shadow-sm"
                                 placeholder="Email hoặc Tên đăng nhập"
                                 required
                                 autoFocus
@@ -113,20 +113,20 @@ const LoginPage: React.FC<LoginPageProps> = ({ users, onLogin }) => {
                         </div>
                         
                         <div>
-                            <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">Mật khẩu</label>
+                            <label className="block text-sm font-medium text-gray-700 mb-1">Mật khẩu</label>
                             <div className="relative">
                                 <input 
                                     type={showPassword ? "text" : "password"} 
                                     value={password}
                                     onChange={(e) => setPassword(e.target.value)}
-                                    className="w-full px-4 py-3 rounded-lg border border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-700/50 text-gray-900 dark:text-white focus:ring-2 focus:ring-primary focus:border-transparent transition-all shadow-sm"
+                                    className="w-full px-4 py-3 rounded-lg border border-gray-300 bg-white text-gray-900 focus:ring-2 focus:ring-primary focus:border-transparent transition-all shadow-sm"
                                     placeholder="••••••••"
                                     required
                                 />
                                 <button 
                                     type="button"
                                     onClick={() => setShowPassword(!showPassword)}
-                                    className="absolute right-3 top-1/2 -translate-y-1/2 text-gray-400 hover:text-gray-600 dark:hover:text-gray-200"
+                                    className="absolute right-3 top-1/2 -translate-y-1/2 text-gray-400 hover:text-gray-600"
                                     tabIndex={-1}
                                 >
                                     <EyeIcon className="w-5 h-5" />
@@ -135,7 +135,7 @@ const LoginPage: React.FC<LoginPageProps> = ({ users, onLogin }) => {
                         </div>
 
                         {error && (
-                            <div className="p-3 rounded-lg bg-red-50 dark:bg-red-900/30 border border-red-200 dark:border-red-800 text-red-600 dark:text-red-300 text-sm text-center font-medium">
+                            <div className="p-3 rounded-lg bg-red-50 border border-red-200 text-red-600 text-sm text-center font-medium">
                                 {error}
                             </div>
                         )}
@@ -150,13 +150,13 @@ const LoginPage: React.FC<LoginPageProps> = ({ users, onLogin }) => {
                     </form>
 
                     <div className="mt-6 text-center">
-                         <p className="text-sm text-gray-500 dark:text-gray-400">
+                         <p className="text-sm text-gray-500">
                             Quên mật khẩu? Vui lòng liên hệ Admin.
                         </p>
                     </div>
                 </div>
-                 <div className="bg-gray-50/50 dark:bg-gray-700/30 p-4 text-center border-t border-gray-200 dark:border-gray-700">
-                    <p className="text-xs text-gray-500 dark:text-gray-400">© {new Date().getFullYear()} Q-Home Manager. All rights reserved.</p>
+                 <div className="bg-gray-50/50 p-4 text-center border-t border-gray-200">
+                    <p className="text-xs text-gray-500">© {new Date().getFullYear()} Q-Home Manager. All rights reserved.</p>
                 </div>
             </div>
         </div>

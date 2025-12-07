@@ -39,13 +39,13 @@ const Modal: React.FC<ModalProps> = ({ title, onClose, children, size = 'lg' }) 
     <div className="fixed inset-0 bg-black bg-opacity-60 flex justify-center items-center z-50 p-4 transition-opacity duration-300">
       <div
         ref={modalRef}
-        className={`bg-light-bg-secondary dark:bg-dark-bg-secondary rounded-lg shadow-xl w-full ${sizeClasses[size]} max-h-[90vh] flex flex-col`}
+        className={`bg-light-bg-secondary rounded-lg shadow-xl w-full ${sizeClasses[size]} max-h-[90vh] flex flex-col`}
       >
-        <div className="p-4 border-b border-light-border dark:border-dark-border flex justify-between items-center flex-shrink-0">
+        <div className="p-4 border-b border-light-border flex justify-between items-center flex-shrink-0">
           <h3 className="text-lg font-bold">{title}</h3>
           <button 
             onClick={onClose} 
-            className="text-2xl leading-none text-light-text-secondary dark:text-dark-text-secondary hover:text-light-text-primary dark:hover:text-dark-text-primary"
+            className="text-2xl leading-none text-light-text-secondary hover:text-light-text-primary"
             aria-label="Close modal"
           >
             &times;

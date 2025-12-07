@@ -19,10 +19,10 @@ const TrendBadge: React.FC<{ trend: number }> = ({ trend }) => {
     const isDown = trend < 0;
     
     const badgeClass = isUp
-        ? 'bg-emerald-100 text-emerald-700 dark:bg-emerald-900/50 dark:text-emerald-300'
+        ? 'bg-emerald-100 text-emerald-700'
         : isDown
-        ? 'bg-red-100 text-red-700 dark:bg-red-900/50 dark:text-red-300'
-        : 'bg-gray-100 text-gray-600 dark:bg-gray-700 dark:text-gray-400';
+        ? 'bg-red-100 text-red-700'
+        : 'bg-gray-100 text-gray-600';
         
     const arrow = isUp ? '↑' : isDown ? '↓' : '-';
 
@@ -34,19 +34,19 @@ const TrendBadge: React.FC<{ trend: number }> = ({ trend }) => {
     );
 };
 
-const StatCard: React.FC<StatCardProps> = ({ label, value, icon, iconBgClass = 'bg-gray-100 dark:bg-gray-800', className, trend, subtext }) => {
+const StatCard: React.FC<StatCardProps> = ({ label, value, icon, iconBgClass = 'bg-gray-100', className, trend, subtext }) => {
     return (
-        <div className={`bg-white dark:bg-dark-bg-secondary p-5 rounded-xl shadow-sm flex items-center gap-5 h-full ${className}`}>
+        <div className={`bg-white p-5 rounded-xl shadow-sm flex items-center gap-5 h-full ${className}`}>
             <div className={`flex-shrink-0 w-14 h-14 flex items-center justify-center rounded-full ${iconBgClass}`}>
                 {icon}
             </div>
             <div>
-                <p className="text-sm font-medium text-gray-500 dark:text-gray-400">{label}</p>
+                <p className="text-sm font-medium text-gray-500">{label}</p>
                 <div className="flex items-center gap-2 mt-1">
-                    <p className="text-2xl font-bold text-gray-900 dark:text-gray-200">{value}</p>
+                    <p className="text-2xl font-bold text-gray-900">{value}</p>
                     {typeof trend === 'number' && <TrendBadge trend={trend} />}
                 </div>
-                 {subtext && <p className="text-xs text-gray-400 dark:text-gray-500 mt-1">{subtext}</p>}
+                 {subtext && <p className="text-xs text-gray-400 mt-1">{subtext}</p>}
             </div>
         </div>
     );

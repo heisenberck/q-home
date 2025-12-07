@@ -85,15 +85,15 @@ const Header: React.FC<HeaderProps> = ({ pageTitle }) => {
         setIsProfileModalOpen(false);
     };
 
-    const inputClasses = "w-full p-2 border rounded-md bg-white text-gray-900 border-gray-300 dark:bg-gray-700 dark:text-white dark:border-gray-600 focus:ring-2 focus:ring-primary focus:border-transparent shadow-sm transition-colors";
-    const labelClasses = "block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1";
+    const inputClasses = "w-full p-2 border rounded-md bg-white text-gray-900 border-gray-300 focus:ring-2 focus:ring-primary focus:border-transparent shadow-sm transition-colors";
+    const labelClasses = "block text-sm font-medium text-gray-700 mb-1";
 
     return (
         <Modal title="Hồ sơ cá nhân" onClose={() => setIsProfileModalOpen(false)} size="md">
             <form onSubmit={handleSave} className="space-y-6">
                 <div className="flex flex-col items-center gap-3">
                     <div className="relative group">
-                        <div className="w-24 h-24 rounded-full overflow-hidden border-2 border-gray-200 dark:border-gray-600 shadow-inner bg-gray-100 dark:bg-gray-800 flex items-center justify-center">
+                        <div className="w-24 h-24 rounded-full overflow-hidden border-2 border-gray-200 shadow-inner bg-gray-100 flex items-center justify-center">
                             {formData.avatarUrl ? (
                                 <img src={formData.avatarUrl} alt="Avatar" className="w-full h-full object-cover" />
                             ) : (
@@ -122,14 +122,14 @@ const Header: React.FC<HeaderProps> = ({ pageTitle }) => {
 
                 <div>
                     <label className={labelClasses}>Email</label>
-                    <input type="email" value={currentUser.Email} disabled required className={`${inputClasses} bg-gray-100 dark:bg-gray-800 cursor-not-allowed`}/>
+                    <input type="email" value={currentUser.Email} disabled required className={`${inputClasses} bg-gray-100 cursor-not-allowed`}/>
                 </div>
                 <div>
                     <label className={labelClasses}>Tên đăng nhập</label>
                     <input type="text" value={formData.Username} onChange={e => setFormData({...formData, Username: e.target.value})} className={inputClasses} placeholder="Đặt tên đăng nhập"/>
                 </div>
-                <div className="flex justify-end gap-2 pt-4 border-t dark:border-gray-600">
-                    <button type="button" onClick={() => setIsProfileModalOpen(false)} className="px-4 py-2 bg-gray-200 dark:bg-gray-600 text-gray-800 dark:text-white rounded-md hover:bg-gray-300 dark:hover:bg-gray-500">Hủy</button>
+                <div className="flex justify-end gap-2 pt-4 border-t">
+                    <button type="button" onClick={() => setIsProfileModalOpen(false)} className="px-4 py-2 bg-gray-200 text-gray-800 rounded-md hover:bg-gray-300">Hủy</button>
                     <button type="submit" className="px-4 py-2 bg-primary text-white rounded-md hover:bg-primary-focus">Lưu thay đổi</button>
                 </div>
             </form>
@@ -138,47 +138,47 @@ const Header: React.FC<HeaderProps> = ({ pageTitle }) => {
   }
 
   return (
-    <header className="w-full bg-white dark:bg-dark-bg-secondary border-b border-gray-200 dark:border-dark-border flex items-center justify-between p-4 flex-shrink-0">
+    <header className="w-full bg-white border-b border-gray-200 flex items-center justify-between p-4 flex-shrink-0">
       {isProfileModalOpen && <ProfileModal />}
-      <h1 className="text-2xl font-bold text-gray-800 dark:text-gray-200 hidden sm:block">
+      <h1 className="text-2xl font-bold text-gray-800 hidden sm:block">
         {pageTitle}
       </h1>
       <div className="flex items-center gap-4 ml-auto">
         <div ref={menuRef} className="relative">
-            <button onClick={() => setIsMenuOpen(!isMenuOpen)} className="flex items-center gap-3 p-1.5 rounded-full hover:bg-gray-100 dark:hover:bg-dark-bg transition-colors">
+            <button onClick={() => setIsMenuOpen(!isMenuOpen)} className="flex items-center gap-3 p-1.5 rounded-full hover:bg-gray-100 transition-colors">
                 {currentUser.avatarUrl ? (
                     <img 
                         src={currentUser.avatarUrl} 
                         alt="Avatar" 
-                        className="w-8 h-8 rounded-full object-cover border-2 border-white dark:border-dark-bg-secondary shadow-sm"
+                        className="w-8 h-8 rounded-full object-cover border-2 border-white shadow-sm"
                     />
                 ) : (
                     <UserCircleIcon className="w-8 h-8 text-gray-500" />
                 )}
                 <div className="text-left hidden md:block">
                     <p className="text-sm font-semibold">{getUsername(currentUser)}</p>
-                    <p className="text-xs text-gray-500 dark:text-gray-400">{currentUser.Role}</p>
+                    <p className="text-xs text-gray-500">{currentUser.Role}</p>
                 </div>
             </button>
             {isMenuOpen && (
-                <div className="absolute top-full right-0 mt-2 w-64 bg-white dark:bg-dark-bg-secondary rounded-lg shadow-xl border dark:border-dark-border z-40 animate-fade-in-down">
-                    <div className="p-3 border-b dark:border-dark-border">
+                <div className="absolute top-full right-0 mt-2 w-64 bg-white rounded-lg shadow-xl border z-40 animate-fade-in-down">
+                    <div className="p-3 border-b">
                         <p className="text-sm font-semibold">Đang đăng nhập với</p>
                         <p className="text-sm truncate font-bold">{currentUser.Email}</p>
                     </div>
                     
                     <button 
                          onClick={() => { setIsMenuOpen(false); setIsProfileModalOpen(true); }}
-                         className="flex items-center w-full px-4 py-2.5 text-sm text-left text-gray-700 dark:text-gray-200 hover:bg-gray-100 dark:hover:bg-dark-bg"
+                         className="flex items-center w-full px-4 py-2.5 text-sm text-left text-gray-700 hover:bg-gray-100"
                     >
                          <UserIcon className="w-5 h-5 mr-3 text-gray-500" />
                          Hồ sơ cá nhân
                     </button>
 
-                    <div className="border-t dark:border-dark-border">
+                    <div className="border-t">
                         <button 
                             onClick={() => { setIsMenuOpen(false); logout(); }}
-                            className="flex items-center w-full px-4 py-3 text-sm text-left text-red-600 dark:text-red-400 hover:bg-red-50 dark:hover:bg-red-900/20"
+                            className="flex items-center w-full px-4 py-3 text-sm text-left text-red-600 hover:bg-red-50"
                         >
                             <ArrowRightOnRectangleIcon className="w-5 h-5 mr-3" />
                             Đăng xuất

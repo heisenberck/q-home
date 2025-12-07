@@ -1,4 +1,5 @@
 
+
 import React from 'react';
 import { PieChartIcon, CalculatorIcon, UsersIcon, WaterIcon, ReceiptIcon, PencilSquareIcon, KeyIcon, ArchiveBoxIcon, ClipboardDocumentListIcon, CarIcon } from '../ui/Icons';
 import type { Role } from '../../types';
@@ -33,8 +34,8 @@ const Sidebar: React.FC<SidebarProps> = ({ activePage, setActivePage, role }) =>
   const { invoiceSettings } = useSettings();
   const isDev = !isProduction();
   const themeClass = isDev 
-    ? 'border-red-500 bg-red-50 dark:bg-red-900/20 text-red-700 dark:text-red-300' 
-    : 'border-emerald-500 bg-emerald-50 dark:bg-emerald-900/20 text-emerald-700 dark:text-emerald-300';
+    ? 'border-red-500 bg-red-50 text-red-700' 
+    : 'border-emerald-500 bg-emerald-50 text-emerald-700';
   const versionText = isDev ? 'v2.0-DEV' : 'v2.0';
 
 
@@ -47,7 +48,7 @@ const Sidebar: React.FC<SidebarProps> = ({ activePage, setActivePage, role }) =>
         className={`flex items-center px-4 py-3 text-sm font-semibold rounded-lg transition-colors duration-200 mx-2 ${
           isActive
             ? 'bg-primary text-white shadow-md'
-            : 'text-gray-600 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-dark-bg'
+            : 'text-gray-600 hover:bg-gray-100'
         }`}
       >
         <span className="mr-3">{icon}</span>
@@ -57,8 +58,8 @@ const Sidebar: React.FC<SidebarProps> = ({ activePage, setActivePage, role }) =>
   };
 
   return (
-    <aside className="w-64 bg-white dark:bg-dark-bg-secondary flex-shrink-0 flex flex-col border-r border-gray-200 dark:border-dark-border h-full">
-      <div className="p-4 border-b border-gray-200 dark:border-dark-border">
+    <aside className="w-64 bg-white flex-shrink-0 flex flex-col border-r border-gray-200 h-full">
+      <div className="p-4 border-b border-gray-200">
         <div className="flex items-center gap-3 px-1">
             <div className="bg-primary text-white p-2 rounded-lg shadow-sm flex-shrink-0">
                 <svg xmlns="http://www.w3.org/2000/svg" className="h-8 w-8" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth="2.5">
@@ -67,12 +68,12 @@ const Sidebar: React.FC<SidebarProps> = ({ activePage, setActivePage, role }) =>
                 </svg>
             </div>
             <div className="flex flex-col justify-center">
-                <span className="text-xl font-black text-gray-800 dark:text-white tracking-tight">Q-Home</span>
-                <span className="text-lg font-bold text-gray-500 dark:text-gray-300 -mt-1">Manager</span>
+                <span className="text-xl font-black text-gray-800 tracking-tight">Q-Home</span>
+                <span className="text-lg font-bold text-gray-500 -mt-1">Manager</span>
             </div>
         </div>
-        <div className="mt-4 w-full bg-yellow-100 dark:bg-yellow-900/30 border border-yellow-300 dark:border-yellow-700/50 rounded-md py-1.5 px-2 text-center shadow-sm">
-            <span className="text-yellow-800 dark:text-yellow-300 text-xs font-bold uppercase tracking-wide block">
+        <div className="mt-4 w-full bg-yellow-100 border border-yellow-300 rounded-md py-1.5 px-2 text-center shadow-sm">
+            <span className="text-yellow-800 text-xs font-bold uppercase tracking-wide block">
                 {invoiceSettings.buildingName || 'Q-HOME MANAGER'}
             </span>
         </div>

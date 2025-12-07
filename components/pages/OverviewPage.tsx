@@ -215,10 +215,10 @@ const OverviewPage: React.FC<OverviewPageProps> = ({ allUnits, allVehicles, allW
         <div className="space-y-8">
             <div>
                 <div className="flex justify-between items-center mb-4">
-                    <h2 className="text-2xl font-bold text-gray-900 dark:text-gray-200">Thống kê nhanh</h2>
+                    <h2 className="text-2xl font-bold text-gray-900">Thống kê nhanh</h2>
                     <button
                         onClick={() => setIsStatsExpanded(p => !p)}
-                        className="p-1.5 rounded-full hover:bg-gray-200 dark:hover:bg-slate-700"
+                        className="p-1.5 rounded-full hover:bg-gray-200"
                         data-tooltip={isStatsExpanded ? "Thu gọn" : "Mở rộng"}
                     >
                         {isStatsExpanded ? <ChevronUpIcon /> : <ChevronDownIcon />}
@@ -229,27 +229,27 @@ const OverviewPage: React.FC<OverviewPageProps> = ({ allUnits, allVehicles, allW
                         <StatCard 
                             label={`Doanh thu T${currentMonth}`} 
                             value={formatCurrency(dashboardStats.currentRevenue)} 
-                            icon={<RevenueIcon className="w-7 h-7 text-emerald-600 dark:text-emerald-400"/>} 
-                            iconBgClass="bg-emerald-100 dark:bg-emerald-900/50"
+                            icon={<RevenueIcon className="w-7 h-7 text-emerald-600"/>} 
+                            iconBgClass="bg-emerald-100"
                             trend={dashboardStats.revenueTrend}
                         />
                         <StatCard 
                             label="Căn hộ nợ phí" 
-                            value={<span className="text-red-600 dark:text-red-400">{dashboardStats.outstandingUnitsCount}</span>}
-                            icon={<WarningIcon className="w-7 h-7 text-red-600 dark:text-red-400"/>} 
-                            iconBgClass="bg-red-100 dark:bg-red-900/50"
+                            value={<span className="text-red-600">{dashboardStats.outstandingUnitsCount}</span>}
+                            icon={<WarningIcon className="w-7 h-7 text-red-600"/>} 
+                            iconBgClass="bg-red-100"
                         />
                         <StatCard 
                             label="Ô tô / Xe máy" 
                             value={`${dashboardStats.totalCars} / ${dashboardStats.totalMotorbikes}`} 
-                            icon={<CarIcon className="w-7 h-7 text-amber-600 dark:text-amber-400"/>} 
-                            iconBgClass="bg-amber-100 dark:bg-amber-900/50"
+                            icon={<CarIcon className="w-7 h-7 text-amber-600"/>} 
+                            iconBgClass="bg-amber-100"
                         />
                         <StatCard 
                             label={`Tiêu thụ nước T${currentMonth}`} 
                             value={`${dashboardStats.totalWaterConsumption.toLocaleString('vi-VN')} m³`} 
-                            icon={<DropletsIcon className="w-7 h-7 text-indigo-600 dark:text-indigo-400"/>} 
-                            iconBgClass="bg-indigo-100 dark:bg-indigo-900/50"
+                            icon={<DropletsIcon className="w-7 h-7 text-indigo-600"/>} 
+                            iconBgClass="bg-indigo-100"
                             trend={dashboardStats.waterConsumptionTrend}
                         />
                     </div>
@@ -257,8 +257,8 @@ const OverviewPage: React.FC<OverviewPageProps> = ({ allUnits, allVehicles, allW
             </div>
 
             <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-                <div className="bg-white dark:bg-dark-bg-secondary p-6 rounded-xl shadow-sm">
-                    <h3 className="font-bold text-lg text-gray-800 dark:text-gray-200 mb-4">Doanh thu năm 2025</h3>
+                <div className="bg-white p-6 rounded-xl shadow-sm">
+                    <h3 className="font-bold text-lg text-gray-800 mb-4">Doanh thu năm 2025</h3>
                     <ResponsiveContainer width="100%" height={300}>
                         <BarChart data={revenueChartData}>
                             <CartesianGrid strokeDasharray="3 3" stroke="var(--light-border, #e5e7eb)" />
@@ -289,8 +289,8 @@ const OverviewPage: React.FC<OverviewPageProps> = ({ allUnits, allVehicles, allW
                     </ResponsiveContainer>
                 </div>
                 
-                <div className="bg-white dark:bg-dark-bg-secondary p-6 rounded-xl shadow-sm">
-                    <h3 className="font-bold text-lg text-gray-800 dark:text-gray-200 mb-4">Cơ cấu doanh thu Tháng {currentMonth}/2025</h3>
+                <div className="bg-white p-6 rounded-xl shadow-sm">
+                    <h3 className="font-bold text-lg text-gray-800 mb-4">Cơ cấu doanh thu Tháng {currentMonth}/2025</h3>
                     <ResponsiveContainer width="100%" height={300}>
                          {pieChartData.length > 0 ? (
                             <PieChart margin={{ top: 20, right: 30, bottom: 20, left: 30 }}>
@@ -314,7 +314,7 @@ const OverviewPage: React.FC<OverviewPageProps> = ({ allUnits, allVehicles, allW
                          ) : (
                              <div className="relative w-full h-full">
                                  <div className="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 flex flex-col items-center text-gray-500">
-                                     <PieChartIcon className="w-20 h-20 text-gray-300 dark:text-gray-600 opacity-50"/>
+                                     <PieChartIcon className="w-20 h-20 text-gray-300 opacity-50"/>
                                      <p className="mt-3 text-sm italic whitespace-nowrap">Chưa có dữ liệu cho kỳ này</p>
                                  </div>
                              </div>
@@ -324,20 +324,20 @@ const OverviewPage: React.FC<OverviewPageProps> = ({ allUnits, allVehicles, allW
             </div>
             
             <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-                <div className="bg-white dark:bg-dark-bg-secondary p-6 rounded-xl shadow-sm">
-                    <h3 className="font-bold text-lg text-gray-800 dark:text-gray-200 mb-4 flex items-center">
+                <div className="bg-white p-6 rounded-xl shadow-sm">
+                    <h3 className="font-bold text-lg text-gray-800 mb-4 flex items-center">
                         <PieChartIcon className="w-6 h-6 mr-3 text-primary" />
                         Hoạt động gần đây
                     </h3>
                     <ul className="space-y-4">
                         {activityLogs.slice(0, 5).map(log => (
                             <li key={log.id} className="flex items-start space-x-3">
-                                <div className="bg-gray-100 dark:bg-gray-700 rounded-full p-2 mt-1">
+                                <div className="bg-gray-100 rounded-full p-2 mt-1">
                                     <CheckCircleIcon className="w-4 h-4 text-gray-500" />
                                 </div>
                                 <div>
-                                    <p className="text-sm text-gray-800 dark:text-gray-200">{log.summary}</p>
-                                    <p className="text-xs text-gray-500 dark:text-gray-400">
+                                    <p className="text-sm text-gray-800">{log.summary}</p>
+                                    <p className="text-xs text-gray-500">
                                         bởi {log.actor_email.split('@')[0]} - {timeAgo(log.ts)}
                                     </p>
                                 </div>
@@ -346,26 +346,26 @@ const OverviewPage: React.FC<OverviewPageProps> = ({ allUnits, allVehicles, allW
                         {activityLogs.length === 0 && <p className="text-sm text-gray-500">Chưa có hoạt động nào.</p>}
                     </ul>
                 </div>
-                <div className="bg-white dark:bg-dark-bg-secondary p-6 rounded-xl shadow-sm">
-                    <h3 className="font-bold text-lg text-gray-800 dark:text-gray-200 mb-4 flex items-center">
+                <div className="bg-white p-6 rounded-xl shadow-sm">
+                    <h3 className="font-bold text-lg text-gray-800 mb-4 flex items-center">
                         <WarningIcon className="w-6 h-6 mr-3 text-orange-500" />
                         Cảnh báo & Nhắc việc
                     </h3>
                      <div className="space-y-4">
                         {currentMonthAlerts.unpaidCount > 0 && (
                             <div>
-                                <h4 className="text-sm font-semibold text-red-600 dark:text-red-400">Phí chưa thanh toán (Tháng {currentMonth})</h4>
-                                <p className="mt-2 text-sm text-gray-600 dark:text-gray-400">
-                                    Có <strong className="text-gray-900 dark:text-gray-100">{currentMonthAlerts.unpaidCount}</strong> hộ chưa hoàn thành thanh toán phí, với tổng số tiền là <strong className="text-gray-900 dark:text-gray-100">{formatFullCurrency(currentMonthAlerts.unpaidTotal)}</strong>.
+                                <h4 className="text-sm font-semibold text-red-600">Phí chưa thanh toán (Tháng {currentMonth})</h4>
+                                <p className="mt-2 text-sm text-gray-600">
+                                    Có <strong className="text-gray-900">{currentMonthAlerts.unpaidCount}</strong> hộ chưa hoàn thành thanh toán phí, với tổng số tiền là <strong className="text-gray-900">{formatFullCurrency(currentMonthAlerts.unpaidTotal)}</strong>.
                                 </p>
                             </div>
                         )}
 
                         {unrecordedWaterUnits.length > 0 && (
                             <div>
-                                <h4 className="text-sm font-semibold text-blue-600 dark:text-blue-400">Chưa chốt số nước kỳ T{new Date(getPreviousPeriod(new Date().toISOString().slice(0,7))).getMonth()+1}</h4>
-                                <p className="mt-2 text-sm text-gray-600 dark:text-gray-400">
-                                    Có <strong className="text-gray-900 dark:text-gray-100">{unrecordedWaterUnits.length}</strong> căn hộ chưa có số nước, cần cập nhật để tính phí. 
+                                <h4 className="text-sm font-semibold text-blue-600">Chưa chốt số nước kỳ T{new Date(getPreviousPeriod(new Date().toISOString().slice(0,7))).getMonth()+1}</h4>
+                                <p className="mt-2 text-sm text-gray-600">
+                                    Có <strong className="text-gray-900">{unrecordedWaterUnits.length}</strong> căn hộ chưa có số nước, cần cập nhật để tính phí. 
                                     <span className="text-xs italic"> (VD: {unrecordedWaterUnits.slice(0, 5).map(u => u.UnitID).join(', ')}, ...)</span>
                                 </p>
                             </div>
@@ -373,7 +373,7 @@ const OverviewPage: React.FC<OverviewPageProps> = ({ allUnits, allVehicles, allW
                         
                         {currentMonthAlerts.unpaidCount === 0 && unrecordedWaterUnits.length === 0 && (
                              chargesForCurrentPeriodExist ? (
-                                <div className="flex items-center gap-2 text-sm text-green-600 dark:text-green-400">
+                                <div className="flex items-center gap-2 text-sm text-green-600">
                                     <CheckCircleIcon className="w-5 h-5" />
                                     <span>Tất cả phí đã được xử lý và số nước đã được ghi đầy đủ.</span>
                                 </div>

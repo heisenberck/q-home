@@ -136,17 +136,17 @@ const NoticePreviewModal: React.FC<NoticePreviewModalProps> = ({ charge, onClose
     return (
         <Modal title={`Phiếu báo phí: ${charge.UnitID} - Kỳ ${charge.Period}`} onClose={onClose} size="4xl">
             <>
-                <div className="bg-gray-100 dark:bg-gray-800 -m-6 p-4">
+                <div className="bg-gray-100 -m-6 p-4">
                     <div dangerouslySetInnerHTML={{ __html: htmlContent }} />
                 </div>
-                <div className="flex justify-end gap-3 pt-4 mt-auto border-t dark:border-dark-border">
+                <div className="flex justify-end gap-3 pt-4 mt-auto border-t">
                     <button
                         onClick={() => onSendEmail(charge)}
                         className="flex items-center gap-2 px-4 py-2 bg-primary text-white font-semibold rounded-md shadow-sm hover:bg-primary-focus"
                     >
                         <PaperAirplaneIcon /> Gửi Email
                     </button>
-                     <button onClick={onClose} className="px-4 py-2 bg-gray-200 dark:bg-gray-600 text-gray-800 dark:text-gray-200 rounded-md hover:bg-gray-300 dark:hover:bg-gray-500">
+                     <button onClick={onClose} className="px-4 py-2 bg-gray-200 text-gray-800 rounded-md hover:bg-gray-300">
                         Đóng
                     </button>
                 </div>
