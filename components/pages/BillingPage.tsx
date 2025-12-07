@@ -10,6 +10,11 @@
 
 
 
+
+
+
+
+
 import React, { useState, useCallback, useMemo, useRef } from 'react';
 import type { ChargeRaw, Adjustment, AllData, Role, PaymentStatus, InvoiceSettings } from '../../types';
 import { UnitType } from '../../types';
@@ -829,7 +834,7 @@ const BillingPage: React.FC<BillingPageProps> = ({ charges, setCharges, allData,
                 let headerIndex = -1, colCredit = -1, colDesc = -1;
                 for (let i = 0; i < Math.min(20, json.length); i++) {
                     if (Array.isArray(json[i])) {
-                        // FIX: Cast json[i] from unknown[] to any[] to allow the use of array methods like .map().
+                        // FIX: Cast row to `any[]` to resolve strict typing issue with `map` on `unknown[]`.
                         const row: string[] = (json[i] as any[]).map(cell => String(cell ?? "").toLowerCase());
                         const cIdx = row.findIndex(cell => cell.includes('so tien ghi co') || cell.includes('credit amount'));
                         const dIdx = row.findIndex(cell => cell.includes('noi dung') || cell.includes('transaction detail') || cell.includes('description'));

@@ -282,7 +282,6 @@ const VehicleDashboard: React.FC<{ vehicles: EnhancedVehicle[], onSelectVehicle:
     useEffect(() => {
         if (isPaused) return;
         const timer = setInterval(() => {
-            // FIX: Explicitly type the `prev` parameter to ensure type safety in the state update.
             setActiveSlide((prev: number) => (prev + 1) % slides.length);
         }, 5000);
         return () => clearInterval(timer);
@@ -355,7 +354,7 @@ const VehicleDashboard: React.FC<{ vehicles: EnhancedVehicle[], onSelectVehicle:
 };
 
 // --- Vehicle Detail Panel (Right side, on select) ---
-const VehicleDetailPanel: React.FC<{ vehicle: EnhancedVehicle, onEdit: (vehicle: any) => void, onDelete: () => void, onImageClick: (url: string) => void }> = ({ vehicle, onEdit, onDelete, onImageClick }) => {
+const VehicleDetailPanel: React.FC<{ vehicle: EnhancedVehicle, onEdit: (vehicle: any) => void, onDelete: () => void }> = ({ vehicle, onEdit, onDelete }) => {
     return (
         <div className="p-6 h-full space-y-6">
             <header className="flex flex-col items-center text-center">
@@ -384,8 +383,8 @@ const VehicleDetailPanel: React.FC<{ vehicle: EnhancedVehicle, onEdit: (vehicle:
             <div className="border-t dark:border-dark-border pt-4">
                 <h3 className="text-sm font-semibold uppercase text-gray-500 mb-3">Hình ảnh</h3>
                 <div className="grid grid-cols-2 gap-4">
-                    {vehicle.documents?.vehiclePhoto ? <img src={vehicle.documents.vehiclePhoto.url} className="w-full h-24 object-cover rounded-md border cursor-pointer hover:opacity-90 transition-opacity" alt="Ảnh xe" onClick={() => onImageClick(vehicle.documents!.vehiclePhoto!.url)} /> : <div className="w-full h-24 bg-gray-100 rounded-md flex items-center justify-center text-xs text-gray-400">Ảnh xe</div>}
-                    {vehicle.documents?.registration ? <img src={vehicle.documents.registration.url} className="w-full h-24 object-cover rounded-md border cursor-pointer hover:opacity-90 transition-opacity" alt="Ảnh đăng ký" onClick={() => onImageClick(vehicle.documents!.registration!.url)} /> : <div className="w-full h-24 bg-gray-100 rounded-md flex items-center justify-center text-xs text-gray-400">Ảnh đăng ký</div>}
+                    {vehicle.documents?.vehiclePhoto ? <img src={vehicle.documents.vehiclePhoto.url} className="w-full h-24 object-cover rounded-md border" alt="Ảnh xe"/> : <div className="w-full h-24 bg-gray-100 rounded-md flex items-center justify-center text-xs text-gray-400">Ảnh xe</div>}
+                    {vehicle.documents?.registration ? <img src={vehicle.documents.registration.url} className="w-full h-24 object-cover rounded-md border" alt="Ảnh đăng ký"/> : <div className="w-full h-24 bg-gray-100 rounded-md flex items-center justify-center text-xs text-gray-400">Ảnh đăng ký</div>}
                 </div>
             </div>
 
@@ -427,29 +426,6 @@ const ParkingStatusBadge: React.FC<{ status: Vehicle['parkingStatus'], queueNumb
     );
 };
 
-// --- NEW: Image Preview Modal ---
-const ImagePreviewModal: React.FC<{ imageUrl: string; onClose: () => void; }> = ({ imageUrl, onClose }) => {
-    return (
-        <div className="fixed inset-0 bg-black/80 flex items-center justify-center z-50 p-4" onClick={onClose}>
-            <div className="relative">
-                <img 
-                    src={imageUrl} 
-                    alt="Preview" 
-                    className="max-h-[90vh] max-w-[90vw] object-contain rounded-lg shadow-2xl"
-                    onClick={(e) => e.stopPropagation()} // Prevent image click from closing modal
-                />
-                <button 
-                    onClick={onClose} 
-                    className="absolute -top-3 -right-3 bg-white text-black rounded-full h-8 w-8 flex items-center justify-center text-xl font-bold shadow-lg hover:bg-gray-200"
-                    aria-label="Close image preview"
-                >
-                    &times;
-                </button>
-            </div>
-        </div>
-    );
-};
-
 // --- Vehicle Management Page ---
 interface VehiclesPageProps {
     vehicles: Vehicle[];
@@ -468,8 +444,6 @@ const VehiclesPage: React.FC<VehiclesPageProps> = ({ vehicles, units, owners, on
     const [parkingStatusFilter, setParkingStatusFilter] = useState('all');
     const [editingVehicle, setEditingVehicle] = useState<Vehicle | null>(null);
     const [selectedVehicle, setSelectedVehicle] = useState<EnhancedVehicle | null>(null);
-    const [previewImageUrl, setPreviewImageUrl] = useState<string | null>(null);
-
 
     const ownersMap = useMemo(() => new Map(owners.map(o => [o.OwnerID, o])), [owners]);
     const unitsMap = useMemo(() => new Map(units.map(u => [u.UnitID, u])), [units]);
@@ -627,7 +601,6 @@ const VehiclesPage: React.FC<VehiclesPageProps> = ({ vehicles, units, owners, on
     return (
         <div className="flex gap-6 h-full overflow-hidden">
             {editingVehicle && <VehicleEditModal vehicle={editingVehicle} onSave={handleSave} onClose={() => setEditingVehicle(null)} />}
-            {previewImageUrl && <ImagePreviewModal imageUrl={previewImageUrl} onClose={() => setPreviewImageUrl(null)} />}
             
             {/* Left Column */}
             <div className="w-2/3 flex flex-col gap-4 min-w-0">
@@ -707,7 +680,6 @@ const VehiclesPage: React.FC<VehiclesPageProps> = ({ vehicles, units, owners, on
                         vehicle={selectedVehicle}
                         onEdit={handleEdit}
                         onDelete={() => handleDelete(selectedVehicle)}
-                        onImageClick={setPreviewImageUrl}
                     />
                 ) : (
                     <VehicleDashboard vehicles={enhancedVehicles} onSelectVehicle={setSelectedVehicle} />

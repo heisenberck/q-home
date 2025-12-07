@@ -15,7 +15,6 @@ import {
 } from '../ui/Icons';
 import { normalizePhoneNumber, formatLicensePlate, vehicleTypeLabels, translateVehicleType, sortUnitsComparator, compressImageToWebP, parseUnitCode, getPastelColorForName, timeAgo } from '../../utils/helpers';
 import { mapExcelHeaders } from '../../utils/importHelpers';
-// FIX: Add missing import for loadScript utility
 import { loadScript } from '../../utils/scriptLoader';
 
 // Declare external libraries
@@ -25,7 +24,6 @@ declare const XLSX: any; // SheetJS
 
 
 const StatusBadge: React.FC<{ status: 'Owner' | 'Rent' | 'Business' | string }> = ({ status }) => {
-    // FIX: Change icon type from React.ReactNode to React.ReactElement to allow cloning with new props.
     const styles: Record<string, { icon: React.ReactElement; text: string; classes: string }> = {
         Owner: { icon: <UserIcon />, text: 'Chính chủ', classes: 'bg-green-100 text-green-800 dark:bg-green-900/50 dark:text-green-300' },
         Rent: { icon: <KeyIcon />, text: 'Hộ thuê', classes: 'bg-blue-100 text-blue-800 dark:bg-blue-900/50 dark:text-blue-300' },
@@ -1228,14 +1226,13 @@ const ResidentDashboard: React.FC<{ units: Unit[], owners: Owner[], vehicles: Ve
     useEffect(() => {
         if (!isStatsExpanded) return;
         const timer = setInterval(() => {
-            // FIX: Explicitly type the 'prev' parameter to ensure type safety in the state update.
             setActiveSlide((prev: number) => (prev + 1) % slides.length);
         }, 5000);
         return () => clearInterval(timer);
     }, [slides.length, isStatsExpanded]);
 
-    const goToNext = () => setActiveSlide((prev: number) => (prev + 1) % slides.length);
-    const goToPrev = () => setActiveSlide((prev: number) => (prev - 1 + slides.length) % slides.length);
+    const goToNext = () => setActiveSlide(prev => ((prev || 0) + 1) % slides.length);
+    const goToPrev = () => setActiveSlide(prev => ((prev || 0) - 1 + slides.length) % slides.length);
 
     const currentSlideData = slides[activeSlide];
     

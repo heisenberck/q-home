@@ -2,6 +2,7 @@
 import { doc, getDoc, setDoc, collection, getDocs, writeBatch, query, deleteDoc } from 'firebase/firestore';
 import { db } from '../firebaseConfig';
 import type { InvoiceSettings, Unit, Owner, Vehicle, WaterReading, ChargeRaw, Adjustment, UserPermission, ActivityLog, AllData } from '../types';
+import { VehicleTier } from '../types';
 import { MOCK_TARIFFS_SERVICE, MOCK_TARIFFS_PARKING, MOCK_TARIFFS_WATER, MOCK_USER_PERMISSIONS } from '../constants';
 
 type AppDataForService = {
@@ -100,17 +101,33 @@ export const updateResidentData = async (
     batch.set(doc(db, 'owners', data.owner.OwnerID), data.owner);
 
     const activeIds = new Set<string>();
+
+    let maxIndex = currentVehicles
+        .filter(v => v.UnitID === data.unit.UnitID && v.PlateNumber.startsWith(`${data.unit.UnitID}-XD`))
+        .reduce((max, veh) => {
+            const match = veh.PlateNumber.match(/-XD(\d+)$/);
+            return match ? Math.max(max, parseInt(match[1], 10)) : max;
+        }, 0);
+
     data.vehicles.forEach(v => {
         let id = v.VehicleId;
+        let vehicleToSave = { ...v };
+
+        if (vehicleToSave.Type === VehicleTier.BICYCLE && id.startsWith('VEH_NEW_') && !vehicleToSave.PlateNumber) {
+            maxIndex++;
+            vehicleToSave.PlateNumber = `${data.unit.UnitID}-XD${maxIndex}`;
+        }
+
         if (id.startsWith('VEH_NEW_')) {
             const newRef = doc(collection(db, 'vehicles'));
             id = newRef.id;
-            batch.set(newRef, { ...v, VehicleId: id, updatedAt: new Date().toISOString() });
+            batch.set(newRef, { ...vehicleToSave, VehicleId: id, updatedAt: new Date().toISOString() });
         } else {
-            batch.set(doc(db, 'vehicles', id), { ...v, updatedAt: new Date().toISOString() });
+            batch.set(doc(db, 'vehicles', id), { ...vehicleToSave, updatedAt: new Date().toISOString() });
         }
         activeIds.add(id);
     });
+
     currentVehicles.filter(v => v.UnitID === data.unit.UnitID && !activeIds.has(v.VehicleId)).forEach(v => {
         batch.update(doc(db, 'vehicles', v.VehicleId), { isActive: false, updatedAt: new Date().toISOString() });
     });
@@ -152,6 +169,7 @@ export const importResidentsBatch = async (
 ) => {
     const batch = writeBatch(db);
     let created = 0, updated = 0, vehicleCount = 0;
+    const newBicycleCounters: { [unitId: string]: number } = {};
 
     const unitIdsToUpdate = new Set(updates.map(up => up.unitId));
     currentVehicles.forEach(v => {
@@ -177,13 +195,29 @@ export const importResidentsBatch = async (
         
         if (up.vehicles && Array.isArray(up.vehicles)) {
             up.vehicles.forEach((v: any) => {
+                let plateNumber = v.PlateNumber;
+                if (v.Type === VehicleTier.BICYCLE && !plateNumber) {
+                    if (newBicycleCounters[unitId] === undefined) {
+                        const existingBicycles = currentVehicles.filter(
+                            (veh) => veh.UnitID === unitId && veh.PlateNumber.startsWith(`${unitId}-XD`)
+                        );
+                        const maxIndex = existingBicycles.reduce((max, veh) => {
+                            const match = veh.PlateNumber.match(/-XD(\d+)$/);
+                            return match ? Math.max(max, parseInt(match[1], 10)) : max;
+                        }, 0);
+                        newBicycleCounters[unitId] = maxIndex;
+                    }
+                    newBicycleCounters[unitId]++;
+                    plateNumber = `${unitId}-XD${newBicycleCounters[unitId]}`;
+                }
+                
                 const newVehicleRef = doc(collection(db, "vehicles"));
                 batch.set(newVehicleRef, {
                     VehicleId: newVehicleRef.id,
                     UnitID: unitId,
                     Type: v.Type,
                     VehicleName: v.VehicleName || '',
-                    PlateNumber: v.PlateNumber,
+                    PlateNumber: plateNumber,
                     StartDate: new Date().toISOString().split('T')[0],
                     isActive: true,
                     parkingStatus: up.parkingStatus || null,
