@@ -169,39 +169,18 @@ export const importResidentsBatch = async (
 ) => {
     const batch = writeBatch(db);
     let created = 0, updated = 0, vehicleCount = 0;
-    
-    // Tracks the NEXT available index for each unit and type within this batch
-    const plateCounters = new Map<string, { xd: number, eb: number }>();
 
-    const unitIdsToUpdate = new Set(updates.map(up => String(up.unitId).trim()));
-
-    // Deactivate all existing vehicles for the units being updated
+    const unitIdsToUpdate = new Set(updates.map(up => up.unitId));
     currentVehicles.forEach(v => {
         if (unitIdsToUpdate.has(v.UnitID)) {
             batch.update(doc(db, "vehicles", v.VehicleId), { isActive: false, log: `Deactivated on import ${new Date().toISOString()}` });
         }
     });
 
-    // Pre-calculate the starting sequence index for all units in the batch
-    unitIdsToUpdate.forEach(unitId => {
-        const existingBicycles = currentVehicles.filter(v => v.UnitID === unitId && v.PlateNumber.startsWith(`${unitId}-XD`));
-        const maxXd = existingBicycles.reduce((max, v) => {
-            const match = v.PlateNumber.match(/-XD(\d+)$/);
-            return match ? Math.max(max, parseInt(match[1], 10)) : max;
-        }, 0);
+    const maxIndicesByUnit = new Map<string, { xd: number, eb: number }>();
 
-        const existingEBikes = currentVehicles.filter(v => v.UnitID === unitId && v.PlateNumber.startsWith(`${unitId}-EB`));
-        const maxEb = existingEBikes.reduce((max, v) => {
-            const match = v.PlateNumber.match(/-EB(\d+)$/);
-            return match ? Math.max(max, parseInt(match[1], 10)) : max;
-        }, 0);
-
-        plateCounters.set(unitId, { xd: maxXd, eb: maxEb });
-    });
-
-    // Process updates
-    updates.forEach(up => {
-        const unitId = String(up.unitId).trim();
+    for (const up of updates) {
+        const unitId = up.unitId;
         const existingUnit = currentUnits.find(u => u.UnitID === unitId);
 
         if (existingUnit) {
@@ -216,58 +195,72 @@ export const importResidentsBatch = async (
         }
         
         if (up.vehicles && Array.isArray(up.vehicles)) {
+            if (!maxIndicesByUnit.has(unitId)) {
+                const xd = currentVehicles
+                    .filter(v => v.UnitID === unitId && v.PlateNumber.startsWith(`${unitId}-XD`))
+                    .reduce((max, veh) => {
+                        const match = veh.PlateNumber.match(/-XD(\d+)$/);
+                        return match ? Math.max(max, parseInt(match[1], 10)) : max;
+                    }, 0);
+                const eb = currentVehicles
+                    .filter(v => v.UnitID === unitId && v.PlateNumber.startsWith(`${unitId}-EB`))
+                    .reduce((max, veh) => {
+                        const match = veh.PlateNumber.match(/-EB(\d+)$/);
+                        return match ? Math.max(max, parseInt(match[1], 10)) : max;
+                    }, 0);
+                maxIndicesByUnit.set(unitId, { xd, eb });
+            }
+            
+            const currentMaxIndices = maxIndicesByUnit.get(unitId)!;
+            
             up.vehicles.forEach((v: any) => {
-                const plate = String(v.PlateNumber || '').trim();
                 const isBicycle = v.Type === VehicleTier.BICYCLE;
-                const isEBike = v.Type === VehicleTier.EBIKE;
+                const isEbike = v.Type === VehicleTier.EBIKE;
 
-                // Check if plate is a plain number string, representing quantity
-                const isNumericQuantity = /^\d+$/.test(plate);
-                const quantity = isNumericQuantity ? parseInt(plate, 10) : 0;
+                if (!isBicycle && !isEbike) {
+                    const newVehicleRef = doc(collection(db, "vehicles"));
+                    batch.set(newVehicleRef, {
+                        VehicleId: newVehicleRef.id, UnitID: unitId, Type: v.Type, VehicleName: v.VehicleName || '',
+                        PlateNumber: v.PlateNumber, StartDate: new Date().toISOString().split('T')[0], isActive: true, parkingStatus: up.parkingStatus || null,
+                    });
+                    vehicleCount++;
+                    return;
+                }
 
-                if ((isBicycle || isEBike) && (quantity > 0 || plate === '')) {
-                    const count = plate === '' ? 1 : quantity;
-                    const counters = plateCounters.get(unitId)!;
-                    const prefix = isBicycle ? 'XD' : 'EB';
-                    const typeKey = isBicycle ? 'xd' : 'eb';
-                    const type = isBicycle ? VehicleTier.BICYCLE : VehicleTier.EBIKE;
+                const plateValue = String(v.PlateNumber).trim();
+                const isPlateNumeric = !isNaN(parseInt(plateValue, 10)) && String(parseInt(plateValue, 10)) === plateValue;
+                const quantity = (plateValue && isPlateNumeric) ? parseInt(plateValue, 10) : 1;
+                const useSpecificPlate = !isPlateNumeric && plateValue;
 
-                    for (let i = 0; i < count; i++) {
-                        counters[typeKey]++;
-                        const newPlate = `${unitId}-${prefix}${counters[typeKey]}`;
-                        
+                if (useSpecificPlate) {
+                     const newVehicleRef = doc(collection(db, "vehicles"));
+                     batch.set(newVehicleRef, {
+                        VehicleId: newVehicleRef.id, UnitID: unitId, Type: v.Type, VehicleName: v.VehicleName || (isBicycle ? 'Xe đạp' : 'Xe điện'),
+                        PlateNumber: plateValue, StartDate: new Date().toISOString().split('T')[0], isActive: true, parkingStatus: up.parkingStatus || null,
+                    });
+                    vehicleCount++;
+                } else {
+                     for (let i = 0; i < quantity; i++) {
                         const newVehicleRef = doc(collection(db, "vehicles"));
+                        let newPlate = '';
+                        if (isBicycle) {
+                            currentMaxIndices.xd++;
+                            newPlate = `${unitId}-XD${currentMaxIndices.xd}`;
+                        } else { // isEbike
+                            currentMaxIndices.eb++;
+                            newPlate = `${unitId}-EB${currentMaxIndices.eb}`;
+                        }
+                        
                         batch.set(newVehicleRef, {
-                            VehicleId: newVehicleRef.id,
-                            UnitID: unitId,
-                            Type: type,
-                            VehicleName: v.VehicleName || (isBicycle ? 'Xe đạp' : 'Xe điện'),
-                            PlateNumber: newPlate,
-                            StartDate: new Date().toISOString().split('T')[0],
-                            isActive: true,
-                            parkingStatus: up.parkingStatus || null,
+                            VehicleId: newVehicleRef.id, UnitID: unitId, Type: v.Type, VehicleName: v.VehicleName || (isBicycle ? 'Xe đạp' : 'Xe điện'),
+                            PlateNumber: newPlate, StartDate: new Date().toISOString().split('T')[0], isActive: true, parkingStatus: up.parkingStatus || null,
                         });
                         vehicleCount++;
                     }
-                    plateCounters.set(unitId, counters); // Update map with new counters
-                } else {
-                    // This is a vehicle with a specific plate number
-                    const newVehicleRef = doc(collection(db, "vehicles"));
-                    batch.set(newVehicleRef, {
-                        VehicleId: newVehicleRef.id,
-                        UnitID: unitId,
-                        Type: v.Type,
-                        VehicleName: v.VehicleName || '',
-                        PlateNumber: plate,
-                        StartDate: new Date().toISOString().split('T')[0],
-                        isActive: true,
-                        parkingStatus: up.parkingStatus || null,
-                    });
-                    vehicleCount++;
                 }
             });
         }
-    });
+    }
 
     await batch.commit();
     const { units, owners, vehicles } = await loadAllData();
