@@ -370,7 +370,7 @@ const WaterPage: React.FC<WaterPageProps> = ({ waterReadings, setWaterReadings, 
 
     const floors = useMemo(() => {
         const floorNumbers = Array.from(new Set(allUnits.filter(u => u.UnitType === UnitType.APARTMENT).map(u => u.UnitID.slice(0, -2)))).sort((a, b) => parseInt(String(a), 10) - parseInt(String(b), 10));
-        return [{ value: 'all', label: 'Tất cả các tầng' }, ...floorNumbers.map(f => ({ value: f, label: `Tầng ${f}` })), { value: 'KIOS', label: 'Kios' }];
+        return [{ value: 'all', label: 'Floor' }, ...floorNumbers.map(f => ({ value: f, label: `Tầng ${f}` })), { value: 'KIOS', label: 'Kios' }];
     }, [allUnits]);
 
     const handleSave = (unitId: string, newIndexStr: string) => {
@@ -565,11 +565,11 @@ const WaterPage: React.FC<WaterPageProps> = ({ waterReadings, setWaterReadings, 
                          <div className="flex items-center gap-2">
                             {isLocked ? (
                                 <button onDoubleClick={handleUnlock} disabled={!canEdit || isLocking} data-tooltip="Đã chốt, bấm đúp để mở" className="h-10 px-4 font-semibold rounded-lg flex items-center gap-2 bg-gray-600 text-white disabled:opacity-50">
-                                    <LockClosedIcon /> Đã Chốt
+                                    <LockClosedIcon /> Saved
                                 </button>
                             ) : (
                                 <button onClick={handleLock} disabled={!canEdit || isLocking} className="h-10 px-4 font-semibold rounded-lg flex items-center gap-2 bg-green-600 text-white hover:bg-green-700 disabled:opacity-50">
-                                    <SaveIcon /> Lưu & Chốt
+                                    <SaveIcon /> Save
                                 </button>
                             )}
                             <button onClick={() => setIsImportModalOpen(true)} disabled={!canEdit || isLocked} className="h-10 px-4 font-semibold rounded-lg flex items-center gap-2 border border-primary text-primary hover:bg-primary/10 bg-white dark:bg-transparent disabled:opacity-50"><UploadIcon /> Import</button>

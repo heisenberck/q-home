@@ -1,5 +1,6 @@
+
 // services/mockAPI.ts
-import type { InvoiceSettings, Unit, Owner, Vehicle, WaterReading, ChargeRaw, Adjustment, UserPermission, ActivityLog, AllData, TariffCollection } from '../types';
+import type { InvoiceSettings, Unit, Owner, Vehicle, WaterReading, ChargeRaw, Adjustment, UserPermission, ActivityLog, AllData, TariffCollection, PaymentStatus } from '../types';
 import { MOCK_UNITS, MOCK_OWNERS, MOCK_VEHICLES, MOCK_WATER_READINGS, MOCK_TARIFFS_SERVICE, MOCK_TARIFFS_PARKING, MOCK_TARIFFS_WATER, MOCK_ADJUSTMENTS, MOCK_USER_PERMISSIONS, patchKiosAreas } from '../constants';
 import { UnitType, VehicleTier } from '../types';
 
@@ -63,8 +64,8 @@ export const updateChargePayments = async (period: string, paymentUpdates: Map<s
     return Promise.resolve();
 };
 
-export const confirmSinglePayment = async (charge: ChargeRaw, finalPaidAmount: number) => {
-    charges = charges.map(c => c.Period === charge.Period && c.UnitID === charge.UnitID ? { ...c, TotalPaid: finalPaidAmount, paymentStatus: 'paid', PaymentConfirmed: true } : c);
+export const confirmSinglePayment = async (charge: ChargeRaw, finalPaidAmount: number, status: PaymentStatus = 'paid') => {
+    charges = charges.map(c => c.Period === charge.Period && c.UnitID === charge.UnitID ? { ...c, TotalPaid: finalPaidAmount, paymentStatus: status, PaymentConfirmed: true } : c);
     return Promise.resolve();
 };
 
@@ -165,92 +166,96 @@ export const importResidentsBatch = async (
     currentUnits: Unit[], currentOwners: Owner[], currentVehicles: Vehicle[], updates: any[]
 ) => {
     let createdCount = 0, updatedCount = 0, vehicleCount = 0;
-    const unitIdsToUpdate = new Set(updates.map(up => up.unitId));
+    const unitIdsToUpdate = new Set(updates.map(up => String(up.unitId).trim()));
+    const plateCounters = new Map<string, { xd: number, eb: number }>();
 
+    // Deactivate existing vehicles
     vehicles = vehicles.map(v => {
         if (unitIdsToUpdate.has(v.UnitID)) {
-            return { ...v, isActive: false };
+            return { ...v, isActive: false, log: `Deactivated on import ${new Date().toISOString()}` };
         }
         return v;
     });
 
-    const maxIndicesByUnit = new Map<string, { xd: number, eb: number }>();
+    // Pre-calculate starting sequence indexes
+    unitIdsToUpdate.forEach(unitId => {
+        const existingBicycles = currentVehicles.filter(v => v.UnitID === unitId && v.PlateNumber.startsWith(`${unitId}-XD`));
+        const maxXd = existingBicycles.reduce((max, v) => {
+            const match = v.PlateNumber.match(/-XD(\d+)$/);
+            return match ? Math.max(max, parseInt(match[1], 10)) : max;
+        }, 0);
 
+        const existingEBikes = currentVehicles.filter(v => v.UnitID === unitId && v.PlateNumber.startsWith(`${unitId}-EB`));
+        const maxEb = existingEBikes.reduce((max, v) => {
+            const match = v.PlateNumber.match(/-EB(\d+)$/);
+            return match ? Math.max(max, parseInt(match[1], 10)) : max;
+        }, 0);
+
+        plateCounters.set(unitId, { xd: maxXd, eb: maxEb });
+    });
+
+    // Process updates
     updates.forEach(update => {
         const unitId = String(update.unitId).trim();
         let unit = units.find(u => u.UnitID === unitId);
 
         if (unit) {
             units = units.map(u => u.UnitID === unitId ? { ...u, Status: update.status, Area_m2: update.area, UnitType: update.unitType } : u);
-            owners = owners.map(o => o.OwnerID === unit!.OwnerID ? { ...o, OwnerName: update.ownerName, Phone: update.phone, Email: update.email, updatedAt: new Date().toISOString() } : o);
+            owners = owners.map(o => o.OwnerID === unit!.OwnerID ? { ...o, OwnerName: update.ownerName, Phone: update.phone, Email: update.email } : o);
             updatedCount++;
         } else {
             const newOwnerId = `OWN_MOCK_${Date.now()}_${Math.random()}`;
-            owners.push({ OwnerID: newOwnerId, OwnerName: update.ownerName, Phone: update.phone, Email: update.email, updatedAt: new Date().toISOString() });
+            owners.push({ OwnerID: newOwnerId, OwnerName: update.ownerName, Phone: update.phone, Email: update.email });
             units.push({ UnitID: unitId, OwnerID: newOwnerId, UnitType: update.unitType, Area_m2: update.area, Status: update.status });
             createdCount++;
         }
         
         if (update.vehicles && Array.isArray(update.vehicles)) {
-             if (!maxIndicesByUnit.has(unitId)) {
-                const xd = currentVehicles
-                    .filter(v => v.UnitID === unitId && v.PlateNumber.startsWith(`${unitId}-XD`))
-                    .reduce((max, veh) => {
-                        const match = veh.PlateNumber.match(/-XD(\d+)$/);
-                        return match ? Math.max(max, parseInt(match[1], 10)) : max;
-                    }, 0);
-                const eb = currentVehicles
-                    .filter(v => v.UnitID === unitId && v.PlateNumber.startsWith(`${unitId}-EB`))
-                    .reduce((max, veh) => {
-                        const match = veh.PlateNumber.match(/-EB(\d+)$/);
-                        return match ? Math.max(max, parseInt(match[1], 10)) : max;
-                    }, 0);
-                maxIndicesByUnit.set(unitId, { xd, eb });
-            }
-            
-            const currentMaxIndices = maxIndicesByUnit.get(unitId)!;
-
             update.vehicles.forEach((v: any) => {
+                const plate = String(v.PlateNumber || '').trim();
                 const isBicycle = v.Type === VehicleTier.BICYCLE;
-                const isEbike = v.Type === VehicleTier.EBIKE;
+                const isEBike = v.Type === VehicleTier.EBIKE;
+                const isNumericQuantity = /^\d+$/.test(plate);
+                const quantity = isNumericQuantity ? parseInt(plate, 10) : 0;
 
-                if (!isBicycle && !isEbike) {
-                    vehicles.push({
-                        VehicleId: `VEH_MOCK_${Date.now()}_${Math.random()}`, UnitID: unitId, Type: v.Type, VehicleName: v.VehicleName || '',
-                        PlateNumber: v.PlateNumber, StartDate: new Date().toISOString().split('T')[0], isActive: true, parkingStatus: update.parkingStatus || null,
-                    });
-                    vehicleCount++;
-                    return;
-                }
+                if ((isBicycle || isEBike) && (quantity > 0 || plate === '')) {
+                    const count = plate === '' ? 1 : quantity;
+                    const counters = plateCounters.get(unitId)!;
+                    const prefix = isBicycle ? 'XD' : 'EB';
+                    const typeKey = isBicycle ? 'xd' : 'eb';
+                    const type = isBicycle ? VehicleTier.BICYCLE : VehicleTier.EBIKE;
 
-                const plateValue = String(v.PlateNumber).trim();
-                const isPlateNumeric = !isNaN(parseInt(plateValue, 10)) && String(parseInt(plateValue, 10)) === plateValue;
-                const quantity = (plateValue && isPlateNumeric) ? parseInt(plateValue, 10) : 1;
-                const useSpecificPlate = !isPlateNumeric && plateValue;
-
-                if (useSpecificPlate) {
-                    vehicles.push({
-                        VehicleId: `VEH_MOCK_${Date.now()}_${Math.random()}`, UnitID: unitId, Type: v.Type, VehicleName: v.VehicleName || (isBicycle ? 'Xe đạp' : 'Xe điện'),
-                        PlateNumber: plateValue, StartDate: new Date().toISOString().split('T')[0], isActive: true, parkingStatus: update.parkingStatus || null,
-                    });
-                    vehicleCount++;
-                } else {
-                    for (let i = 0; i < quantity; i++) {
-                        let newPlate = '';
-                        if (isBicycle) {
-                            currentMaxIndices.xd++;
-                            newPlate = `${unitId}-XD${currentMaxIndices.xd}`;
-                        } else { // isEbike
-                            currentMaxIndices.eb++;
-                            newPlate = `${unitId}-EB${currentMaxIndices.eb}`;
-                        }
+                    for (let i = 0; i < count; i++) {
+                        counters[typeKey]++;
+                        const newPlate = `${unitId}-${prefix}${counters[typeKey]}`;
                         
-                        vehicles.push({
-                            VehicleId: `VEH_MOCK_${Date.now()}_${Math.random()}`, UnitID: unitId, Type: v.Type, VehicleName: v.VehicleName || (isBicycle ? 'Xe đạp' : 'Xe điện'),
-                            PlateNumber: newPlate, StartDate: new Date().toISOString().split('T')[0], isActive: true, parkingStatus: update.parkingStatus || null,
-                        });
+                        const newVehicle: Vehicle = {
+                            VehicleId: `VEH_MOCK_${Date.now()}_${Math.random()}_${i}`,
+                            UnitID: unitId,
+                            Type: type,
+                            VehicleName: v.VehicleName || (isBicycle ? 'Xe đạp' : 'Xe điện'),
+                            PlateNumber: newPlate,
+                            StartDate: new Date().toISOString().split('T')[0],
+                            isActive: true,
+                            parkingStatus: update.parkingStatus || null,
+                        };
+                        vehicles.push(newVehicle);
                         vehicleCount++;
                     }
+                    plateCounters.set(unitId, counters);
+                } else {
+                    const newVehicle: Vehicle = {
+                        VehicleId: `VEH_MOCK_${Date.now()}_${Math.random()}`,
+                        UnitID: unitId,
+                        Type: v.Type,
+                        VehicleName: v.VehicleName || '',
+                        PlateNumber: plate,
+                        StartDate: new Date().toISOString().split('T')[0],
+                        isActive: true,
+                        parkingStatus: update.parkingStatus || null,
+                    };
+                    vehicles.push(newVehicle);
+                    vehicleCount++;
                 }
             });
         }

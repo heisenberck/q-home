@@ -1,20 +1,4 @@
 
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
 import React, { useState, useCallback, useMemo, useRef } from 'react';
 import type { ChargeRaw, Adjustment, AllData, Role, PaymentStatus, InvoiceSettings } from '../../types';
 import { UnitType } from '../../types';
@@ -31,12 +15,14 @@ import { calculateChargesBatch } from '../../services/feeService';
 import NoticePreviewModal from '../NoticePreviewModal';
 import StatCard from '../ui/StatCard';
 import Spinner from '../ui/Spinner';
+import Modal from '../ui/Modal';
 import { 
     SearchIcon, TagIcon, BuildingIcon, ChevronLeftIcon, 
     ChevronRightIcon, CheckCircleIcon, WarningIcon,
     CircularArrowRefreshIcon, ActionViewIcon, ActionPaidIcon,
     CalculatorIcon2, LockClosedIcon, ChevronDownIcon,
-    DocumentArrowDownIcon, TableCellsIcon, ArrowUpTrayIcon, RevenueIcon, PercentageIcon, PaperAirplaneIcon, ChevronUpIcon
+    DocumentArrowDownIcon, TableCellsIcon, ArrowUpTrayIcon, RevenueIcon, PercentageIcon, PaperAirplaneIcon, ChevronUpIcon,
+    MoneyBagIcon
 } from '../ui/Icons';
 import { loadScript } from '../../utils/scriptLoader';
 import { formatCurrency, parseUnitCode, generateEmailHtmlForCharge, renderInvoiceHTMLForPdf, formatNumber } from '../../utils/helpers';
@@ -190,6 +176,41 @@ const ExportProgressModal: React.FC<{
     );
 };
 
+const PaymentMethodModal: React.FC<{
+    onClose: () => void;
+    onConfirm: (method: 'paid_tm' | 'paid_ck') => void;
+    unitId: string;
+    amount: number;
+}> = ({ onClose, onConfirm, unitId, amount }) => {
+    return (
+        <Modal title="Xác nhận thanh toán" onClose={onClose} size="sm">
+            <div className="text-center mb-6">
+                <p className="text-gray-600 dark:text-gray-400 mb-1">Xác nhận đã thu tiền cho căn hộ <strong className="text-gray-900 dark:text-white">{unitId}</strong></p>
+                <p className="text-2xl font-bold text-primary">{formatCurrency(amount)}</p>
+            </div>
+            <div className="grid grid-cols-2 gap-4">
+                <button
+                    onClick={() => onConfirm('paid_tm')}
+                    className="flex flex-col items-center justify-center p-4 rounded-xl border-2 border-green-100 bg-green-50 hover:bg-green-100 hover:border-green-300 transition-all group"
+                >
+                    <MoneyBagIcon className="w-8 h-8 text-green-600 mb-2 group-hover:scale-110 transition-transform" />
+                    <span className="font-bold text-green-800">Tiền mặt</span>
+                </button>
+                <button
+                    onClick={() => onConfirm('paid_ck')}
+                    className="flex flex-col items-center justify-center p-4 rounded-xl border-2 border-blue-100 bg-blue-50 hover:bg-blue-100 hover:border-blue-300 transition-all group"
+                >
+                    <ArrowUpTrayIcon className="w-8 h-8 text-blue-600 mb-2 group-hover:scale-110 transition-transform" />
+                    <span className="font-bold text-blue-800">Chuyển khoản</span>
+                </button>
+            </div>
+            <div className="mt-6 text-center">
+                <button onClick={onClose} className="text-sm text-gray-500 hover:text-gray-800 underline">Huỷ bỏ</button>
+            </div>
+        </Modal>
+    );
+};
+
 const FilterPill: React.FC<{
   icon: React.ReactNode;
   options: { value: string; label: string }[];
@@ -278,6 +299,9 @@ const BillingPage: React.FC<BillingPageProps> = ({ charges, setCharges, allData,
     const fileInputRef = useRef<HTMLInputElement>(null);
     
     const [editedPayments, setEditedPayments] = useState<Record<string, number>>({});
+    
+    // Payment Confirmation Modal State
+    const [paymentConfirmationState, setPaymentConfirmationState] = useState<{ isOpen: boolean; charge: ChargeRaw | null }>({ isOpen: false, charge: null });
 
     const [isDataStale, setIsDataStale] = useState(false);
     const [dataSnapshot, setDataSnapshot] = useState('');
@@ -320,7 +344,7 @@ const BillingPage: React.FC<BillingPageProps> = ({ charges, setCharges, allData,
     
     const floors = useMemo(() => {
         const floorNumbers = Array.from(new Set(allData.units.filter(u=>u.UnitType === UnitType.APARTMENT).map(u => u.UnitID.slice(0,-2)))).sort((a,b) => parseInt(String(a), 10) - parseInt(String(b), 10));
-        return [{value: 'all', label: 'All Floors'}, ...floorNumbers.map(f => ({value: f, label: `Floor ${f}`})), {value: 'KIOS', label: 'KIOS'}];
+        return [{value: 'all', label: 'Floor'}, ...floorNumbers.map(f => ({value: f, label: `Floor ${f}`})), {value: 'KIOS', label: 'KIOS'}];
     }, [allData.units]);
 
     const [floorFilter, setFloorFilter] = useState('all');
@@ -335,7 +359,13 @@ const BillingPage: React.FC<BillingPageProps> = ({ charges, setCharges, allData,
         return charges.filter(c => {
             if (c.Period !== period) return false;
             
-            if (statusFilter !== 'all' && c.paymentStatus !== statusFilter) return false;
+            if (statusFilter !== 'all') {
+                if (statusFilter === 'paid') {
+                    if (c.paymentStatus !== 'paid' && c.paymentStatus !== 'paid_tm' && c.paymentStatus !== 'paid_ck') return false;
+                } else {
+                    if (c.paymentStatus !== statusFilter) return false;
+                }
+            }
             
             const unitInfo = parseUnitCode(c.UnitID);
             if (floorFilter !== 'all') {
@@ -344,7 +374,7 @@ const BillingPage: React.FC<BillingPageProps> = ({ charges, setCharges, allData,
             }
 
             if (specialFilter === 'has_difference' && (c.TotalDue - c.TotalPaid === 0)) return false;
-            if (specialFilter === 'not_paid' && c.paymentStatus === 'paid') return false;
+            if (specialFilter === 'not_paid' && (c.paymentStatus === 'paid' || c.paymentStatus === 'paid_tm' || c.paymentStatus === 'paid_ck')) return false;
 
             const s = searchTerm.toLowerCase();
             if (s && !(c.UnitID.toLowerCase().includes(s) || (c.OwnerName || '').toLowerCase().includes(s))) return false;
@@ -403,7 +433,7 @@ const BillingPage: React.FC<BillingPageProps> = ({ charges, setCharges, allData,
         try {
             const existingChargesForPeriod = charges.filter(c => c.Period === period);
             const unitsToSkip = isRecalculation
-                ? new Set(existingChargesForPeriod.filter(c => c.paymentStatus === 'paid' || c.paymentStatus === 'reconciling').map(c => c.UnitID))
+                ? new Set(existingChargesForPeriod.filter(c => c.paymentStatus === 'paid' || c.paymentStatus === 'reconciling' || c.paymentStatus === 'paid_tm' || c.paymentStatus === 'paid_ck').map(c => c.UnitID))
                 : new Set<string>();
             
             const unitsToCalculate = allData.units.filter(unit => !unitsToSkip.has(unit.UnitID));
@@ -564,8 +594,10 @@ const BillingPage: React.FC<BillingPageProps> = ({ charges, setCharges, allData,
             const diff = c.TotalDue - c.TotalPaid;
             let statusText = 'Pending';
             if (c.paymentStatus === 'paid') statusText = 'Paid';
-            if (c.paymentStatus === 'unpaid') statusText = 'Unpaid';
-            if (c.paymentStatus === 'reconciling') statusText = 'Reconciling';
+            else if (c.paymentStatus === 'paid_tm') statusText = 'Paid Cash';
+            else if (c.paymentStatus === 'paid_ck') statusText = 'Paid Transfer';
+            else if (c.paymentStatus === 'unpaid') statusText = 'Unpaid';
+            else if (c.paymentStatus === 'reconciling') statusText = 'Reconciling';
             
             const line = [`"${c.Period}"`, `"${c.UnitID}"`, `"${c.OwnerName}"`, c.Area_m2, c.ServiceFee_Total, c['#CAR'] + c['#CAR_A'], c['#MOTORBIKE'], c.ParkingFee_Total, c.Water_m3, c.WaterFee_Total, c.Adjustments, c.TotalDue, c.TotalPaid, diff, `"${statusText}"`];
             rows.push(line.join(','));
@@ -765,22 +797,22 @@ const BillingPage: React.FC<BillingPageProps> = ({ charges, setCharges, allData,
         setEditedPayments(prev => ({ ...prev, [unitId]: isNaN(amount) ? 0 : amount }));
     };
     
-    const handleConfirmPayment = async (charge: ChargeRaw) => {
+    // NEW: executePayment handles the actual state and DB updates
+    const executePayment = async (charge: ChargeRaw, status: 'paid_tm' | 'paid_ck') => {
         const finalPaidAmount = editedPayments[charge.UnitID] ?? charge.TotalPaid;
         
-        await confirmSinglePayment(charge, finalPaidAmount);
+        await confirmSinglePayment(charge, finalPaidAmount, status);
 
         // Update local state for charge
         const chargeUpdater = (prev: ChargeRaw[]) => prev.map(c =>
             (c.UnitID === charge.UnitID && c.Period === period)
-                ? { ...c, TotalPaid: finalPaidAmount, PaymentConfirmed: true, paymentStatus: 'paid' as PaymentStatus }
+                ? { ...c, TotalPaid: finalPaidAmount, PaymentConfirmed: true, paymentStatus: status as PaymentStatus }
                 : c
         );
         
-        // FIX: Add before_snapshot for undo functionality
         const logPayload: LogPayload = {
             module: 'Billing', action: 'CONFIRM_PAYMENT',
-            summary: `Xác nhận thanh toán ${formatNumber(finalPaidAmount)} cho ${charge.UnitID}`,
+            summary: `Xác nhận thanh toán ${formatNumber(finalPaidAmount)} (${status === 'paid_tm' ? 'Tiền mặt' : 'Chuyển khoản'}) cho ${charge.UnitID}`,
             count: 1, ids: [charge.UnitID],
             before_snapshot: charges
         };
@@ -794,7 +826,6 @@ const BillingPage: React.FC<BillingPageProps> = ({ charges, setCharges, allData,
             const nextPeriod = nextPeriodDate.toISOString().slice(0, 7);
             const newAdjustment: Adjustment = { UnitID: charge.UnitID, Period: nextPeriod, Amount: -difference, Description: `Công nợ kỳ trước`, SourcePeriod: period };
             
-            // FIX: Add before_snapshot for undo functionality
             onUpdateAdjustments(
                 prev => [...prev.filter(a => !(a.UnitID === newAdjustment.UnitID && a.SourcePeriod === newAdjustment.SourcePeriod)), newAdjustment], 
                 {
@@ -811,6 +842,25 @@ const BillingPage: React.FC<BillingPageProps> = ({ charges, setCharges, allData,
         }
         
         setEditedPayments(prev => { const next = { ...prev }; delete next[charge.UnitID]; return next; });
+    };
+
+    // NEW: Initiate the payment workflow
+    const handleInitiatePayment = (charge: ChargeRaw) => {
+        // Exception: If current status is 'reconciling', auto-confirm as Transfer (CK)
+        if (charge.paymentStatus === 'reconciling') {
+            executePayment(charge, 'paid_ck');
+        } else {
+            // Normal Case: Open modal to ask for Cash vs Transfer
+            setPaymentConfirmationState({ isOpen: true, charge });
+        }
+    };
+
+    // NEW: Confirm from Modal
+    const handleConfirmFromModal = (method: 'paid_tm' | 'paid_ck') => {
+        if (paymentConfirmationState.charge) {
+            executePayment(paymentConfirmationState.charge, method);
+            setPaymentConfirmationState({ isOpen: false, charge: null });
+        }
     };
     
     const handleStatementFileChange = async (event: React.ChangeEvent<HTMLInputElement>) => {
@@ -829,13 +879,15 @@ const BillingPage: React.FC<BillingPageProps> = ({ charges, setCharges, allData,
                 const workbook = XLSX.read(data, { type: 'array' });
                 const sheetName = workbook.SheetNames[0];
                 const sheet = workbook.Sheets[sheetName];
-                const json: unknown[][] = XLSX.utils.sheet_to_json(sheet, { header: 1 });
+                
+                // Changed to any[][] to prevent "Type 'unknown[]' is not assignable to type 'string[]'" error
+                const json = XLSX.utils.sheet_to_json(sheet, { header: 1 }) as any[][];
 
                 let headerIndex = -1, colCredit = -1, colDesc = -1;
                 for (let i = 0; i < Math.min(20, json.length); i++) {
                     if (Array.isArray(json[i])) {
-                        // FIX: Cast row to `any[]` to resolve strict typing issue with `map` on `unknown[]`.
-                        const row: string[] = (json[i] as any[]).map(cell => String(cell ?? "").toLowerCase());
+                        // Cast json[i] to any[] to allow .map
+                        const row: string[] = (json[i] as any[]).map((cell: any) => String(cell ?? "").toLowerCase());
                         const cIdx = row.findIndex(cell => cell.includes('so tien ghi co') || cell.includes('credit amount'));
                         const dIdx = row.findIndex(cell => cell.includes('noi dung') || cell.includes('transaction detail') || cell.includes('description'));
                         if (cIdx !== -1 && dIdx !== -1) { headerIndex = i; colCredit = cIdx; colDesc = dIdx; break; }
@@ -849,7 +901,7 @@ const BillingPage: React.FC<BillingPageProps> = ({ charges, setCharges, allData,
 
                 for (let i = headerIndex + 1; i < json.length; i++) {
                     if (!Array.isArray(json[i])) continue;
-                    const row = json[i] as unknown[];
+                    const row = json[i];
                     if (!row[colCredit]) continue;
                     const amount = Math.round(parseFloat(String(row[colCredit]).replace(/,/g, '')));
                     if (isNaN(amount) || amount <= 0) continue;
@@ -923,7 +975,7 @@ const BillingPage: React.FC<BillingPageProps> = ({ charges, setCharges, allData,
             return { totalDue: 0, totalPaid: 0, difference: 0, paidCount: 0, totalCount: 0, progress: 0 };
         }
         const totalDue = Math.round(rows.reduce((s, r) => s + r.TotalDue, 0));
-        const paidRows = rows.filter(r => r.paymentStatus === 'paid');
+        const paidRows = rows.filter(r => r.paymentStatus === 'paid' || r.paymentStatus === 'paid_tm' || r.paymentStatus === 'paid_ck');
         const totalPaid = Math.round(paidRows.reduce((s, r) => s + r.TotalPaid, 0));
         const difference = totalDue - totalPaid;
         const paidCount = paidRows.length;
@@ -1022,8 +1074,8 @@ const BillingPage: React.FC<BillingPageProps> = ({ charges, setCharges, allData,
                                 onValueChange={setStatusFilter}
                                 tooltip="Lọc theo trạng thái"
                                 options={[
-                                    { value: 'all', label: 'All Statuses' },
-                                    { value: 'paid', label: 'Paid' },
+                                    { value: 'all', label: 'Status' },
+                                    { value: 'paid', label: 'Paid (Any)' },
                                     { value: 'reconciling', label: 'Reconciling' },
                                     { value: 'unpaid', label: 'Unpaid' },
                                     { value: 'pending', label: 'Pending' },
@@ -1090,6 +1142,7 @@ const BillingPage: React.FC<BillingPageProps> = ({ charges, setCharges, allData,
                             : ( sortedAndFilteredCharges.map(charge => {
                                     const finalPaidAmount = editedPayments[charge.UnitID] ?? charge.TotalPaid;
                                     const difference = finalPaidAmount - charge.TotalDue;
+                                    const isPaid = charge.paymentStatus === 'paid' || charge.paymentStatus === 'paid_tm' || charge.paymentStatus === 'paid_ck';
                                     return (
                                     <tr key={charge.UnitID} className="hover:bg-gray-50 dark:hover:bg-slate-800/50">
                                         <td className="w-12 text-center"><input type="checkbox" checked={selectedUnits.has(charge.UnitID)} onChange={(e) => setSelectedUnits(p => { const n = new Set(p); e.target.checked ? n.add(charge.UnitID) : n.delete(charge.UnitID); return n; })} /></td>
@@ -1110,6 +1163,8 @@ const BillingPage: React.FC<BillingPageProps> = ({ charges, setCharges, allData,
                                         </td>
                                         <td className="px-4 py-4 text-center">
                                             {charge.paymentStatus === 'paid' ? <span className="px-2.5 py-1 inline-flex text-xs font-semibold rounded-full bg-green-100 text-green-800 dark:bg-green-900/50 dark:text-green-300">Paid</span> :
+                                             charge.paymentStatus === 'paid_tm' ? <span className="px-2.5 py-1 inline-flex text-xs font-semibold rounded-full bg-green-100 text-green-800 dark:bg-green-900/50 dark:text-green-300">Đã thu (TM)</span> :
+                                             charge.paymentStatus === 'paid_ck' ? <span className="px-2.5 py-1 inline-flex text-xs font-semibold rounded-full bg-blue-100 text-blue-800 dark:bg-blue-900/50 dark:text-blue-300">Đã thu (CK)</span> :
                                              charge.paymentStatus === 'reconciling' ? <span className="px-2.5 py-1 inline-flex text-xs font-semibold rounded-full bg-yellow-100 text-yellow-800 dark:bg-yellow-900/50 dark:text-yellow-300">Reconciling</span> :
                                              (charge.isPrinted && charge.isSent) ? <span className="px-2.5 py-1 inline-flex text-xs font-semibold rounded-full bg-blue-200 text-blue-800 dark:bg-blue-800/50 dark:text-blue-300">Printed & Sent</span> :
                                              charge.isSent ? <span className="px-2.5 py-1 inline-flex text-xs font-semibold rounded-full bg-sky-100 text-sky-800 dark:bg-sky-900/50 dark:text-sky-300">Sent</span> :
@@ -1119,8 +1174,8 @@ const BillingPage: React.FC<BillingPageProps> = ({ charges, setCharges, allData,
                                         </td>
                                         <td className="px-4 py-4"><div className="flex justify-center items-center gap-2">
                                             <button 
-                                                onClick={() => handleConfirmPayment(charge)}
-                                                disabled={charge.paymentStatus === 'paid' || role === 'Operator'}
+                                                onClick={() => handleInitiatePayment(charge)}
+                                                disabled={isPaid || role === 'Operator'}
                                                 className="p-2 rounded-full hover:bg-gray-200 dark:hover:bg-gray-600 disabled:opacity-30"
                                                 data-tooltip="Xác nhận thanh toán"
                                             >
@@ -1138,6 +1193,15 @@ const BillingPage: React.FC<BillingPageProps> = ({ charges, setCharges, allData,
             
             <ExportProgressModal isOpen={exportProgress.isOpen} done={exportProgress.done} total={exportProgress.total} onCancel={() => { cancelExportToken.current.cancelled = true; showToast('Cancellation requested...', 'info'); }}/>
             {previewCharge && <NoticePreviewModal charge={previewCharge} onClose={() => setPreviewCharge(null)} invoiceSettings={invoiceSettings} allData={allData} onSendEmail={handleSendSingleEmail} />}
+            
+            {paymentConfirmationState.isOpen && paymentConfirmationState.charge && (
+                <PaymentMethodModal
+                    onClose={() => setPaymentConfirmationState({ isOpen: false, charge: null })}
+                    onConfirm={handleConfirmFromModal}
+                    unitId={paymentConfirmationState.charge.UnitID}
+                    amount={editedPayments[paymentConfirmationState.charge.UnitID] ?? paymentConfirmationState.charge.TotalPaid}
+                />
+            )}
         </div>
     );
 };

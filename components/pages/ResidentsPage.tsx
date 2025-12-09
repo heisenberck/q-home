@@ -1,3 +1,4 @@
+
 import React, { useState, useMemo, useRef, useCallback, useEffect } from 'react';
 import type { Unit, Owner, Vehicle, Role, UserPermission, VehicleDocument, ActivityLog } from '../../types';
 import { UnitType, VehicleTier } from '../../types';
@@ -15,7 +16,6 @@ import {
 } from '../ui/Icons';
 import { normalizePhoneNumber, formatLicensePlate, vehicleTypeLabels, translateVehicleType, sortUnitsComparator, compressImageToWebP, parseUnitCode, getPastelColorForName, timeAgo } from '../../utils/helpers';
 import { mapExcelHeaders } from '../../utils/importHelpers';
-// FIX: Add missing import for loadScript utility
 import { loadScript } from '../../utils/scriptLoader';
 
 // Declare external libraries
@@ -765,6 +765,190 @@ const FilterPill: React.FC<{
     );
 };
 
+// --- NEW Components ---
+
+const ResidentDashboard: React.FC<{
+    units: Unit[];
+    owners: Owner[];
+    vehicles: Vehicle[];
+    activityLogs: ActivityLog[];
+}> = ({ units, owners, vehicles, activityLogs }) => {
+    // Stats
+    const stats = useMemo(() => {
+        const total = units.length;
+        const ownerOccupied = units.filter(u => u.Status === 'Owner').length;
+        const rented = units.filter(u => u.Status === 'Rent').length;
+        const business = units.filter(u => u.Status === 'Business').length;
+        return { total, ownerOccupied, rented, business };
+    }, [units]);
+
+    const recentLogs = useMemo(() => {
+        return activityLogs
+            .filter(l => l.module === 'Residents')
+            .slice(0, 5);
+    }, [activityLogs]);
+
+    return (
+        <div className="p-6 h-full flex flex-col space-y-6">
+            <div>
+                <h3 className="text-xl font-bold mb-4">Tổng quan Cư dân</h3>
+                <div className="grid grid-cols-2 gap-4">
+                    <div className="p-4 bg-blue-50 rounded-lg">
+                        <p className="text-sm text-blue-600 font-medium">Tổng căn hộ</p>
+                        <p className="text-2xl font-bold text-blue-900">{stats.total}</p>
+                    </div>
+                    <div className="p-4 bg-green-50 rounded-lg">
+                        <p className="text-sm text-green-600 font-medium">Chính chủ</p>
+                        <p className="text-2xl font-bold text-green-900">{stats.ownerOccupied}</p>
+                    </div>
+                    <div className="p-4 bg-purple-50 rounded-lg">
+                        <p className="text-sm text-purple-600 font-medium">Cho thuê</p>
+                        <p className="text-2xl font-bold text-purple-900">{stats.rented}</p>
+                    </div>
+                    <div className="p-4 bg-orange-50 rounded-lg">
+                        <p className="text-sm text-orange-600 font-medium">Kinh doanh</p>
+                        <p className="text-2xl font-bold text-orange-900">{stats.business}</p>
+                    </div>
+                </div>
+            </div>
+            
+            <div className="flex-1 min-h-0 flex flex-col">
+                <h3 className="text-lg font-bold mb-3">Hoạt động gần đây</h3>
+                <div className="overflow-y-auto pr-2 space-y-3">
+                    {recentLogs.length > 0 ? recentLogs.map(log => (
+                        <div key={log.id} className="p-3 bg-gray-50 rounded-lg border border-gray-100">
+                            <p className="text-sm font-medium text-gray-900">{log.summary}</p>
+                            <div className="flex justify-between mt-1">
+                                <span className="text-xs text-gray-500">{log.actor_email.split('@')[0]}</span>
+                                <span className="text-xs text-gray-400">{timeAgo(log.ts)}</span>
+                            </div>
+                        </div>
+                    )) : <p className="text-sm text-gray-500 italic">Chưa có hoạt động nào.</p>}
+                </div>
+            </div>
+        </div>
+    );
+};
+
+const ResidentDetailPanel: React.FC<{
+    resident: ResidentData;
+    activityLogs: ActivityLog[];
+    onExportPDF: (resident: ResidentData) => void;
+    onCopyToClipboard: (text: string | undefined, label: string) => void;
+    onClose: () => void;
+}> = ({ resident, activityLogs, onExportPDF, onCopyToClipboard, onClose }) => {
+    const { unit, owner, vehicles } = resident;
+    const hasDocs = owner.documents && (owner.documents.nationalId || owner.documents.title || (owner.documents.others && owner.documents.others.length > 0));
+
+    return (
+        <div className="flex flex-col h-full relative">
+            <div className="p-6 pb-4 border-b">
+                <button onClick={onClose} className="absolute top-4 right-4 p-2 rounded-full hover:bg-gray-100 text-gray-500">
+                    <XMarkIcon className="w-6 h-6" />
+                </button>
+                <div className="flex items-center gap-3 mb-2">
+                    <div className="p-2 bg-blue-100 rounded-lg text-blue-600"><HomeIcon className="w-8 h-8" /></div>
+                    <div>
+                        <h2 className="text-2xl font-bold text-gray-900">{unit.UnitID}</h2>
+                        <StatusBadge status={unit.Status} />
+                    </div>
+                </div>
+            </div>
+            
+            <div className="flex-1 overflow-y-auto p-6 space-y-6">
+                {/* Owner Info */}
+                <div className="space-y-3">
+                    <h3 className="text-sm font-bold uppercase text-gray-500 tracking-wider">Thông tin Chủ hộ</h3>
+                    <div className="bg-gray-50 p-4 rounded-lg space-y-2">
+                        <div className="flex justify-between items-center group">
+                            <span className="text-sm text-gray-600">Họ tên:</span>
+                            <span className="font-semibold text-gray-900 flex items-center gap-2">
+                                {owner.OwnerName}
+                                <button onClick={() => onCopyToClipboard(owner.OwnerName, "Tên")} className="opacity-0 group-hover:opacity-100 text-gray-400 hover:text-blue-500"><ClipboardIcon className="w-3 h-3"/></button>
+                            </span>
+                        </div>
+                        <div className="flex justify-between items-center group">
+                            <span className="text-sm text-gray-600">Điện thoại:</span>
+                            <span className="font-semibold text-gray-900 flex items-center gap-2">
+                                {owner.Phone}
+                                <button onClick={() => onCopyToClipboard(owner.Phone, "SĐT")} className="opacity-0 group-hover:opacity-100 text-gray-400 hover:text-blue-500"><ClipboardIcon className="w-3 h-3"/></button>
+                            </span>
+                        </div>
+                        <div className="flex justify-between items-center group">
+                            <span className="text-sm text-gray-600">Email:</span>
+                            <span className="font-semibold text-gray-900 flex items-center gap-2">
+                                {owner.Email || '---'}
+                                {owner.Email && <button onClick={() => onCopyToClipboard(owner.Email, "Email")} className="opacity-0 group-hover:opacity-100 text-gray-400 hover:text-blue-500"><ClipboardIcon className="w-3 h-3"/></button>}
+                            </span>
+                        </div>
+                    </div>
+                </div>
+
+                {/* Unit Info */}
+                <div className="space-y-3">
+                    <h3 className="text-sm font-bold uppercase text-gray-500 tracking-wider">Thông tin Căn hộ</h3>
+                    <div className="bg-gray-50 p-4 rounded-lg grid grid-cols-2 gap-4">
+                        <div>
+                            <p className="text-xs text-gray-500">Diện tích</p>
+                            <p className="font-semibold text-gray-900">{unit.Area_m2} m²</p>
+                        </div>
+                        <div>
+                            <p className="text-xs text-gray-500">Loại</p>
+                            <p className="font-semibold text-gray-900">{unit.UnitType}</p>
+                        </div>
+                    </div>
+                </div>
+
+                {/* Vehicles */}
+                <div className="space-y-3">
+                    <h3 className="text-sm font-bold uppercase text-gray-500 tracking-wider">Phương tiện ({vehicles.length})</h3>
+                    {vehicles.length > 0 ? (
+                        <div className="space-y-2">
+                            {vehicles.map(v => (
+                                <div key={v.VehicleId} className={`flex items-center gap-3 p-3 rounded-lg border ${v.isActive ? 'bg-white border-gray-200' : 'bg-gray-100 border-gray-200 opacity-75'}`}>
+                                    <div className="text-gray-500">
+                                        {v.Type.includes('car') ? <CarIcon /> : (v.Type === VehicleTier.MOTORBIKE ? <MotorbikeIcon /> : <BikeIcon />)}
+                                    </div>
+                                    <div className="flex-1">
+                                        <div className="flex justify-between items-start">
+                                            <p className="font-bold text-sm text-gray-900">{v.PlateNumber}</p>
+                                            {!v.isActive && <span className="text-[10px] px-1.5 py-0.5 bg-gray-200 text-gray-600 rounded">Đã xóa</span>}
+                                        </div>
+                                        <p className="text-xs text-gray-500">{v.VehicleName} • {translateVehicleType(v.Type)}</p>
+                                    </div>
+                                </div>
+                            ))}
+                        </div>
+                    ) : (
+                        <p className="text-sm text-gray-500 italic p-4 text-center bg-gray-50 rounded-lg">Chưa đăng ký phương tiện</p>
+                    )}
+                </div>
+                
+                {/* Documents */}
+                <div className="space-y-3">
+                    <h3 className="text-sm font-bold uppercase text-gray-500 tracking-wider">Hồ sơ & Tài liệu</h3>
+                    {hasDocs ? (
+                        <div className="flex flex-wrap gap-2">
+                            {owner.documents?.nationalId && <span className="px-2 py-1 bg-blue-50 text-blue-700 text-xs rounded border border-blue-100 flex items-center gap-1"><DocumentTextIcon className="w-3 h-3"/> CCCD</span>}
+                            {owner.documents?.title && <span className="px-2 py-1 bg-purple-50 text-purple-700 text-xs rounded border border-purple-100 flex items-center gap-1"><DocumentTextIcon className="w-3 h-3"/> Sổ đỏ</span>}
+                            {(owner.documents?.others || []).map(d => (
+                                <span key={d.fileId} className="px-2 py-1 bg-gray-50 text-gray-700 text-xs rounded border border-gray-200 flex items-center gap-1" title={d.name}><PaperclipIcon className="w-3 h-3"/> {d.name}</span>
+                            ))}
+                        </div>
+                    ) : (
+                        <p className="text-sm text-gray-500 italic">Chưa có tài liệu nào.</p>
+                    )}
+                </div>
+            </div>
+
+            <div className="p-4 border-t bg-gray-50">
+                <button onClick={() => onExportPDF(resident)} className="w-full py-2.5 bg-white border border-gray-300 text-gray-700 font-semibold rounded-lg shadow-sm hover:bg-gray-50 flex items-center justify-center gap-2">
+                    <PrinterIcon className="w-5 h-5"/> Xuất PDF Hồ sơ
+                </button>
+            </div>
+        </div>
+    );
+};
 
 // --- Main Page Component ---
 const ResidentsPage: React.FC<ResidentsPageProps> = ({ units, owners, vehicles, activityLogs, onSaveResident, onImportData, onDeleteResidents, role, currentUser }) => {
@@ -837,7 +1021,7 @@ const ResidentsPage: React.FC<ResidentsPageProps> = ({ units, owners, vehicles, 
 
     const floors = useMemo(() => {
         const floorNumbers = Array.from(new Set(units.filter(u=>u.UnitType === UnitType.APARTMENT).map(u => u.UnitID.slice(0,-2)))).sort((a,b) => parseInt(String(a), 10) - parseInt(String(b), 10));
-        return [{value: 'all', label: 'All Floors'}, ...floorNumbers.map(f => ({value: f, label: `Floor ${f}`})), {value: 'KIOS', label: 'KIOS'}];
+        return [{value: 'all', label: 'Floor'}, ...floorNumbers.map(f => ({value: f, label: `Floor ${f}`})), {value: 'KIOS', label: 'KIOS'}];
     }, [units]);
 
     const handleSelectResident = useCallback((resident: ResidentData) => {
@@ -867,6 +1051,51 @@ const ResidentsPage: React.FC<ResidentsPageProps> = ({ units, owners, vehicles, 
         }
     };
     
+    const handleExportExcel = useCallback(() => {
+        if (filteredResidents.length === 0) {
+            showToast('Không có dữ liệu để xuất.', 'info');
+            return;
+        }
+
+        const dataForExport = filteredResidents.map(r => {
+            const vehiclesByType: { [key in VehicleTier]?: string[] } = {};
+
+            r.vehicles.forEach(v => {
+                if (v.isActive && v.PlateNumber) {
+                    if (!vehiclesByType[v.Type]) {
+                        vehiclesByType[v.Type] = [];
+                    }
+                    vehiclesByType[v.Type]!.push(v.PlateNumber);
+                }
+            });
+
+            return {
+                'Mã căn hộ': r.unit.UnitID,
+                'Chủ hộ': r.owner.OwnerName,
+                'SĐT': r.owner.Phone,
+                'Email': r.owner.Email,
+                'Diện tích (m2)': r.unit.Area_m2,
+                'Trạng thái': r.unit.Status,
+                'Biển số Ô tô': (vehiclesByType[VehicleTier.CAR] || []).join(', '),
+                'Biển số Ô tô Hạng A': (vehiclesByType[VehicleTier.CAR_A] || []).join(', '),
+                'Biển số Xe máy': (vehiclesByType[VehicleTier.MOTORBIKE] || []).join(', '),
+                'Biển số Xe điện': (vehiclesByType[VehicleTier.EBIKE] || []).join(', '),
+                'Biển số Xe đạp': (vehiclesByType[VehicleTier.BICYCLE] || []).join(', '),
+            };
+        });
+
+        try {
+            const worksheet = XLSX.utils.json_to_sheet(dataForExport);
+            const workbook = XLSX.utils.book_new();
+            XLSX.utils.book_append_sheet(workbook, worksheet, 'Danh sách Cư dân');
+            XLSX.writeFile(workbook, `DanhSachCuDan_${new Date().toISOString().slice(0, 10)}.xlsx`);
+            showToast('Xuất file Excel thành công!', 'success');
+        } catch (error) {
+            console.error("Failed to export Excel:", error);
+            showToast('Có lỗi xảy ra khi xuất file.', 'error');
+        }
+    }, [filteredResidents, showToast]);
+
     const handleExportPDF = useCallback(async (resident: ResidentData) => {
         try {
             await Promise.all([loadScript('jspdf'), loadScript('html2canvas')]);
@@ -895,7 +1124,7 @@ const ResidentsPage: React.FC<ResidentsPageProps> = ({ units, owners, vehicles, 
             console.error('PDF export error:', error);
             showToast('Lỗi khi xuất file PDF.', 'error');
         }
-    }, []);
+    }, [showToast]);
     
     const handleCopyToClipboard = (text: string | undefined | null, label: string) => {
         if (!text) return;
@@ -934,6 +1163,7 @@ const ResidentsPage: React.FC<ResidentsPageProps> = ({ units, owners, vehicles, 
                         <div className="hidden lg:block"><FilterPill icon={<BuildingIcon className="h-5 w-5 text-gray-400" />} currentValue={floorFilter} onValueChange={setFloorFilter} tooltip="Lọc theo tầng" options={floors} /></div>
                         <div className="ml-auto flex items-center gap-2">
                             <button onClick={() => setModalState({ type: 'import', data: null })} className="h-10 px-4 font-semibold rounded-lg flex items-center gap-2 border border-primary text-primary hover:bg-primary/10 bg-white dark:bg-transparent"><UploadIcon /> Import</button>
+                            <button onClick={handleExportExcel} className="h-10 px-4 font-semibold rounded-lg flex items-center gap-2 border border-green-600 text-green-700 hover:bg-green-600/10 bg-white dark:bg-transparent"><DocumentArrowDownIcon /> Export</button>
                         </div>
                     </div>
                 </div>
@@ -1011,308 +1241,5 @@ const ResidentsPage: React.FC<ResidentsPageProps> = ({ units, owners, vehicles, 
         </div>
     );
 };
-
-
-const ResidentDetailPanel: React.FC<{ 
-    resident: ResidentData, 
-    activityLogs: ActivityLog[],
-    onExportPDF: (resident: ResidentData) => void, 
-    onCopyToClipboard: (text: string | undefined | null, label: string) => void,
-    onClose: () => void;
-}> = ({ resident, activityLogs, onExportPDF, onCopyToClipboard, onClose }) => {
-    const { unit, owner, vehicles } = resident;
-    const { bg, text, border } = getPastelColorForName(owner.OwnerName);
-    const [previewDoc, setPreviewDoc] = useState<VehicleDocument | null>(null);
-
-    const vehicleSortOrder: Record<VehicleTier, number> = {
-        [VehicleTier.CAR]: 1, [VehicleTier.CAR_A]: 2, [VehicleTier.MOTORBIKE]: 3,
-        [VehicleTier.EBIKE]: 4, [VehicleTier.BICYCLE]: 5,
-    };
-    
-    const activeVehicles = vehicles.filter(v => v.isActive).sort((a, b) => vehicleSortOrder[a.Type] - vehicleSortOrder[b.Type]);
-
-    const combinedHistory = useMemo(() => {
-        const historyLogs = activityLogs
-            .filter(log => log.module === 'Residents' && log.ids?.includes(unit.UnitID))
-            .map(log => ({ type: 'log', data: log, ts: log.ts }));
-
-        const vehicleLogs = vehicles
-            .filter(v => !v.isActive && v.updatedAt)
-            .map(vehicle => ({ type: 'vehicle', data: vehicle, ts: vehicle.updatedAt! }));
-            
-        return [...historyLogs, ...vehicleLogs].sort((a, b) => new Date(b.ts).getTime() - new Date(a.ts).getTime());
-    }, [activityLogs, vehicles, unit.UnitID]);
-
-    const allDocs = [
-        ...(owner.documents?.nationalId ? [{...owner.documents.nationalId, name: `CCCD - ${owner.documents.nationalId.name}`}] : []),
-        ...(owner.documents?.title ? [{...owner.documents.title, name: `Sổ đỏ/HĐ - ${owner.documents.title.name}`}] : []),
-        ...(owner.documents?.others || [])
-    ];
-    
-    return (
-        <div className="flex flex-col">
-            {previewDoc && <DocumentPreviewModal doc={previewDoc} onClose={() => setPreviewDoc(null)} />}
-            <div className={`p-4 rounded-t-xl ${bg} flex-shrink-0 relative`}>
-                <button onClick={onClose} className="absolute top-2 right-2 p-2 rounded-full bg-white/30 hover:bg-white/60" data-tooltip="Đóng">
-                    <XMarkIcon className={`w-5 h-5 ${text}`} />
-                </button>
-                <header className="flex items-center gap-4">
-                    <div className={`w-20 h-20 rounded-full flex items-center justify-center bg-white/50 border-4 ${border} flex-shrink-0`}>
-                        <span className={`text-4xl font-bold ${text}`}>{owner.OwnerName.charAt(0)}</span>
-                    </div>
-                    <div className="flex-grow">
-                        <h2 className={`text-2xl font-bold ${text}`}>{owner.OwnerName}</h2>
-                        <div className="mt-1 px-3 py-1 bg-white/70 rounded-full text-sm font-semibold text-gray-800 inline-block">
-                           {unit.UnitID} - {unit.Area_m2}m² - {renderStatusTooltip(unit.Status)}
-                        </div>
-                    </div>
-                </header>
-                <div className="flex items-center gap-3 mt-4 justify-start">
-                    <button onClick={() => onCopyToClipboard(owner.Phone, 'số điện thoại')} className="p-2 rounded-full bg-white/50 hover:bg-white/80" data-tooltip="Gọi/Sao chép SĐT"><PhoneArrowUpRightIcon className="w-5 h-5 text-gray-600 dark:text-gray-300" /></button>
-                    <button onClick={() => { if (!owner.Phone) return; let zp = owner.Phone.startsWith('0') ? '84' + owner.Phone.substring(1) : owner.Phone; window.open(`https://zalo.me/${zp.replace(/\D/g, '')}`, '_blank');}} className="p-2 rounded-full bg-white/50 hover:bg-white/80" data-tooltip="Chat Zalo"><ChatBubbleLeftEllipsisIcon className="w-5 h-5 text-gray-600 dark:text-gray-300"/></button>
-                    <button onClick={() => window.open(`mailto:${owner.Email}`)} className="p-2 rounded-full bg-white/50 hover:bg-white/80" data-tooltip="Gửi Email"><EnvelopeIcon className="w-5 h-5 text-gray-600 dark:text-gray-300"/></button>
-                    <button onClick={() => onExportPDF(resident)} className="p-2 rounded-full bg-white/50 hover:bg-white/80" data-tooltip="In hồ sơ (PDF)"><PrinterIcon className="w-5 h-5 text-gray-600 dark:text-gray-300" /></button>
-                </div>
-            </div>
-            <div className="p-6 space-y-6">
-                <div className="border-t dark:border-dark-border pt-4">
-                    <h3 className="text-sm font-semibold uppercase text-gray-500 mb-3">Thông tin liên hệ</h3>
-                    <div className="space-y-2 text-sm">
-                        <div className="flex justify-between items-center group"><span className="text-gray-500 dark:text-gray-400">Chủ hộ:</span><div className="flex items-center gap-2"><span className="font-semibold text-gray-900 dark:text-gray-200">{owner.OwnerName}</span> <button onClick={() => onCopyToClipboard(owner.OwnerName, 'tên')} className="opacity-0 group-hover:opacity-100 transition-opacity"><ClipboardIcon className="w-4 h-4 text-gray-400"/></button></div></div>
-                        <div className="flex justify-between items-center group"><span className="text-gray-500 dark:text-gray-400">SĐT:</span><div className="flex items-center gap-2"><span className="font-semibold text-gray-900 dark:text-gray-200 font-mono">{owner.Phone}</span> <button onClick={() => onCopyToClipboard(owner.Phone, 'SĐT')} className="opacity-0 group-hover:opacity-100 transition-opacity"><ClipboardIcon className="w-4 h-4 text-gray-400"/></button></div></div>
-                        <div className="flex justify-between items-center group"><span className="text-gray-500 dark:text-gray-400">Email:</span><div className="flex items-center gap-2"><span className="font-semibold text-gray-900 dark:text-gray-200">{owner.Email || 'Chưa có'}</span> {owner.Email && <button onClick={() => onCopyToClipboard(owner.Email, 'email')} className="opacity-0 group-hover:opacity-100 transition-opacity"><ClipboardIcon className="w-4 h-4 text-gray-400"/></button>}</div></div>
-                    </div>
-                </div>
-
-                <div className="border-t dark:border-dark-border pt-4">
-                    <h3 className="text-sm font-semibold uppercase text-gray-500 mb-3">Phương tiện đang hoạt động ({activeVehicles.length})</h3>
-                    {activeVehicles.length > 0 ? (
-                        <ul className="space-y-2">
-                            {activeVehicles.map(v => (
-                                <li key={v.VehicleId} className="flex items-center justify-between p-2 bg-gray-50 dark:bg-gray-800/50 rounded-md">
-                                    <div className="flex items-center gap-3">
-                                        <div className="text-gray-500">
-                                            {v.Type.includes('car') ? <CarIcon/> : (v.Type === VehicleTier.MOTORBIKE ? <MotorbikeIcon/> : (v.Type === VehicleTier.EBIKE ? <EBikeIcon /> : <BikeIcon/>))}
-                                        </div>
-                                        <div>
-                                            <p className="font-semibold text-sm text-gray-900 dark:text-gray-200">{v.VehicleName}</p>
-                                            <p className="text-xs font-mono text-gray-600 dark:text-gray-400">{v.PlateNumber}</p>
-                                        </div>
-                                    </div>
-                                    {v.parkingStatus && <span className={`px-2 py-0.5 text-xs font-semibold rounded-full ${v.parkingStatus === 'Lốt chính' ? 'bg-green-100 text-green-800' : (v.parkingStatus === 'Lốt tạm' ? 'bg-yellow-100 text-yellow-800' : 'bg-blue-100 text-blue-800')}`}>{v.parkingStatus}</span>}
-                                </li>
-                            ))}
-                        </ul>
-                    ) : (
-                        <p className="text-sm text-center text-gray-500 py-4">Chưa có phương tiện nào đang hoạt động.</p>
-                    )}
-                </div>
-
-                <div className="border-t dark:border-dark-border pt-4">
-                    <h3 className="text-sm font-semibold uppercase text-gray-500 mb-3">Hồ sơ, Tài liệu ({allDocs.length})</h3>
-                     {allDocs.length > 0 ? (<ul className="space-y-2">{allDocs.map(doc => (<li key={doc.fileId} className="flex items-center justify-between p-2 bg-gray-50 dark:bg-gray-800/50 rounded-md text-sm"><div className="flex items-center gap-2 truncate"><DocumentTextIcon className="w-5 h-5 flex-shrink-0"/><span className="truncate">{doc.name}</span></div><button onClick={() => setPreviewDoc(doc)} className="text-blue-600 hover:underline text-xs font-semibold flex-shrink-0 flex items-center gap-1"><EyeIcon className="w-4 h-4"/>Xem</button></li>))}</ul>) 
-                    : (<p className="text-sm text-center text-gray-500 py-4">Chưa có tài liệu đính kèm.</p>)}
-                </div>
-
-                 <div className="border-t dark:border-dark-border pt-4">
-                    <h3 className="text-sm font-semibold uppercase text-gray-500 mb-3">Lịch sử Căn hộ</h3>
-                     {combinedHistory.length > 0 ? (
-                        <ul className="space-y-4">
-                            {combinedHistory.map(item => {
-                                if (item.type === 'log') {
-                                    const log = item.data as ActivityLog;
-                                    return (
-                                        <li key={`log-${log.id}`} className="flex items-start space-x-3">
-                                            <div className="bg-gray-100 dark:bg-gray-700 rounded-full p-2 mt-1">
-                                                <UserCircleIcon className="w-4 h-4 text-gray-500"/>
-                                            </div>
-                                            <div>
-                                                <p className="text-sm text-gray-800 dark:text-gray-200">{log.summary}</p>
-                                                <p className="text-xs text-gray-500 dark:text-gray-400">{timeAgo(log.ts)} bởi {log.actor_email.split('@')[0]}</p>
-                                            </div>
-                                        </li>
-                                    );
-                                }
-                                if (item.type === 'vehicle') {
-                                    const vehicle = item.data as Vehicle;
-                                    return (
-                                        <li key={`vehicle-${vehicle.VehicleId}`} className="flex items-start space-x-3">
-                                            <div className="bg-red-50 dark:bg-red-900/30 rounded-full p-2 mt-1">
-                                                <TrashIcon className="w-4 h-4 text-red-500"/>
-                                            </div>
-                                            <div>
-                                                <p className="text-sm text-gray-800 dark:text-gray-200">
-                                                    Đã hủy xe <strong>{vehicle.PlateNumber}</strong> ({translateVehicleType(vehicle.Type)})
-                                                    {vehicle.log && <span className="text-gray-600 dark:text-gray-400"> - Lý do: {vehicle.log}</span>}
-                                                </p>
-                                                <p className="text-xs text-gray-500 dark:text-gray-400">{timeAgo(vehicle.updatedAt)}</p>
-                                            </div>
-                                        </li>
-                                    );
-                                }
-                                return null;
-                            })}
-                        </ul>
-                     ) : (
-                        <p className="text-sm text-center text-gray-500 py-4">Chưa có lịch sử thay đổi.</p>
-                     )}
-                </div>
-            </div>
-        </div>
-    );
-};
-
-const ResidentDashboard: React.FC<{ units: Unit[], owners: Owner[], vehicles: Vehicle[], activityLogs: ActivityLog[] }> = ({ units, owners, vehicles, activityLogs }) => {
-    const [isStatsExpanded, setIsStatsExpanded] = useState(true);
-    const [activeSlide, setActiveSlide] = useState(0);
-
-    const highlights = useMemo(() => {
-        const totalUnits = units.length;
-        if (totalUnits === 0) return { occupancy: 0, ownerRatio: 0, dataHealth: 0, topVehicles: [], totalUnits: 0, occupiedUnits: 0, ownerCount: 0 };
-        
-        const occupiedUnits = owners.filter(o => o.OwnerName && o.OwnerName !== '[Trống]').length;
-        const occupancy = (occupiedUnits / totalUnits) * 100;
-        
-        const ownerCount = units.filter(u => u.Status === 'Owner').length;
-        const ownerRatio = (ownerCount / totalUnits) * 100;
-
-        const dataHealth = owners.filter(o => !o.Phone || !o.Email).length;
-        
-        const vehicleCounts = vehicles.reduce((acc: Record<string, number>, v) => {
-            if (v.isActive) {
-                const currentCount = acc[v.UnitID] || 0;
-                acc[v.UnitID] = currentCount + 1;
-            }
-            return acc;
-        }, {});
-        
-        const topVehicles = Object.entries(vehicleCounts)
-            .sort((a, b) => b[1] - a[1])
-            .slice(0, 3)
-            .map(([unitId, count]) => ({ unitId, count }));
-            
-        return { occupancy, ownerRatio, dataHealth, topVehicles, totalUnits, occupiedUnits, ownerCount };
-    }, [units, owners, vehicles]);
-
-    const slides = useMemo(() => [
-        {
-            id: 'occupancy',
-            icon: <HomeIcon className="w-8 h-8 text-blue-600" />,
-            title: 'Tỷ lệ Lấp đầy',
-            value: `${highlights.occupancy.toFixed(0)}%`,
-            subtext: `${highlights.occupiedUnits}/${highlights.totalUnits} căn`,
-            progress: highlights.occupancy,
-        },
-        {
-            id: 'ownership',
-            icon: <UserGroupIcon className="w-8 h-8 text-green-600" />,
-            title: 'Cơ cấu Cư dân',
-            value: `${highlights.ownerRatio.toFixed(0)}%`,
-            subtext: `${highlights.ownerCount} hộ là chính chủ`,
-        },
-        {
-            id: 'dataHealth',
-            icon: <WarningIcon className="w-8 h-8 text-yellow-600" />,
-            title: 'Cảnh báo Dữ liệu',
-            value: highlights.dataHealth,
-            subtext: 'căn thiếu SĐT/Email',
-        },
-        {
-            id: 'topVehicles',
-            icon: <CarIcon className="w-8 h-8 text-purple-600" />,
-            title: 'Top Sở hữu Xe',
-            list: highlights.topVehicles,
-        },
-    ], [highlights]);
-
-    useEffect(() => {
-        if (!isStatsExpanded) return;
-        const timer = setInterval(() => {
-            // FIX: Explicitly type the 'prev' parameter to ensure type safety in the state update.
-            setActiveSlide((prev: number) => (prev + 1) % slides.length);
-        }, 5000);
-        return () => clearInterval(timer);
-    }, [slides.length, isStatsExpanded]);
-
-    const goToNext = () => setActiveSlide((prev: number) => (prev + 1) % slides.length);
-    const goToPrev = () => setActiveSlide((prev: number) => (prev - 1 + slides.length) % slides.length);
-
-    const currentSlideData = slides[activeSlide];
-    
-    return (
-        <div className="p-6 flex flex-col">
-            <div className="flex justify-between items-center">
-                <h2 className="text-xl font-bold text-gray-900 dark:text-gray-200">Thống kê nổi bật</h2>
-                <button
-                    onClick={() => setIsStatsExpanded(p => !p)}
-                    className="p-1.5 rounded-full hover:bg-gray-200 dark:hover:bg-slate-700"
-                    data-tooltip={isStatsExpanded ? "Thu gọn" : "Mở rộng"}
-                >
-                    {isStatsExpanded ? <ChevronUpIcon /> : <ChevronDownIcon />}
-                </button>
-            </div>
-            
-            {isStatsExpanded && (
-                <div className="relative mt-4 flex-shrink-0">
-                    <div key={activeSlide} className="bg-white dark:bg-dark-bg-secondary p-6 rounded-xl shadow-sm border dark:border-dark-border flex flex-col items-center justify-center text-center h-[220px] animate-fade-in-down">
-                        {currentSlideData.icon}
-                        <p className="text-sm font-semibold text-gray-600 dark:text-gray-300 mt-3">{currentSlideData.title}</p>
-                        
-                        {currentSlideData.value != null && <p className="text-4xl font-bold text-gray-900 dark:text-gray-200 mt-1">{currentSlideData.value}</p>}
-                        
-                        {currentSlideData.progress != null && (
-                            <div className="w-full bg-gray-200 rounded-full h-1.5 dark:bg-gray-700 mt-3">
-                                <div className="bg-blue-600 h-1.5 rounded-full" style={{ width: `${currentSlideData.progress}%` }}></div>
-                            </div>
-                        )}
-                        
-                        {currentSlideData.subtext && <p className="text-xs text-gray-500 dark:text-gray-400 mt-2">{currentSlideData.subtext}</p>}
-                        
-                        {currentSlideData.list && currentSlideData.list.length > 0 && (
-                            <ul className="space-y-1 mt-2 w-full max-w-xs">
-                                {currentSlideData.list.map(item => (
-                                    <li key={item.unitId} className="flex justify-between text-sm">
-                                        <span className="font-semibold text-gray-800 dark:text-gray-200">Căn hộ {item.unitId}</span>
-                                        <span className="font-bold text-purple-700 dark:text-purple-300">{item.count} xe</span>
-                                    </li>
-                                ))}
-                            </ul>
-                        )}
-                         {currentSlideData.list && currentSlideData.list.length === 0 && <p className="text-sm text-gray-500 mt-4">Chưa có dữ liệu xe</p>}
-                    </div>
-
-                    <button onClick={goToPrev} className="absolute -left-3 top-1/2 -translate-y-1/2 p-1 bg-white dark:bg-gray-700 rounded-full shadow-md hover:bg-gray-100 dark:hover:bg-gray-600 focus:outline-none focus:ring-2 focus:ring-primary z-10">
-                        <ChevronLeftIcon />
-                    </button>
-                    <button onClick={goToNext} className="absolute -right-3 top-1/2 -translate-y-1/2 p-1 bg-white dark:bg-gray-700 rounded-full shadow-md hover:bg-gray-100 dark:hover:bg-gray-600 focus:outline-none focus:ring-2 focus:ring-primary z-10">
-                        <ChevronRightIcon />
-                    </button>
-                </div>
-            )}
-            
-            <div className="border-t dark:border-dark-border pt-6 mt-6 flex-1 flex flex-col min-h-0">
-                <h3 className="text-lg font-bold text-gray-800 dark:text-gray-200 mb-4 flex items-center gap-2 flex-shrink-0">
-                    <ClipboardDocumentListIcon/> Hoạt động gần đây
-                </h3>
-                <ul className="space-y-4 pr-2">
-                    {activityLogs.filter(log => log.module === 'Residents').slice(0, 10).map(log => (
-                        <li key={log.id} className="flex items-start space-x-3">
-                            <div className="bg-gray-100 dark:bg-gray-700 rounded-full p-2 mt-1">
-                                <UserCircleIcon className="w-4 h-4 text-gray-500" />
-                            </div>
-                            <div>
-                                <p className="text-sm text-gray-800 dark:text-gray-200">{log.summary}</p>
-                                <p className="text-xs text-gray-500 dark:text-gray-400">
-                                    bởi {log.actor_email.split('@')[0]} - {timeAgo(log.ts)}
-                                </p>
-                            </div>
-                        </li>
-                    ))}
-                    {activityLogs.filter(log => log.module === 'Residents').length === 0 && <p className="text-sm text-center text-gray-500 py-4">Chưa có hoạt động nào liên quan đến cư dân.</p>}
-                </ul>
-            </div>
-        </div>
-    );
-}
 
 export default ResidentsPage;

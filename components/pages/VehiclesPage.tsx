@@ -1,3 +1,4 @@
+
 import React, { useState, useMemo, useCallback, useEffect } from 'react';
 import { PieChart, Pie, Cell, Tooltip, Legend, ResponsiveContainer } from 'recharts';
 import type { Vehicle, VehicleDocument, Unit, Owner, Role } from '../../types';
@@ -7,9 +8,12 @@ import Modal from '../ui/Modal';
 import StatCard from '../ui/StatCard';
 import { 
     CarIcon, SearchIcon, PencilSquareIcon, WarningIcon, UploadIcon, 
-    TrashIcon, DocumentTextIcon, MotorbikeIcon, BikeIcon, EBikeIcon, ChevronLeftIcon, ChevronRightIcon, ShieldCheckIcon 
+    TrashIcon, DocumentTextIcon, MotorbikeIcon, BikeIcon, EBikeIcon, ChevronLeftIcon, ChevronRightIcon, ShieldCheckIcon, TableCellsIcon 
 } from '../ui/Icons';
 import { formatLicensePlate, translateVehicleType, vehicleTypeLabels, compressImageToWebP, timeAgo } from '../../utils/helpers';
+
+// Ensure XLSX is available
+declare const XLSX: any;
 
 const PARKING_CAPACITY = {
     main: 89,
@@ -252,7 +256,8 @@ const VehicleEditModal: React.FC<{
 // --- NEW: Vehicle Dashboard Panel (Right side, default) ---
 const VehicleDashboard: React.FC<{ vehicles: EnhancedVehicle[], onSelectVehicle: (vehicle: EnhancedVehicle) => void }> = ({ vehicles, onSelectVehicle }) => {
     const dashboardData = useMemo(() => {
-        const typeCounts = vehicles.reduce((acc: Record<string, number>, v) => {
+        const active = vehicles.filter(v => v.isActive);
+        const typeCounts = active.reduce((acc: Record<string, number>, v) => {
             const key = v.Type;
             acc[key] = (acc[key] || 0) + 1;
             return acc;
@@ -263,13 +268,19 @@ const VehicleDashboard: React.FC<{ vehicles: EnhancedVehicle[], onSelectVehicle:
             value,
         }));
 
-        const vehicleCountsByUnit = vehicles.reduce((acc: Record<string, number>, v) => {
+        const vehicleCountsByUnit = active.reduce((acc: Record<string, number>, v) => {
             acc[v.UnitID] = (acc[v.UnitID] || 0) + 1;
             return acc;
         }, {});
 
         const topOwners = Object.entries(vehicleCountsByUnit).sort((a, b) => b[1] - a[1]).slice(0, 5);
-        const recentUpdates = [...vehicles].sort((a, b) => new Date(b.updatedAt || b.StartDate).getTime() - new Date(a.updatedAt || a.StartDate).getTime()).slice(0, 5);
+        const recentUpdates = [...active]
+            .sort((a, b) => {
+                const dateA = new Date(a.updatedAt || a.StartDate).getTime();
+                const dateB = new Date(b.updatedAt || b.StartDate).getTime();
+                return dateB - dateA;
+            })
+            .slice(0, 5);
 
         return { pieData, topOwners, recentUpdates };
     }, [vehicles]);
@@ -286,7 +297,7 @@ const VehicleDashboard: React.FC<{ vehicles: EnhancedVehicle[], onSelectVehicle:
         return () => clearInterval(timer);
     }, [slides.length, isPaused]);
 
-    const COLORS = ['#3b82f6', '#f97316', '#8b5cf6', '#22c55e', '#ec4899'];
+    const COLORS = ['#3b82f6', '#f97316', '#8b5cf6', '#22c55e'];
 
     return (
         <div className="p-6 h-full flex flex-col">
@@ -353,65 +364,43 @@ const VehicleDashboard: React.FC<{ vehicles: EnhancedVehicle[], onSelectVehicle:
 };
 
 // --- Vehicle Detail Panel (Right side, on select) ---
-const getHeaderStyles = (type: VehicleTier) => {
-    switch (type) {
-        case VehicleTier.CAR:
-        case VehicleTier.CAR_A:
-            return { bg: 'bg-blue-50', text: 'text-blue-700', border: 'border-blue-200', badgeBg: 'bg-blue-100' };
-        case VehicleTier.MOTORBIKE:
-            return { bg: 'bg-orange-50', text: 'text-orange-700', border: 'border-orange-200', badgeBg: 'bg-orange-100' };
-        case VehicleTier.EBIKE:
-            return { bg: 'bg-emerald-50', text: 'text-emerald-700', border: 'border-emerald-200', badgeBg: 'bg-emerald-100' };
-        case VehicleTier.BICYCLE:
-            return { bg: 'bg-slate-50', text: 'text-slate-700', border: 'border-slate-200', badgeBg: 'bg-slate-200' };
-        default:
-            return { bg: 'bg-gray-50', text: 'text-gray-700', border: 'border-gray-200', badgeBg: 'bg-gray-200' };
-    }
-};
-
-const VehicleDetailPanel: React.FC<{ vehicle: EnhancedVehicle, onEdit: (vehicle: any) => void, onDelete: () => void, onImageClick: (url: string) => void }> = ({ vehicle, onEdit, onDelete, onImageClick }) => {
-    const headerStyles = getHeaderStyles(vehicle.Type);
-
+const VehicleDetailPanel: React.FC<{ vehicle: EnhancedVehicle, onEdit: (vehicle: any) => void, onDelete: () => void }> = ({ vehicle, onEdit, onDelete }) => {
     return (
-        <div className="h-full flex flex-col">
-            <header className={`flex flex-col items-center text-center p-6 rounded-t-xl border-b-2 ${headerStyles.bg} ${headerStyles.text} ${headerStyles.border}`}>
-                <div className="mb-2 opacity-70">
-                    {vehicle.Type.includes('car') ? <CarIcon className="w-12 h-12"/> : (vehicle.Type === VehicleTier.MOTORBIKE ? <MotorbikeIcon className="w-12 h-12" /> : (vehicle.Type === VehicleTier.EBIKE ? <EBikeIcon className="w-12 h-12" /> : <BikeIcon className="w-12 h-12" />))}
-                </div>
-                <h2 className="text-3xl font-bold font-mono tracking-wider">{vehicle.PlateNumber}</h2>
-                {vehicle.parkingStatus && <span className={`mt-2 text-sm font-semibold px-3 py-1 ${headerStyles.badgeBg} rounded-full`}>{vehicle.parkingStatus}</span>}
+        <div className="p-6 h-full space-y-6">
+            <header className="flex flex-col items-center text-center">
+                <div className="text-gray-400 dark:text-gray-500 mb-2">{vehicle.Type.includes('car') ? <CarIcon className="w-12 h-12"/> : <MotorbikeIcon className="w-12 h-12"/>}</div>
+                <h2 className="text-3xl font-bold font-mono tracking-wider text-gray-900 dark:text-white">{vehicle.PlateNumber}</h2>
+                {vehicle.parkingStatus && <span className="mt-2 text-sm font-semibold px-3 py-1 bg-blue-100 text-blue-800 dark:bg-blue-900/50 dark:text-blue-300 rounded-full">{vehicle.parkingStatus}</span>}
             </header>
             
-            <div className="p-6 space-y-6 flex-grow overflow-y-auto">
-                <div>
-                    <h3 className="text-sm font-semibold uppercase text-gray-500 mb-3">Thông tin xe</h3>
-                    <div className="space-y-2 text-sm">
-                        <div className="flex justify-between"><span className="text-gray-500 dark:text-gray-400">Tên/Nhãn hiệu:</span><span className="font-semibold text-gray-900 dark:text-gray-200">{vehicle.VehicleName || 'Chưa có'}</span></div>
-                        <div className="flex justify-between"><span className="text-gray-500 dark:text-gray-400">Ngày đăng ký:</span><span className="font-semibold text-gray-900 dark:text-gray-200">{new Date(vehicle.StartDate).toLocaleDateString('vi-VN')}</span></div>
-                    </div>
+            <div className="border-t dark:border-dark-border pt-4">
+                <h3 className="text-sm font-semibold uppercase text-gray-500 mb-3">Thông tin xe</h3>
+                <div className="space-y-2 text-sm">
+                    <div className="flex justify-between"><span className="text-gray-500 dark:text-gray-400">Tên/Nhãn hiệu:</span><span className="font-semibold text-gray-900 dark:text-gray-200">{vehicle.VehicleName || 'Chưa có'}</span></div>
+                    <div className="flex justify-between"><span className="text-gray-500 dark:text-gray-400">Ngày đăng ký:</span><span className="font-semibold text-gray-900 dark:text-gray-200">{new Date(vehicle.StartDate).toLocaleDateString('vi-VN')}</span></div>
                 </div>
+            </div>
 
-                <div className="border-t dark:border-dark-border pt-4">
-                     <h3 className="text-sm font-semibold uppercase text-gray-500 mb-3">Chủ sở hữu</h3>
-                     <div className="space-y-2 text-sm">
-                        <div className="flex justify-between"><span className="text-gray-500 dark:text-gray-400">Chủ hộ:</span><span className="font-semibold text-gray-900 dark:text-gray-200">{vehicle.ownerName}</span></div>
-                        <div className="flex justify-between"><span className="text-gray-500 dark:text-gray-400">Căn hộ:</span><span className="font-semibold text-gray-900 dark:text-gray-200">{vehicle.UnitID}</span></div>
-                        <div className="flex justify-between"><span className="text-gray-500 dark:text-gray-400">SĐT:</span><span className="font-semibold text-gray-900 dark:text-gray-200">{vehicle.ownerPhone}</span></div>
-                    </div>
+            <div className="border-t dark:border-dark-border pt-4">
+                 <h3 className="text-sm font-semibold uppercase text-gray-500 mb-3">Chủ sở hữu</h3>
+                 <div className="space-y-2 text-sm">
+                    <div className="flex justify-between"><span className="text-gray-500 dark:text-gray-400">Chủ hộ:</span><span className="font-semibold text-gray-900 dark:text-gray-200">{vehicle.ownerName}</span></div>
+                    <div className="flex justify-between"><span className="text-gray-500 dark:text-gray-400">Căn hộ:</span><span className="font-semibold text-gray-900 dark:text-gray-200">{vehicle.UnitID}</span></div>
+                    <div className="flex justify-between"><span className="text-gray-500 dark:text-gray-400">SĐT:</span><span className="font-semibold text-gray-900 dark:text-gray-200">{vehicle.ownerPhone}</span></div>
                 </div>
+            </div>
 
-                <div className="border-t dark:border-dark-border pt-4">
-                    <h3 className="text-sm font-semibold uppercase text-gray-500 mb-3">Hình ảnh</h3>
-                    <div className="grid grid-cols-2 gap-4">
-                        {vehicle.documents?.vehiclePhoto ? <img src={vehicle.documents.vehiclePhoto.url} className="w-full h-24 object-cover rounded-md border cursor-pointer hover:opacity-90 transition-opacity" alt="Ảnh xe" onClick={() => onImageClick(vehicle.documents!.vehiclePhoto!.url)} /> : <div className="w-full h-24 bg-gray-100 rounded-md flex items-center justify-center text-xs text-gray-400">Ảnh xe</div>}
-                        {vehicle.documents?.registration ? <img src={vehicle.documents.registration.url} className="w-full h-24 object-cover rounded-md border cursor-pointer hover:opacity-90 transition-opacity" alt="Ảnh đăng ký" onClick={() => onImageClick(vehicle.documents!.registration!.url)} /> : <div className="w-full h-24 bg-gray-100 rounded-md flex items-center justify-center text-xs text-gray-400">Ảnh đăng ký</div>}
-                    </div>
+            <div className="border-t dark:border-dark-border pt-4">
+                <h3 className="text-sm font-semibold uppercase text-gray-500 mb-3">Hình ảnh</h3>
+                <div className="grid grid-cols-2 gap-4">
+                    {vehicle.documents?.vehiclePhoto ? <img src={vehicle.documents.vehiclePhoto.url} className="w-full h-24 object-cover rounded-md border" alt="Ảnh xe"/> : <div className="w-full h-24 bg-gray-100 rounded-md flex items-center justify-center text-xs text-gray-400">Ảnh xe</div>}
+                    {vehicle.documents?.registration ? <img src={vehicle.documents.registration.url} className="w-full h-24 object-cover rounded-md border" alt="Ảnh đăng ký"/> : <div className="w-full h-24 bg-gray-100 rounded-md flex items-center justify-center text-xs text-gray-400">Ảnh đăng ký</div>}
                 </div>
+            </div>
 
-                <div className="border-t dark:border-dark-border pt-4 flex gap-3 mt-auto">
-                    <button onClick={() => onEdit(vehicle)} className="flex-1 px-4 py-2 bg-primary text-white font-semibold rounded-md shadow-sm hover:bg-primary-focus">Chỉnh sửa</button>
-                    <button onClick={onDelete} className="flex-1 px-4 py-2 bg-red-600 text-white font-semibold rounded-md shadow-sm hover:bg-red-700">Xóa</button>
-                </div>
+            <div className="border-t dark:border-dark-border pt-4 flex gap-3">
+                <button onClick={() => onEdit(vehicle)} className="flex-1 px-4 py-2 bg-primary text-white font-semibold rounded-md shadow-sm hover:bg-primary-focus">Chỉnh sửa</button>
+                <button onClick={onDelete} className="flex-1 px-4 py-2 bg-red-600 text-white font-semibold rounded-md shadow-sm hover:bg-red-700">Xóa</button>
             </div>
         </div>
     );
@@ -447,29 +436,6 @@ const ParkingStatusBadge: React.FC<{ status: Vehicle['parkingStatus'], queueNumb
     );
 };
 
-// --- NEW: Image Preview Modal ---
-const ImagePreviewModal: React.FC<{ imageUrl: string; onClose: () => void; }> = ({ imageUrl, onClose }) => {
-    return (
-        <div className="fixed inset-0 bg-black/80 flex items-center justify-center z-50 p-4" onClick={onClose}>
-            <div className="relative">
-                <img 
-                    src={imageUrl} 
-                    alt="Preview" 
-                    className="max-h-[90vh] max-w-[90vw] object-contain rounded-lg shadow-2xl"
-                    onClick={(e) => e.stopPropagation()} // Prevent image click from closing modal
-                />
-                <button 
-                    onClick={onClose} 
-                    className="absolute -top-3 -right-3 bg-white text-black rounded-full h-8 w-8 flex items-center justify-center text-xl font-bold shadow-lg hover:bg-gray-200"
-                    aria-label="Close image preview"
-                >
-                    &times;
-                </button>
-            </div>
-        </div>
-    );
-};
-
 // --- Vehicle Management Page ---
 interface VehiclesPageProps {
     vehicles: Vehicle[];
@@ -488,11 +454,20 @@ const VehiclesPage: React.FC<VehiclesPageProps> = ({ vehicles, units, owners, on
     const [parkingStatusFilter, setParkingStatusFilter] = useState('all');
     const [editingVehicle, setEditingVehicle] = useState<Vehicle | null>(null);
     const [selectedVehicle, setSelectedVehicle] = useState<EnhancedVehicle | null>(null);
-    const [previewImageUrl, setPreviewImageUrl] = useState<string | null>(null);
-
 
     const ownersMap = useMemo(() => new Map(owners.map(o => [o.OwnerID, o])), [owners]);
     const unitsMap = useMemo(() => new Map(units.map(u => [u.UnitID, u])), [units]);
+
+    const xepLotQueue = useMemo(() => {
+        const queueMap = new Map<string, number>();
+        vehicles
+            .filter(v => v.isActive && v.parkingStatus === 'Xếp lốt' && (v.Type === VehicleTier.CAR || v.Type === VehicleTier.CAR_A))
+            .sort((a, b) => new Date(a.StartDate).getTime() - new Date(b.StartDate).getTime())
+            .forEach((v, index) => {
+                queueMap.set(v.VehicleId, index + 1);
+            });
+        return queueMap;
+    }, [vehicles]);
 
     const enhancedVehicles = useMemo((): EnhancedVehicle[] => vehicles
         .map(v => {
@@ -501,40 +476,24 @@ const VehiclesPage: React.FC<VehiclesPageProps> = ({ vehicles, units, owners, on
             return { ...v, ownerName: owner?.OwnerName ?? 'N/A', ownerPhone: owner?.Phone ?? '' };
         }),
     [vehicles, unitsMap, ownersMap]);
-    
-    // FIX: Create a single source of truth for unique, active vehicles
-    const uniqueAndActiveVehicles = useMemo(() => {
-        const uniqueVehiclesMap = new Map<string, EnhancedVehicle>();
-        enhancedVehicles.forEach(v => {
-            if (!v.isActive) return;
-
-            const plateKey = String(v.PlateNumber ?? '').trim().toUpperCase().replace(/[-.\s]/g, '');
-            const key = v.Type === VehicleTier.BICYCLE ? `${v.UnitID}-${v.Type}-${plateKey}` : plateKey;
-    
-            // If the key is empty (e.g., a bicycle with no plate), we need a unique identifier
-            const finalKey = (key && key !== `${v.UnitID}-${v.Type}-`) ? key : v.VehicleId;
-
-            if (!uniqueVehiclesMap.has(finalKey)) {
-                uniqueVehiclesMap.set(finalKey, v);
-            }
-        });
-        return Array.from(uniqueVehiclesMap.values());
-    }, [enhancedVehicles]);
-
-
-    const xepLotQueue = useMemo(() => {
-        const queueMap = new Map<string, number>();
-        uniqueAndActiveVehicles
-            .filter(v => v.parkingStatus === 'Xếp lốt' && (v.Type === VehicleTier.CAR || v.Type === VehicleTier.CAR_A))
-            .sort((a, b) => new Date(a.StartDate).getTime() - new Date(b.StartDate).getTime())
-            .forEach((v, index) => {
-                queueMap.set(v.VehicleId, index + 1);
-            });
-        return queueMap;
-    }, [uniqueAndActiveVehicles]);
 
     const filteredVehicles = useMemo(() => {
-        return uniqueAndActiveVehicles.filter(v => {
+        const uniqueVehiclesMap = new Map<string, EnhancedVehicle>();
+        enhancedVehicles.forEach(v => {
+            const plateKey = String(v.PlateNumber ?? '').trim().toUpperCase();
+            const key = v.Type === VehicleTier.BICYCLE 
+                ? `${v.UnitID}-${v.Type}-${plateKey}` 
+                : plateKey;
+    
+            if (!uniqueVehiclesMap.has(key)) {
+                uniqueVehiclesMap.set(key, v);
+            }
+        });
+        const uniqueVehicles = Array.from(uniqueVehiclesMap.values());
+    
+        return uniqueVehicles.filter(v => {
+            if (!v.isActive) return false;
+            
             if (typeFilter !== 'all') {
                 if (typeFilter === 'all_cars') {
                     if (v.Type !== VehicleTier.CAR && v.Type !== VehicleTier.CAR_A) return false;
@@ -566,11 +525,10 @@ const VehiclesPage: React.FC<VehiclesPageProps> = ({ vehicles, units, owners, on
             }
             return pa.apt - pb.apt;
         });
-    }, [uniqueAndActiveVehicles, searchTerm, typeFilter, parkingStatusFilter]);
+    }, [enhancedVehicles, searchTerm, typeFilter, parkingStatusFilter]);
     
-    // FIX: Calculate KPIs from the unique and active vehicles list
     const kpiStats = useMemo(() => {
-        const active = uniqueAndActiveVehicles;
+        const active = enhancedVehicles.filter(v => v.isActive);
         
         const totalNormalCars = active.filter(v => v.Type === VehicleTier.CAR).length;
         const totalTypeACars = active.filter(v => v.Type === VehicleTier.CAR_A).length;
@@ -592,7 +550,7 @@ const VehiclesPage: React.FC<VehiclesPageProps> = ({ vehicles, units, owners, on
             tempParkingUsage,
             queuedForParking,
         };
-    }, [uniqueAndActiveVehicles]);
+    }, [enhancedVehicles]);
 
     const handleEdit = (vehicle: Vehicle) => {
         if (!canEdit) {
@@ -650,10 +608,38 @@ const VehiclesPage: React.FC<VehiclesPageProps> = ({ vehicles, units, owners, on
         }
     };
 
+    const handleExportExcel = () => {
+        if (filteredVehicles.length === 0) {
+            showToast('Không có dữ liệu để xuất.', 'info');
+            return;
+        }
+
+        const data = filteredVehicles.map((v, index) => ({
+            'STT': Number(index) + 1,
+            'Căn hộ': v.UnitID,
+            'Chủ hộ': v.ownerName,
+            'SĐT': v.ownerPhone,
+            'Biển số': v.PlateNumber,
+            'Loại xe': translateVehicleType(v.Type),
+            'Trạng thái': v.parkingStatus || '-',
+            'Ngày ĐK': new Date(v.StartDate).toLocaleDateString('vi-VN')
+        }));
+
+        try {
+            const worksheet = XLSX.utils.json_to_sheet(data);
+            const workbook = XLSX.utils.book_new();
+            XLSX.utils.book_append_sheet(workbook, worksheet, "DanhSachXe");
+            XLSX.writeFile(workbook, `DanhSachXe_${new Date().toISOString().slice(0, 10)}.xlsx`);
+            showToast('Xuất file thành công!', 'success');
+        } catch (error) {
+            console.error("Export error:", error);
+            showToast('Lỗi khi xuất file Excel.', 'error');
+        }
+    };
+
     return (
         <div className="flex gap-6 h-full overflow-hidden">
             {editingVehicle && <VehicleEditModal vehicle={editingVehicle} onSave={handleSave} onClose={() => setEditingVehicle(null)} />}
-            {previewImageUrl && <ImagePreviewModal imageUrl={previewImageUrl} onClose={() => setPreviewImageUrl(null)} />}
             
             {/* Left Column */}
             <div className="w-2/3 flex flex-col gap-4 min-w-0">
@@ -665,25 +651,33 @@ const VehiclesPage: React.FC<VehiclesPageProps> = ({ vehicles, units, owners, on
                 </div>
                 
                 <div className="bg-white dark:bg-dark-bg-secondary p-4 rounded-xl shadow-sm">
-                    <div className="flex items-center gap-4">
-                        <div className="relative flex-grow">
-                            <SearchIcon className="absolute left-3 top-1/2 -translate-y-1/2 h-5 w-5 text-gray-400" />
-                            <input type="text" placeholder="Tìm biển số, căn hộ, chủ hộ..." value={searchTerm} onChange={e => setSearchTerm(e.target.value)} className="w-full h-10 pl-10 pr-3 border rounded-lg bg-white dark:bg-dark-bg-secondary border-gray-300 dark:border-gray-600"/>
+                    <div className="flex flex-col md:flex-row items-center justify-between gap-4">
+                        {/* Left Side: Search & Filters */}
+                        <div className="flex items-center gap-2 flex-grow w-full md:w-auto">
+                            <div className="relative flex-grow">
+                                <SearchIcon className="absolute left-3 top-1/2 -translate-y-1/2 h-5 w-5 text-gray-400" />
+                                <input type="text" placeholder="Tìm biển số, căn hộ, chủ hộ..." value={searchTerm} onChange={e => setSearchTerm(e.target.value)} className="w-full h-10 pl-10 pr-3 border rounded-lg bg-white dark:bg-dark-bg-secondary border-gray-300 dark:border-gray-600"/>
+                            </div>
+                            <select value={typeFilter} onChange={e => setTypeFilter(e.target.value)} className="h-10 px-3 border rounded-lg bg-white dark:bg-dark-bg-secondary border-gray-300 dark:border-gray-600 w-32 md:w-auto">
+                                <option value="all">Type</option>
+                                <option value="all_cars">Cars (All)</option>
+                                <option value={VehicleTier.MOTORBIKE}>Motorbike</option>
+                                <option value={VehicleTier.EBIKE}>E-Bike</option>
+                                <option value={VehicleTier.BICYCLE}>Bicycle</option>
+                            </select>
+                            <select value={parkingStatusFilter} onChange={e => setParkingStatusFilter(e.target.value)} className="h-10 px-3 border rounded-lg bg-white dark:bg-dark-bg-secondary border-gray-300 dark:border-gray-600 w-32 md:w-auto">
+                                <option value="all">Status</option>
+                                <option value="Lốt chính">Lốt chính</option>
+                                <option value="Lốt tạm">Lốt tạm</option>
+                                <option value="Xếp lốt">Xếp lốt</option>
+                                <option value="none">None</option>
+                            </select>
                         </div>
-                        <select value={typeFilter} onChange={e => setTypeFilter(e.target.value)} className="h-10 px-3 border rounded-lg bg-white dark:bg-dark-bg-secondary border-gray-300 dark:border-gray-600">
-                            <option value="all">Tất cả loại xe</option>
-                            <option value="all_cars">Tất cả Ô tô</option>
-                            <option value={VehicleTier.MOTORBIKE}>Xe máy</option>
-                            <option value={VehicleTier.EBIKE}>Xe điện</option>
-                            <option value={VehicleTier.BICYCLE}>Xe đạp</option>
-                        </select>
-                        <select value={parkingStatusFilter} onChange={e => setParkingStatusFilter(e.target.value)} className="h-10 px-3 border rounded-lg bg-white dark:bg-dark-bg-secondary border-gray-300 dark:border-gray-600">
-                            <option value="all">Tất cả trạng thái đỗ</option>
-                            <option value="Lốt chính">Lốt chính</option>
-                            <option value="Lốt tạm">Lốt tạm</option>
-                            <option value="Xếp lốt">Xếp lốt</option>
-                            <option value="none">Chưa có</option>
-                        </select>
+
+                        {/* Right Side: Export */}
+                        <button onClick={handleExportExcel} className="h-10 px-4 font-semibold rounded-lg flex items-center gap-2 bg-green-600 text-white hover:bg-green-700 shadow-sm whitespace-nowrap">
+                            <TableCellsIcon className="w-5 h-5" /> Export
+                        </button>
                     </div>
                 </div>
 
@@ -733,10 +727,9 @@ const VehiclesPage: React.FC<VehiclesPageProps> = ({ vehicles, units, owners, on
                         vehicle={selectedVehicle}
                         onEdit={handleEdit}
                         onDelete={() => handleDelete(selectedVehicle)}
-                        onImageClick={setPreviewImageUrl}
                     />
                 ) : (
-                    <VehicleDashboard vehicles={uniqueAndActiveVehicles} onSelectVehicle={setSelectedVehicle} />
+                    <VehicleDashboard vehicles={enhancedVehicles} onSelectVehicle={setSelectedVehicle} />
                 )}
             </div>
         </div>

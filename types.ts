@@ -1,9 +1,10 @@
+
 // types.ts
 
 export type Role = 'Admin' | 'Accountant' | 'Operator' | 'Viewer';
 
-// UPDATED: Added 'reconciling' status for bank statement imports
-export type PaymentStatus = 'pending' | 'unpaid' | 'paid' | 'reconciling';
+// UPDATED: Added specific payment method statuses
+export type PaymentStatus = 'pending' | 'unpaid' | 'paid' | 'reconciling' | 'paid_tm' | 'paid_ck';
 
 export interface UserPermission {
     Email: string;
