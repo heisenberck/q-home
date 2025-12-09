@@ -344,7 +344,7 @@ const BillingPage: React.FC<BillingPageProps> = ({ charges, setCharges, allData,
     
     const floors = useMemo(() => {
         const floorNumbers = Array.from(new Set(allData.units.filter(u=>u.UnitType === UnitType.APARTMENT).map(u => u.UnitID.slice(0,-2)))).sort((a,b) => parseInt(String(a), 10) - parseInt(String(b), 10));
-        return [{value: 'all', label: 'Floor'}, ...floorNumbers.map(f => ({value: f, label: `Floor ${f}`})), {value: 'KIOS', label: 'KIOS'}];
+        return [{value: 'all', label: 'All Floors'}, ...floorNumbers.map(f => ({value: f, label: `Floor ${f}`})), {value: 'KIOS', label: 'KIOS'}];
     }, [allData.units]);
 
     const [floorFilter, setFloorFilter] = useState('all');
@@ -879,15 +879,13 @@ const BillingPage: React.FC<BillingPageProps> = ({ charges, setCharges, allData,
                 const workbook = XLSX.read(data, { type: 'array' });
                 const sheetName = workbook.SheetNames[0];
                 const sheet = workbook.Sheets[sheetName];
-                
                 // Changed to any[][] to prevent "Type 'unknown[]' is not assignable to type 'string[]'" error
-                const json = XLSX.utils.sheet_to_json(sheet, { header: 1 }) as any[][];
+                const json: any[][] = XLSX.utils.sheet_to_json(sheet, { header: 1 });
 
                 let headerIndex = -1, colCredit = -1, colDesc = -1;
                 for (let i = 0; i < Math.min(20, json.length); i++) {
                     if (Array.isArray(json[i])) {
-                        // Cast json[i] to any[] to allow .map
-                        const row: string[] = (json[i] as any[]).map((cell: any) => String(cell ?? "").toLowerCase());
+                        const row: string[] = json[i].map((cell: any) => String(cell ?? "").toLowerCase());
                         const cIdx = row.findIndex(cell => cell.includes('so tien ghi co') || cell.includes('credit amount'));
                         const dIdx = row.findIndex(cell => cell.includes('noi dung') || cell.includes('transaction detail') || cell.includes('description'));
                         if (cIdx !== -1 && dIdx !== -1) { headerIndex = i; colCredit = cIdx; colDesc = dIdx; break; }
@@ -1074,7 +1072,7 @@ const BillingPage: React.FC<BillingPageProps> = ({ charges, setCharges, allData,
                                 onValueChange={setStatusFilter}
                                 tooltip="Lọc theo trạng thái"
                                 options={[
-                                    { value: 'all', label: 'Status' },
+                                    { value: 'all', label: 'All Statuses' },
                                     { value: 'paid', label: 'Paid (Any)' },
                                     { value: 'reconciling', label: 'Reconciling' },
                                     { value: 'unpaid', label: 'Unpaid' },

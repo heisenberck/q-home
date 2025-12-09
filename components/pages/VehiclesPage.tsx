@@ -8,17 +8,16 @@ import Modal from '../ui/Modal';
 import StatCard from '../ui/StatCard';
 import { 
     CarIcon, SearchIcon, PencilSquareIcon, WarningIcon, UploadIcon, 
-    TrashIcon, DocumentTextIcon, MotorbikeIcon, BikeIcon, EBikeIcon, ChevronLeftIcon, ChevronRightIcon, ShieldCheckIcon, TableCellsIcon 
+    TrashIcon, DocumentTextIcon, MotorbikeIcon, BikeIcon, EBikeIcon, ChevronLeftIcon, ChevronRightIcon, ShieldCheckIcon, DocumentArrowDownIcon
 } from '../ui/Icons';
 import { formatLicensePlate, translateVehicleType, vehicleTypeLabels, compressImageToWebP, timeAgo } from '../../utils/helpers';
-
-// Ensure XLSX is available
-declare const XLSX: any;
 
 const PARKING_CAPACITY = {
     main: 89,
     temp: 15,
 };
+
+declare const XLSX: any;
 
 // Helper function to parse unit IDs for sorting
 const parseUnitCode = (code: string) => {
@@ -274,13 +273,7 @@ const VehicleDashboard: React.FC<{ vehicles: EnhancedVehicle[], onSelectVehicle:
         }, {});
 
         const topOwners = Object.entries(vehicleCountsByUnit).sort((a, b) => b[1] - a[1]).slice(0, 5);
-        const recentUpdates = [...active]
-            .sort((a, b) => {
-                const dateA = new Date(a.updatedAt || a.StartDate).getTime();
-                const dateB = new Date(b.updatedAt || b.StartDate).getTime();
-                return dateB - dateA;
-            })
-            .slice(0, 5);
+        const recentUpdates = [...active].sort((a, b) => new Date(b.updatedAt || b.StartDate).getTime() - new Date(a.updatedAt || a.StartDate).getTime()).slice(0, 5);
 
         return { pieData, topOwners, recentUpdates };
     }, [vehicles]);
@@ -608,34 +601,37 @@ const VehiclesPage: React.FC<VehiclesPageProps> = ({ vehicles, units, owners, on
         }
     };
 
-    const handleExportExcel = () => {
+    // New Export Function
+    const handleExport = useCallback(() => {
         if (filteredVehicles.length === 0) {
             showToast('Không có dữ liệu để xuất.', 'info');
             return;
         }
 
-        const data = filteredVehicles.map((v, index) => ({
-            'STT': Number(index) + 1,
+        const dataToExport = filteredVehicles.map((v, index) => ({
+            STT: Number(index) + 1,
             'Căn hộ': v.UnitID,
             'Chủ hộ': v.ownerName,
             'SĐT': v.ownerPhone,
             'Biển số': v.PlateNumber,
             'Loại xe': translateVehicleType(v.Type),
-            'Trạng thái': v.parkingStatus || '-',
-            'Ngày ĐK': new Date(v.StartDate).toLocaleDateString('vi-VN')
+            'Tên xe': v.VehicleName,
+            'Trạng thái': v.parkingStatus || '',
+            'Ngày ĐK': v.StartDate ? new Date(v.StartDate).toLocaleDateString('vi-VN') : '',
+            'Ghi chú': v.log || ''
         }));
 
         try {
-            const worksheet = XLSX.utils.json_to_sheet(data);
+            const worksheet = XLSX.utils.json_to_sheet(dataToExport);
             const workbook = XLSX.utils.book_new();
-            XLSX.utils.book_append_sheet(workbook, worksheet, "DanhSachXe");
+            XLSX.utils.book_append_sheet(workbook, worksheet, "Vehicles");
             XLSX.writeFile(workbook, `DanhSachXe_${new Date().toISOString().slice(0, 10)}.xlsx`);
-            showToast('Xuất file thành công!', 'success');
+            showToast(`Đã xuất ${dataToExport.length} bản ghi thành công.`, 'success');
         } catch (error) {
             console.error("Export error:", error);
-            showToast('Lỗi khi xuất file Excel.', 'error');
+            showToast("Lỗi khi xuất dữ liệu.", 'error');
         }
-    };
+    }, [filteredVehicles, showToast]);
 
     return (
         <div className="flex gap-6 h-full overflow-hidden">
@@ -651,33 +647,35 @@ const VehiclesPage: React.FC<VehiclesPageProps> = ({ vehicles, units, owners, on
                 </div>
                 
                 <div className="bg-white dark:bg-dark-bg-secondary p-4 rounded-xl shadow-sm">
-                    <div className="flex flex-col md:flex-row items-center justify-between gap-4">
-                        {/* Left Side: Search & Filters */}
-                        <div className="flex items-center gap-2 flex-grow w-full md:w-auto">
-                            <div className="relative flex-grow">
+                    <div className="flex items-center justify-between gap-4">
+                        {/* Left Side: Search and Filters */}
+                        <div className="flex items-center gap-2 flex-grow max-w-4xl">
+                            <div className="relative flex-grow min-w-[200px]">
                                 <SearchIcon className="absolute left-3 top-1/2 -translate-y-1/2 h-5 w-5 text-gray-400" />
-                                <input type="text" placeholder="Tìm biển số, căn hộ, chủ hộ..." value={searchTerm} onChange={e => setSearchTerm(e.target.value)} className="w-full h-10 pl-10 pr-3 border rounded-lg bg-white dark:bg-dark-bg-secondary border-gray-300 dark:border-gray-600"/>
+                                <input type="text" placeholder="Tìm biển số, căn hộ..." value={searchTerm} onChange={e => setSearchTerm(e.target.value)} className="w-full h-10 pl-10 pr-3 border rounded-lg bg-white dark:bg-dark-bg-secondary border-gray-300 dark:border-gray-600 text-gray-900 dark:text-white text-sm"/>
                             </div>
-                            <select value={typeFilter} onChange={e => setTypeFilter(e.target.value)} className="h-10 px-3 border rounded-lg bg-white dark:bg-dark-bg-secondary border-gray-300 dark:border-gray-600 w-32 md:w-auto">
-                                <option value="all">Type</option>
-                                <option value="all_cars">Cars (All)</option>
-                                <option value={VehicleTier.MOTORBIKE}>Motorbike</option>
-                                <option value={VehicleTier.EBIKE}>E-Bike</option>
-                                <option value={VehicleTier.BICYCLE}>Bicycle</option>
+                            <select value={typeFilter} onChange={e => setTypeFilter(e.target.value)} className="h-10 px-3 border rounded-lg bg-white dark:bg-dark-bg-secondary border-gray-300 dark:border-gray-600 text-sm min-w-[120px]">
+                                <option value="all">All Types</option>
+                                <option value="all_cars">All Cars</option>
+                                <option value={VehicleTier.MOTORBIKE}>Xe máy</option>
+                                <option value={VehicleTier.EBIKE}>Xe điện</option>
+                                <option value={VehicleTier.BICYCLE}>Xe đạp</option>
                             </select>
-                            <select value={parkingStatusFilter} onChange={e => setParkingStatusFilter(e.target.value)} className="h-10 px-3 border rounded-lg bg-white dark:bg-dark-bg-secondary border-gray-300 dark:border-gray-600 w-32 md:w-auto">
-                                <option value="all">Status</option>
+                            <select value={parkingStatusFilter} onChange={e => setParkingStatusFilter(e.target.value)} className="h-10 px-3 border rounded-lg bg-white dark:bg-dark-bg-secondary border-gray-300 dark:border-gray-600 text-sm min-w-[120px]">
+                                <option value="all">All Statuses</option>
                                 <option value="Lốt chính">Lốt chính</option>
                                 <option value="Lốt tạm">Lốt tạm</option>
                                 <option value="Xếp lốt">Xếp lốt</option>
-                                <option value="none">None</option>
+                                <option value="none">Chưa có</option>
                             </select>
                         </div>
 
-                        {/* Right Side: Export */}
-                        <button onClick={handleExportExcel} className="h-10 px-4 font-semibold rounded-lg flex items-center gap-2 bg-green-600 text-white hover:bg-green-700 shadow-sm whitespace-nowrap">
-                            <TableCellsIcon className="w-5 h-5" /> Export
-                        </button>
+                        {/* Right Side: Export Button */}
+                        <div className="flex-shrink-0">
+                             <button onClick={handleExport} className="h-10 px-4 font-semibold rounded-lg flex items-center gap-2 border border-green-600 text-green-700 hover:bg-green-600/10 bg-white dark:bg-transparent text-sm">
+                                <DocumentArrowDownIcon className="w-5 h-5"/> Export
+                            </button>
+                        </div>
                     </div>
                 </div>
 
