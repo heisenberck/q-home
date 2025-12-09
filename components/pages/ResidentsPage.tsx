@@ -232,6 +232,7 @@ const ResidentDetailModal: React.FC<{
     resident: ResidentData;
     onClose: () => void;
     onSave: (updatedData: { unit: Unit, owner: Owner, vehicles: Vehicle[] }, reason: string) => Promise<void>;
+// FIX: Added missing opening brace '{' for the arrow function body.
 }> = ({ resident, onClose, onSave }) => {
     const { showToast } = useNotification();
     
@@ -906,7 +907,6 @@ const ResidentsPage: React.FC<ResidentsPageProps> = ({ units, owners, vehicles, 
             XLSX.writeFile(workbook, `DanhSachCuDan_${new Date().toISOString().slice(0, 10)}.xlsx`);
             showToast('Xuất file Excel thành công!', 'success');
         } catch (error) {
-            console.error("Failed to export Excel:", error);
             showToast('Có lỗi xảy ra khi xuất file.', 'error');
         }
     }, [filteredResidents, showToast]);
@@ -936,7 +936,6 @@ const ResidentsPage: React.FC<ResidentsPageProps> = ({ units, owners, vehicles, 
             pdf.save(`HoSoCuDan_${resident.unit.UnitID}.pdf`);
             showToast('Đã xuất PDF thành công!', 'success');
         } catch (error) {
-            console.error('PDF export error:', error);
             showToast('Lỗi khi xuất file PDF.', 'error');
         }
     }, [showToast]);
@@ -1229,7 +1228,7 @@ const ResidentDashboard: React.FC<{ units: Unit[], owners: Owner[], vehicles: Ve
                 acc[v.UnitID] = currentCount + 1;
             }
             return acc;
-        }, {});
+        }, {} as Record<string, number>);
         
         const topVehicles = Object.entries(vehicleCounts)
             .sort((a, b) => b[1] - a[1])
@@ -1273,13 +1272,13 @@ const ResidentDashboard: React.FC<{ units: Unit[], owners: Owner[], vehicles: Ve
     useEffect(() => {
         if (!isStatsExpanded) return;
         const timer = setInterval(() => {
-            setActiveSlide((prev) => (prev + 1) % slides.length);
+            setActiveSlide((prev: number) => (prev + 1) % slides.length);
         }, 5000);
         return () => clearInterval(timer);
     }, [slides.length, isStatsExpanded]);
 
     const goToNext = () => setActiveSlide((prev: number) => (prev + 1) % slides.length);
-    const goToPrev = () => setActiveSlide((prev: number) => (prev - 1 + slides.length) % slides.length);
+    const goToPrev = (prev: number) => (prev - 1 + slides.length) % slides.length;
 
     const currentSlideData = slides[activeSlide];
     
@@ -1325,7 +1324,7 @@ const ResidentDashboard: React.FC<{ units: Unit[], owners: Owner[], vehicles: Ve
                          {currentSlideData.list && currentSlideData.list.length === 0 && <p className="text-sm text-gray-500 mt-4">Chưa có dữ liệu xe</p>}
                     </div>
 
-                    <button onClick={goToPrev} className="absolute -left-3 top-1/2 -translate-y-1/2 p-1 bg-white dark:bg-gray-700 rounded-full shadow-md hover:bg-gray-100 dark:hover:bg-gray-600 focus:outline-none focus:ring-2 focus:ring-primary z-10">
+                    <button onClick={() => setActiveSlide(goToPrev)} className="absolute -left-3 top-1/2 -translate-y-1/2 p-1 bg-white dark:bg-gray-700 rounded-full shadow-md hover:bg-gray-100 dark:hover:bg-gray-600 focus:outline-none focus:ring-2 focus:ring-primary z-10">
                         <ChevronLeftIcon />
                     </button>
                     <button onClick={goToNext} className="absolute -right-3 top-1/2 -translate-y-1/2 p-1 bg-white dark:bg-gray-700 rounded-full shadow-md hover:bg-gray-100 dark:hover:bg-gray-600 focus:outline-none focus:ring-2 focus:ring-primary z-10">

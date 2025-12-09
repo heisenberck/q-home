@@ -1,11 +1,9 @@
-
 import React, { useState, useCallback, useMemo, useRef } from 'react';
 import type { ChargeRaw, Adjustment, AllData, Role, PaymentStatus, InvoiceSettings } from '../../types';
 import { UnitType } from '../../types';
 import { LogPayload } from '../../App';
 import { useNotification, useLogger } from '../../App';
 import { 
-    saveChargesBatch as saveChargesBatchAPI, 
     updateChargeStatuses, 
     updateChargePayments,
     confirmSinglePayment,
@@ -451,8 +449,6 @@ const BillingPage: React.FC<BillingPageProps> = ({ charges, setCharges, allData,
 
             const newChargesFromCalc = await calculateChargesBatch(period, calculationInputs, allData);
             const newChargesWithMeta = newChargesFromCalc.map(c => ({...c, CreatedAt: new Date().toISOString(), Locked: false }));
-            
-            await saveChargesBatchAPI(newChargesWithMeta);
 
             const updater = (prev: ChargeRaw[]) => {
                 const chargesFromOtherPeriods = prev.filter(c => c.Period !== period);
@@ -462,7 +458,6 @@ const BillingPage: React.FC<BillingPageProps> = ({ charges, setCharges, allData,
                 return [...chargesFromOtherPeriods, ...chargesToKeep, ...newChargesWithMeta];
             };
 
-            // FIX: Add before_snapshot for undo functionality
             setCharges(updater, {
                 module: 'Billing',
                 action: 'CALCULATE_CHARGES',
@@ -482,7 +477,6 @@ const BillingPage: React.FC<BillingPageProps> = ({ charges, setCharges, allData,
             showToast('Kỳ đã được tự động khoá. Nhấn đúp để mở khoá và tính lại.', 'info');
 
         } catch (error) {
-            console.error("Calculation failed", error);
             showToast('Quá trình tính phí xảy ra lỗi.', 'error');
         } finally {
             setIsLoading(false);
@@ -565,7 +559,6 @@ const BillingPage: React.FC<BillingPageProps> = ({ charges, setCharges, allData,
             return c;
         });
     
-        // FIX: Add before_snapshot for undo functionality
         setCharges(updater, {
             module: 'Billing',
             action: 'BULK_UPDATE_CHARGE_STATUS',
@@ -647,7 +640,7 @@ const BillingPage: React.FC<BillingPageProps> = ({ charges, setCharges, allData,
                 pdf.addImage(canvas.toDataURL('image/jpeg', 0.95), 'JPEG', 0, 0, 210, 148);
                 host.remove();
                 files.push({ name: `PhieuBaoPhi_${charge.UnitID}_${charge.Period}.pdf`, blob: pdf.output('blob') });
-            } catch (e) { console.error(`Failed to generate PDF for ${charge.UnitID}`, e); }
+            } catch (e) { /* ignore */ }
             setExportProgress(p => ({ ...p, done: i + 1 }));
         }
     
@@ -706,7 +699,6 @@ const BillingPage: React.FC<BillingPageProps> = ({ charges, setCharges, allData,
                 const base64Data = pdf.output('datauristring').split(',')[1];
                 attachment = { name: `PhieuBaoPhi_${charge.UnitID}_${charge.Period}.pdf`, data: base64Data };
             } catch (e) {
-                console.error(`Failed to generate PDF for ${charge.UnitID}`, e);
                 showToast(`Lỗi tạo PDF cho ${charge.UnitID}, bỏ qua...`, 'error');
                 failCount++;
                 continue;
@@ -770,7 +762,6 @@ const BillingPage: React.FC<BillingPageProps> = ({ charges, setCharges, allData,
             const base64Data = pdf.output('datauristring').split(',')[1];
             attachment = { name: `PhieuBaoPhi_${charge.UnitID}_${charge.Period}.pdf`, data: base64Data };
         } catch (e) {
-            console.error(`Failed to generate PDF for ${charge.UnitID}`, e);
             showToast(`Lỗi tạo PDF cho ${charge.UnitID}, email sẽ được gửi không có đính kèm.`, 'error');
         }
 
@@ -879,13 +870,12 @@ const BillingPage: React.FC<BillingPageProps> = ({ charges, setCharges, allData,
                 const workbook = XLSX.read(data, { type: 'array' });
                 const sheetName = workbook.SheetNames[0];
                 const sheet = workbook.Sheets[sheetName];
-                // Changed to any[][] to prevent "Type 'unknown[]' is not assignable to type 'string[]'" error
                 const json: any[][] = XLSX.utils.sheet_to_json(sheet, { header: 1 });
 
                 let headerIndex = -1, colCredit = -1, colDesc = -1;
                 for (let i = 0; i < Math.min(20, json.length); i++) {
                     if (Array.isArray(json[i])) {
-                        const row: string[] = json[i].map((cell: any) => String(cell ?? "").toLowerCase());
+                        const row: string[] = (json[i] as any[]).map((cell: any) => String(cell ?? "").toLowerCase());
                         const cIdx = row.findIndex(cell => cell.includes('so tien ghi co') || cell.includes('credit amount'));
                         const dIdx = row.findIndex(cell => cell.includes('noi dung') || cell.includes('transaction detail') || cell.includes('description'));
                         if (cIdx !== -1 && dIdx !== -1) { headerIndex = i; colCredit = cIdx; colDesc = dIdx; break; }
@@ -945,7 +935,6 @@ const BillingPage: React.FC<BillingPageProps> = ({ charges, setCharges, allData,
                         return charge;
                     });
                     
-                    // FIX: Add before_snapshot for undo functionality
                     setCharges(updater, {
                         module: 'Billing', action: 'IMPORT_BANK_STATEMENT',
                         summary: `Đối soát ${updatesToApply.size} giao dịch, tổng: ${formatCurrency(totalReconciledAmount)}`,
@@ -1088,7 +1077,6 @@ const BillingPage: React.FC<BillingPageProps> = ({ charges, setCharges, allData,
                             <CircularArrowRefreshIcon /> 
                         </button>
                         
-                        {/* FIX: Replace canLock with canCalculate */}
                         <div className="relative" title={!isLoading && canCalculate ? 'Nhấn đúp để khóa/mở khóa' : ''}>
                              <button onClick={handlePrimaryAction} disabled={isLoading || !canCalculate || isRefreshing} data-tooltip={primaryActionState === 'locked' ? 'Kỳ đang bị khóa. Nhấn đúp để mở.' : 'Tính phí cho kỳ'} className={`h-10 px-4 text-white font-bold rounded-lg shadow-sm transition-colors flex items-center gap-1.5 disabled:bg-gray-400 disabled:cursor-not-allowed ${primaryActionState === 'locked' ? 'bg-gray-700 hover:bg-gray-800' : (primaryActionState === 'recalculate' ? 'bg-yellow-500 hover:bg-yellow-600' : 'bg-green-600 hover:bg-green-700')}`}>
                                 {primaryActionState === 'locked' ? <LockClosedIcon /> : (isLoading ? <Spinner /> : (primaryActionState === 'recalculate' ? <CircularArrowRefreshIcon /> : <CalculatorIcon2 />))}

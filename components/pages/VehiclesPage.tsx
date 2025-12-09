@@ -1,4 +1,3 @@
-
 import React, { useState, useMemo, useCallback, useEffect } from 'react';
 import { PieChart, Pie, Cell, Tooltip, Legend, ResponsiveContainer } from 'recharts';
 import type { Vehicle, VehicleDocument, Unit, Owner, Role } from '../../types';
@@ -8,23 +7,36 @@ import Modal from '../ui/Modal';
 import StatCard from '../ui/StatCard';
 import { 
     CarIcon, SearchIcon, PencilSquareIcon, WarningIcon, UploadIcon, 
-    TrashIcon, DocumentTextIcon, MotorbikeIcon, BikeIcon, EBikeIcon, ChevronLeftIcon, ChevronRightIcon, ShieldCheckIcon, DocumentArrowDownIcon
+    TrashIcon, DocumentTextIcon, MotorbikeIcon, BikeIcon, EBikeIcon, 
+    ChevronLeftIcon, ChevronRightIcon, ShieldCheckIcon, DocumentArrowDownIcon 
 } from '../ui/Icons';
 import { formatLicensePlate, translateVehicleType, vehicleTypeLabels, compressImageToWebP, timeAgo } from '../../utils/helpers';
 
-const PARKING_CAPACITY = {
-    main: 89,
-    temp: 15,
-};
-
 declare const XLSX: any;
+
+// Helper to get color theme based on vehicle type
+const getVehicleColorTheme = (type: VehicleTier) => {
+    switch (type) {
+        case VehicleTier.CAR:
+        case VehicleTier.CAR_A:
+            return { headerBg: 'bg-orange-100', headerText: 'text-gray-900', badge: 'bg-orange-100 text-orange-800' };
+        case VehicleTier.MOTORBIKE:
+            return { headerBg: 'bg-blue-100', headerText: 'text-gray-900', badge: 'bg-blue-100 text-blue-800' };
+        case VehicleTier.EBIKE:
+            return { headerBg: 'bg-green-100', headerText: 'text-gray-900', badge: 'bg-green-100 text-green-800' };
+        case VehicleTier.BICYCLE:
+            return { headerBg: 'bg-purple-100', headerText: 'text-gray-900', badge: 'bg-purple-100 text-purple-800' };
+        default:
+            return { headerBg: 'bg-gray-100', headerText: 'text-gray-900', badge: 'bg-gray-100 text-gray-800' };
+    }
+};
 
 // Helper function to parse unit IDs for sorting
 const parseUnitCode = (code: string) => {
     const s = String(code).trim();
     if (s.startsWith('K')) return { floor: 99, apt: parseInt(s.substring(1), 10) || 0 };
     if (!/^\d{3,4}$/.test(s)) return null;
-    let floor, apt;
+    let floor: number, apt: number;
     if (s.length === 3) {
         floor = parseInt(s.slice(0, 1), 10);
         apt = parseInt(s.slice(1), 10);
@@ -32,30 +44,64 @@ const parseUnitCode = (code: string) => {
         floor = parseInt(s.slice(0, 2), 10);
         apt = parseInt(s.slice(2), 10);
     }
-    return { floor, apt };
+    // Ensure we always return numbers to avoid arithmetic errors
+    return { floor: isNaN(floor) ? 0 : floor, apt: isNaN(apt) ? 0 : apt };
 };
 
-// --- NEW: Document Preview Modal ---
+// --- Document Preview Modal with Download ---
 const DocumentPreviewModal: React.FC<{
     doc: VehicleDocument;
     onClose: () => void;
 }> = ({ doc, onClose }) => {
     const isImage = doc.type.startsWith('image/');
-    const isPdf = doc.type === 'application/pdf';
+    const isPdf = doc.type === 'application/pdf' || doc.url.startsWith('data:application/pdf');
+
+    const handleDownload = () => {
+        const link = document.createElement('a');
+        link.href = doc.url;
+        link.download = doc.name || 'document';
+        document.body.appendChild(link);
+        link.click();
+        document.body.removeChild(link);
+    };
 
     return (
         <Modal title={`Xem tài liệu: ${doc.name}`} onClose={onClose} size="4xl">
-            <div className="flex justify-center items-center p-4 bg-gray-100 dark:bg-gray-900 min-h-[400px]">
-                {isImage && <img src={doc.url} alt={doc.name} className="max-w-full max-h-[80vh] object-contain shadow-md" />}
-                {isPdf && (
-                    <iframe src={doc.url} className="w-full h-[80vh] shadow-md" title={doc.name}></iframe>
-                )}
-                {!isImage && !isPdf && (
-                    <div className="text-center">
-                        <p className="text-lg mb-4">Định dạng file này không hỗ trợ xem trước.</p>
-                        <a href={doc.url} download={doc.name} className="px-4 py-2 bg-primary text-white rounded-md">Tải xuống</a>
-                    </div>
-                )}
+            <div className="flex flex-col h-full">
+                <div className="flex justify-between items-center p-2 border-b bg-gray-50 dark:bg-gray-800 border-gray-200 dark:border-gray-700">
+                    <span className="text-sm font-medium text-gray-500">{doc.name}</span>
+                    <button
+                        onClick={handleDownload}
+                        className="flex items-center gap-2 px-3 py-1.5 text-sm font-bold text-white bg-primary rounded-md hover:bg-primary-focus shadow-sm transition-colors"
+                    >
+                        <DocumentArrowDownIcon className="w-4 h-4" />
+                        Tải về
+                    </button>
+                </div>
+                <div className="flex justify-center items-center p-4 bg-gray-100 dark:bg-gray-900 min-h-[400px] flex-grow overflow-auto relative">
+                    {isImage && (
+                        <img 
+                            src={doc.url} 
+                            alt={doc.name} 
+                            className="max-w-full max-h-[70vh] object-contain shadow-md rounded-md" 
+                        />
+                    )}
+                    {isPdf && (
+                        <iframe 
+                            src={doc.url} 
+                            className="w-full h-[70vh] shadow-md border-0 rounded-md" 
+                            title={doc.name}
+                        ></iframe>
+                    )}
+                    {!isImage && !isPdf && (
+                        <div className="text-center">
+                            <p className="text-lg mb-4 text-gray-600 dark:text-gray-300">Định dạng file này không hỗ trợ xem trước.</p>
+                            <button onClick={handleDownload} className="px-4 py-2 bg-primary text-white rounded-md hover:bg-primary-focus transition-colors">
+                                Tải xuống ngay
+                            </button>
+                        </div>
+                    )}
+                </div>
             </div>
         </Modal>
     );
@@ -134,7 +180,6 @@ const VehicleEditModal: React.FC<{
             showToast(`Đã tải lên ${newDoc.name}`, 'success');
         } catch (error) {
             showToast('Lỗi khi nén ảnh.', 'error');
-            console.error(error);
         }
         if (e.target) e.target.value = '';
     };
@@ -178,7 +223,6 @@ const VehicleEditModal: React.FC<{
             </div>
         );
     };
-
 
     return (
         <Modal title={`Chỉnh sửa xe: ${initialVehicle.PlateNumber}`} onClose={onClose} size="2xl">
@@ -252,27 +296,27 @@ const VehicleEditModal: React.FC<{
     );
 };
 
-// --- NEW: Vehicle Dashboard Panel (Right side, default) ---
+// --- Vehicle Dashboard Panel (Right side, default) ---
 const VehicleDashboard: React.FC<{ vehicles: EnhancedVehicle[], onSelectVehicle: (vehicle: EnhancedVehicle) => void }> = ({ vehicles, onSelectVehicle }) => {
     const dashboardData = useMemo(() => {
         const active = vehicles.filter(v => v.isActive);
         const typeCounts = active.reduce((acc: Record<string, number>, v) => {
             const key = v.Type;
-            acc[key] = (acc[key] || 0) + 1;
+            acc[key] = (Number(acc[key]) || 0) + 1; // Strict arithmetic
             return acc;
         }, {});
 
         const pieData = Object.entries(typeCounts).map(([name, value]) => ({
             name: translateVehicleType(name as VehicleTier),
-            value,
+            value: Number(value),
         }));
 
         const vehicleCountsByUnit = active.reduce((acc: Record<string, number>, v) => {
-            acc[v.UnitID] = (acc[v.UnitID] || 0) + 1;
+            acc[v.UnitID] = (Number(acc[v.UnitID]) || 0) + 1; // Strict arithmetic
             return acc;
-        }, {});
+        }, {} as Record<string, number>);
 
-        const topOwners = Object.entries(vehicleCountsByUnit).sort((a, b) => b[1] - a[1]).slice(0, 5);
+        const topOwners = Object.entries(vehicleCountsByUnit).sort((a, b) => Number(b[1]) - Number(a[1])).slice(0, 5);
         const recentUpdates = [...active].sort((a, b) => new Date(b.updatedAt || b.StartDate).getTime() - new Date(a.updatedAt || a.StartDate).getTime()).slice(0, 5);
 
         return { pieData, topOwners, recentUpdates };
@@ -285,7 +329,8 @@ const VehicleDashboard: React.FC<{ vehicles: EnhancedVehicle[], onSelectVehicle:
     useEffect(() => {
         if (isPaused) return;
         const timer = setInterval(() => {
-            setActiveSlide((prev: number) => (prev + 1) % slides.length);
+            // Strict arithmetic: ensure prev is treated as number
+            setActiveSlide((prev) => (Number(prev) + 1) % slides.length);
         }, 5000);
         return () => clearInterval(timer);
     }, [slides.length, isPaused]);
@@ -307,11 +352,11 @@ const VehicleDashboard: React.FC<{ vehicles: EnhancedVehicle[], onSelectVehicle:
                             <ResponsiveContainer width="100%" height={200}>
                                 <PieChart>
                                     <Pie data={dashboardData.pieData} dataKey="value" nameKey="name" cx="50%" cy="50%" outerRadius={70} labelLine={false} label={({ cx, cy, midAngle, innerRadius, outerRadius, percent }) => {
-                                        if (percent < 0.05) return null;
-                                        const radius = innerRadius + (outerRadius - innerRadius) * 0.5;
-                                        const x = cx + radius * Math.cos(-midAngle * Math.PI / 180);
-                                        const y = cy + radius * Math.sin(-midAngle * Math.PI / 180);
-                                        return <text x={x} y={y} fill="white" textAnchor="middle" dominantBaseline="central" fontSize="12" fontWeight="bold">{`${(percent * 100).toFixed(0)}%`}</text>;
+                                        if (Number(percent) < 0.05) return null;
+                                        const radius = Number(innerRadius) + (Number(outerRadius) - Number(innerRadius)) * 0.5;
+                                        const x = Number(cx) + radius * Math.cos(-Number(midAngle) * Math.PI / 180);
+                                        const y = Number(cy) + radius * Math.sin(-Number(midAngle) * Math.PI / 180);
+                                        return <text x={x} y={y} fill="white" textAnchor="middle" dominantBaseline="central" fontSize="12" fontWeight="bold">{`${(Number(percent) * 100).toFixed(0)}%`}</text>;
                                     }}>
                                         {dashboardData.pieData.map((entry, index) => <Cell key={`cell-${index}`} fill={COLORS[index % COLORS.length]} />)}
                                     </Pie>
@@ -335,15 +380,16 @@ const VehicleDashboard: React.FC<{ vehicles: EnhancedVehicle[], onSelectVehicle:
                         </div>
                     )}
                 </div>
-                 <button onClick={() => setActiveSlide(p => (p - 1 + slides.length) % slides.length)} className="absolute -left-3 top-1/2 -translate-y-1/2 p-1 bg-white dark:bg-gray-700 rounded-full shadow-md z-10"><ChevronLeftIcon /></button>
-                 <button onClick={() => setActiveSlide(p => (p + 1) % slides.length)} className="absolute -right-3 top-1/2 -translate-y-1/2 p-1 bg-white dark:bg-gray-700 rounded-full shadow-md z-10"><ChevronRightIcon /></button>
+                 {/* Strict arithmetic for navigation buttons */}
+                 <button onClick={() => setActiveSlide(p => (Number(p) - 1 + slides.length) % slides.length)} className="absolute -left-3 top-1/2 -translate-y-1/2 p-1 bg-white dark:bg-gray-700 rounded-full shadow-md z-10 hover:bg-gray-100"><ChevronLeftIcon /></button>
+                 <button onClick={() => setActiveSlide(p => (Number(p) + 1) % slides.length)} className="absolute -right-3 top-1/2 -translate-y-1/2 p-1 bg-white dark:bg-gray-700 rounded-full shadow-md z-10 hover:bg-gray-100"><ChevronRightIcon /></button>
             </div>
             <div className="border-t dark:border-dark-border mt-6 pt-6 flex-1 flex flex-col min-h-0">
                 <h3 className="text-lg font-bold mb-4">Các xe mới cập nhật</h3>
                 <ul className="space-y-3 overflow-y-auto pr-2">
                    {dashboardData.recentUpdates.map(v => (
-                       <li key={v.VehicleId} onClick={() => onSelectVehicle(v)} className="flex items-center gap-4 p-2 rounded-md hover:bg-gray-100 dark:hover:bg-gray-700 cursor-pointer">
-                           <div className="text-gray-500 dark:text-gray-400">{v.Type.includes('car') ? <CarIcon/> : (v.Type === VehicleTier.MOTORBIKE ? <MotorbikeIcon /> : <BikeIcon/>)}</div>
+                       <li key={v.VehicleId} onClick={() => onSelectVehicle(v)} className="flex items-center gap-4 p-2 rounded-md hover:bg-gray-100 dark:hover:bg-gray-700 cursor-pointer transition-colors">
+                           <div className="text-gray-500 dark:text-gray-400">{v.Type.includes('car') ? <CarIcon/> : (v.Type === VehicleTier.MOTORBIKE ? <MotorbikeIcon /> : (v.Type === VehicleTier.EBIKE ? <EBikeIcon/> : <BikeIcon/>))}</div>
                            <div className="flex-grow">
                                <p className="font-semibold text-sm">{v.PlateNumber} <span className="text-xs font-normal text-gray-500">- Căn hộ {v.UnitID}</span></p>
                                <p className="text-xs text-gray-500">{timeAgo(v.updatedAt || v.StartDate)}</p>
@@ -358,42 +404,82 @@ const VehicleDashboard: React.FC<{ vehicles: EnhancedVehicle[], onSelectVehicle:
 
 // --- Vehicle Detail Panel (Right side, on select) ---
 const VehicleDetailPanel: React.FC<{ vehicle: EnhancedVehicle, onEdit: (vehicle: any) => void, onDelete: () => void }> = ({ vehicle, onEdit, onDelete }) => {
+    const [previewDoc, setPreviewDoc] = useState<VehicleDocument | null>(null);
+    const theme = getVehicleColorTheme(vehicle.Type);
+
     return (
-        <div className="p-6 h-full space-y-6">
-            <header className="flex flex-col items-center text-center">
-                <div className="text-gray-400 dark:text-gray-500 mb-2">{vehicle.Type.includes('car') ? <CarIcon className="w-12 h-12"/> : <MotorbikeIcon className="w-12 h-12"/>}</div>
-                <h2 className="text-3xl font-bold font-mono tracking-wider text-gray-900 dark:text-white">{vehicle.PlateNumber}</h2>
-                {vehicle.parkingStatus && <span className="mt-2 text-sm font-semibold px-3 py-1 bg-blue-100 text-blue-800 dark:bg-blue-900/50 dark:text-blue-300 rounded-full">{vehicle.parkingStatus}</span>}
+        <div className="h-full flex flex-col">
+            {previewDoc && <DocumentPreviewModal doc={previewDoc} onClose={() => setPreviewDoc(null)} />}
+            
+            {/* Header with pastel color based on vehicle type and DARK text */}
+            <header className={`flex flex-col items-center text-center p-6 ${theme.headerBg} rounded-t-xl`}>
+                <div className={`mb-2 opacity-80 ${theme.headerText}`}>
+                    {vehicle.Type.includes('car') ? <CarIcon className="w-12 h-12"/> : (vehicle.Type === VehicleTier.MOTORBIKE ? <MotorbikeIcon className="w-12 h-12"/> : (vehicle.Type === VehicleTier.EBIKE ? <EBikeIcon className="w-12 h-12"/> : <BikeIcon className="w-12 h-12"/>))}
+                </div>
+                <h2 className={`text-3xl font-bold font-mono tracking-wider ${theme.headerText}`}>{vehicle.PlateNumber}</h2>
+                {vehicle.parkingStatus && (
+                    <span className="mt-2 text-sm font-semibold px-3 py-1 bg-white/70 text-gray-900 rounded-full shadow-sm">
+                        {vehicle.parkingStatus}
+                    </span>
+                )}
             </header>
             
-            <div className="border-t dark:border-dark-border pt-4">
-                <h3 className="text-sm font-semibold uppercase text-gray-500 mb-3">Thông tin xe</h3>
-                <div className="space-y-2 text-sm">
-                    <div className="flex justify-between"><span className="text-gray-500 dark:text-gray-400">Tên/Nhãn hiệu:</span><span className="font-semibold text-gray-900 dark:text-gray-200">{vehicle.VehicleName || 'Chưa có'}</span></div>
-                    <div className="flex justify-between"><span className="text-gray-500 dark:text-gray-400">Ngày đăng ký:</span><span className="font-semibold text-gray-900 dark:text-gray-200">{new Date(vehicle.StartDate).toLocaleDateString('vi-VN')}</span></div>
+            <div className="p-6 space-y-6 flex-1 overflow-y-auto">
+                <div className="border-t dark:border-dark-border pt-4">
+                    <h3 className="text-sm font-semibold uppercase text-gray-500 mb-3">Thông tin xe</h3>
+                    <div className="space-y-2 text-sm">
+                        <div className="flex justify-between"><span className="text-gray-500 dark:text-gray-400">Tên/Nhãn hiệu:</span><span className="font-semibold text-gray-900 dark:text-gray-200">{vehicle.VehicleName || 'Chưa có'}</span></div>
+                        <div className="flex justify-between"><span className="text-gray-500 dark:text-gray-400">Ngày đăng ký:</span><span className="font-semibold text-gray-900 dark:text-gray-200">{new Date(vehicle.StartDate).toLocaleDateString('vi-VN')}</span></div>
+                        <div className="flex justify-between"><span className="text-gray-500 dark:text-gray-400">Loại xe:</span><span className="font-semibold text-gray-900 dark:text-gray-200">{translateVehicleType(vehicle.Type)}</span></div>
+                    </div>
                 </div>
-            </div>
 
-            <div className="border-t dark:border-dark-border pt-4">
-                 <h3 className="text-sm font-semibold uppercase text-gray-500 mb-3">Chủ sở hữu</h3>
-                 <div className="space-y-2 text-sm">
-                    <div className="flex justify-between"><span className="text-gray-500 dark:text-gray-400">Chủ hộ:</span><span className="font-semibold text-gray-900 dark:text-gray-200">{vehicle.ownerName}</span></div>
-                    <div className="flex justify-between"><span className="text-gray-500 dark:text-gray-400">Căn hộ:</span><span className="font-semibold text-gray-900 dark:text-gray-200">{vehicle.UnitID}</span></div>
-                    <div className="flex justify-between"><span className="text-gray-500 dark:text-gray-400">SĐT:</span><span className="font-semibold text-gray-900 dark:text-gray-200">{vehicle.ownerPhone}</span></div>
+                <div className="border-t dark:border-dark-border pt-4">
+                     <h3 className="text-sm font-semibold uppercase text-gray-500 mb-3">Chủ sở hữu</h3>
+                     <div className="space-y-2 text-sm">
+                        <div className="flex justify-between"><span className="text-gray-500 dark:text-gray-400">Chủ hộ:</span><span className="font-semibold text-gray-900 dark:text-gray-200">{vehicle.ownerName}</span></div>
+                        <div className="flex justify-between"><span className="text-gray-500 dark:text-gray-400">Căn hộ:</span><span className="font-semibold text-gray-900 dark:text-gray-200">{vehicle.UnitID}</span></div>
+                        <div className="flex justify-between"><span className="text-gray-500 dark:text-gray-400">SĐT:</span><span className="font-semibold text-gray-900 dark:text-gray-200">{vehicle.ownerPhone}</span></div>
+                    </div>
                 </div>
-            </div>
 
-            <div className="border-t dark:border-dark-border pt-4">
-                <h3 className="text-sm font-semibold uppercase text-gray-500 mb-3">Hình ảnh</h3>
-                <div className="grid grid-cols-2 gap-4">
-                    {vehicle.documents?.vehiclePhoto ? <img src={vehicle.documents.vehiclePhoto.url} className="w-full h-24 object-cover rounded-md border" alt="Ảnh xe"/> : <div className="w-full h-24 bg-gray-100 rounded-md flex items-center justify-center text-xs text-gray-400">Ảnh xe</div>}
-                    {vehicle.documents?.registration ? <img src={vehicle.documents.registration.url} className="w-full h-24 object-cover rounded-md border" alt="Ảnh đăng ký"/> : <div className="w-full h-24 bg-gray-100 rounded-md flex items-center justify-center text-xs text-gray-400">Ảnh đăng ký</div>}
+                <div className="border-t dark:border-dark-border pt-4">
+                    <h3 className="text-sm font-semibold uppercase text-gray-500 mb-3">Hình ảnh & Tài liệu</h3>
+                    <div className="grid grid-cols-2 gap-4">
+                        {vehicle.documents?.vehiclePhoto ? (
+                            <div className="group relative cursor-pointer" onClick={() => setPreviewDoc(vehicle.documents!.vehiclePhoto!)}>
+                                <img src={vehicle.documents.vehiclePhoto.url} className="w-full h-28 object-cover rounded-md border shadow-sm group-hover:opacity-90 transition-opacity" alt="Ảnh xe"/>
+                                <div className="absolute inset-0 flex items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity bg-black/20 rounded-md">
+                                    <span className="bg-white/90 text-xs px-2 py-1 rounded shadow text-gray-800 font-bold">Xem</span>
+                                </div>
+                                <p className="text-xs text-center mt-1 text-gray-500">Ảnh xe</p>
+                            </div>
+                        ) : (
+                            <div className="w-full h-28 bg-gray-100 rounded-md flex flex-col items-center justify-center text-xs text-gray-400 border border-dashed border-gray-300">
+                                <span>Chưa có ảnh xe</span>
+                            </div>
+                        )}
+                        
+                        {vehicle.documents?.registration ? (
+                            <div className="group relative cursor-pointer" onClick={() => setPreviewDoc(vehicle.documents!.registration!)}>
+                                <img src={vehicle.documents.registration.url} className="w-full h-28 object-cover rounded-md border shadow-sm group-hover:opacity-90 transition-opacity" alt="Ảnh đăng ký"/>
+                                <div className="absolute inset-0 flex items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity bg-black/20 rounded-md">
+                                    <span className="bg-white/90 text-xs px-2 py-1 rounded shadow text-gray-800 font-bold">Xem</span>
+                                </div>
+                                <p className="text-xs text-center mt-1 text-gray-500">Đăng ký xe</p>
+                            </div>
+                        ) : (
+                            <div className="w-full h-28 bg-gray-100 rounded-md flex flex-col items-center justify-center text-xs text-gray-400 border border-dashed border-gray-300">
+                                <span>Chưa có ĐK xe</span>
+                            </div>
+                        )}
+                    </div>
                 </div>
-            </div>
 
-            <div className="border-t dark:border-dark-border pt-4 flex gap-3">
-                <button onClick={() => onEdit(vehicle)} className="flex-1 px-4 py-2 bg-primary text-white font-semibold rounded-md shadow-sm hover:bg-primary-focus">Chỉnh sửa</button>
-                <button onClick={onDelete} className="flex-1 px-4 py-2 bg-red-600 text-white font-semibold rounded-md shadow-sm hover:bg-red-700">Xóa</button>
+                <div className="border-t dark:border-dark-border pt-4 flex gap-3">
+                    <button onClick={() => onEdit(vehicle)} className="flex-1 px-4 py-2 bg-primary text-white font-semibold rounded-md shadow-sm hover:bg-primary-focus">Chỉnh sửa</button>
+                    <button onClick={onDelete} className="flex-1 px-4 py-2 bg-red-600 text-white font-semibold rounded-md shadow-sm hover:bg-red-700">Xóa</button>
+                </div>
             </div>
         </div>
     );
@@ -429,6 +515,15 @@ const ParkingStatusBadge: React.FC<{ status: Vehicle['parkingStatus'], queueNumb
     );
 };
 
+const VehicleTypeBadge: React.FC<{ type: VehicleTier }> = ({ type }) => {
+    const theme = getVehicleColorTheme(type);
+    return (
+        <span className={`px-2.5 py-1 text-xs font-semibold rounded-full ${theme.badge}`}>
+            {translateVehicleType(type)}
+        </span>
+    );
+};
+
 // --- Vehicle Management Page ---
 interface VehiclesPageProps {
     vehicles: Vehicle[];
@@ -457,7 +552,7 @@ const VehiclesPage: React.FC<VehiclesPageProps> = ({ vehicles, units, owners, on
             .filter(v => v.isActive && v.parkingStatus === 'Xếp lốt' && (v.Type === VehicleTier.CAR || v.Type === VehicleTier.CAR_A))
             .sort((a, b) => new Date(a.StartDate).getTime() - new Date(b.StartDate).getTime())
             .forEach((v, index) => {
-                queueMap.set(v.VehicleId, index + 1);
+                queueMap.set(v.VehicleId, index + 1); // Strict arithmetic implicit in index
             });
         return queueMap;
     }, [vehicles]);
@@ -513,10 +608,11 @@ const VehiclesPage: React.FC<VehiclesPageProps> = ({ vehicles, units, owners, on
         }).sort((a, b) => {
             const pa = parseUnitCode(a.UnitID) || { floor: 999, apt: 999 };
             const pb = parseUnitCode(b.UnitID) || { floor: 999, apt: 999 };
-            if (pa.floor !== pb.floor) {
-                return pa.floor - pb.floor;
+            // Ensure strict arithmetic
+            if (Number(pa.floor) !== Number(pb.floor)) {
+                return Number(pa.floor) - Number(pb.floor);
             }
-            return pa.apt - pb.apt;
+            return Number(pa.apt) - Number(pb.apt);
         });
     }, [enhancedVehicles, searchTerm, typeFilter, parkingStatusFilter]);
     
@@ -578,7 +674,6 @@ const VehiclesPage: React.FC<VehiclesPageProps> = ({ vehicles, units, owners, on
         showToast('Cập nhật thành công!', 'success');
         setEditingVehicle(null);
         if (selectedVehicle?.VehicleId === vehicleToSave.VehicleId) {
-            // Refresh detail view
             const unit = unitsMap.get(vehicleToSave.UnitID);
             const owner = unit ? ownersMap.get(unit.OwnerID) : undefined;
             setSelectedVehicle({ ...vehicleToSave, ownerName: owner?.OwnerName ?? 'N/A', ownerPhone: owner?.Phone ?? '' });
@@ -609,7 +704,7 @@ const VehiclesPage: React.FC<VehiclesPageProps> = ({ vehicles, units, owners, on
         }
 
         const dataToExport = filteredVehicles.map((v, index) => ({
-            STT: Number(index) + 1,
+            STT: Number(index) + 1, // Explicit math
             'Căn hộ': v.UnitID,
             'Chủ hộ': v.ownerName,
             'SĐT': v.ownerPhone,
@@ -628,7 +723,6 @@ const VehiclesPage: React.FC<VehiclesPageProps> = ({ vehicles, units, owners, on
             XLSX.writeFile(workbook, `DanhSachXe_${new Date().toISOString().slice(0, 10)}.xlsx`);
             showToast(`Đã xuất ${dataToExport.length} bản ghi thành công.`, 'success');
         } catch (error) {
-            console.error("Export error:", error);
             showToast("Lỗi khi xuất dữ liệu.", 'error');
         }
     }, [filteredVehicles, showToast]);
@@ -652,7 +746,7 @@ const VehiclesPage: React.FC<VehiclesPageProps> = ({ vehicles, units, owners, on
                         <div className="flex items-center gap-2 flex-grow max-w-4xl">
                             <div className="relative flex-grow min-w-[200px]">
                                 <SearchIcon className="absolute left-3 top-1/2 -translate-y-1/2 h-5 w-5 text-gray-400" />
-                                <input type="text" placeholder="Tìm biển số, căn hộ..." value={searchTerm} onChange={e => setSearchTerm(e.target.value)} className="w-full h-10 pl-10 pr-3 border rounded-lg bg-white dark:bg-dark-bg-secondary border-gray-300 dark:border-gray-600 text-gray-900 dark:text-white text-sm"/>
+                                <input type="text" placeholder="Tìm biển số, căn hộ, chủ hộ..." value={searchTerm} onChange={e => setSearchTerm(e.target.value)} className="w-full h-10 pl-10 pr-3 border rounded-lg bg-white dark:bg-dark-bg-secondary border-gray-300 dark:border-gray-600 text-gray-900 dark:text-white text-sm"/>
                             </div>
                             <select value={typeFilter} onChange={e => setTypeFilter(e.target.value)} className="h-10 px-3 border rounded-lg bg-white dark:bg-dark-bg-secondary border-gray-300 dark:border-gray-600 text-sm min-w-[120px]">
                                 <option value="all">All Types</option>
@@ -694,11 +788,13 @@ const VehiclesPage: React.FC<VehiclesPageProps> = ({ vehicles, units, owners, on
                             </thead>
                             <tbody className="divide-y divide-gray-200 dark:divide-gray-700">
                                 {filteredVehicles.map(v => (
-                                    <tr key={v.VehicleId} onClick={() => setSelectedVehicle(v)} className={`cursor-pointer ${selectedVehicle?.VehicleId === v.VehicleId ? 'bg-blue-50 dark:bg-blue-900/40' : 'hover:bg-gray-50 dark:hover:bg-slate-800/50'}`}>
+                                    <tr key={v.VehicleId} onClick={() => setSelectedVehicle(v)} className={`cursor-pointer transition-colors ${selectedVehicle?.VehicleId === v.VehicleId ? 'bg-blue-50 dark:bg-blue-900/40' : 'hover:bg-gray-50 dark:hover:bg-slate-800/50'}`}>
                                         <td className="font-semibold px-4 py-4 text-sm text-gray-900 dark:text-gray-200">{v.UnitID}</td>
                                         <td className="px-4 py-4 text-sm font-bold text-gray-900 dark:text-gray-200">{v.ownerName}</td>
                                         <td className="px-4 py-4 text-sm font-mono text-gray-700 dark:text-gray-300">{v.PlateNumber}</td>
-                                        <td className="px-4 py-4 text-sm text-gray-900 dark:text-gray-200">{translateVehicleType(v.Type)}</td>
+                                        <td className="px-4 py-4 text-sm text-gray-900 dark:text-gray-200">
+                                            <VehicleTypeBadge type={v.Type} />
+                                        </td>
                                         <td className="px-4 py-4 text-sm text-center">
                                             <ParkingStatusBadge status={v.parkingStatus} queueNumber={xepLotQueue.get(v.VehicleId)} />
                                         </td>
