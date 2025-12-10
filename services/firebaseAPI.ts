@@ -1,6 +1,6 @@
 
 // services/firebaseAPI.ts
-import { doc, getDoc, setDoc, collection, getDocs, writeBatch, query, deleteDoc } from 'firebase/firestore';
+import { doc, getDoc, setDoc, collection, getDocs, writeBatch, query, deleteDoc, updateDoc } from 'firebase/firestore';
 import { db } from '../firebaseConfig';
 import type { InvoiceSettings, Unit, Owner, Vehicle, WaterReading, ChargeRaw, Adjustment, UserPermission, ActivityLog, AllData, PaymentStatus } from '../types';
 import { VehicleTier } from '../types';
@@ -275,7 +275,6 @@ export const importResidentsBatch = async (
     return { units, owners, vehicles, createdCount: created, updatedCount: updated, vehicleCount };
 };
 
-// --- NEW: Water Lock Functions ---
 export const getLockStatus = async (month: string): Promise<boolean> => {
     const docRef = doc(db, 'water_locks', month);
     const docSnap = await getDoc(docRef);
@@ -285,4 +284,12 @@ export const getLockStatus = async (month: string): Promise<boolean> => {
 export const setLockStatus = async (month: string, status: boolean): Promise<void> => {
     const docRef = doc(db, 'water_locks', month);
     await setDoc(docRef, { isLocked: status });
+};
+
+export const resetUserPassword = async (email: string): Promise<void> => {
+    const userRef = doc(db, 'users', email);
+    await updateDoc(userRef, {
+        password: '123456',
+        mustChangePassword: true,
+    });
 };

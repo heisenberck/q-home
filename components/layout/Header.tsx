@@ -1,14 +1,20 @@
+
 import React, { useState, useRef, useEffect } from 'react';
-import { UserCircleIcon, ArrowRightOnRectangleIcon, UserIcon, UploadIcon, TrashIcon } from '../ui/Icons';
+import { 
+    UserCircleIcon, ArrowRightOnRectangleIcon, UserIcon, UploadIcon, TrashIcon,
+    SettingsIcon, KeyIcon, ArchiveBoxIcon, ClipboardDocumentListIcon
+} from '../ui/Icons';
 import type { UserPermission } from '../../types';
 import { useAuth, useNotification } from '../../App';
 import Modal from '../ui/Modal';
+import { AdminPage } from '../../App';
 
 interface HeaderProps {
   pageTitle: string;
+  onNavigate: (page: AdminPage) => void;
 }
 
-const Header: React.FC<HeaderProps> = ({ pageTitle }) => {
+const Header: React.FC<HeaderProps> = ({ pageTitle, onNavigate }) => {
   const { user: currentUser, logout, updateUser } = useAuth();
   const { showToast } = useNotification();
   const [isMenuOpen, setIsMenuOpen] = useState(false);
@@ -26,6 +32,11 @@ const Header: React.FC<HeaderProps> = ({ pageTitle }) => {
   }, []);
 
   const getUsername = (user: UserPermission) => user.Username || user.Email.split('@')[0];
+
+  const handleMenuNavigation = (page: AdminPage) => {
+      onNavigate(page);
+      setIsMenuOpen(false);
+  };
 
   const ProfileModal = () => {
     const [formData, setFormData] = useState({ 
@@ -137,8 +148,12 @@ const Header: React.FC<HeaderProps> = ({ pageTitle }) => {
     )
   }
 
+  const role = currentUser.Role;
+  const isAdmin = role === 'Admin';
+  const isAccountant = role === 'Accountant';
+
   return (
-    <header className="w-full bg-white border-b border-gray-200 flex items-center justify-between p-4 flex-shrink-0">
+    <header className="w-full bg-white border-b border-gray-200 flex items-center justify-between p-4 flex-shrink-0 h-[88px]">
       {isProfileModalOpen && <ProfileModal />}
       <h1 className="text-2xl font-bold text-gray-800 hidden sm:block">
         {pageTitle}
@@ -150,10 +165,10 @@ const Header: React.FC<HeaderProps> = ({ pageTitle }) => {
                     <img 
                         src={currentUser.avatarUrl} 
                         alt="Avatar" 
-                        className="w-8 h-8 rounded-full object-cover border-2 border-white shadow-sm"
+                        className="w-10 h-10 rounded-full object-cover border-2 border-white shadow-sm"
                     />
                 ) : (
-                    <UserCircleIcon className="w-8 h-8 text-gray-500" />
+                    <UserCircleIcon className="w-10 h-10 text-gray-500" />
                 )}
                 <div className="text-left hidden md:block">
                     <p className="text-sm font-semibold">{getUsername(currentUser)}</p>
@@ -161,24 +176,68 @@ const Header: React.FC<HeaderProps> = ({ pageTitle }) => {
                 </div>
             </button>
             {isMenuOpen && (
-                <div className="absolute top-full right-0 mt-2 w-64 bg-white rounded-lg shadow-xl border z-40 animate-fade-in-down">
-                    <div className="p-3 border-b">
-                        <p className="text-sm font-semibold">Đang đăng nhập với</p>
-                        <p className="text-sm truncate font-bold">{currentUser.Email}</p>
+                <div className="absolute top-full right-0 mt-2 w-72 bg-white rounded-lg shadow-xl border border-gray-100 z-50 animate-fade-in-down ring-1 ring-black ring-opacity-5">
+                    <div className="p-4 border-b bg-gray-50 rounded-t-lg">
+                        <p className="text-xs text-gray-500 font-semibold uppercase mb-1">Đang đăng nhập</p>
+                        <p className="text-sm truncate font-bold text-gray-900">{currentUser.Email}</p>
                     </div>
                     
-                    <button 
-                         onClick={() => { setIsMenuOpen(false); setIsProfileModalOpen(true); }}
-                         className="flex items-center w-full px-4 py-2.5 text-sm text-left text-gray-700 hover:bg-gray-100"
-                    >
-                         <UserIcon className="w-5 h-5 mr-3 text-gray-500" />
-                         Hồ sơ cá nhân
-                    </button>
+                    <div className="py-2">
+                        <button 
+                             onClick={() => { setIsMenuOpen(false); setIsProfileModalOpen(true); }}
+                             className="flex items-center w-full px-4 py-2.5 text-sm text-left text-gray-700 hover:bg-gray-100 hover:text-primary transition-colors"
+                        >
+                             <UserIcon className="w-5 h-5 mr-3 text-gray-400" />
+                             Cài đặt cá nhân
+                        </button>
+                    </div>
 
-                    <div className="border-t">
+                    {(isAdmin || isAccountant) && (
+                        <div className="border-t py-2">
+                            <p className="px-4 py-1 text-[10px] font-bold text-gray-400 uppercase tracking-wider">Quản trị hệ thống</p>
+                            
+                            {(isAdmin || isAccountant) && (
+                                <button 
+                                    onClick={() => handleMenuNavigation('settings')}
+                                    className="flex items-center w-full px-4 py-2.5 text-sm text-left text-gray-700 hover:bg-gray-100 hover:text-primary transition-colors"
+                                >
+                                    <SettingsIcon className="w-5 h-5 mr-3 text-gray-400" />
+                                    Cài đặt Hệ thống
+                                </button>
+                            )}
+                            
+                            {isAdmin && (
+                                <>
+                                    <button 
+                                        onClick={() => handleMenuNavigation('users')}
+                                        className="flex items-center w-full px-4 py-2.5 text-sm text-left text-gray-700 hover:bg-gray-100 hover:text-primary transition-colors"
+                                    >
+                                        <KeyIcon className="w-5 h-5 mr-3 text-gray-400" />
+                                        Quản lý Người dùng
+                                    </button>
+                                    <button 
+                                        onClick={() => handleMenuNavigation('backup')}
+                                        className="flex items-center w-full px-4 py-2.5 text-sm text-left text-gray-700 hover:bg-gray-100 hover:text-primary transition-colors"
+                                    >
+                                        <ArchiveBoxIcon className="w-5 h-5 mr-3 text-gray-400" />
+                                        Backup & Restore
+                                    </button>
+                                    <button 
+                                        onClick={() => handleMenuNavigation('activityLog')}
+                                        className="flex items-center w-full px-4 py-2.5 text-sm text-left text-gray-700 hover:bg-gray-100 hover:text-primary transition-colors"
+                                    >
+                                        <ClipboardDocumentListIcon className="w-5 h-5 mr-3 text-gray-400" />
+                                        Nhật ký Hoạt động
+                                    </button>
+                                </>
+                            )}
+                        </div>
+                    )}
+
+                    <div className="border-t py-2 bg-gray-50 rounded-b-lg">
                         <button 
                             onClick={() => { setIsMenuOpen(false); logout(); }}
-                            className="flex items-center w-full px-4 py-3 text-sm text-left text-red-600 hover:bg-red-50"
+                            className="flex items-center w-full px-4 py-2.5 text-sm text-left text-red-600 hover:bg-red-50 transition-colors font-medium"
                         >
                             <ArrowRightOnRectangleIcon className="w-5 h-5 mr-3" />
                             Đăng xuất

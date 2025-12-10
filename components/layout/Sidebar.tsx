@@ -1,12 +1,15 @@
 
-
-import React from 'react';
-import { PieChartIcon, CalculatorIcon, UsersIcon, WaterIcon, ReceiptIcon, PencilSquareIcon, KeyIcon, ArchiveBoxIcon, ClipboardDocumentListIcon, CarIcon } from '../ui/Icons';
-import type { Role } from '../../types';
-import { useSettings } from '../../App';
+import React, { useState, useMemo } from 'react';
+import { 
+    PieChartIcon, CalculatorIcon, UsersIcon, WaterIcon, ReceiptIcon, 
+    CarIcon, MegaphoneIcon, ChatBubbleLeftEllipsisIcon,
+    ChevronLeftIcon, ChevronRightIcon, ChevronDownIcon, ChevronUpIcon
+} from '../ui/Icons';
+import type { Role, UserPermission } from '../../types';
+import { useSettings, useAuth } from '../../App';
 import { isProduction } from '../../utils/env';
 
-type Page = 'overview' | 'billing' | 'residents' | 'vehicles' | 'water' | 'pricing' | 'users' | 'settings' | 'backup' | 'activityLog';
+type Page = 'overview' | 'billing' | 'residents' | 'vehicles' | 'water' | 'pricing' | 'users' | 'settings' | 'backup' | 'activityLog' | 'newsManagement' | 'feedbackManagement';
 
 interface SidebarProps {
   activePage: Page;
@@ -14,88 +17,242 @@ interface SidebarProps {
   role: Role;
 }
 
-const mainNavItems: { id: Page; label: string; roles: Role[]; icon: React.ReactNode }[] = [
-    { id: 'overview', label: 'Tổng quan', roles: ['Admin', 'Accountant', 'Operator', 'Viewer'], icon: <PieChartIcon /> },
-    { id: 'billing', label: 'Tính phí & Gửi phiếu', roles: ['Admin', 'Accountant'], icon: <CalculatorIcon /> },
-    { id: 'residents', label: 'Quản lý Cư dân', roles: ['Admin', 'Accountant', 'Operator'], icon: <UsersIcon /> },
-    { id: 'vehicles', label: 'Quản lý Phương tiện', roles: ['Admin', 'Accountant', 'Operator'], icon: <CarIcon /> },
-    { id: 'water', label: 'Quản lý Nước', roles: ['Admin', 'Accountant', 'Operator'], icon: <WaterIcon /> },
+type MenuItem = {
+    id: Page;
+    label: string;
+    icon: React.ReactNode;
+};
+
+type MenuGroup = {
+    id: string;
+    label: string;
+    items: MenuItem[];
+};
+
+const menuGroups: (MenuItem | MenuGroup)[] = [
+    { id: 'overview', label: 'Tổng quan', icon: <PieChartIcon /> },
+    {
+        id: 'residents_group',
+        label: 'Quản lý Cư dân',
+        items: [
+            { id: 'residents', label: 'Cư dân', icon: <UsersIcon /> },
+            { id: 'vehicles', label: 'Phương tiện', icon: <CarIcon /> },
+            { id: 'water', label: 'Nước', icon: <WaterIcon /> },
+        ]
+    },
+    {
+        id: 'finance_group',
+        label: 'Quản lý Tài chính',
+        items: [
+            { id: 'billing', label: 'Bảng tính phí', icon: <CalculatorIcon /> },
+            { id: 'pricing', label: 'Quản lý Đơn giá', icon: <ReceiptIcon /> },
+        ]
+    },
+    {
+        id: 'comm_group',
+        label: 'Thông báo',
+        items: [
+            { id: 'newsManagement', label: 'Quản lý Tin tức', icon: <MegaphoneIcon /> },
+            { id: 'feedbackManagement', label: 'Quản lý Phản hồi', icon: <ChatBubbleLeftEllipsisIcon /> },
+        ]
+    }
 ];
 
-const settingsNavItems: { id: Page; label: string; roles: Role[]; icon: React.ReactNode }[] = [
-    { id: 'pricing', label: 'Quản lý Đơn giá', roles: ['Admin', 'Accountant'], icon: <ReceiptIcon /> },
-    { id: 'settings', label: 'Cài đặt', roles: ['Admin', 'Accountant'], icon: <PencilSquareIcon /> },
-    { id: 'users', label: 'Quản lý Người dùng', roles: ['Admin'], icon: <KeyIcon /> },
-    { id: 'backup', label: 'Backup & Restore', roles: ['Admin'], icon: <ArchiveBoxIcon /> },
-    { id: 'activityLog', label: 'Nhật ký Hoạt động', roles: ['Admin'], icon: <ClipboardDocumentListIcon /> },
-];
+// Local extension for permissions
+interface ExtendedUser extends UserPermission {
+    permissions?: string[];
+}
 
 const Sidebar: React.FC<SidebarProps> = ({ activePage, setActivePage, role }) => {
   const { invoiceSettings } = useSettings();
+  const { user } = useAuth();
+  const [isCollapsed, setIsCollapsed] = useState(false);
+  const [expandedGroups, setExpandedGroups] = useState<Set<string>>(new Set(['residents_group', 'finance_group', 'comm_group']));
+
   const isDev = !isProduction();
   const themeClass = isDev 
     ? 'border-red-500 bg-red-50 text-red-700' 
     : 'border-emerald-500 bg-emerald-50 text-emerald-700';
-  const versionText = isDev ? 'v2.0-DEV' : 'v2.0';
+  const versionText = isDev ? 'v2.1-DEV' : 'v2.1';
 
+  const extendedUser = user as ExtendedUser;
 
-  const NavLink: React.FC<{ id: Page; label: string; icon: React.ReactNode }> = ({ id, label, icon }) => {
-    const isActive = activePage === id;
-    return (
-      <a
-        href="#"
-        onClick={(e) => { e.preventDefault(); setActivePage(id); }}
-        className={`flex items-center px-4 py-3 text-sm font-semibold rounded-lg transition-colors duration-200 mx-2 ${
-          isActive
-            ? 'bg-primary text-white shadow-md'
-            : 'text-gray-600 hover:bg-gray-100'
-        }`}
-      >
-        <span className="mr-3">{icon}</span>
-        {label}
-      </a>
-    );
+  // Filter Menu based on Permissions
+  const filteredMenuGroups = useMemo(() => {
+      // 1. Admin sees everything
+      if (role === 'Admin') return menuGroups;
+
+      // 2. Logic for Staff (Accountant, Operator, Viewer)
+      const userPermissions = new Set(extendedUser.permissions || []);
+
+      return menuGroups.map(group => {
+          if ('items' in group) {
+              // It's a Group -> Filter items
+              const visibleItems = group.items.filter(item => {
+                  // Map specific page IDs to permission keys if necessary
+                  let permissionKey = item.id;
+                  
+                  // "pricing" page is controlled by "billing" permission
+                  if (item.id === 'pricing') permissionKey = 'billing';
+
+                  return userPermissions.has(permissionKey);
+              });
+
+              // Only return group if it has visible items
+              if (visibleItems.length > 0) {
+                  return { ...group, items: visibleItems };
+              }
+              return null;
+          } else {
+              // It's a Single Item (Overview) -> Always show Overview
+              if (group.id === 'overview') return group;
+              return null;
+          }
+      }).filter(Boolean) as (MenuItem | MenuGroup)[]; // Remove nulls
+  }, [role, extendedUser.permissions]);
+
+  const toggleGroup = (groupId: string) => {
+      setExpandedGroups(prev => {
+          const next = new Set(prev);
+          if (next.has(groupId)) next.delete(groupId);
+          else next.add(groupId);
+          return next;
+      });
+  };
+
+  const handleGroupClick = (groupId: string) => {
+      if (isCollapsed) {
+          setIsCollapsed(false);
+          setExpandedGroups(new Set([groupId]));
+      } else {
+          toggleGroup(groupId);
+      }
   };
 
   return (
-    <aside className="w-64 bg-white flex-shrink-0 flex flex-col border-r border-gray-200 h-full">
-      <div className="p-4 border-b border-gray-200">
-        <div className="flex items-center gap-3 px-1">
-            <div className="bg-primary text-white p-2 rounded-lg shadow-sm flex-shrink-0">
-                <svg xmlns="http://www.w3.org/2000/svg" className="h-8 w-8" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth="2.5">
-                    <path strokeLinecap="round" strokeLinejoin="round" d="M3 9l9-7 9 7v11a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"></path>
-                    <polyline points="9 22 9 12 15 12 15 22"></polyline>
-                </svg>
+    <aside className={`${isCollapsed ? 'w-20' : 'w-64'} bg-white flex-shrink-0 flex flex-col border-r border-gray-200 h-full transition-all duration-300 ease-in-out`}>
+      {/* Header */}
+      <div className="p-4 border-b border-gray-200 flex items-center justify-between h-[88px]">
+        {!isCollapsed && (
+            <div className="flex items-center gap-3 overflow-hidden">
+                <div className="bg-primary text-white p-2 rounded-lg shadow-sm flex-shrink-0">
+                    <svg xmlns="http://www.w3.org/2000/svg" className="h-6 w-6" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth="2.5">
+                        <path strokeLinecap="round" strokeLinejoin="round" d="M3 9l9-7 9 7v11a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"></path>
+                        <polyline points="9 22 9 12 15 12 15 22"></polyline>
+                    </svg>
+                </div>
+                <div className="flex flex-col justify-center min-w-0">
+                    <span className="text-lg font-black text-gray-800 tracking-tight truncate">Q-Home</span>
+                    <span className="text-xs font-bold text-gray-500 uppercase truncate max-w-[120px]">
+                        {invoiceSettings.buildingName || 'Manager'}
+                    </span>
+                </div>
             </div>
-            <div className="flex flex-col justify-center">
-                <span className="text-xl font-black text-gray-800 tracking-tight">Q-Home</span>
-                <span className="text-lg font-bold text-gray-500 -mt-1">Manager</span>
-            </div>
-        </div>
-        <div className="mt-4 w-full bg-yellow-100 border border-yellow-300 rounded-md py-1.5 px-2 text-center shadow-sm">
-            <span className="text-yellow-800 text-xs font-bold uppercase tracking-wide block">
-                {invoiceSettings.buildingName || 'Q-HOME MANAGER'}
-            </span>
-        </div>
+        )}
+        {isCollapsed && (
+             <div className="w-full flex justify-center">
+                <div className="bg-primary text-white p-2 rounded-lg shadow-sm">
+                    <span className="font-bold text-lg">Q</span>
+                </div>
+             </div>
+        )}
       </div>
       
-      <nav className="flex-1 p-2 space-y-1.5 overflow-y-auto">
-        {mainNavItems.filter(item => item.roles.includes(role)).map(item => (
-          <NavLink key={item.id} id={item.id} label={item.label} icon={item.icon} />
-        ))}
-        <div className="pt-4 mt-2">
-            <h3 className="px-4 mb-2 text-xs font-semibold uppercase text-gray-400 tracking-wider">Hệ thống</h3>
-            <div className="space-y-1.5">
-                {settingsNavItems.filter(item => item.roles.includes(role)).map(item => (
-                  <NavLink key={item.id} id={item.id} label={item.label} icon={item.icon} />
-                ))}
-            </div>
-        </div>
+      {/* Navigation */}
+      <nav className="flex-1 p-2 space-y-2 overflow-y-auto overflow-x-hidden">
+        {filteredMenuGroups.map((item) => {
+            if ('items' in item) {
+                // Group
+                const isExpanded = expandedGroups.has(item.id);
+                const hasActiveChild = item.items.some(child => child.id === activePage);
+                
+                return (
+                    <div key={item.id} className="mb-1">
+                        <button
+                            onClick={() => handleGroupClick(item.id)}
+                            className={`w-full flex items-center justify-between px-3 py-2.5 text-sm font-semibold rounded-lg transition-colors duration-200
+                                ${hasActiveChild ? 'bg-gray-50 text-primary' : 'text-gray-600 hover:bg-gray-100'}
+                                ${isCollapsed ? 'justify-center' : ''}
+                            `}
+                            title={isCollapsed ? item.label : undefined}
+                        >
+                            <div className="flex items-center">
+                                {isCollapsed ? (
+                                    <div className="relative group">
+                                        {item.items[0].icon} 
+                                        <div className="absolute -bottom-1 -right-1 w-2 h-2 bg-gray-400 rounded-full border border-white"></div>
+                                    </div>
+                                ) : (
+                                    <span className="uppercase text-xs font-bold text-gray-400 tracking-wider">{item.label}</span>
+                                )}
+                            </div>
+                            {!isCollapsed && (
+                                <span className="text-gray-400">
+                                    {isExpanded ? <ChevronUpIcon className="w-4 h-4"/> : <ChevronDownIcon className="w-4 h-4"/>}
+                                </span>
+                            )}
+                        </button>
+                        
+                        {/* Sub-menu */}
+                        {(!isCollapsed && isExpanded) && (
+                            <div className="mt-1 space-y-1 ml-1">
+                                {item.items.map(subItem => {
+                                    const isActive = activePage === subItem.id;
+                                    return (
+                                        <a
+                                            key={subItem.id}
+                                            href="#"
+                                            onClick={(e) => { e.preventDefault(); setActivePage(subItem.id); }}
+                                            className={`flex items-center px-4 py-2 text-sm font-medium rounded-lg transition-colors duration-200
+                                                ${isActive ? 'bg-primary/10 text-primary' : 'text-gray-600 hover:bg-gray-100 hover:text-gray-900'}
+                                            `}
+                                        >
+                                            <span className={`mr-3 ${isActive ? 'text-primary' : 'text-gray-400 group-hover:text-gray-500'}`}>
+                                                {subItem.icon}
+                                            </span>
+                                            {subItem.label}
+                                        </a>
+                                    );
+                                })}
+                            </div>
+                        )}
+                    </div>
+                );
+            } else {
+                // Single Item (Dashboard)
+                const isActive = activePage === item.id;
+                return (
+                    <a
+                        key={item.id}
+                        href="#"
+                        onClick={(e) => { e.preventDefault(); setActivePage(item.id); }}
+                        className={`flex items-center pl-5 pr-3 py-3 text-sm font-semibold rounded-lg transition-colors duration-200 mb-2
+                            ${isActive ? 'bg-primary text-white shadow-md' : 'text-gray-600 hover:bg-gray-100'}
+                            ${isCollapsed ? 'justify-center' : ''}
+                        `}
+                        title={isCollapsed ? item.label : undefined}
+                    >
+                        <span className={isCollapsed ? '' : 'mr-3'}>{item.icon}</span>
+                        {!isCollapsed && item.label}
+                    </a>
+                );
+            }
+        })}
       </nav>
 
-      <div className={`mt-auto mx-4 mb-4 p-3 rounded-lg border-2 text-center ${themeClass}`}>
-        <p className="text-xs font-bold">{versionText}</p>
-        <p className="text-[10px] font-medium opacity-80">by Quynh Nguyen</p>
+      {/* Footer Toggle */}
+      <div className="p-4 border-t border-gray-200 flex flex-col gap-2">
+        {!isCollapsed && (
+            <div className={`p-2 rounded-lg border text-center ${themeClass}`}>
+                <p className="text-[10px] font-bold">{versionText}</p>
+            </div>
+        )}
+        <button 
+            onClick={() => setIsCollapsed(!isCollapsed)} 
+            className="w-full flex items-center justify-center p-2 rounded-lg hover:bg-gray-100 text-gray-500 transition-colors"
+        >
+            {isCollapsed ? <ChevronRightIcon className="w-5 h-5"/> : <ChevronLeftIcon className="w-5 h-5"/>}
+        </button>
       </div>
     </aside>
   );

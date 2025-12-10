@@ -264,12 +264,20 @@ export const importResidentsBatch = async (
     return Promise.resolve({ units, owners, vehicles, createdCount, updatedCount, vehicleCount });
 };
 
-// --- NEW: Mock Water Lock Functions ---
 export const getLockStatus = async (month: string): Promise<boolean> => {
     return Promise.resolve(waterLocks.get(month) ?? false);
 };
 
 export const setLockStatus = async (month: string, status: boolean): Promise<void> => {
     waterLocks.set(month, status);
+    return Promise.resolve();
+};
+
+export const resetUserPassword = async (email: string): Promise<void> => {
+    users = users.map(u => 
+        u.Email.toLowerCase() === email.toLowerCase() 
+        ? { ...u, password: '123456', mustChangePassword: true } 
+        : u
+    );
     return Promise.resolve();
 };

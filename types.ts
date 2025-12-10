@@ -1,7 +1,6 @@
-
 // types.ts
 
-export type Role = 'Admin' | 'Accountant' | 'Operator' | 'Viewer';
+export type Role = 'Admin' | 'Accountant' | 'Operator' | 'Viewer' | 'Resident';
 
 // UPDATED: Added specific payment method statuses
 export type PaymentStatus = 'pending' | 'unpaid' | 'paid' | 'reconciling' | 'paid_tm' | 'paid_ck';
@@ -14,6 +13,7 @@ export interface UserPermission {
     status: 'Active' | 'Disabled' | 'Pending';
     password: string;
     mustChangePassword?: boolean;
+    residentId?: string; // Link to UnitID for residents
 }
 
 export enum UnitType {
@@ -36,6 +36,7 @@ export interface Owner {
     OwnerName: string;
     Phone: string;
     Email: string;
+    title?: 'Anh' | 'Chị' | 'Ông' | 'Bà'; // NEW: Title for greetings
     // NEW: Fields for resident detail panel
     avatarUrl?: string;
     secondOwnerName?: string;
@@ -129,6 +130,12 @@ export interface TariffWater {
     ValidTo: string | null; // 'YYYY-MM-DD'
 }
 
+export interface TariffCollection {
+    service: TariffService[];
+    parking: TariffParking[];
+    water: TariffWater[];
+}
+
 export interface Adjustment {
     UnitID: string;
     Period: string; // 'YYYY-MM'
@@ -170,13 +177,6 @@ export interface ChargeRaw {
     isSent?: boolean;
 }
 
-// FIX: Add TariffCollection and AllData interfaces to be shared across components.
-export interface TariffCollection {
-    service: TariffService[];
-    parking: TariffParking[];
-    water: TariffWater[];
-}
-
 export interface AllData {
     units: Unit[];
     owners: Owner[];
@@ -216,7 +216,7 @@ export interface ActivityLog {
     ts: string; // ISO string
     actor_email: string;
     actor_role: Role;
-    module: 'Billing' | 'Residents' | 'Water' | 'Pricing' | 'Settings' | 'System' | 'Vehicles';
+    module: 'Billing' | 'Residents' | 'Water' | 'Pricing' | 'Settings' | 'System' | 'Vehicles' | 'News' | 'Feedback';
     action: string; // e.g., 'CALCULATE_CHARGES', 'IMPORT_RESIDENTS'
     summary: string;
     count?: number;
@@ -225,4 +225,37 @@ export interface ActivityLog {
     undone: boolean;
     undo_token: string | null; // ID of the log itself if undoable
     undo_until: string | null; // ISO string, 24h from creation
+}
+
+// NEW: News and Feedback types
+export interface NewsItem {
+    id: string;
+    title: string;
+    content: string;
+    date: string; // ISO string
+    priority: 'high' | 'normal';
+    category: 'notification' | 'plan' | 'event';
+    imageUrl?: string;
+    sender?: 'BQT' | 'BQLVH';
+    isBroadcasted?: boolean;
+    broadcastTime?: string;
+    isArchived?: boolean;
+}
+
+export interface FeedbackReply {
+    author: string; // e.g., "BQL" or user's name
+    content: string;
+    date: string; // ISO string
+}
+
+export interface FeedbackItem {
+    id: string;
+    residentId: string; // UnitID
+    subject: string;
+    category: 'general' | 'maintenance' | 'billing' | 'other';
+    content: string;
+    imageUrl?: string; // Base64
+    status: 'Pending' | 'Processing' | 'Resolved';
+    date: string; // ISO string
+    replies: FeedbackReply[];
 }

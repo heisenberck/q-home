@@ -1,3 +1,4 @@
+
 import React, { useState, useCallback, useMemo, useRef } from 'react';
 import type { ChargeRaw, Adjustment, AllData, Role, PaymentStatus, InvoiceSettings } from '../../types';
 import { UnitType } from '../../types';
@@ -19,7 +20,7 @@ import {
     ChevronRightIcon, CheckCircleIcon, WarningIcon,
     CircularArrowRefreshIcon, ActionViewIcon, ActionPaidIcon,
     CalculatorIcon2, LockClosedIcon, ChevronDownIcon,
-    DocumentArrowDownIcon, TableCellsIcon, ArrowUpTrayIcon, RevenueIcon, PercentageIcon, PaperAirplaneIcon, ChevronUpIcon,
+    DocumentArrowDownIcon, TableCellsIcon, ArrowUpTrayIcon, BanknotesIcon, PercentageIcon, PaperAirplaneIcon, ChevronUpIcon,
     MoneyBagIcon
 } from '../ui/Icons';
 import { loadScript } from '../../utils/scriptLoader';
@@ -124,11 +125,11 @@ const MonthPicker: React.FC<{
     const months = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
 
     return (
-        <div ref={pickerRef} className="absolute top-full mt-2 left-0 z-20 bg-light-bg-secondary dark:bg-dark-bg-secondary p-4 rounded-xl shadow-lg border dark:border-dark-border w-72">
+        <div ref={pickerRef} className="absolute top-full mt-2 left-0 z-20 bg-white p-4 rounded-xl shadow-lg border w-72">
             <div className="flex justify-between items-center mb-4">
-                <button onClick={() => setDisplayYear(y => y - 1)} className="p-1 rounded-full hover:bg-gray-200 dark:hover:bg-slate-700"><ChevronLeftIcon /></button>
+                <button onClick={() => setDisplayYear(y => y - 1)} className="p-1 rounded-full hover:bg-gray-200"><ChevronLeftIcon /></button>
                 <span className="font-bold text-lg">{displayYear}</span>
-                <button onClick={() => setDisplayYear(y => y + 1)} disabled={displayYear >= currentSystemYear} className="p-1 rounded-full hover:bg-gray-200 dark:hover:bg-slate-700 disabled:opacity-50"><ChevronRightIcon /></button>
+                <button onClick={() => setDisplayYear(y => y + 1)} disabled={displayYear >= currentSystemYear} className="p-1 rounded-full hover:bg-gray-200 disabled:opacity-50"><ChevronRightIcon /></button>
             </div>
             <div className="grid grid-cols-3 gap-2">
                 {months.map((month, index) => {
@@ -139,7 +140,7 @@ const MonthPicker: React.FC<{
                             key={month}
                             disabled={isFuture}
                             onClick={() => onSelectPeriod(`${displayYear}-${String(index + 1).padStart(2, '0')}`)}
-                            className={`p-2 rounded-lg text-sm transition-colors ${isSelected ? 'bg-primary text-white font-bold' : 'hover:bg-gray-200 dark:hover:bg-slate-700'} ${isFuture ? 'opacity-50 cursor-not-allowed' : ''}`}
+                            className={`p-2 rounded-lg text-sm transition-colors ${isSelected ? 'bg-primary text-white font-bold' : 'hover:bg-gray-200'} ${isFuture ? 'opacity-50 cursor-not-allowed' : ''}`}
                         >
                             {month}
                         </button>
@@ -160,14 +161,14 @@ const ExportProgressModal: React.FC<{
     const percent = total > 0 ? Math.round((done / total) * 100) : 0;
     return (
         <div className="fixed inset-0 bg-black bg-opacity-60 flex justify-center items-center z-50 p-4">
-            <div className="bg-light-bg-secondary dark:bg-dark-bg-secondary p-6 rounded-lg shadow-xl w-full max-w-md">
+            <div className="bg-white p-6 rounded-lg shadow-xl w-full max-w-md">
                 <h4 className="text-lg font-bold mb-4">Exporting Invoices...</h4>
-                <div className="w-full bg-gray-200 rounded-full h-2.5 dark:bg-gray-700">
+                <div className="w-full bg-gray-200 rounded-full h-2.5">
                     <div className="bg-primary h-2.5 rounded-full" style={{ width: `${percent}%` }}></div>
                 </div>
                 <div className="text-center my-2 font-semibold">{`${done} / ${total} (${percent}%)`}</div>
                 <div className="flex justify-end mt-4">
-                    <button onClick={onCancel} className="px-4 py-2 bg-gray-200 dark:bg-gray-600 rounded-md hover:bg-gray-300 dark:hover:bg-gray-500">Cancel</button>
+                    <button onClick={onCancel} className="px-4 py-2 bg-gray-200 rounded-md hover:bg-gray-300">Cancel</button>
                 </div>
             </div>
         </div>
@@ -183,7 +184,7 @@ const PaymentMethodModal: React.FC<{
     return (
         <Modal title="Xác nhận thanh toán" onClose={onClose} size="sm">
             <div className="text-center mb-6">
-                <p className="text-gray-600 dark:text-gray-400 mb-1">Xác nhận đã thu tiền cho căn hộ <strong className="text-gray-900 dark:text-white">{unitId}</strong></p>
+                <p className="text-gray-600 mb-1">Xác nhận đã thu tiền cho căn hộ <strong className="text-gray-900">{unitId}</strong></p>
                 <p className="text-2xl font-bold text-primary">{formatCurrency(amount)}</p>
             </div>
             <div className="grid grid-cols-2 gap-4">
@@ -235,7 +236,7 @@ const FilterPill: React.FC<{
         <div className="relative" ref={pillRef} data-tooltip={tooltip}>
             <button
                 onClick={() => setIsOpen(!isOpen)}
-                className="h-10 px-3 border border-gray-300 dark:border-gray-600 bg-white dark:bg-dark-bg-secondary rounded-lg flex items-center gap-2 hover:border-primary transition-colors w-full justify-between"
+                className="h-10 px-3 border border-gray-300 bg-white rounded-lg flex items-center gap-2 hover:border-primary transition-colors w-full justify-between"
                 aria-haspopup="true"
                 aria-expanded={isOpen}
             >
@@ -246,7 +247,7 @@ const FilterPill: React.FC<{
                 <ChevronDownIcon />
             </button>
             {isOpen && (
-                <div className="absolute top-full mt-1.5 z-20 bg-light-bg-secondary dark:bg-dark-bg-secondary p-2 rounded-lg shadow-lg border dark:border-dark-border w-full">
+                <div className="absolute top-full mt-1.5 z-20 bg-white p-2 rounded-lg shadow-lg border w-full">
                     {options.map(option => (
                         <button
                             key={option.value}
@@ -254,7 +255,7 @@ const FilterPill: React.FC<{
                                 onValueChange(option.value);
                                 setIsOpen(false);
                             }}
-                            className={`w-full text-left p-2 rounded-md text-sm ${currentValue === option.value ? 'bg-primary text-white' : 'hover:bg-gray-100 dark:hover:bg-slate-700'}`}
+                            className={`w-full text-left p-2 rounded-md text-sm ${currentValue === option.value ? 'bg-primary text-white' : 'hover:bg-gray-100'}`}
                         >
                             {option.label}
                         </button>
@@ -298,7 +299,6 @@ const BillingPage: React.FC<BillingPageProps> = ({ charges, setCharges, allData,
     
     const [editedPayments, setEditedPayments] = useState<Record<string, number>>({});
     
-    // Payment Confirmation Modal State
     const [paymentConfirmationState, setPaymentConfirmationState] = useState<{ isOpen: boolean; charge: ChargeRaw | null }>({ isOpen: false, charge: null });
 
     const [isDataStale, setIsDataStale] = useState(false);
@@ -541,7 +541,7 @@ const BillingPage: React.FC<BillingPageProps> = ({ charges, setCharges, allData,
         if (selectedUnits.size === 0) return;
         if (role === 'Operator') { showToast('Bạn không có quyền.', 'error'); return; }
         
-        const unitIds = Array.from(selectedUnits);
+        const unitIds = Array.from(selectedUnits) as string[];
         await updatePaymentStatusBatch(period, unitIds, targetStatus, charges);
     
         const updater = (prev: ChargeRaw[]) => prev.map(c => {
@@ -632,14 +632,16 @@ const BillingPage: React.FC<BillingPageProps> = ({ charges, setCharges, allData,
                 const host = document.createElement('div');
                 host.style.cssText = 'position:fixed; left:-9999px; top:0; width:210mm; height:148mm; background:#fff; z-index:-1;';
                 document.body.appendChild(host);
-                host.innerHTML = renderInvoiceHTMLForPdf(charge, allData, invoiceSettings);
-                await new Promise(r => setTimeout(r, 50));
-                const canvas = await html2canvas(host, { scale: 2, useCORS: true, logging: false, backgroundColor: '#ffffff' });
-                const { jsPDF } = jspdf;
-                const pdf = new jsPDF({ orientation: 'landscape', unit: 'mm', format: 'a5' });
-                pdf.addImage(canvas.toDataURL('image/jpeg', 0.95), 'JPEG', 0, 0, 210, 148);
+                if (host) {
+                    host.innerHTML = renderInvoiceHTMLForPdf(charge, allData, invoiceSettings);
+                    await new Promise(r => setTimeout(r, 50));
+                    const canvas = await html2canvas(host, { scale: 2, useCORS: true, logging: false, backgroundColor: '#ffffff' });
+                    const { jsPDF } = jspdf;
+                    const pdf = new jsPDF({ orientation: 'landscape', unit: 'mm', format: 'a5' });
+                    pdf.addImage(canvas.toDataURL('image/jpeg', 0.95), 'JPEG', 0, 0, 210, 148);
+                    files.push({ name: `PhieuBaoPhi_${charge.UnitID}_${charge.Period}.pdf`, blob: pdf.output('blob') });
+                }
                 host.remove();
-                files.push({ name: `PhieuBaoPhi_${charge.UnitID}_${charge.Period}.pdf`, blob: pdf.output('blob') });
             } catch (e) { /* ignore */ }
             setExportProgress(p => ({ ...p, done: i + 1 }));
         }
@@ -688,16 +690,18 @@ const BillingPage: React.FC<BillingPageProps> = ({ charges, setCharges, allData,
                 const host = document.createElement('div');
                 host.style.cssText = 'position:fixed; left:-9999px; top:0; width:210mm; height:148mm; background:#fff; z-index:-1;';
                 document.body.appendChild(host);
-                host.innerHTML = renderInvoiceHTMLForPdf(charge, allData, invoiceSettings);
-                await new Promise(r => setTimeout(r, 50));
-                const canvas = await html2canvas(host, { scale: 2, useCORS: true, logging: false, backgroundColor: '#ffffff' });
-                const { jsPDF } = jspdf;
-                const pdf = new jsPDF({ orientation: 'landscape', unit: 'mm', format: 'a5' });
-                pdf.addImage(canvas.toDataURL('image/jpeg', 0.95), 'JPEG', 0, 0, 210, 148);
+                if (host) {
+                    host.innerHTML = renderInvoiceHTMLForPdf(charge, allData, invoiceSettings);
+                    await new Promise(r => setTimeout(r, 50));
+                    const canvas = await html2canvas(host, { scale: 2, useCORS: true, logging: false, backgroundColor: '#ffffff' });
+                    const { jsPDF } = jspdf;
+                    const pdf = new jsPDF({ orientation: 'landscape', unit: 'mm', format: 'a5' });
+                    pdf.addImage(canvas.toDataURL('image/jpeg', 0.95), 'JPEG', 0, 0, 210, 148);
+                    
+                    const base64Data = pdf.output('datauristring').split(',')[1];
+                    attachment = { name: `PhieuBaoPhi_${charge.UnitID}_${charge.Period}.pdf`, data: base64Data };
+                }
                 host.remove();
-                
-                const base64Data = pdf.output('datauristring').split(',')[1];
-                attachment = { name: `PhieuBaoPhi_${charge.UnitID}_${charge.Period}.pdf`, data: base64Data };
             } catch (e) {
                 showToast(`Lỗi tạo PDF cho ${charge.UnitID}, bỏ qua...`, 'error');
                 failCount++;
@@ -751,16 +755,18 @@ const BillingPage: React.FC<BillingPageProps> = ({ charges, setCharges, allData,
             const host = document.createElement('div');
             host.style.cssText = 'position:fixed; left:-9999px; top:0; width:210mm; height:148mm; background:#fff; z-index:-1;';
             document.body.appendChild(host);
-            host.innerHTML = renderInvoiceHTMLForPdf(charge, allData, invoiceSettings);
-            await new Promise(r => setTimeout(r, 50));
-            const canvas = await html2canvas(host, { scale: 2, useCORS: true, logging: false, backgroundColor: '#ffffff' });
-            const { jsPDF } = jspdf;
-            const pdf = new jsPDF({ orientation: 'landscape', unit: 'mm', format: 'a5' });
-            pdf.addImage(canvas.toDataURL('image/jpeg', 0.95), 'JPEG', 0, 0, 210, 148);
+            if (host) {
+                host.innerHTML = renderInvoiceHTMLForPdf(charge, allData, invoiceSettings);
+                await new Promise(r => setTimeout(r, 50));
+                const canvas = await html2canvas(host, { scale: 2, useCORS: true, logging: false, backgroundColor: '#ffffff' });
+                const { jsPDF } = jspdf;
+                const pdf = new jsPDF({ orientation: 'landscape', unit: 'mm', format: 'a5' });
+                pdf.addImage(canvas.toDataURL('image/jpeg', 0.95), 'JPEG', 0, 0, 210, 148);
+                
+                const base64Data = pdf.output('datauristring').split(',')[1];
+                attachment = { name: `PhieuBaoPhi_${charge.UnitID}_${charge.Period}.pdf`, data: base64Data };
+            }
             host.remove();
-            
-            const base64Data = pdf.output('datauristring').split(',')[1];
-            attachment = { name: `PhieuBaoPhi_${charge.UnitID}_${charge.Period}.pdf`, data: base64Data };
         } catch (e) {
             showToast(`Lỗi tạo PDF cho ${charge.UnitID}, email sẽ được gửi không có đính kèm.`, 'error');
         }
@@ -788,13 +794,11 @@ const BillingPage: React.FC<BillingPageProps> = ({ charges, setCharges, allData,
         setEditedPayments(prev => ({ ...prev, [unitId]: isNaN(amount) ? 0 : amount }));
     };
     
-    // NEW: executePayment handles the actual state and DB updates
     const executePayment = async (charge: ChargeRaw, status: 'paid_tm' | 'paid_ck') => {
         const finalPaidAmount = editedPayments[charge.UnitID] ?? charge.TotalPaid;
         
         await confirmSinglePayment(charge, finalPaidAmount, status);
 
-        // Update local state for charge
         const chargeUpdater = (prev: ChargeRaw[]) => prev.map(c =>
             (c.UnitID === charge.UnitID && c.Period === period)
                 ? { ...c, TotalPaid: finalPaidAmount, PaymentConfirmed: true, paymentStatus: status as PaymentStatus }
@@ -809,7 +813,6 @@ const BillingPage: React.FC<BillingPageProps> = ({ charges, setCharges, allData,
         };
         setCharges(chargeUpdater, logPayload);
 
-        // Update local state for adjustment if created
         const difference = finalPaidAmount - charge.TotalDue;
         if (difference !== 0) {
             const nextPeriodDate = new Date(period + '-02');
@@ -835,18 +838,14 @@ const BillingPage: React.FC<BillingPageProps> = ({ charges, setCharges, allData,
         setEditedPayments(prev => { const next = { ...prev }; delete next[charge.UnitID]; return next; });
     };
 
-    // NEW: Initiate the payment workflow
     const handleInitiatePayment = (charge: ChargeRaw) => {
-        // Exception: If current status is 'reconciling', auto-confirm as Transfer (CK)
         if (charge.paymentStatus === 'reconciling') {
             executePayment(charge, 'paid_ck');
         } else {
-            // Normal Case: Open modal to ask for Cash vs Transfer
             setPaymentConfirmationState({ isOpen: true, charge });
         }
     };
 
-    // NEW: Confirm from Modal
     const handleConfirmFromModal = (method: 'paid_tm' | 'paid_ck') => {
         if (paymentConfirmationState.charge) {
             executePayment(paymentConfirmationState.charge, method);
@@ -978,11 +977,11 @@ const BillingPage: React.FC<BillingPageProps> = ({ charges, setCharges, allData,
         <div className="space-y-4 h-full flex flex-col">
             <input type="file" ref={fileInputRef} onChange={handleStatementFileChange} accept=".xlsx, .xls, .csv" className="hidden" />
 
-             <div className="relative bg-white dark:bg-dark-bg-secondary p-4 rounded-xl shadow-sm">
+             <div className="relative bg-white p-4 rounded-xl shadow-sm">
                 <div className="absolute top-2 right-2 z-10">
                     <button 
                         onClick={() => setIsStatsExpanded(p => !p)} 
-                        className="p-1.5 rounded-full hover:bg-gray-200 dark:hover:bg-slate-700"
+                        className="p-1.5 rounded-full hover:bg-gray-200"
                         data-tooltip={isStatsExpanded ? "Thu gọn" : "Mở rộng"}
                     >
                         {isStatsExpanded ? <ChevronUpIcon /> : <ChevronDownIcon />}
@@ -990,42 +989,45 @@ const BillingPage: React.FC<BillingPageProps> = ({ charges, setCharges, allData,
                 </div>
                 {isStatsExpanded && (
                     <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6">
-                        <div data-tooltip="Tổng phí của tất cả căn hộ trong kỳ" className={`cursor-pointer transition-all rounded-xl ${activeKpiFilter === 'all' ? 'ring-2 ring-primary' : ''}`} onClick={clearAllFilters}>
-                            <StatCard 
-                                label="Tổng phải thu" 
+                        <div onClick={clearAllFilters}>
+                             <StatCard 
+                                label="Doanh thu" 
                                 value={formatCurrency(kpiStats.totalDue)}
-                                icon={<RevenueIcon className="w-7 h-7 text-blue-600 dark:text-blue-400" />} 
-                                iconBgClass="bg-blue-100 dark:bg-blue-900/50" 
+                                icon={<BanknotesIcon className="w-7 h-7 text-blue-600" />} 
+                                iconBgClass="bg-blue-100" 
+                                className="border-l-4 border-blue-500 cursor-pointer"
                             />
                         </div>
-                        <div data-tooltip="Tổng số tiền đã nộp thực tế (đã xác nhận)" className={`cursor-pointer transition-all rounded-xl ${activeKpiFilter === 'paid' ? 'ring-2 ring-primary' : ''}`} onClick={() => { clearAllFilters(); setStatusFilter('paid'); setActiveKpiFilter('paid'); }}>
+                        <div onClick={() => { clearAllFilters(); setStatusFilter('paid'); setActiveKpiFilter('paid'); }}>
                             <StatCard 
                                 label="Đã thanh toán" 
                                 value={formatCurrency(kpiStats.totalPaid)} 
-                                icon={<CheckCircleIcon className="w-7 h-7 text-emerald-600 dark:text-emerald-400" />} 
-                                iconBgClass="bg-emerald-100 dark:bg-emerald-900/50" 
+                                icon={<CheckCircleIcon className="w-7 h-7 text-emerald-600" />} 
+                                iconBgClass="bg-emerald-100" 
+                                className="border-l-4 border-green-500 cursor-pointer"
                             />
                         </div>
-                        <div data-tooltip="Lọc các hộ có chênh lệch giữa Phải thu và Đã nộp" className={`cursor-pointer transition-all rounded-xl ${activeKpiFilter === 'difference' ? 'ring-2 ring-primary' : ''}`} onClick={() => { clearAllFilters(); setSpecialFilter('has_difference'); setActiveKpiFilter('difference'); }}>
+                        <div onClick={() => { clearAllFilters(); setSpecialFilter('has_difference'); setActiveKpiFilter('difference'); }}>
                              <StatCard 
-                                label="Còn nợ / Chênh lệch" 
+                                label="Còn nợ" 
                                 value={formatCurrency(kpiStats.difference)}
-                                icon={<WarningIcon className="w-7 h-7 text-red-600 dark:text-red-400" />} 
-                                iconBgClass="bg-red-100 dark:bg-red-900/50" 
+                                icon={<WarningIcon className="w-7 h-7 text-red-600" />} 
+                                iconBgClass="bg-red-100" 
+                                className="border-l-4 border-red-500 cursor-pointer"
                             />
                         </div>
-                        <div className={`bg-white dark:bg-dark-bg-secondary p-5 rounded-xl shadow-sm flex items-center gap-5 cursor-pointer transition-all h-full ${activeKpiFilter === 'progress' ? 'ring-2 ring-primary' : ''}`} onClick={() => { clearAllFilters(); setSpecialFilter('not_paid'); setActiveKpiFilter('progress'); }}>
-                            <div className="flex-shrink-0 w-14 h-14 flex items-center justify-center rounded-full bg-purple-100 dark:bg-purple-900/50">
-                                <PercentageIcon className="w-7 h-7 text-purple-600 dark:text-purple-400" />
+                        <div className={`bg-white p-5 rounded-xl shadow-sm flex items-center gap-5 cursor-pointer h-full border-l-4 border-purple-500`} onClick={() => { clearAllFilters(); setSpecialFilter('not_paid'); setActiveKpiFilter('progress'); }}>
+                            <div className="flex-shrink-0 w-14 h-14 flex items-center justify-center rounded-full bg-purple-100">
+                                <PercentageIcon className="w-7 h-7 text-purple-600" />
                             </div>
                             <div className="flex-1">
-                                <p className="text-sm font-medium text-gray-500 dark:text-gray-400">Tiến độ thu</p>
+                                <p className="text-sm font-medium text-gray-500">Tiến độ thu</p>
                                 <div className="mt-1">
                                     <div className="flex items-baseline gap-2">
-                                        <p className="text-2xl font-bold text-gray-900 dark:text-gray-200">{kpiStats.progress.toFixed(0)}%</p>
+                                        <p className="text-2xl font-bold text-gray-900">{kpiStats.progress.toFixed(0)}%</p>
                                         <p className="text-sm font-medium text-gray-500">({kpiStats.paidCount}/{kpiStats.totalCount})</p>
                                     </div>
-                                    <div className="w-full bg-gray-200 rounded-full h-1.5 dark:bg-gray-700 mt-2">
+                                    <div className="w-full bg-gray-200 rounded-full h-1.5 mt-2">
                                         <div className="bg-purple-600 h-1.5 rounded-full transition-all duration-500" style={{ width: `${kpiStats.progress}%` }}></div>
                                     </div>
                                 </div>
@@ -1035,24 +1037,24 @@ const BillingPage: React.FC<BillingPageProps> = ({ charges, setCharges, allData,
                 )}
             </div>
             
-            <div className="bg-white dark:bg-dark-bg-secondary p-4 rounded-xl shadow-sm">
+            <div className="bg-white p-4 rounded-xl shadow-sm">
                 <div className="flex items-center gap-2 md:gap-4">
                     <div className="flex items-center gap-2 flex-shrink-0">
-                        <div className="relative flex items-center gap-1 p-1 bg-gray-100 dark:bg-gray-800 rounded-lg">
+                        <div className="relative flex items-center gap-1 p-1 bg-gray-100 rounded-lg">
                             <button onClick={() => navigatePeriod('prev')} data-tooltip="Kỳ trước"><ChevronLeftIcon /></button>
-                            <button onClick={() => setIsMonthPickerOpen(p => !p)} className="p-1.5 w-32 font-semibold hover:bg-gray-200 dark:hover:bg-slate-700 rounded-md" data-tooltip="Chọn kỳ tính phí">
+                            <button onClick={() => setIsMonthPickerOpen(p => !p)} className="p-1.5 w-32 font-semibold hover:bg-gray-200 rounded-md" data-tooltip="Chọn kỳ tính phí">
                                 {formatPeriodForDisplay(period)}
                             </button>
                             {isMonthPickerOpen && <MonthPicker currentPeriod={period} onSelectPeriod={(p) => { setPeriod(p); setIsMonthPickerOpen(false); }} onClose={() => setIsMonthPickerOpen(false)}/>}
                             <button onClick={() => navigatePeriod('next')} data-tooltip="Kỳ sau"><ChevronRightIcon /></button>
                         </div>
-                        <button onClick={() => navigatePeriod('current')} data-tooltip="Về kỳ hiện tại" className="h-10 px-3 text-sm font-semibold rounded-lg border border-gray-300 dark:border-gray-600 bg-white dark:bg-dark-bg-secondary hover:bg-gray-50 dark:hover:bg-gray-700">Current</button>
+                        <button onClick={() => navigatePeriod('current')} data-tooltip="Về kỳ hiện tại" className="h-10 px-3 text-sm font-semibold rounded-lg border border-gray-300 bg-white hover:bg-gray-50">Current</button>
                     </div>
 
                     <div className="flex items-center gap-2 flex-grow">
                         <div className="relative flex-grow min-w-[150px] md:min-w-[200px]">
                             <SearchIcon className="absolute left-3 top-1/2 -translate-y-1/2 h-5 w-5 text-gray-400" />
-                            <input type="text" placeholder="Tìm theo mã hoặc tên..." value={searchTerm} onChange={e => setSearchTerm(e.target.value)} className="w-full h-10 pl-10 pr-3 border rounded-lg bg-white dark:bg-dark-bg-secondary border-gray-300 dark:border-gray-600 text-gray-900 dark:text-white"/>
+                            <input type="text" placeholder="Tìm theo mã hoặc tên..." value={searchTerm} onChange={e => setSearchTerm(e.target.value)} className="w-full h-10 pl-10 pr-3 border rounded-lg bg-white border-gray-300 text-gray-900"/>
                         </div>
                         <div className="hidden md:block">
                              <FilterPill
@@ -1073,101 +1075,101 @@ const BillingPage: React.FC<BillingPageProps> = ({ charges, setCharges, allData,
                     </div>
 
                     <div className="flex items-center gap-2 flex-shrink-0">
-                        <button onClick={handleRefreshData} data-tooltip={isDataStale ? "Dữ liệu nguồn (xe, nước) đã thay đổi. Bấm để cập nhật." : "Làm mới dữ liệu nguồn"} disabled={isRefreshing || isLoading} className={`h-10 w-10 flex items-center justify-center font-semibold rounded-lg hover:bg-opacity-80 disabled:opacity-50 border ${ isDataStale ? 'bg-green-100 dark:bg-green-900/30 border-green-600 text-green-700 dark:text-green-300 animate-pulse' : 'border-gray-300 dark:border-gray-600 bg-white dark:bg-dark-bg-secondary text-gray-700 dark:text-gray-300 hover:bg-gray-50 dark:hover:bg-gray-700' }`}> 
+                        <button onClick={handleRefreshData} data-tooltip={isDataStale ? "Dữ liệu nguồn (xe, nước) đã thay đổi. Bấm để cập nhật." : "Làm mới dữ liệu nguồn"} disabled={isRefreshing || isLoading} className={`h-10 w-10 flex items-center justify-center font-semibold rounded-lg hover:bg-opacity-80 disabled:opacity-50 border ${ isDataStale ? 'bg-green-100 border-green-600 text-green-700 animate-pulse' : 'border-gray-300 bg-white text-gray-700 hover:bg-gray-50' }`}> 
                             <CircularArrowRefreshIcon /> 
                         </button>
                         
                         <div className="relative" title={!isLoading && canCalculate ? 'Nhấn đúp để khóa/mở khóa' : ''}>
-                             <button onClick={handlePrimaryAction} disabled={isLoading || !canCalculate || isRefreshing} data-tooltip={primaryActionState === 'locked' ? 'Kỳ đang bị khóa. Nhấn đúp để mở.' : 'Tính phí cho kỳ'} className={`h-10 px-4 text-white font-bold rounded-lg shadow-sm transition-colors flex items-center gap-1.5 disabled:bg-gray-400 disabled:cursor-not-allowed ${primaryActionState === 'locked' ? 'bg-gray-700 hover:bg-gray-800' : (primaryActionState === 'recalculate' ? 'bg-yellow-500 hover:bg-yellow-600' : 'bg-green-600 hover:bg-green-700')}`}>
+                             <button onClick={handlePrimaryAction} disabled={isLoading || !canCalculate || isRefreshing} data-tooltip={primaryActionState === 'locked' ? 'Kỳ đang bị khóa. Nhấn đúp để mở.' : 'Tính phí cho kỳ'} className={`h-10 px-4 text-white font-bold rounded-lg shadow-sm transition-colors flex items-center gap-1.5 disabled:bg-gray-400 disabled:cursor-not-allowed ${primaryActionState === 'locked' ? 'bg-gray-700 hover:bg-gray-800' : (primaryActionState === 'recalculate' ? 'bg-yellow-500 hover:bg-yellow-600' : 'bg-primary hover:bg-primary-focus')}`}>
                                 {primaryActionState === 'locked' ? <LockClosedIcon /> : (isLoading ? <Spinner /> : (primaryActionState === 'recalculate' ? <CircularArrowRefreshIcon /> : <CalculatorIcon2 />))}
                                 {primaryActionState === 'locked' ? 'Locked' : (isLoading ? 'Calculating...' : (primaryActionState === 'recalculate' ? 'Recalculate' : 'Calculate'))}
                             </button>
                         </div>
                         
-                        <button onClick={handleImportStatementClick} data-tooltip="Nhập sao kê để tự động đối soát" disabled={!canCalculate} className="h-10 px-4 font-semibold rounded-lg disabled:opacity-50 flex items-center gap-2 border border-primary text-primary hover:bg-primary/10 bg-white dark:bg-transparent">
+                        <button onClick={handleImportStatementClick} data-tooltip="Nhập sao kê để tự động đối soát" disabled={!canCalculate} className="h-10 px-4 font-semibold rounded-lg disabled:opacity-50 flex items-center gap-2 border border-gray-300 text-gray-700 hover:bg-gray-50 bg-white">
                             <ArrowUpTrayIcon className="w-5 h-5" /> <span className="hidden lg:inline">Import</span>
                         </button>
-                        <button onClick={handleExportReport} data-tooltip="Xuất báo cáo tổng hợp" disabled={primaryActionState === 'calculate'} className="h-10 px-4 text-sm font-semibold rounded-lg flex items-center gap-2 border border-gray-500 text-gray-700 dark:text-gray-300 hover:bg-gray-500/10 disabled:opacity-50">
+                        <button onClick={handleExportReport} data-tooltip="Xuất báo cáo tổng hợp" disabled={primaryActionState === 'calculate'} className="h-10 px-4 text-sm font-semibold rounded-lg flex items-center gap-2 border border-gray-300 text-gray-700 hover:bg-gray-50 disabled:opacity-50">
                             <TableCellsIcon className="w-5 h-5" /> <span className="hidden lg:inline">Export</span>
                         </button>
                     </div>
                 </div>
             </div>
 
-            <div className="bg-white dark:bg-dark-bg-secondary rounded-xl shadow-sm flex-1 flex flex-col overflow-hidden">
+            <div className="bg-white rounded-xl shadow-sm flex-1 flex flex-col overflow-hidden">
                 {selectedUnits.size > 0 && (
-                     <div className="p-3 border-b dark:border-dark-border bg-gray-50 dark:bg-dark-bg flex items-center gap-4 animate-fade-in-down">
+                     <div className="p-3 border-b bg-gray-50 flex items-center gap-4 animate-fade-in-down">
                         <span className="font-semibold text-sm">{selectedUnits.size} đã chọn</span>
-                        <button onClick={() => setSelectedUnits(new Set())} className="text-sm text-gray-500 hover:text-gray-800 dark:hover:text-gray-200">Bỏ chọn</button>
-                        <div className="h-5 border-l dark:border-dark-border ml-2"></div>
+                        <button onClick={() => setSelectedUnits(new Set())} className="text-sm text-gray-500 hover:text-gray-800">Bỏ chọn</button>
+                        <div className="h-5 border-l ml-2"></div>
                         <div className="ml-auto flex items-center gap-4">
                              {(role === 'Admin' || role === 'Accountant') && <>
-                                <button onClick={() => handleBulkSetStatus('paid')} className="flex items-center gap-2 text-sm font-semibold text-green-600 hover:text-green-800 dark:text-green-400 dark:hover:text-green-300"><CheckCircleIcon /> Mark Paid</button>
-                                <button onClick={() => handleBulkSetStatus('unpaid')} className="flex items-center gap-2 text-sm font-semibold text-orange-600 hover:text-orange-800 dark:text-orange-400 dark:hover:text-orange-300"><WarningIcon /> Mark Unpaid</button>
+                                <button onClick={() => handleBulkSetStatus('paid')} className="flex items-center gap-2 text-sm font-semibold text-green-600 hover:text-green-800"><CheckCircleIcon /> Mark Paid</button>
+                                <button onClick={() => handleBulkSetStatus('unpaid')} className="flex items-center gap-2 text-sm font-semibold text-orange-600 hover:text-orange-800"><WarningIcon /> Mark Unpaid</button>
                             </>}
-                            <button onClick={handleDownloadPDFs} disabled={exportProgress.isOpen} className="flex items-center gap-2 text-sm font-semibold text-blue-600 hover:text-blue-800 dark:text-blue-400 dark:hover:text-blue-300"><DocumentArrowDownIcon className="w-5 h-5" /> Tải PDF (Zip)</button>
-                            <button onClick={handleBulkSendEmail} className="flex items-center gap-2 text-sm font-semibold text-indigo-600 hover:text-indigo-800 dark:text-indigo-400 dark:hover:text-indigo-300"><PaperAirplaneIcon /> Send Mail</button>
+                            <button onClick={handleDownloadPDFs} disabled={exportProgress.isOpen} className="flex items-center gap-2 text-sm font-semibold text-blue-600 hover:text-blue-800"><DocumentArrowDownIcon className="w-5 h-5" /> Tải PDF (Zip)</button>
+                            <button onClick={handleBulkSendEmail} className="flex items-center gap-2 text-sm font-semibold text-indigo-600 hover:text-indigo-800"><PaperAirplaneIcon /> Send Mail</button>
                         </div>
                     </div>
                 )}
                 <div className="overflow-y-auto">
                     <table className="min-w-full">
-                        <thead className="bg-gray-50 dark:bg-slate-800 sticky top-0 z-10"><tr>
+                        <thead className="bg-gray-50 sticky top-0 z-10"><tr>
                             <th className="px-4 py-2 w-12 text-center"><input type="checkbox" onChange={e => setSelectedUnits(e.target.checked ? new Set(sortedAndFilteredCharges.map(c => c.UnitID)) : new Set())} checked={sortedAndFilteredCharges.length > 0 && selectedUnits.size > 0 && sortedAndFilteredCharges.every(c => selectedUnits.has(c.UnitID))} disabled={sortedAndFilteredCharges.length === 0}/></th>
-                            <th className="px-4 py-3 text-left text-xs font-bold text-gray-700 dark:text-gray-300 uppercase tracking-wider">Căn hộ</th>
-                            <th className="px-4 py-3 text-left text-xs font-bold text-gray-700 dark:text-gray-300 uppercase tracking-wider">Chủ SH</th>
-                            <th className="px-4 py-3 text-right text-xs font-bold text-gray-700 dark:text-gray-300 uppercase tracking-wider">Tổng phí</th>
-                            <th className="px-4 py-3 text-right text-xs font-bold text-gray-700 dark:text-gray-300 uppercase tracking-wider">Tổng TT</th>
-                            <th className="px-4 py-3 text-right text-xs font-bold text-gray-700 dark:text-gray-300 uppercase tracking-wider">C.Lệch</th>
-                            <th className="px-4 py-3 text-center text-xs font-bold text-gray-700 dark:text-gray-300 uppercase tracking-wider">Trạng thái</th>
-                            <th className="px-4 py-3 text-center text-xs font-bold text-gray-700 dark:text-gray-300 uppercase tracking-wider">H.động</th>
+                            <th className="px-4 py-3 text-left text-xs font-bold text-gray-700 uppercase tracking-wider">Căn hộ</th>
+                            <th className="px-4 py-3 text-left text-xs font-bold text-gray-700 uppercase tracking-wider">Chủ SH</th>
+                            <th className="px-4 py-3 text-right text-xs font-bold text-gray-700 uppercase tracking-wider">Tổng phí</th>
+                            <th className="px-4 py-3 text-right text-xs font-bold text-gray-700 uppercase tracking-wider">Tổng TT</th>
+                            <th className="px-4 py-3 text-right text-xs font-bold text-gray-700 uppercase tracking-wider">C.Lệch</th>
+                            <th className="px-4 py-3 text-center text-xs font-bold text-gray-700 uppercase tracking-wider">Trạng thái</th>
+                            <th className="px-4 py-3 text-center text-xs font-bold text-gray-700 uppercase tracking-wider">H.động</th>
                         </tr></thead>
-                        <tbody className="text-sm divide-y divide-gray-200 dark:divide-gray-700">
-                            {isLoading && primaryActionState !== 'recalculate' ? ( Array.from({ length: 10 }).map((_, i) => ( <tr key={i}><td colSpan={8} className="p-2"><div className="h-12 bg-gray-200 dark:bg-gray-700 animate-pulse rounded-md"></div></td></tr> )) ) 
+                        <tbody className="text-sm divide-y divide-gray-200">
+                            {isLoading && primaryActionState !== 'recalculate' ? ( Array.from({ length: 10 }).map((_, i) => ( <tr key={i}><td colSpan={8} className="p-2"><div className="h-12 bg-gray-200 animate-pulse rounded-md"></div></td></tr> )) ) 
                             : sortedAndFilteredCharges.length === 0 ? ( <tr><td colSpan={8} className="text-center p-8 text-gray-500">{charges.filter(c=>c.Period===period).length > 0 ? 'Không có dữ liệu nào khớp với bộ lọc.' : 'Chưa có dữ liệu cho kỳ này. Vui lòng bấm "Calculate".'}</td></tr> ) 
                             : ( sortedAndFilteredCharges.map(charge => {
                                     const finalPaidAmount = editedPayments[charge.UnitID] ?? charge.TotalPaid;
                                     const difference = finalPaidAmount - charge.TotalDue;
                                     const isPaid = charge.paymentStatus === 'paid' || charge.paymentStatus === 'paid_tm' || charge.paymentStatus === 'paid_ck';
                                     return (
-                                    <tr key={charge.UnitID} className="hover:bg-gray-50 dark:hover:bg-slate-800/50">
+                                    <tr key={charge.UnitID} className="hover:bg-gray-50">
                                         <td className="w-12 text-center"><input type="checkbox" checked={selectedUnits.has(charge.UnitID)} onChange={(e) => setSelectedUnits(p => { const n = new Set(p); e.target.checked ? n.add(charge.UnitID) : n.delete(charge.UnitID); return n; })} /></td>
-                                        <td className="font-medium px-4 py-4 text-gray-900 dark:text-gray-200">{charge.UnitID}</td>
-                                        <td className="px-4 py-4 text-gray-900 dark:text-gray-200">{charge.OwnerName}</td>
-                                        <td className="font-bold px-4 py-4 text-right text-gray-900 dark:text-gray-200">{formatNumber(charge.TotalDue)}</td>
-                                        <td className="px-4 py-4 text-right">
+                                        <td className="font-medium px-4 py-3 text-gray-900">{charge.UnitID}</td>
+                                        <td className="px-4 py-3 text-gray-900">{charge.OwnerName}</td>
+                                        <td className="px-4 py-3 text-right text-gray-900 font-bold">{formatNumber(charge.TotalDue)}</td>
+                                        <td className="px-4 py-3 text-right">
                                             <input 
                                                 type="text"
                                                 value={new Intl.NumberFormat('vi-VN').format(finalPaidAmount)}
                                                 onChange={(e) => handlePaymentChange(charge.UnitID, e.target.value)}
                                                 disabled={charge.PaymentConfirmed || role === 'Operator'}
-                                                className="w-36 text-right p-2 text-sm border rounded-md bg-white text-gray-900 border-gray-300 focus:ring-2 focus:ring-primary disabled:bg-transparent disabled:border-transparent disabled:font-semibold disabled:text-emerald-600 dark:disabled:text-emerald-400"
+                                                className="w-36 text-right p-2 text-sm border rounded-md bg-white text-gray-900 border-gray-300 focus:ring-2 focus:ring-primary disabled:bg-transparent disabled:border-transparent font-bold disabled:text-emerald-600"
                                             />
                                         </td>
-                                         <td className={`font-semibold px-4 py-4 text-right whitespace-nowrap ${difference > 0 ? 'text-green-600' : (difference < 0 ? 'text-red-600' : 'text-gray-900 dark:text-gray-200')}`}>
+                                         <td className={`font-bold px-4 py-3 text-right whitespace-nowrap ${difference > 0 ? 'text-green-600' : (difference < 0 ? 'text-red-600' : 'text-gray-900')}`}>
                                             {difference !== 0 ? formatNumber(difference) : ''}
                                         </td>
-                                        <td className="px-4 py-4 text-center">
-                                            {charge.paymentStatus === 'paid' ? <span className="px-2.5 py-1 inline-flex text-xs font-semibold rounded-full bg-green-100 text-green-800 dark:bg-green-900/50 dark:text-green-300">Paid</span> :
-                                             charge.paymentStatus === 'paid_tm' ? <span className="px-2.5 py-1 inline-flex text-xs font-semibold rounded-full bg-green-100 text-green-800 dark:bg-green-900/50 dark:text-green-300">Đã thu (TM)</span> :
-                                             charge.paymentStatus === 'paid_ck' ? <span className="px-2.5 py-1 inline-flex text-xs font-semibold rounded-full bg-blue-100 text-blue-800 dark:bg-blue-900/50 dark:text-blue-300">Đã thu (CK)</span> :
-                                             charge.paymentStatus === 'reconciling' ? <span className="px-2.5 py-1 inline-flex text-xs font-semibold rounded-full bg-yellow-100 text-yellow-800 dark:bg-yellow-900/50 dark:text-yellow-300">Reconciling</span> :
-                                             (charge.isPrinted && charge.isSent) ? <span className="px-2.5 py-1 inline-flex text-xs font-semibold rounded-full bg-blue-200 text-blue-800 dark:bg-blue-800/50 dark:text-blue-300">Printed & Sent</span> :
-                                             charge.isSent ? <span className="px-2.5 py-1 inline-flex text-xs font-semibold rounded-full bg-sky-100 text-sky-800 dark:bg-sky-900/50 dark:text-sky-300">Sent</span> :
-                                             charge.isPrinted ? <span className="px-2.5 py-1 inline-flex text-xs font-semibold rounded-full bg-orange-100 text-orange-800 dark:bg-orange-900/50 dark:text-orange-300">Printed</span> :
-                                             <span className="px-2.5 py-1 inline-flex text-xs font-semibold rounded-full bg-gray-100 text-gray-800 dark:bg-gray-700 dark:text-gray-300">Pending</span>
+                                        <td className="px-4 py-3 text-center">
+                                            {charge.paymentStatus === 'paid' ? <span className="px-2.5 py-1 inline-flex text-xs font-semibold rounded-full bg-green-100 text-green-800">Paid</span> :
+                                             charge.paymentStatus === 'paid_tm' ? <span className="px-2.5 py-1 inline-flex text-xs font-semibold rounded-full bg-green-100 text-green-800">Đã thu (TM)</span> :
+                                             charge.paymentStatus === 'paid_ck' ? <span className="px-2.5 py-1 inline-flex text-xs font-semibold rounded-full bg-blue-100 text-blue-800">Đã thu (CK)</span> :
+                                             charge.paymentStatus === 'reconciling' ? <span className="px-2.5 py-1 inline-flex text-xs font-semibold rounded-full bg-yellow-100 text-yellow-800">Reconciling</span> :
+                                             (charge.isPrinted && charge.isSent) ? <span className="px-2.5 py-1 inline-flex text-xs font-semibold rounded-full bg-blue-200 text-blue-800">Printed & Sent</span> :
+                                             charge.isSent ? <span className="px-2.5 py-1 inline-flex text-xs font-semibold rounded-full bg-sky-100 text-sky-800">Sent</span> :
+                                             charge.isPrinted ? <span className="px-2.5 py-1 inline-flex text-xs font-semibold rounded-full bg-orange-100 text-orange-800">Printed</span> :
+                                             <span className="px-2.5 py-1 inline-flex text-xs font-semibold rounded-full bg-gray-100 text-gray-800">Pending</span>
                                             }
                                         </td>
-                                        <td className="px-4 py-4"><div className="flex justify-center items-center gap-2">
+                                        <td className="px-4 py-3"><div className="flex justify-center items-center gap-2">
                                             <button 
                                                 onClick={() => handleInitiatePayment(charge)}
                                                 disabled={isPaid || role === 'Operator'}
-                                                className="p-2 rounded-full hover:bg-gray-200 dark:hover:bg-gray-600 disabled:opacity-30"
+                                                className="p-2 rounded-full hover:bg-gray-200 disabled:opacity-30"
                                                 data-tooltip="Xác nhận thanh toán"
                                             >
                                                 <ActionPaidIcon className="w-5 h-5 text-green-500" />
                                             </button>
-                                            <button onClick={() => setPreviewCharge(charge)} className="p-2 rounded-full hover:bg-gray-200 dark:hover:bg-gray-600" data-tooltip="View & Send"><ActionViewIcon className="text-blue-500 w-5 h-5" /></button>
+                                            <button onClick={() => setPreviewCharge(charge)} className="p-2 rounded-full hover:bg-gray-200" data-tooltip="View & Send"><ActionViewIcon className="text-blue-500 w-5 h-5" /></button>
                                         </div></td>
                                     </tr>
                                 )

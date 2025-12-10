@@ -23,7 +23,7 @@ export const {
     saveWaterReadings,
     saveVehicles,
     importResidentsBatch,
-    // ADDED: Export new lock status functions
     getLockStatus,
     setLockStatus,
+    resetUserPassword, // ADDED: Export the new password reset function
 } = api;

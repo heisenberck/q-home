@@ -8,6 +8,8 @@ interface StatCardProps {
     className?: string;
     trend?: number;
     subtext?: React.ReactNode;
+    // Fix: Add onClick prop to make the component clickable.
+    onClick?: () => void;
 }
 
 const TrendBadge: React.FC<{ trend: number }> = ({ trend }) => {
@@ -34,9 +36,9 @@ const TrendBadge: React.FC<{ trend: number }> = ({ trend }) => {
     );
 };
 
-const StatCard: React.FC<StatCardProps> = ({ label, value, icon, iconBgClass = 'bg-gray-100', className, trend, subtext }) => {
+const StatCard: React.FC<StatCardProps> = ({ label, value, icon, iconBgClass = 'bg-gray-100', className, trend, subtext, onClick }) => {
     return (
-        <div className={`bg-white p-5 rounded-xl shadow-sm flex items-center gap-5 h-full ${className}`}>
+        <div onClick={onClick} className={`bg-white p-5 rounded-xl shadow-sm flex items-center gap-5 h-full ${className}`}>
             <div className={`flex-shrink-0 w-14 h-14 flex items-center justify-center rounded-full ${iconBgClass}`}>
                 {icon}
             </div>
