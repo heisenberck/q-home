@@ -1,5 +1,6 @@
 
 
+
 import React, { useState, useEffect, useCallback, createContext, useMemo } from 'react';
 import type { Role, UserPermission, Unit, Owner, Vehicle, WaterReading, ChargeRaw, TariffService, TariffParking, TariffWater, Adjustment, InvoiceSettings, ActivityLog, VehicleTier, TariffCollection, AllData, NewsItem, FeedbackItem, FeedbackReply } from './types';
 import { patchKiosAreas, MOCK_NEWS_ITEMS, MOCK_FEEDBACK_ITEMS } from './constants';
@@ -416,7 +417,7 @@ const App: React.FC = () => {
             case 'vehicles': return <VehiclesPage vehicles={vehicles} units={units} owners={owners} activityLogs={activityLogs} onSetVehicles={handleSetVehicles} role={role!} />;
             case 'water': return <WaterPage waterReadings={waterReadings} setWaterReadings={handleSetWaterReadings} allUnits={units} role={role!} tariffs={tariffs} />;
             case 'pricing': return <PricingPage tariffs={tariffs} setTariffs={handleSetTariffs} role={role!} />;
-            case 'users': return <UsersPage users={users} setUsers={handleSetUsers} role={role!} />;
+            case 'users': return <UsersPage users={users} setUsers={handleSetUsers} units={units} role={role!} />;
             case 'settings': return <SettingsPage invoiceSettings={invoiceSettings} setInvoiceSettings={updateFeeSettings} role={role!} />;
             case 'backup': return <BackupRestorePage allData={{ units, owners, vehicles, waterReadings, charges, tariffs, users, adjustments, invoiceSettings }} onRestore={handleRestoreAllData} role={role!} />;
             case 'activityLog': return <ActivityLogPage logs={activityLogs} onUndo={() => {}} role={role!} />;

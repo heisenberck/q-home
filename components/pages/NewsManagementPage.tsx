@@ -5,9 +5,32 @@ import { useNotification, useLogger } from '../../App';
 import Modal from '../ui/Modal';
 import { 
     PencilSquareIcon, TrashIcon, UploadIcon, MegaphoneIcon, ArchiveBoxIcon, 
-    CheckCircleIcon, ListBulletIcon, SearchIcon, ChevronLeftIcon, ChevronRightIcon 
+    CheckCircleIcon, ListBulletIcon, SearchIcon, ChevronLeftIcon, ChevronRightIcon,
+    ClockIcon, PlusIcon
 } from '../ui/Icons';
 import { timeAgo } from '../../utils/helpers';
+
+// --- Local Icons (Missing in global Icons.tsx) ---
+const NewspaperIcon: React.FC<{ className?: string }> = ({ className = "h-6 w-6" }) => (
+    <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" strokeWidth={1.5} stroke="currentColor" className={className}>
+        <path strokeLinecap="round" strokeLinejoin="round" d="M12 7.5h1.5m-1.5 3h1.5m-7.5 3h7.5m-7.5 3h7.5m3-9h3.375c.621 0 1.125.504 1.125 1.125V18a2.25 2.25 0 0 1-2.25 2.25M16.5 7.5V18a2.25 2.25 0 0 0 2.25 2.25M16.5 7.5V4.875c0-.621-.504-1.125-1.125-1.125H4.125C3.504 3.75 3 4.254 3 4.875V18a2.25 2.25 0 0 0 2.25 2.25h13.5M6 7.5h3v3H6v-3Z" />
+    </svg>
+);
+
+const PinIcon: React.FC<{ className?: string; filled?: boolean }> = ({ className = "h-6 w-6", filled }) => (
+    <svg xmlns="http://www.w3.org/2000/svg" fill={filled ? "currentColor" : "none"} viewBox="0 0 24 24" strokeWidth={1.5} stroke="currentColor" className={className}>
+        <path strokeLinecap="round" strokeLinejoin="round" d="M17.593 3.322c1.1.128 1.907 1.077 1.907 2.185V21L12 17.25 4.5 21V5.507c0-1.108.806-2.057 1.907-2.185a48.507 48.507 0 0 1 11.186 0Z" />
+    </svg>
+);
+
+const StarIcon: React.FC<{ className?: string }> = ({ className = "h-6 w-6" }) => (
+    <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" strokeWidth={1.5} stroke="currentColor" className={className}>
+        <path strokeLinecap="round" strokeLinejoin="round" d="M11.48 3.499a.562.562 0 0 1 1.04 0l2.125 5.111a.563.563 0 0 0 .475.345l5.518.442c.499.04.701.663.321.988l-4.204 3.602a.563.563 0 0 0-.182.557l1.285 5.385a.562.562 0 0 1-.84.61l-4.725-2.885a.562.562 0 0 0-.586 0L6.982 20.54a.562.562 0 0 1-.84-.61l1.285-5.386a.562.562 0 0 0-.182-.557l-4.204-3.602a.562.562 0 0 1 .321-.988l5.518-.442a.563.563 0 0 0 .475-.345L11.48 3.5Z" />
+    </svg>
+);
+
+// Extended type to include isPinned (simulated)
+type ExtendedNewsItem = NewsItem & { isPinned?: boolean };
 
 interface NewsManagementPageProps {
   news: NewsItem[];
@@ -15,24 +38,41 @@ interface NewsManagementPageProps {
   role: Role;
 }
 
+// --- Compact Stat Card ---
+const CompactStatCard: React.FC<{
+    label: string;
+    value: number;
+    icon: React.ReactNode;
+    colorClass: string;
+    borderColorClass: string;
+}> = ({ label, value, icon, colorClass, borderColorClass }) => (
+    <div className={`bg-white rounded-lg shadow-sm p-4 border-l-4 ${borderColorClass} flex items-center justify-between`}>
+        <div>
+            <p className="text-xs font-semibold text-gray-500 uppercase tracking-wider">{label}</p>
+            <p className="text-2xl font-bold text-gray-800 mt-1">{value}</p>
+        </div>
+        <div className={`p-2 rounded-full ${colorClass}`}>
+            {icon}
+        </div>
+    </div>
+);
+
 const NewsEditorModal: React.FC<{
-  newsItem?: NewsItem | null;
-  onSave: (item: NewsItem) => void;
+  newsItem?: ExtendedNewsItem | null;
+  onSave: (item: ExtendedNewsItem) => void;
   onClose: () => void;
 }> = ({ newsItem, onSave, onClose }) => {
   const { showToast } = useNotification();
   
-  // State initialization
-  const [item, setItem] = useState<Omit<NewsItem, 'id' | 'date'>>(
+  const [item, setItem] = useState<Omit<ExtendedNewsItem, 'id' | 'date'>>(
     newsItem 
-      ? { title: newsItem.title, content: newsItem.content || '', priority: newsItem.priority, category: newsItem.category, imageUrl: newsItem.imageUrl, sender: newsItem.sender || 'BQLVH' } 
-      : { title: '', content: '', priority: 'normal', category: 'notification', imageUrl: '', sender: 'BQLVH' }
+      ? { title: newsItem.title, content: newsItem.content || '', priority: newsItem.priority, category: newsItem.category, imageUrl: newsItem.imageUrl, sender: newsItem.sender || 'BQLVH', isPinned: newsItem.isPinned || false } 
+      : { title: '', content: '', priority: 'normal', category: 'notification', imageUrl: '', sender: 'BQLVH', isPinned: false }
   );
   const [imagePreview, setImagePreview] = useState(newsItem?.imageUrl || '');
   const fileInputRef = useRef<HTMLInputElement>(null);
   const editorRef = useRef<HTMLDivElement>(null);
   
-  // FIX: Initialize content editor only once on mount to prevent React re-render conflicts
   useEffect(() => {
       if (editorRef.current) {
           editorRef.current.innerHTML = item.content || '';
@@ -40,7 +80,8 @@ const NewsEditorModal: React.FC<{
   }, []);
 
   const handleChange = (e: React.ChangeEvent<HTMLInputElement | HTMLSelectElement>) => {
-    setItem({ ...item, [e.target.name]: e.target.value });
+    const value = e.target.type === 'checkbox' ? (e.target as HTMLInputElement).checked : e.target.value;
+    setItem({ ...item, [e.target.name]: value });
   };
   
   const handleImageChange = (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -80,9 +121,8 @@ const NewsEditorModal: React.FC<{
 
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
-    const finalItem: NewsItem = {
+    const finalItem: ExtendedNewsItem = {
       ...item,
-      // Ensure we grab the latest content from the DOM if available, otherwise use state
       content: editorRef.current ? editorRef.current.innerHTML : item.content,
       imageUrl: imagePreview,
       id: newsItem?.id || `news_${Date.now()}`,
@@ -96,112 +136,114 @@ const NewsEditorModal: React.FC<{
   const handleFormat = (command: string, value: string | null = null) => {
     document.execCommand(command, false, value ?? undefined);
     if (editorRef.current) {
-        const newContent = editorRef.current.innerHTML;
-        setItem(prev => ({ ...prev, content: newContent }));
-        editorRef.current.focus(); // Keep focus
+        editorRef.current.focus();
     }
   };
   
-  // Strict Light Mode Styles
   const inputStyle = "w-full h-10 px-3 border rounded-md bg-white border-gray-300 text-gray-900 focus:ring-2 focus:ring-primary focus:border-transparent outline-none transition-shadow text-sm placeholder-gray-400";
   const labelStyle = "block text-sm font-medium text-gray-700 mb-1";
 
   return (
-    <Modal title={newsItem ? "Sửa Tin tức" : "Tạo Tin tức mới"} onClose={onClose} size="3xl">
-      <form onSubmit={handleSubmit} className="space-y-5 bg-white text-gray-900 p-1">
+    <Modal title={newsItem ? "Sửa Tin tức" : "Soạn Tin mới"} onClose={onClose} size="3xl">
+      <form onSubmit={handleSubmit} className="space-y-6 text-gray-900">
         
-        {/* Row 1: Title */}
-        <div>
-            <label className={labelStyle}>Tiêu đề tin</label>
-            <input name="title" value={item.title} onChange={handleChange} className={inputStyle} placeholder="Nhập tiêu đề..." required />
-        </div>
-
-        {/* Row 2: Categories */}
-        <div className="grid grid-cols-1 md:grid-cols-2 gap-5">
-             <div>
-                <label className={labelStyle}>Phân loại</label>
-                <select name="category" value={item.category} onChange={handleChange} className={inputStyle}>
-                    <option value="notification">Thông báo</option>
-                    <option value="plan">Kế hoạch</option>
-                    <option value="event">Sự kiện</option>
-                </select>
-            </div>
+        <div className="grid grid-cols-1 gap-6">
             <div>
-                <label className={labelStyle}>Ưu tiên</label> 
-                <select name="priority" value={item.priority} onChange={handleChange} className={inputStyle}>
-                    <option value="normal">Thông thường</option>
-                    <option value="high">Quan trọng</option>
-                </select>
+                <label className={labelStyle}>Tiêu đề tin <span className="text-red-500">*</span></label>
+                <input name="title" value={item.title} onChange={handleChange} className={inputStyle} placeholder="Nhập tiêu đề ngắn gọn, súc tích..." required />
+            </div>
+
+            <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
+                <div>
+                    <label className={labelStyle}>Phân loại</label>
+                    <select name="category" value={item.category} onChange={handleChange} className={inputStyle}>
+                        <option value="notification">Thông báo</option>
+                        <option value="plan">Kế hoạch</option>
+                        <option value="event">Sự kiện</option>
+                    </select>
+                </div>
+                <div>
+                    <label className={labelStyle}>Độ ưu tiên</label> 
+                    <select name="priority" value={item.priority} onChange={handleChange} className={inputStyle}>
+                        <option value="normal">Thông thường</option>
+                        <option value="high">Quan trọng (High)</option>
+                    </select>
+                </div>
+                <div>
+                    <label className={labelStyle}>Người gửi</label>
+                    <select name="sender" value={item.sender} onChange={handleChange} className={inputStyle}>
+                        <option value="BQLVH">Ban Quản lý (BQLVH)</option>
+                        <option value="BQT">Ban Quản trị (BQT)</option>
+                    </select>
+                </div>
             </div>
         </div>
 
-        {/* Row 3: Image */}
-        <div>
-          <label className={labelStyle}>Ảnh đại diện</label>
-          <div className="mt-1 flex items-start gap-4">
-            <div className="w-40 h-24 bg-gray-100 border border-gray-300 rounded-md overflow-hidden flex-shrink-0 relative group">
-                {imagePreview ? (
-                    <img src={imagePreview} alt="Preview" className="w-full h-full object-cover" />
-                ) : (
-                    <div className="w-full h-full flex items-center justify-center text-xs text-gray-400">Không có ảnh</div>
-                )}
-            </div>
-            <div className="flex-grow pt-1">
-                 <input type="file" accept="image/*" ref={fileInputRef} onChange={handleImageChange} className="hidden" />
-                 <div className="flex gap-3">
-                    <button type="button" onClick={() => fileInputRef.current?.click()} className="flex items-center gap-2 px-3 py-1.5 bg-white border border-gray-300 text-gray-700 font-medium rounded-md shadow-sm text-sm hover:bg-gray-50 transition-colors">
-                        <UploadIcon className="w-4 h-4" /> Tải ảnh
-                    </button>
-                    {imagePreview && (
-                        <button type="button" onClick={() => {setImagePreview(''); setItem(p=>({...p, imageUrl:''}))}} className="px-3 py-1.5 text-red-600 hover:text-red-800 text-sm font-medium">
-                            Xóa ảnh
-                        </button>
-                    )}
-                 </div>
-                 <p className="text-xs text-gray-500 mt-2">Định dạng hỗ trợ: JPG, PNG. Dung lượng tối ưu &lt; 2MB.</p>
-            </div>
-          </div>
-        </div>
-
-        {/* Row 4: Editor (FIXED) */}
-        <div>
+        {/* Editor */}
+        <div className="flex flex-col h-full">
           <label className={labelStyle}>Nội dung chi tiết</label>
             <div className="border border-gray-300 rounded-md mt-1 bg-white overflow-hidden shadow-sm focus-within:ring-2 focus-within:ring-primary focus-within:border-transparent">
-                {/* Toolbar */}
                 <div className="flex items-center gap-1 p-2 border-b border-gray-200 bg-gray-50 select-none">
-                    <button type="button" onMouseDown={(e) => { e.preventDefault(); handleFormat('bold'); }} className="p-1.5 rounded hover:bg-gray-200 text-gray-800 font-bold min-w-[32px] text-center" title="Bold">B</button>
-                    <button type="button" onMouseDown={(e) => { e.preventDefault(); handleFormat('italic'); }} className="p-1.5 rounded hover:bg-gray-200 text-gray-800 italic min-w-[32px] text-center" title="Italic">I</button>
-                    <button type="button" onMouseDown={(e) => { e.preventDefault(); handleFormat('underline'); }} className="p-1.5 rounded hover:bg-gray-200 text-gray-800 underline min-w-[32px] text-center" title="Underline">U</button>
+                    <button type="button" onMouseDown={(e) => { e.preventDefault(); handleFormat('bold'); }} className="p-1.5 rounded hover:bg-gray-200 text-gray-800 font-bold min-w-[32px]" title="Bold">B</button>
+                    <button type="button" onMouseDown={(e) => { e.preventDefault(); handleFormat('italic'); }} className="p-1.5 rounded hover:bg-gray-200 text-gray-800 italic min-w-[32px]" title="Italic">I</button>
+                    <button type="button" onMouseDown={(e) => { e.preventDefault(); handleFormat('underline'); }} className="p-1.5 rounded hover:bg-gray-200 text-gray-800 underline min-w-[32px]" title="Underline">U</button>
                     <div className="w-px h-5 bg-gray-300 mx-2"></div>
-                    <button type="button" onMouseDown={(e) => { e.preventDefault(); handleFormat('insertUnorderedList'); }} className="p-1.5 rounded hover:bg-gray-200 text-gray-800 flex items-center justify-center min-w-[32px]" title="List"><ListBulletIcon className="w-5 h-5"/></button>
+                    <button type="button" onMouseDown={(e) => { e.preventDefault(); handleFormat('insertUnorderedList'); }} className="p-1.5 rounded hover:bg-gray-200 text-gray-800" title="Bullet List"><ListBulletIcon className="w-5 h-5"/></button>
                 </div>
                 
-                {/* Editable Area - NO dangerouslySetInnerHTML */}
                 <div 
                     ref={editorRef}
-                    className="w-full p-4 min-h-[250px] max-h-[500px] overflow-y-auto bg-white text-gray-900 outline-none cursor-text text-sm leading-relaxed"
+                    className="w-full p-4 min-h-[250px] max-h-[400px] overflow-y-auto bg-white text-gray-900 outline-none cursor-text text-sm leading-relaxed"
                     contentEditable={true}
                     suppressContentEditableWarning={true}
-                    onInput={(e) => {
-                        // Store HTML in state without forcing DOM refresh via React render
-                        const newContent = e.currentTarget.innerHTML;
-                        setItem(prev => ({ ...prev, content: newContent }));
-                    }}
                 />
             </div>
         </div>
 
-        <div className="flex justify-between items-center pt-6 border-t border-gray-200 mt-2">
+        {/* Image Upload */}
+        <div>
+          <label className={labelStyle}>Ảnh đính kèm</label>
+          <div className="mt-1 border border-gray-300 rounded-lg p-4 bg-gray-50 flex flex-col md:flex-row gap-4 items-center">
+            {imagePreview ? (
+                <div className="relative group w-full md:w-48 h-32 rounded-lg overflow-hidden border border-gray-200">
+                    <img src={imagePreview} alt="Preview" className="w-full h-full object-cover" />
+                    <div className="absolute inset-0 bg-black/40 flex items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity">
+                        <button type="button" onClick={() => {setImagePreview(''); setItem(p=>({...p, imageUrl:''}))}} className="text-white text-xs font-bold bg-red-600 px-2 py-1 rounded">Xóa ảnh</button>
+                    </div>
+                </div>
+            ) : (
+                <div className="w-full md:w-48 h-32 border-2 border-dashed border-gray-300 rounded-lg flex items-center justify-center bg-white text-gray-400">
+                    <span className="text-xs">Chưa có ảnh</span>
+                </div>
+            )}
+            <div className="flex-1">
+                 <input type="file" accept="image/*" ref={fileInputRef} onChange={handleImageChange} className="hidden" />
+                 <button type="button" onClick={() => fileInputRef.current?.click()} className="flex items-center gap-2 px-4 py-2 bg-white border border-gray-300 text-gray-700 font-medium rounded-md shadow-sm text-sm hover:bg-gray-50 transition-colors">
+                    <UploadIcon className="w-4 h-4" /> Chọn ảnh từ máy
+                 </button>
+                 <p className="text-xs text-gray-500 mt-2">Hỗ trợ JPG, PNG. Kích thước tối ưu: 800x450px.</p>
+            </div>
+          </div>
+        </div>
+
+        {/* Footer */}
+        <div className="flex justify-between items-center pt-6 border-t border-gray-200">
             <div className="flex items-center gap-2">
-                <label className="text-sm font-medium text-gray-700">Người gửi:</label>
-                <select name="sender" value={item.sender} onChange={handleChange} className="h-9 px-2 border rounded-md bg-white border-gray-300 text-gray-900 text-sm focus:ring-primary focus:border-primary">
-                    <option value="BQLVH">Ban Quản lý (BQLVH)</option>
-                    <option value="BQT">Ban Quản trị (BQT)</option>
-                </select>
+               <input 
+                    type="checkbox" 
+                    name="isPinned" 
+                    id="isPinned" 
+                    checked={item.isPinned} 
+                    onChange={(e) => setItem({...item, isPinned: e.target.checked})} 
+                    className="w-4 h-4 text-primary focus:ring-primary border-gray-300 rounded"
+                />
+                <label htmlFor="isPinned" className="text-sm text-gray-700 select-none">Ghim tin này lên đầu</label>
             </div>
             <div className="flex gap-3">
-              <button type="button" onClick={onClose} className="px-4 py-2 bg-white border border-gray-300 text-gray-700 font-medium rounded-md hover:bg-gray-50 transition-colors">Hủy</button>
-              <button type="submit" className="px-6 py-2 bg-primary text-white font-bold rounded-md shadow-sm hover:bg-primary-focus transition-colors">Lưu tin</button>
+              <button type="button" onClick={onClose} className="px-5 py-2.5 bg-gray-100 text-gray-700 font-medium rounded-lg hover:bg-gray-200 transition-colors">Hủy</button>
+              <button type="submit" className="px-6 py-2.5 bg-primary text-white font-bold rounded-lg shadow-md hover:bg-primary-focus transition-colors flex items-center gap-2">
+                  <CheckCircleIcon className="w-5 h-5"/> {newsItem ? 'Cập nhật' : 'Đăng tin'}
+              </button>
             </div>
         </div>
       </form>
@@ -209,205 +251,195 @@ const NewsEditorModal: React.FC<{
   );
 };
 
-const NewsManagementPage: React.FC<NewsManagementPageProps> = ({ news, setNews, role }) => {
+const NewsManagementPage: React.FC<NewsManagementPageProps> = ({ news: initialNews = [], setNews, role }) => {
   const { showToast } = useNotification();
-  const { logAction } = useLogger();
   const canManage = role === 'Admin';
 
-  const [editingItem, setEditingItem] = useState<NewsItem | null | undefined>(undefined);
+  const [editingItem, setEditingItem] = useState<ExtendedNewsItem | null | undefined>(undefined);
   const [searchTerm, setSearchTerm] = useState('');
-  const [timeFilter, setTimeFilter] = useState('all');
-  const [categoryFilter, setCategoryFilter] = useState<NewsItem['category'] | 'all'>('all');
-  const [senderFilter, setSenderFilter] = useState<'BQT' | 'BQLVH' | 'all'>('all');
+  const [categoryFilter, setCategoryFilter] = useState('all');
   const [currentPage, setCurrentPage] = useState(1);
-  const ITEMS_PER_PAGE = 5;
+  const ITEMS_PER_PAGE = 6;
+
+  // Cast initial news to extended type locally
+  const news = initialNews as ExtendedNewsItem[];
 
   const filteredNews = useMemo(() => {
-    const now = new Date();
-    const thisMonth = now.getMonth();
-    const thisYear = now.getFullYear();
-    const lastMonthDate = new Date(thisYear, thisMonth - 1, 1);
-    const lastMonth = lastMonthDate.getMonth();
-    const lastMonthYear = lastMonthDate.getFullYear();
-
-    return news
+    return (news || [])
         .filter(item => {
             if (searchTerm && !item.title.toLowerCase().includes(searchTerm.toLowerCase())) return false;
             if (categoryFilter !== 'all' && item.category !== categoryFilter) return false;
-            if (senderFilter !== 'all' && item.sender !== senderFilter) return false;
-            if (timeFilter !== 'all') {
-                const itemDate = new Date(item.date);
-                if (timeFilter === 'this_month') {
-                    if (itemDate.getMonth() !== thisMonth || itemDate.getFullYear() !== thisYear) return false;
-                } else if (timeFilter === 'last_month') {
-                     if (itemDate.getMonth() !== lastMonth || itemDate.getFullYear() !== lastMonthYear) return false;
-                }
-            }
             return true;
         })
         .sort((a,b) => {
+            // Sort by Pinned -> Archived (Bottom) -> Date Desc
             if (a.isArchived !== b.isArchived) return a.isArchived ? 1 : -1;
+            if (a.isPinned !== b.isPinned) return a.isPinned ? -1 : 1;
             return new Date(b.date).getTime() - new Date(a.date).getTime();
         });
-  }, [news, searchTerm, categoryFilter, senderFilter, timeFilter]);
+  }, [news, searchTerm, categoryFilter]);
 
-  useEffect(() => {
-    setCurrentPage(1);
-  }, [searchTerm, categoryFilter, senderFilter, timeFilter]);
-
+  // Pagination
+  useEffect(() => setCurrentPage(1), [searchTerm, categoryFilter]);
   const paginatedNews = useMemo(() => {
     const startIndex = (currentPage - 1) * ITEMS_PER_PAGE;
     return filteredNews.slice(startIndex, startIndex + ITEMS_PER_PAGE);
   }, [filteredNews, currentPage]);
-
   const totalPages = Math.ceil(filteredNews.length / ITEMS_PER_PAGE);
 
-  const handleSave = (item: NewsItem) => {
-    const isNew = !news.some(n => n.id === item.id);
-    const summary = isNew ? `Tạo tin tức mới: "${item.title}"` : `Cập nhật tin tức: "${item.title}"`;
+  // Stats
+  const stats = useMemo(() => ({
+      total: (news || []).length,
+      important: (news || []).filter(n => n.priority === 'high').length,
+      pinned: (news || []).filter(n => n.isPinned).length,
+      broadcasted: (news || []).filter(n => n.isBroadcasted).length
+  }), [news]);
 
+  // Handlers
+  const handleSave = (item: ExtendedNewsItem) => {
+    const isNew = !news.some(n => n.id === item.id);
+    const summary = isNew ? `Tạo tin tức: "${item.title}"` : `Cập nhật tin: "${item.title}"`;
     const updater = (prev: NewsItem[]) => isNew ? [item, ...prev] : prev.map(n => n.id === item.id ? item : n);
-    setNews(updater, { module: 'News', action: isNew ? 'CREATE' : 'UPDATE', summary, ids: [item.id], before_snapshot: news });
-    
-    showToast(isNew ? 'Đã đăng tin tức mới.' : 'Đã cập nhật tin tức.', 'success');
+    setNews(updater, { module: 'News', action: isNew ? 'CREATE' : 'UPDATE', summary, ids: [item.id] });
+    showToast('Lưu tin tức thành công.', 'success');
     setEditingItem(undefined);
   };
 
   const handleDelete = (id: string) => {
-    if (window.confirm('Bạn có chắc chắn muốn xóa tin tức này?')) {
-      const itemToDelete = news.find(n => n.id === id);
-      setNews(prev => prev.filter(n => n.id !== id), { module: 'News', action: 'DELETE', summary: `Xóa tin tức: "${itemToDelete?.title}"`, ids: [id], before_snapshot: news });
+    if (window.confirm('Xóa tin tức này? Hành động không thể hoàn tác.')) {
+      setNews(prev => prev.filter(n => n.id !== id), { module: 'News', action: 'DELETE', summary: 'Xóa tin tức', ids: [id] });
       showToast('Đã xóa tin tức.', 'success');
     }
   };
   
   const handleBroadcast = (id: string) => {
-    const itemToBroadcast = news.find(n => n.id === id);
-    if (!itemToBroadcast || itemToBroadcast.isBroadcasted) return;
-
-    if (window.confirm(`Gửi thông báo đẩy cho tin: "${itemToBroadcast.title}"?`)) {
-        const summary = `Gửi thông báo tin tức: "${itemToBroadcast?.title}"`;
-        setNews(
-            prev => prev.map(n => n.id === id ? { ...n, isBroadcasted: true, broadcastTime: new Date().toISOString() } : n),
-            { module: 'News', action: 'BROADCAST', summary, ids: [id], before_snapshot: news }
-        );
-        showToast('Đã gửi thông báo.', 'success');
+    if (window.confirm('Gửi thông báo đẩy (Push Notification) tới toàn bộ cư dân?')) {
+        setNews(prev => prev.map(n => n.id === id ? { ...n, isBroadcasted: true, broadcastTime: new Date().toISOString() } : n));
+        showToast('Đã gửi thông báo thành công.', 'success');
     }
   };
 
   const handleArchive = (id: string) => {
-      const itemToArchive = news.find(n => n.id === id);
-      if (!itemToArchive) return;
-      const summary = `Lưu trữ tin tức: "${itemToArchive?.title}"`;
-      setNews(
-          prev => prev.map(n => n.id === id ? { ...n, isArchived: true } : n),
-          { module: 'News', action: 'ARCHIVE', summary, ids: [id], before_snapshot: news }
-      );
-      showToast('Đã lưu trữ tin tức.', 'success');
+      setNews(prev => prev.map(n => n.id === id ? { ...n, isArchived: !n.isArchived } : n));
+      showToast('Đã cập nhật trạng thái lưu trữ.', 'info');
+  };
+
+  const handlePin = (id: string) => {
+      setNews((prev: any[]) => prev.map(n => n.id === id ? { ...n, isPinned: !n.isPinned } : n));
+      showToast('Đã cập nhật ghim tin tức.', 'info');
   };
 
   return (
-    <div className="h-full flex flex-col gap-4">
+    <div className="h-full flex flex-col space-y-6">
       {editingItem !== undefined && <NewsEditorModal newsItem={editingItem} onSave={handleSave} onClose={() => setEditingItem(undefined)} />}
 
-      <div className="bg-white p-4 rounded-xl shadow-sm">
-        <div className="flex items-center justify-between gap-4">
-            <div className="flex items-center gap-2 flex-grow max-w-4xl">
-                <div className="relative flex-grow min-w-[200px]">
-                    <SearchIcon className="absolute left-3 top-1/2 -translate-y-1/2 h-5 w-5 text-gray-400" />
-                    <input 
-                        type="text" 
-                        placeholder="Tìm kiếm tiêu đề tin..." 
-                        value={searchTerm}
-                        onChange={e => setSearchTerm(e.target.value)}
-                        className="w-full h-10 pl-10 pr-3 border rounded-lg bg-white border-gray-300 text-gray-900 text-sm focus:ring-primary focus:border-primary placeholder-gray-400"
-                    />
-                </div>
-                <select value={timeFilter} onChange={e => setTimeFilter(e.target.value)} className="h-10 px-3 border rounded-lg bg-white border-gray-300 text-gray-900 text-sm focus:ring-primary focus:border-primary">
-                    <option value="all">Tất cả thời gian</option>
-                    <option value="this_month">Tháng này</option>
-                    <option value="last_month">Tháng trước</option>
-                </select>
-                <select value={categoryFilter} onChange={e => setCategoryFilter(e.target.value as any)} className="h-10 px-3 border rounded-lg bg-white border-gray-300 text-gray-900 text-sm focus:ring-primary focus:border-primary">
-                    <option value="all">Tất cả chủ đề</option>
-                    <option value="notification">Thông báo</option>
-                    <option value="plan">Kế hoạch</option>
-                    <option value="event">Sự kiện</option>
-                </select>
-                <select value={senderFilter} onChange={e => setSenderFilter(e.target.value as any)} className="h-10 px-3 border rounded-lg bg-white border-gray-300 text-gray-900 text-sm focus:ring-primary focus:border-primary">
-                    <option value="all">Tất cả người gửi</option>
-                    <option value="BQT">Ban Quản Trị (BQT)</option>
-                    <option value="BQLVH">Ban Quản Lý (BQL)</option>
-                </select>
-            </div>
-            <div className="flex-shrink-0">
-                <button onClick={() => setEditingItem(null)} disabled={!canManage} className="h-10 px-4 bg-primary text-white font-semibold rounded-lg flex items-center gap-2 text-sm hover:bg-primary-focus shadow-sm disabled:opacity-50 disabled:cursor-not-allowed">
-                    <PencilSquareIcon className="w-5 h-5" /> Tin mới
-                </button>
-            </div>
-        </div>
+      {/* 1. Compact Stat Cards */}
+      <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
+          <CompactStatCard label="Tổng số tin" value={stats.total} icon={<NewspaperIcon className="w-6 h-6 text-blue-600"/>} colorClass="bg-blue-100" borderColorClass="border-blue-500" />
+          <CompactStatCard label="Tin quan trọng" value={stats.important} icon={<StarIcon className="w-6 h-6 text-red-600"/>} colorClass="bg-red-100" borderColorClass="border-red-500" />
+          <CompactStatCard label="Tin đã ghim" value={stats.pinned} icon={<PinIcon className="w-6 h-6 text-orange-600" filled/>} colorClass="bg-orange-100" borderColorClass="border-orange-500" />
+          <CompactStatCard label="Đã gửi TB" value={stats.broadcasted} icon={<MegaphoneIcon className="w-6 h-6 text-green-600"/>} colorClass="bg-green-100" borderColorClass="border-green-500" />
       </div>
 
-      <div className="bg-white p-6 rounded-xl shadow-sm flex-1 flex flex-col overflow-hidden">
-        <div className="space-y-4 flex-grow overflow-y-auto pr-2">
-            {paginatedNews.map(item => (
-            <div key={item.id} className={`p-4 border rounded-lg flex items-start gap-4 transition-opacity ${item.isArchived ? 'opacity-50' : ''}`}>
-                {item.imageUrl && (
-                    <div className="w-32 h-20 bg-gray-200 rounded-md overflow-hidden flex-shrink-0">
-                        <img src={item.imageUrl} alt={item.title} className="w-full h-full object-cover" />
-                    </div>
-                )}
-                <div className="flex-grow">
-                <div className="flex items-center gap-2">
-                    <span className={`px-2 py-0.5 text-xs font-semibold rounded-full ${item.priority === 'high' ? 'bg-red-100 text-red-800' : 'bg-gray-100 text-gray-800'}`}>
-                        {item.priority === 'high' ? 'Quan trọng' : 'Thông thường'}
-                    </span>
-                    <span className="text-xs font-semibold text-gray-500 bg-gray-100 px-2 py-0.5 rounded-full">{item.sender || 'BQLVH'}</span>
-                </div>
-                <h3 className={`font-bold text-lg mt-1 text-gray-900 ${item.isArchived ? 'line-through' : ''}`}>{item.title}</h3>
-                <p className="text-sm text-gray-600 line-clamp-2" dangerouslySetInnerHTML={{ __html: item.content }} />
-                <div className="flex items-center gap-4 text-xs text-gray-400 mt-2">
-                    <span>{new Date(item.date).toLocaleString('vi-VN')}</span>
-                    {item.isBroadcasted && item.broadcastTime && (
-                        <span className="flex items-center gap-1 text-green-600 font-semibold"><CheckCircleIcon className="w-4 h-4" /> Đã gửi {timeAgo(item.broadcastTime)}</span>
+      {/* 2. Toolbar */}
+      <div className="bg-white p-3 rounded-lg shadow-sm border border-gray-200 flex flex-col md:flex-row items-center gap-3">
+        <div className="relative flex-grow w-full md:w-auto">
+            <SearchIcon className="absolute left-3 top-1/2 -translate-y-1/2 h-5 w-5 text-gray-400" />
+            <input 
+                type="text" 
+                placeholder="Tìm kiếm tiêu đề tin..." 
+                value={searchTerm}
+                onChange={e => setSearchTerm(e.target.value)}
+                className="w-full h-10 pl-10 pr-3 border border-gray-300 rounded-lg bg-white text-gray-900 focus:ring-2 focus:ring-primary focus:border-transparent outline-none"
+            />
+        </div>
+        <select value={categoryFilter} onChange={e => setCategoryFilter(e.target.value)} className="h-10 px-3 border border-gray-300 rounded-lg bg-white text-gray-900 focus:ring-2 focus:ring-primary outline-none">
+            <option value="all">Tất cả danh mục</option>
+            <option value="notification">Thông báo</option>
+            <option value="plan">Kế hoạch</option>
+            <option value="event">Sự kiện</option>
+        </select>
+        <button onClick={() => setEditingItem(null)} disabled={!canManage} className="h-10 px-5 bg-primary text-white font-bold rounded-lg hover:bg-primary-focus shadow-sm flex items-center gap-2 whitespace-nowrap disabled:opacity-50 transition-colors">
+            <PlusIcon className="w-5 h-5" /> Tin mới
+        </button>
+      </div>
+
+      {/* 3. News List */}
+      <div className="flex-1 overflow-y-auto space-y-4 pr-1 pb-4">
+        {paginatedNews.map(item => (
+            <div 
+                key={item.id} 
+                className={`group flex flex-col md:flex-row bg-white border rounded-lg overflow-hidden shadow-sm hover:shadow-md transition-all 
+                    ${item.priority === 'high' ? 'border-l-4 border-l-red-500' : 'border-l-4 border-l-blue-500'} 
+                    ${item.isPinned ? 'bg-amber-50 ring-1 ring-orange-200' : ''} 
+                    ${item.isArchived ? 'opacity-60 grayscale' : ''}
+                `}
+            >
+                {/* Thumbnail */}
+                <div className="w-full md:w-48 h-48 md:h-auto flex-shrink-0 bg-gray-200 relative">
+                    {item.imageUrl ? (
+                        <img src={item.imageUrl} alt="" className="w-full h-full object-cover" />
+                    ) : (
+                        <div className="w-full h-full flex items-center justify-center text-gray-400">
+                            <NewspaperIcon className="w-10 h-10" />
+                        </div>
+                    )}
+                    {item.isPinned && (
+                        <div className="absolute top-2 left-2 bg-orange-500 text-white p-1 rounded-full shadow-md" title="Đã ghim">
+                            <PinIcon className="w-4 h-4" filled />
+                        </div>
                     )}
                 </div>
+
+                {/* Content */}
+                <div className="flex-grow p-4 flex flex-col justify-between">
+                    <div>
+                        <div className="flex flex-wrap items-center gap-2 mb-2">
+                            {item.isBroadcasted && <span className="px-2 py-0.5 rounded text-xs font-bold bg-green-100 text-green-700 flex items-center gap-1"><CheckCircleIcon className="w-3 h-3"/> Đã gửi TB</span>}
+                            <span className="px-2 py-0.5 rounded text-xs font-bold bg-gray-100 text-gray-600 uppercase">{item.category}</span>
+                            {item.priority === 'high' && <span className="px-2 py-0.5 rounded text-xs font-bold bg-red-100 text-red-700 flex items-center gap-1"><StarIcon className="w-3 h-3"/> Quan trọng</span>}
+                            {item.isArchived && <span className="px-2 py-0.5 rounded text-xs font-bold bg-gray-200 text-gray-600">Đã lưu trữ</span>}
+                        </div>
+                        <h3 className="text-lg font-bold text-gray-900 mb-2 line-clamp-1">{item.title}</h3>
+                        <p className="text-sm text-gray-600 line-clamp-2 leading-relaxed" dangerouslySetInnerHTML={{ __html: item.content }} />
+                    </div>
+                    <div className="flex items-center gap-4 mt-4 text-xs text-gray-500 border-t border-gray-100 pt-3">
+                        <span className="flex items-center gap-1"><ClockIcon className="w-3 h-3"/> {new Date(item.date).toLocaleDateString('vi-VN')}</span>
+                        <span className="font-semibold px-2 py-0.5 bg-gray-50 rounded border border-gray-200">{item.sender || 'BQLVH'}</span>
+                        {item.isBroadcasted && item.broadcastTime && <span>Gửi lúc: {timeAgo(item.broadcastTime)}</span>}
+                    </div>
                 </div>
+
+                {/* Actions */}
                 {canManage && (
-                <div className="flex items-center gap-2 flex-shrink-0">
-                    <button onClick={() => handleBroadcast(item.id)} disabled={item.isBroadcasted || item.isArchived} className="p-2 hover:bg-gray-100 rounded-full disabled:opacity-30 disabled:cursor-not-allowed" data-tooltip="Gửi thông báo"><MegaphoneIcon className="w-5 h-5 text-green-600" /></button>
-                    <button onClick={() => setEditingItem(item)} disabled={item.isArchived} className="p-2 hover:bg-gray-100 rounded-full disabled:opacity-30 disabled:cursor-not-allowed" data-tooltip="Sửa"><PencilSquareIcon className="w-5 h-5 text-blue-600" /></button>
-                    <button onClick={() => handleArchive(item.id)} disabled={item.isArchived} className="p-2 hover:bg-gray-100 rounded-full disabled:opacity-30 disabled:cursor-not-allowed" data-tooltip="Lưu trữ"><ArchiveBoxIcon className="w-5 h-5 text-yellow-600" /></button>
-                    <button onClick={() => handleDelete(item.id)} className="p-2 hover:bg-gray-100 rounded-full" data-tooltip="Xóa"><TrashIcon className="w-5 h-5 text-red-600" /></button>
-                </div>
+                    <div className="flex md:flex-col justify-end md:justify-center gap-2 p-3 bg-gray-50 border-t md:border-t-0 md:border-l border-gray-100">
+                        <button onClick={() => handlePin(item.id)} className={`p-2 rounded-md transition-colors ${item.isPinned ? 'text-orange-600 bg-orange-100' : 'text-gray-400 hover:text-orange-600 hover:bg-white'}`} title={item.isPinned ? "Bỏ ghim" : "Ghim tin"}><PinIcon className="w-5 h-5" filled={item.isPinned}/></button>
+                        <button onClick={() => setEditingItem(item)} className="p-2 text-gray-400 hover:text-blue-600 hover:bg-white rounded-md transition-colors" title="Chỉnh sửa"><PencilSquareIcon className="w-5 h-5"/></button>
+                        <button onClick={() => handleBroadcast(item.id)} disabled={item.isBroadcasted} className={`p-2 rounded-md transition-colors ${item.isBroadcasted ? 'text-green-300 cursor-not-allowed' : 'text-gray-400 hover:text-green-600 hover:bg-white'}`} title="Gửi thông báo"><MegaphoneIcon className="w-5 h-5"/></button>
+                        <button onClick={() => handleArchive(item.id)} className={`p-2 rounded-md transition-colors ${item.isArchived ? 'text-yellow-600 bg-yellow-50' : 'text-gray-400 hover:text-yellow-600 hover:bg-white'}`} title={item.isArchived ? "Bỏ lưu trữ" : "Lưu trữ"}><ArchiveBoxIcon className="w-5 h-5"/></button>
+                        <button onClick={() => handleDelete(item.id)} className="p-2 text-gray-400 hover:text-red-600 hover:bg-white rounded-md transition-colors" title="Xóa tin"><TrashIcon className="w-5 h-5"/></button>
+                    </div>
                 )}
             </div>
-            ))}
-            {paginatedNews.length === 0 && (
-                <div className="text-center py-10 text-gray-500">Không có tin tức nào phù hợp.</div>
-            )}
-        </div>
-        {totalPages > 0 && (
-            <div className="pt-4 mt-auto border-t flex justify-between items-center">
-                <span className="text-sm text-gray-600">
-                    Hiển thị {Math.min((currentPage - 1) * ITEMS_PER_PAGE + 1, filteredNews.length)}-{Math.min(currentPage * ITEMS_PER_PAGE, filteredNews.length)} trên tổng số {filteredNews.length} tin
-                </span>
-                <div className="flex items-center gap-1">
-                    <button onClick={() => setCurrentPage(p => p - 1)} disabled={currentPage === 1} className="p-2 rounded-md hover:bg-gray-100 disabled:opacity-50"><ChevronLeftIcon /></button>
-                    {Array.from({ length: totalPages }, (_, i) => i + 1).map(page => (
-                        <button 
-                            key={page} 
-                            onClick={() => setCurrentPage(page)}
-                            className={`w-8 h-8 rounded-md text-sm font-semibold ${currentPage === page ? 'bg-primary text-white' : 'bg-white hover:bg-gray-100 text-gray-700'}`}
-                        >
-                            {page}
-                        </button>
-                    ))}
-                    <button onClick={() => setCurrentPage(p => p + 1)} disabled={currentPage === totalPages} className="p-2 rounded-md hover:bg-gray-100 disabled:opacity-50"><ChevronRightIcon /></button>
-                </div>
+        ))}
+        {paginatedNews.length === 0 && (
+            <div className="flex flex-col items-center justify-center py-16 bg-white border border-dashed border-gray-300 rounded-lg text-gray-400">
+                <NewspaperIcon className="w-12 h-12 mb-2 opacity-50" />
+                <p>Không có tin tức nào.</p>
             </div>
         )}
       </div>
+
+      {/* Footer Pagination */}
+      {totalPages > 1 && (
+        <div className="flex justify-between items-center pt-2 border-t border-gray-200">
+            <span className="text-sm text-gray-500">Trang {currentPage} / {totalPages}</span>
+            <div className="flex gap-2">
+                <button onClick={() => setCurrentPage(p => Math.max(1, p - 1))} disabled={currentPage === 1} className="p-2 border rounded-md hover:bg-gray-50 disabled:opacity-50 bg-white"><ChevronLeftIcon className="w-4 h-4"/></button>
+                <button onClick={() => setCurrentPage(p => Math.min(totalPages, p + 1))} disabled={currentPage === totalPages} className="p-2 border rounded-md hover:bg-gray-50 disabled:opacity-50 bg-white"><ChevronRightIcon className="w-4 h-4"/></button>
+            </div>
+        </div>
+      )}
     </div>
   );
 };

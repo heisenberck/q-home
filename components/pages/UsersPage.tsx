@@ -7,7 +7,7 @@ import StatCard from '../ui/StatCard';
 import { 
     KeyIcon, CheckCircleIcon, WarningIcon, PencilSquareIcon,
     SearchIcon, TrashIcon, ShieldCheckIcon, UserIcon, PlusIcon,
-    UserGroupIcon, ArrowPathIcon, BuildingIcon
+    UserGroupIcon, ArrowPathIcon, BuildingIcon, LockClosedIcon
 } from '../ui/Icons';
 import { isProduction } from '../../utils/env';
 import { saveUsers } from '../../services';
@@ -169,7 +169,7 @@ const UserModal: React.FC<{
 
 // --- Main Page ---
 
-const UsersPage: React.FC<UsersPageProps> = ({ users, setUsers, units, role }) => {
+const UsersPage: React.FC<UsersPageProps> = ({ users = [], setUsers, units = [], role }) => {
     const { showToast } = useNotification();
     const { user: currentUser } = useAuth();
     const isAdmin = role === 'Admin';
@@ -179,6 +179,7 @@ const UsersPage: React.FC<UsersPageProps> = ({ users, setUsers, units, role }) =
     const [roleFilter, setRoleFilter] = useState('all');
     const [statusFilter, setStatusFilter] = useState('all');
     const [selectedUsers, setSelectedUsers] = useState<Set<string>>(new Set());
+    const [isSyncLocked, setIsSyncLocked] = useState(false);
     
     const [isUserModalOpen, setIsUserModalOpen] = useState(false);
     const [editingUser, setEditingUser] = useState<ExtendedUser | null>(null);
@@ -261,36 +262,39 @@ const UsersPage: React.FC<UsersPageProps> = ({ users, setUsers, units, role }) =
         }
     };
 
-    const handleSyncResidents = () => {
-        if (!isAdmin) return;
-        if (!confirm('Hệ thống sẽ tự động tạo tài khoản cho tất cả các căn hộ chưa có tài khoản. Tiếp tục?')) return;
+    const handleSyncUsers = () => {
+        if (!isAdmin || isSyncLocked) return;
 
+        // Create a set of existing usernames (Unit IDs basically) for efficient lookup
         const existingUsernames = new Set(users.map(u => u.Username?.toLowerCase()));
-        const newResidents: UserPermission[] = [];
+        
+        // Find units that don't have a corresponding user account
+        const missingUnits = units.filter(unit => 
+            !existingUsernames.has(unit.UnitID.toLowerCase())
+        );
 
-        units.forEach(unit => {
-            const unitId = unit.UnitID;
-            if (!existingUsernames.has(unitId.toLowerCase())) {
-                newResidents.push({
-                    Email: `${unitId.toLowerCase()}@resident.q-home.vn`,
-                    Username: unitId,
-                    Role: 'Resident',
-                    status: 'Active',
-                    password: '123456',
-                    mustChangePassword: true,
-                    residentId: unitId,
-                });
-            }
-        });
-
-        if (newResidents.length === 0) {
-            showToast('Tất cả căn hộ đều đã có tài khoản.', 'info');
+        if (missingUnits.length === 0) {
+            showToast('Dữ liệu đã đồng bộ. Tất cả căn hộ đều có tài khoản.', 'info');
+            setIsSyncLocked(true);
             return;
         }
 
-        const updatedList = [...users, ...newResidents];
-        persistData(updatedList, `Đồng bộ: Tạo ${newResidents.length} tài khoản cư dân.`);
-        showToast(`Đã tạo thêm ${newResidents.length} tài khoản cư dân.`, 'success');
+        if (window.confirm(`Tìm thấy ${missingUnits.length} căn hộ chưa có tài khoản. Tạo tự động?`)) {
+            const newResidents: UserPermission[] = missingUnits.map(unit => ({
+                Email: `${unit.UnitID.toLowerCase()}@resident.q-home.vn`,
+                Username: unit.UnitID,
+                Role: 'Resident',
+                status: 'Active',
+                password: '123456',
+                mustChangePassword: true,
+                residentId: unit.UnitID,
+            }));
+
+            const updatedList = [...users, ...newResidents];
+            persistData(updatedList, `Đồng bộ: Tạo ${newResidents.length} tài khoản cư dân.`);
+            showToast(`Đã tạo thêm ${newResidents.length} tài khoản cư dân.`, 'success');
+            setIsSyncLocked(true);
+        }
     };
 
     const handlePasswordChange = (newPassword: string) => {
@@ -350,8 +354,18 @@ const UsersPage: React.FC<UsersPageProps> = ({ users, setUsers, units, role }) =
                 </select>
                 {isAdmin && (
                     <div className="flex gap-2">
-                        <button onClick={handleSyncResidents} className="px-4 py-2.5 border border-blue-600 text-blue-600 font-bold rounded-lg hover:bg-blue-50 flex items-center gap-2 whitespace-nowrap">
-                            <ArrowPathIcon className="w-5 h-5" /> Đồng bộ Cư dân
+                        <button 
+                            onClick={!isSyncLocked ? handleSyncUsers : undefined}
+                            onDoubleClick={isSyncLocked ? () => setIsSyncLocked(false) : undefined}
+                            className={`px-4 py-2.5 font-bold rounded-lg flex items-center gap-2 whitespace-nowrap transition-colors border shadow-sm ${
+                                isSyncLocked 
+                                ? 'bg-gray-100 text-gray-400 border-gray-200 cursor-default' 
+                                : 'border-blue-600 text-blue-600 hover:bg-blue-50'
+                            }`}
+                            title={isSyncLocked ? "Dữ liệu đã khớp. Nhấn đúp để mở khóa" : "Quét và tạo tài khoản cho căn hộ còn thiếu"}
+                        >
+                            {isSyncLocked ? <LockClosedIcon className="w-5 h-5" /> : <ArrowPathIcon className="w-5 h-5" />}
+                            {isSyncLocked ? "Đã đồng bộ" : "Đồng bộ Cư dân"}
                         </button>
                         <button onClick={() => { setEditingUser(null); setIsUserModalOpen(true); }} className="px-4 py-2.5 bg-primary text-white font-bold rounded-lg hover:bg-primary-focus flex items-center gap-2 whitespace-nowrap shadow-sm">
                             <PlusIcon className="w-5 h-5" /> Thêm User

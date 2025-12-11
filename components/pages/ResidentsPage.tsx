@@ -510,7 +510,7 @@ const DataImportModal: React.FC<{
                 ownerName: String(row.ownerName || ''), 
                 status: row.status || 'Owner', 
                 area: parseFloat(String(row.area||'0'))||0, 
-                phone: normalizePhoneNumber(String((row.phone as any)||'')), 
+                phone: normalizePhoneNumber(row.phone ? String(row.phone) : ''), 
                 email: String(row.email||''), 
                 vehicles, 
                 parkingStatus: row.parkingStatus||null, 
@@ -540,7 +540,14 @@ const FilterPill: React.FC<{ icon: React.ReactNode; options: { value: string; la
 };
 
 
-const ResidentDetailPanel: React.FC<{ resident: ResidentData; activityLogs: ActivityLog[]; onExportPDF: (resident: ResidentData) => void; onCopyToClipboard: (text: string | undefined, label: string) => void; onOpenDoc: (doc: VehicleDocument) => void; onClose: () => void; }> = ({ resident, activityLogs, onExportPDF, onCopyToClipboard, onOpenDoc, onClose }) => {
+const ResidentDetailPanel: React.FC<{ 
+    resident: ResidentData; 
+    activityLogs: ActivityLog[]; 
+    onExportPDF: (resident: ResidentData) => void; 
+    onCopyToClipboard: (text: string, label: string) => void; 
+    onOpenDoc: (doc: VehicleDocument) => void; 
+    onClose: () => void; 
+}> = ({ resident, activityLogs, onExportPDF, onCopyToClipboard, onOpenDoc, onClose }) => {
     const { unit, owner, vehicles } = resident;
     const allDocs = [...(owner.documents?.nationalId ? [{...owner.documents.nationalId, name: `CCCD - ${owner.OwnerName}`}] : []), ...(owner.documents?.title ? [{...owner.documents.title, name: 'Sổ đỏ/Hợp đồng'}] : []), ...(owner.documents?.others || [])];
     const relevantLogs = activityLogs.filter(l => (l.ids && l.ids.includes(unit.UnitID)) || l.summary.includes(unit.UnitID)).slice(0, 10);
@@ -639,7 +646,7 @@ const ResidentDetailPanel: React.FC<{ resident: ResidentData; activityLogs: Acti
     );
 };
 
-const ResidentsPage: React.FC<ResidentsPageProps> = ({ units, owners, vehicles, activityLogs, onSaveResident, onImportData, onDeleteResidents, role }) => {
+const ResidentsPage: React.FC<ResidentsPageProps> = ({ units = [], owners = [], vehicles = [], activityLogs = [], onSaveResident, onImportData, onDeleteResidents, role }) => {
     const { showToast } = useNotification();
     const canManage = ['Admin', 'Accountant', 'Operator'].includes(role);
     
@@ -681,7 +688,12 @@ const ResidentsPage: React.FC<ResidentsPageProps> = ({ units, owners, vehicles, 
     const handleSaveResident = async (data: { unit: Unit; owner: Owner; vehicles: Vehicle[] }, reason: string) => { await onSaveResident(data, reason); handleCloseModal(); if (selectedResident?.unit.UnitID === data.unit.UnitID) setSelectedResident({...data, vehicles: data.vehicles.filter(v => v.isActive)}); };
     const handleExportExcel = useCallback(() => { if(filteredResidents.length===0){showToast('Không có dữ liệu.','info');return;} const data=filteredResidents.map(r=>{const vbt:{[k in VehicleTier]?:string[]}={};r.vehicles.forEach(v=>{if(v.isActive&&v.PlateNumber){if(!vbt[v.Type])vbt[v.Type]=[];vbt[v.Type]!.push(v.PlateNumber)}});return {'Mã căn hộ':r.unit.UnitID,'Chủ hộ':r.owner.OwnerName,'SĐT':r.owner.Phone,Email:r.owner.Email,'Diện tích (m2)':r.unit.Area_m2,'Trạng thái':r.unit.Status,'Biển số Ô tô':(vbt.car||[]).join(', '),'Biển số Ô tô Hạng A':(vbt.car_a||[]).join(', '),'Biển số Xe máy':(vbt.motorbike||[]).join(', '),'Biển số Xe điện':(vbt.ebike||[]).join(', '),'Biển số Xe đạp':(vbt.bicycle||[]).join(', ')}});try{const ws=XLSX.utils.json_to_sheet(data);const wb=XLSX.utils.book_new();XLSX.utils.book_append_sheet(wb,ws,'Cư dân');XLSX.writeFile(wb,`CuDan_${new Date().toISOString().slice(0,10)}.xlsx`);showToast('Xuất Excel thành công!','success')}catch(e: any){showToast('Lỗi xuất file.','error')}}, [filteredResidents, showToast]);
     const handleExportPDF = useCallback(async (r: ResidentData) => { try { await Promise.all([loadScript('jspdf'), loadScript('html2canvas')]); const html=renderResidentToHTML(r);const host=document.createElement('div');host.style.cssText='position:fixed;left:-9999px;top:0;width:210mm;background:#fff;';document.body.appendChild(host);host.innerHTML=html;await new Promise(r=>setTimeout(r,100));const canvas=await html2canvas(host,{scale:2,useCORS:true,logging:false});const{jsPDF}=jspdf;const pdf=new jsPDF({orientation:'p',unit:'mm',format:'a4'});const w=pdf.internal.pageSize.getWidth();const h=(canvas.height*w)/canvas.width;pdf.addImage(canvas.toDataURL('image/jpeg',.95),'JPEG',0,0,w,h);host.remove();pdf.save(`HoSo_${r.unit.UnitID}.pdf`);showToast('Xuất PDF thành công!','success')}catch(e: any){showToast('Lỗi xuất PDF.','error')}}, [showToast]);
-    const handleCopyToClipboard = (t: string|undefined|null, l: string) => { if(!t)return;navigator.clipboard.writeText(t).then(()=>showToast(`Đã sao chép ${l}`,'success')).catch(()=>showToast('Lỗi sao chép','error'))};
+    
+    // Fixed: handleCopyToClipboard now strictly typed to accept string
+    const handleCopyToClipboard = (content: string, label: string) => { 
+        if(!content) return;
+        navigator.clipboard.writeText(content).then(()=>showToast(`Đã sao chép ${label}`,'success')).catch((e: any)=>showToast(`Lỗi sao chép: ${e?.message || 'Unknown error'}`,'error'))
+    };
 
     return (
         <div className="flex gap-6 h-full overflow-hidden">
