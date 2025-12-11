@@ -1,11 +1,12 @@
+
 import React, { useState, useRef, useMemo, useEffect } from 'react';
 import type { NewsItem, Role, UserPermission } from '../../types';
 import { useNotification } from '../../App';
 import Modal from '../ui/Modal';
 import { 
-    PencilSquareIcon, TrashIcon, UploadIcon, MegaphoneIcon, ArchiveBoxIcon, 
-    CheckCircleIcon, ListBulletIcon, SearchIcon, ChevronLeftIcon, ChevronRightIcon,
-    ClockIcon, PlusIcon, PaperAirplaneIcon
+    PencilSquareIcon, TrashIcon, UploadIcon, MegaphoneIcon, 
+    CheckCircleIcon, SearchIcon, ChevronLeftIcon, ChevronRightIcon,
+    ClockIcon, PlusIcon, PaperAirplaneIcon, PinIcon, StarIcon,
 } from '../ui/Icons';
 import { timeAgo } from '../../utils/helpers';
 import { isProduction } from '../../utils/env';
@@ -19,18 +20,6 @@ import Spinner from '../ui/Spinner';
 const NewspaperIcon: React.FC<{ className?: string }> = ({ className = "h-6 w-6" }) => (
     <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" strokeWidth={1.5} stroke="currentColor" className={className}>
         <path strokeLinecap="round" strokeLinejoin="round" d="M12 7.5h1.5m-1.5 3h1.5m-7.5 3h7.5m-7.5 3h7.5m3-9h3.375c.621 0 1.125.504 1.125 1.125V18a2.25 2.25 0 0 1-2.25 2.25M16.5 7.5V18a2.25 2.25 0 0 0 2.25 2.25M16.5 7.5V4.875c0-.621-.504-1.125-1.125-1.125H4.125C3.504 3.75 3 4.254 3 4.875V18a2.25 2.25 0 0 0 2.25 2.25h13.5M6 7.5h3v3H6v-3Z" />
-    </svg>
-);
-
-const PinIcon: React.FC<{ className?: string; filled?: boolean }> = ({ className = "h-6 w-6", filled }) => (
-    <svg xmlns="http://www.w3.org/2000/svg" fill={filled ? "currentColor" : "none"} viewBox="0 0 24 24" strokeWidth={1.5} stroke="currentColor" className={className}>
-        <path strokeLinecap="round" strokeLinejoin="round" d="M17.593 3.322c1.1.128 1.907 1.077 1.907 2.185V21L12 17.25 4.5 21V5.507c0-1.108.806-2.057 1.907-2.185a48.507 48.507 0 0 1 11.186 0Z" />
-    </svg>
-);
-
-const StarIcon: React.FC<{ className?: string }> = ({ className = "h-6 w-6" }) => (
-    <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" strokeWidth={1.5} stroke="currentColor" className={className}>
-        <path strokeLinecap="round" strokeLinejoin="round" d="M11.48 3.499a.562.562 0 0 1 1.04 0l2.125 5.111a.563.563 0 0 0 .475.345l5.518.442c.499.04.701.663.321.988l-4.204 3.602a.563.563 0 0 0-.182.557l1.285 5.385a.562.562 0 0 1-.84.61l-4.725-2.885a.562.562 0 0 0-.586 0L6.982 20.54a.562.562 0 0 1-.84-.61l1.285-5.386a.562.562 0 0 0-.182-.557l-4.204-3.602a.562.562 0 0 1 .321-.988l5.518-.442a.563.563 0 0 0 .475-.345L11.48 3.5Z" />
     </svg>
 );
 
@@ -67,8 +56,6 @@ const NewsEditorModal: React.FC<{
   onClose: () => void;
   loading: boolean;
 }> = ({ newsItem, onSave, onClose, loading }) => {
-  const { showToast } = useNotification();
-  
   const [item, setItem] = useState<Omit<ExtendedNewsItem, 'id' | 'date'>>(
     newsItem 
       ? { title: newsItem.title, content: newsItem.content || '', priority: newsItem.priority, category: newsItem.category, imageUrl: newsItem.imageUrl, sender: newsItem.sender || 'BQLVH', isPinned: newsItem.isPinned || false } 
@@ -285,7 +272,6 @@ const NewsManagementPage: React.FC<NewsManagementPageProps> = ({ news: initialNe
   
   const totalPages = Math.ceil(filteredNews.length / ITEMS_PER_PAGE);
 
-  // Stats
   const stats = useMemo(() => ({
       total: localNews.length,
       important: localNews.filter(n => n.priority === 'high').length,
@@ -301,7 +287,7 @@ const NewsManagementPage: React.FC<NewsManagementPageProps> = ({ news: initialNe
     try {
         if (IS_PROD) {
             let newItemId = item.id;
-            // Remove 'id' from the doc payload
+            // Remove 'id' from the doc payload to avoid redundancy
             const { id, ...docData } = item; 
 
             if (isEdit && !item.id.startsWith('news_') && !item.id.startsWith('mock')) {
@@ -345,71 +331,75 @@ const NewsManagementPage: React.FC<NewsManagementPageProps> = ({ news: initialNe
   };
 
   const handleBroadcast = async (item: NewsItem) => {
+    if (!IS_PROD) {
+        showToast("Dev Mode: Simulated Send", "info");
+        setLocalNews(prev => prev.map(n => n.id === item.id ? { ...n, isBroadcasted: true } : n));
+        return;
+    }
+
     if (!window.confirm('Gửi thông báo đẩy (Push Notification) tới toàn bộ cư dân?')) return;
     
     setLoading(true);
     const broadcastTime = new Date().toISOString();
     
-    // Logic for sending
-    if (IS_PROD) {
-        try {
-            const batch = writeBatch(db);
-            
-            // 1. Resolve Document ID
-            // If the item has a mock ID (created locally but not yet sync to valid Firestore ID), create a new ID
-            const isMockId = item.id.startsWith('news_') || item.id.startsWith('mock');
-            const newsId = isMockId ? doc(collection(db, 'news')).id : item.id;
-            const newsRef = doc(db, 'news', newsId);
+    try {
+        const batch = writeBatch(db);
+        
+        // 1. Resolve Document ID (Ref Check)
+        // If news.id starts with "mock" or "news_" (local ID), generate a NEW Firestore ID
+        const isMockId = !item.id || item.id.startsWith('mock') || item.id.startsWith('news_');
+        const newsId = isMockId ? doc(collection(db, 'news')).id : item.id;
+        
+        // 2. Upsert News (SET with MERGE)
+        // This ensures the news document exists in Firestore even if it was just created locally
+        const newsRef = doc(db, 'news', newsId);
+        const newsPayload = { 
+            ...item, 
+            id: newsId, // Ensure ID is consistent
+            isBroadcasted: true, 
+            broadcastTime 
+        };
+        // Use batch.set with merge: true to effectively "upsert"
+        batch.set(newsRef, newsPayload, { merge: true });
 
-            // 2. Upsert News Item (Ensures doc exists)
-            const newsPayload = { ...item, id: newsId, isBroadcasted: true, broadcastTime };
-            delete (newsPayload as any).id; // don't store id inside doc
-            batch.set(newsRef, newsPayload, { merge: true });
-
-            // 3. Create Notifications
-            const residents = users.filter(u => u.Role === 'Resident');
-            let count = 0;
-            
-            // Limit to ~400 for batch limit safety (max 500 ops)
-            residents.slice(0, 400).forEach(res => {
-                const notifRef = doc(collection(db, 'notifications'));
-                batch.set(notifRef, {
-                    userId: res.Username, // Targeting the user by Username (Unit ID)
-                    title: item.title,
-                    body: item.content.replace(/<[^>]*>?/gm, '').substring(0, 100) + '...',
-                    isRead: false,
-                    createdAt: serverTimestamp(),
-                    type: 'news',
-                    linkId: newsId
-                });
-                count++;
+        // 3. Create Notifications
+        const residents = users.filter(u => u.Role === 'Resident');
+        let count = 0;
+        
+        // Batch limit is 500. Sending to first 450 to be safe.
+        residents.slice(0, 450).forEach(res => {
+            const notifRef = doc(collection(db, 'notifications'));
+            batch.set(notifRef, {
+                userId: res.Username, // Targeting the user by Username (Unit ID)
+                title: item.title,
+                body: item.content.replace(/<[^>]*>?/gm, '').substring(0, 100) + '...',
+                isRead: false,
+                createdAt: serverTimestamp(), // Use server timestamp for ordering
+                type: 'news',
+                linkId: newsId
             });
+            count++;
+        });
 
-            await batch.commit();
-            
-            // Update local state with real ID if it changed
-            setLocalNews(prev => prev.map(n => n.id === item.id ? { ...n, id: newsId, isBroadcasted: true, broadcastTime } : n));
-            showToast(`Đã gửi thông báo tới ${count} cư dân.`, 'success');
+        // 4. Commit
+        await batch.commit();
+        
+        // Update local state with real ID
+        setLocalNews(prev => prev.map(n => n.id === item.id ? { ...n, id: newsId, isBroadcasted: true, broadcastTime } : n));
+        showToast(`Đã gửi thông báo tới ${count} cư dân.`, 'success');
 
-        } catch (error: any) {
-            console.error("Broadcast failed", error);
-            showToast('Lỗi khi gửi thông báo: ' + error.message, 'error');
-        }
-    } else {
-        // Dev Mode
-        await new Promise(r => setTimeout(r, 1000));
-        const residentCount = users.filter(u => u.Role === 'Resident').length;
-        setLocalNews(prev => prev.map(n => n.id === item.id ? { ...n, isBroadcasted: true, broadcastTime } : n));
-        showToast(`[DEV] Simulated sending to ${residentCount} residents.`, 'success');
+    } catch (error: any) {
+        console.error("Broadcast failed", error);
+        showToast('Lỗi khi gửi thông báo: ' + error.message, 'error');
+    } finally {
+        setLoading(false);
     }
-    setLoading(false);
   };
 
   return (
     <div className="h-full flex flex-col space-y-6">
       {editingItem !== undefined && <NewsEditorModal newsItem={editingItem} onSave={handleSave} onClose={() => setEditingItem(undefined)} loading={loading} />}
 
-      {/* 1. Compact Stat Cards */}
       <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
           <CompactStatCard label="Tổng số tin" value={stats.total} icon={<NewspaperIcon className="w-6 h-6 text-blue-600"/>} colorClass="bg-blue-100" borderColorClass="border-blue-500" />
           <CompactStatCard label="Tin quan trọng" value={stats.important} icon={<StarIcon className="w-6 h-6 text-red-600"/>} colorClass="bg-red-100" borderColorClass="border-red-500" />
@@ -417,7 +407,6 @@ const NewsManagementPage: React.FC<NewsManagementPageProps> = ({ news: initialNe
           <CompactStatCard label="Đã gửi TB" value={stats.broadcasted} icon={<MegaphoneIcon className="w-6 h-6 text-green-600"/>} colorClass="bg-green-100" borderColorClass="border-green-500" />
       </div>
 
-      {/* 2. Toolbar */}
       <div className="bg-white p-3 rounded-lg shadow-sm border border-gray-200 flex flex-col md:flex-row items-center gap-3">
         <div className="relative flex-grow w-full md:w-auto">
             <SearchIcon className="absolute left-3 top-1/2 -translate-y-1/2 h-5 w-5 text-gray-400" />
@@ -434,7 +423,6 @@ const NewsManagementPage: React.FC<NewsManagementPageProps> = ({ news: initialNe
         </button>
       </div>
 
-      {/* 3. News List */}
       <div className="flex-1 overflow-y-auto space-y-4 pr-1 pb-4">
         {paginatedNews.map(item => (
             <div key={item.id} className={`group flex flex-col md:flex-row bg-white border rounded-lg overflow-hidden shadow-sm hover:shadow-md transition-all ${item.priority === 'high' ? 'border-l-4 border-l-red-500' : 'border-l-4 border-l-blue-500'} ${item.isPinned ? 'bg-amber-50 ring-1 ring-orange-200' : ''} ${item.isArchived ? 'opacity-60 grayscale' : ''}`}>
