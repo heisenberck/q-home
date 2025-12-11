@@ -1,7 +1,6 @@
-
 import React, { useState, useRef, useMemo, useEffect } from 'react';
 import type { NewsItem, Role, UserPermission } from '../../types';
-import { useNotification, useLogger } from '../../App';
+import { useNotification } from '../../App';
 import Modal from '../ui/Modal';
 import { 
     PencilSquareIcon, TrashIcon, UploadIcon, MegaphoneIcon, ArchiveBoxIcon, 
@@ -10,10 +9,13 @@ import {
 } from '../ui/Icons';
 import { timeAgo } from '../../utils/helpers';
 import { isProduction } from '../../utils/env';
-import { writeBatch, doc, collection } from 'firebase/firestore';
+import { 
+    collection, getDocs, addDoc, updateDoc, deleteDoc, doc, writeBatch, serverTimestamp 
+} from 'firebase/firestore';
 import { db } from '../../firebaseConfig';
+import Spinner from '../ui/Spinner';
 
-// --- Local Icons (Missing in global Icons.tsx) ---
+// --- Local Icons ---
 const NewspaperIcon: React.FC<{ className?: string }> = ({ className = "h-6 w-6" }) => (
     <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" strokeWidth={1.5} stroke="currentColor" className={className}>
         <path strokeLinecap="round" strokeLinejoin="round" d="M12 7.5h1.5m-1.5 3h1.5m-7.5 3h7.5m-7.5 3h7.5m3-9h3.375c.621 0 1.125.504 1.125 1.125V18a2.25 2.25 0 0 1-2.25 2.25M16.5 7.5V18a2.25 2.25 0 0 0 2.25 2.25M16.5 7.5V4.875c0-.621-.504-1.125-1.125-1.125H4.125C3.504 3.75 3 4.254 3 4.875V18a2.25 2.25 0 0 0 2.25 2.25h13.5M6 7.5h3v3H6v-3Z" />
@@ -32,7 +34,6 @@ const StarIcon: React.FC<{ className?: string }> = ({ className = "h-6 w-6" }) =
     </svg>
 );
 
-// Extended type to include isPinned (simulated)
 type ExtendedNewsItem = NewsItem & { isPinned?: boolean };
 
 interface NewsManagementPageProps {
@@ -42,7 +43,6 @@ interface NewsManagementPageProps {
   users: UserPermission[];
 }
 
-// --- Compact Stat Card ---
 const CompactStatCard: React.FC<{
     label: string;
     value: number;
@@ -65,7 +65,8 @@ const NewsEditorModal: React.FC<{
   newsItem?: ExtendedNewsItem | null;
   onSave: (item: ExtendedNewsItem) => void;
   onClose: () => void;
-}> = ({ newsItem, onSave, onClose }) => {
+  loading: boolean;
+}> = ({ newsItem, onSave, onClose, loading }) => {
   const { showToast } = useNotification();
   
   const [item, setItem] = useState<Omit<ExtendedNewsItem, 'id' | 'date'>>(
@@ -97,6 +98,7 @@ const NewsEditorModal: React.FC<{
         const img = new Image();
         img.onload = () => {
             const MAX_WIDTH = 800;
+            const canvas = document.createElement('canvas');
             let width = img.width;
             let height = img.height;
 
@@ -105,18 +107,15 @@ const NewsEditorModal: React.FC<{
                 width = MAX_WIDTH;
             }
 
-            const canvas = document.createElement('canvas');
             canvas.width = width;
             canvas.height = height;
             const ctx = canvas.getContext('2d');
-            if (!ctx) {
-                showToast('Không thể xử lý ảnh.', 'error');
-                return;
+            if (ctx) {
+                ctx.drawImage(img, 0, 0, width, height);
+                const dataUrl = canvas.toDataURL('image/jpeg', 0.85);
+                setImagePreview(dataUrl);
+                setItem(prev => ({ ...prev, imageUrl: dataUrl }));
             }
-            ctx.drawImage(img, 0, 0, width, height);
-            const dataUrl = canvas.toDataURL('image/jpeg', 0.85);
-            setImagePreview(dataUrl);
-            setItem(prev => ({ ...prev, imageUrl: dataUrl }));
         };
         img.src = event.target?.result as string;
     };
@@ -129,7 +128,7 @@ const NewsEditorModal: React.FC<{
       ...item,
       content: editorRef.current ? editorRef.current.innerHTML : item.content,
       imageUrl: imagePreview,
-      id: newsItem?.id || `news_${Date.now()}`,
+      id: newsItem?.id || '',
       date: newsItem?.date || new Date().toISOString(),
       isArchived: newsItem?.isArchived || false,
       isBroadcasted: newsItem?.isBroadcasted || false,
@@ -137,24 +136,16 @@ const NewsEditorModal: React.FC<{
     onSave(finalItem);
   };
 
-  const handleFormat = (command: string, value: string | null = null) => {
-    document.execCommand(command, false, value ?? undefined);
-    if (editorRef.current) {
-        editorRef.current.focus();
-    }
-  };
-  
   const inputStyle = "w-full h-10 px-3 border rounded-md bg-white border-gray-300 text-gray-900 focus:ring-2 focus:ring-primary focus:border-transparent outline-none transition-shadow text-sm placeholder-gray-400";
   const labelStyle = "block text-sm font-medium text-gray-700 mb-1";
 
   return (
     <Modal title={newsItem ? "Sửa Tin tức" : "Soạn Tin mới"} onClose={onClose} size="3xl">
       <form onSubmit={handleSubmit} className="space-y-6 text-gray-900">
-        
         <div className="grid grid-cols-1 gap-6">
             <div>
                 <label className={labelStyle}>Tiêu đề tin <span className="text-red-500">*</span></label>
-                <input name="title" value={item.title} onChange={handleChange} className={inputStyle} placeholder="Nhập tiêu đề ngắn gọn, súc tích..." required />
+                <input name="title" value={item.title} onChange={handleChange} className={inputStyle} placeholder="Nhập tiêu đề ngắn gọn..." required />
             </div>
 
             <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
@@ -186,15 +177,7 @@ const NewsEditorModal: React.FC<{
         {/* Editor */}
         <div className="flex flex-col h-full">
           <label className={labelStyle}>Nội dung chi tiết</label>
-            <div className="border border-gray-300 rounded-md mt-1 bg-white overflow-hidden shadow-sm focus-within:ring-2 focus-within:ring-primary focus-within:border-transparent">
-                <div className="flex items-center gap-1 p-2 border-b border-gray-200 bg-gray-50 select-none">
-                    <button type="button" onMouseDown={(e) => { e.preventDefault(); handleFormat('bold'); }} className="p-1.5 rounded hover:bg-gray-200 text-gray-800 font-bold min-w-[32px]" title="Bold">B</button>
-                    <button type="button" onMouseDown={(e) => { e.preventDefault(); handleFormat('italic'); }} className="p-1.5 rounded hover:bg-gray-200 text-gray-800 italic min-w-[32px]" title="Italic">I</button>
-                    <button type="button" onMouseDown={(e) => { e.preventDefault(); handleFormat('underline'); }} className="p-1.5 rounded hover:bg-gray-200 text-gray-800 underline min-w-[32px]" title="Underline">U</button>
-                    <div className="w-px h-5 bg-gray-300 mx-2"></div>
-                    <button type="button" onMouseDown={(e) => { e.preventDefault(); handleFormat('insertUnorderedList'); }} className="p-1.5 rounded hover:bg-gray-200 text-gray-800" title="Bullet List"><ListBulletIcon className="w-5 h-5"/></button>
-                </div>
-                
+            <div className="border border-gray-300 rounded-md mt-1 bg-white overflow-hidden shadow-sm">
                 <div 
                     ref={editorRef}
                     className="w-full p-4 min-h-[250px] max-h-[400px] overflow-y-auto bg-white text-gray-900 outline-none cursor-text text-sm leading-relaxed"
@@ -225,7 +208,6 @@ const NewsEditorModal: React.FC<{
                  <button type="button" onClick={() => fileInputRef.current?.click()} className="flex items-center gap-2 px-4 py-2 bg-white border border-gray-300 text-gray-700 font-medium rounded-md shadow-sm text-sm hover:bg-gray-50 transition-colors">
                     <UploadIcon className="w-4 h-4" /> Chọn ảnh từ máy
                  </button>
-                 <p className="text-xs text-gray-500 mt-2">Hỗ trợ JPG, PNG. Kích thước tối ưu: 800x450px.</p>
             </div>
           </div>
         </div>
@@ -233,20 +215,13 @@ const NewsEditorModal: React.FC<{
         {/* Footer */}
         <div className="flex justify-between items-center pt-6 border-t border-gray-200">
             <div className="flex items-center gap-2">
-               <input 
-                    type="checkbox" 
-                    name="isPinned" 
-                    id="isPinned" 
-                    checked={item.isPinned} 
-                    onChange={(e) => setItem({...item, isPinned: e.target.checked})} 
-                    className="w-4 h-4 text-primary focus:ring-primary border-gray-300 rounded"
-                />
+               <input type="checkbox" name="isPinned" id="isPinned" checked={item.isPinned} onChange={(e) => setItem({...item, isPinned: e.target.checked})} className="w-4 h-4 text-primary focus:ring-primary border-gray-300 rounded"/>
                 <label htmlFor="isPinned" className="text-sm text-gray-700 select-none">Ghim tin này lên đầu</label>
             </div>
             <div className="flex gap-3">
-              <button type="button" onClick={onClose} className="px-5 py-2.5 bg-gray-100 text-gray-700 font-medium rounded-lg hover:bg-gray-200 transition-colors">Hủy</button>
-              <button type="submit" className="px-6 py-2.5 bg-primary text-white font-bold rounded-lg shadow-md hover:bg-primary-focus transition-colors flex items-center gap-2">
-                  <CheckCircleIcon className="w-5 h-5"/> {newsItem ? 'Cập nhật' : 'Đăng tin'}
+              <button type="button" onClick={onClose} disabled={loading} className="px-5 py-2.5 bg-gray-100 text-gray-700 font-medium rounded-lg hover:bg-gray-200 disabled:opacity-50">Hủy</button>
+              <button type="submit" disabled={loading} className="px-6 py-2.5 bg-primary text-white font-bold rounded-lg shadow-md hover:bg-primary-focus flex items-center gap-2 disabled:bg-gray-400">
+                  {loading ? <Spinner /> : <CheckCircleIcon className="w-5 h-5"/>} {newsItem ? 'Cập nhật' : 'Đăng tin'}
               </button>
             </div>
         </div>
@@ -255,147 +230,184 @@ const NewsEditorModal: React.FC<{
   );
 };
 
-const NewsManagementPage: React.FC<NewsManagementPageProps> = ({ news: initialNews = [], setNews, role, users }) => {
+const NewsManagementPage: React.FC<NewsManagementPageProps> = ({ news: initialNews, setNews, role, users }) => {
   const { showToast } = useNotification();
   const canManage = role === 'Admin';
+  const IS_PROD = isProduction();
 
+  const [localNews, setLocalNews] = useState<ExtendedNewsItem[]>(initialNews as ExtendedNewsItem[]);
+  const [loading, setLoading] = useState(false);
   const [editingItem, setEditingItem] = useState<ExtendedNewsItem | null | undefined>(undefined);
   const [searchTerm, setSearchTerm] = useState('');
   const [categoryFilter, setCategoryFilter] = useState('all');
   const [currentPage, setCurrentPage] = useState(1);
   const ITEMS_PER_PAGE = 6;
 
-  // Cast initial news to extended type locally
-  const news = initialNews as ExtendedNewsItem[];
+  // --- 1. Data Fetching ---
+  useEffect(() => {
+    const fetchNews = async () => {
+        if (!IS_PROD) {
+            setLocalNews(initialNews as ExtendedNewsItem[]);
+            return;
+        }
+        setLoading(true);
+        try {
+            const querySnapshot = await getDocs(collection(db, 'news'));
+            const fetchedNews = querySnapshot.docs.map(doc => ({ id: doc.id, ...doc.data() })) as ExtendedNewsItem[];
+            fetchedNews.sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime());
+            setLocalNews(fetchedNews);
+        } catch (error) {
+            showToast('Lỗi tải danh sách tin tức.', 'error');
+        } finally {
+            setLoading(false);
+        }
+    };
+    fetchNews();
+  }, [IS_PROD, initialNews, showToast]);
 
+  // --- 2. Filter & Sort ---
   const filteredNews = useMemo(() => {
-    return (news || [])
-        .filter(item => {
-            if (searchTerm && !item.title.toLowerCase().includes(searchTerm.toLowerCase())) return false;
-            if (categoryFilter !== 'all' && item.category !== categoryFilter) return false;
-            return true;
-        })
-        .sort((a,b) => {
-            // Sort by Pinned -> Archived (Bottom) -> Date Desc
-            if (a.isArchived !== b.isArchived) return a.isArchived ? 1 : -1;
-            if (a.isPinned !== b.isPinned) return a.isPinned ? -1 : 1;
-            return new Date(b.date).getTime() - new Date(a.date).getTime();
-        });
-  }, [news, searchTerm, categoryFilter]);
+    return localNews.filter(item => {
+        if (searchTerm && !item.title.toLowerCase().includes(searchTerm.toLowerCase())) return false;
+        if (categoryFilter !== 'all' && item.category !== categoryFilter) return false;
+        return true;
+    }).sort((a,b) => {
+        if (a.isArchived !== b.isArchived) return a.isArchived ? 1 : -1;
+        if (a.isPinned !== b.isPinned) return a.isPinned ? -1 : 1;
+        return new Date(b.date).getTime() - new Date(a.date).getTime();
+    });
+  }, [localNews, searchTerm, categoryFilter]);
 
-  // Pagination
-  useEffect(() => setCurrentPage(1), [searchTerm, categoryFilter]);
   const paginatedNews = useMemo(() => {
     const startIndex = (currentPage - 1) * ITEMS_PER_PAGE;
     return filteredNews.slice(startIndex, startIndex + ITEMS_PER_PAGE);
   }, [filteredNews, currentPage]);
+  
   const totalPages = Math.ceil(filteredNews.length / ITEMS_PER_PAGE);
 
   // Stats
   const stats = useMemo(() => ({
-      total: (news || []).length,
-      important: (news || []).filter(n => n.priority === 'high').length,
-      pinned: (news || []).filter(n => n.isPinned).length,
-      broadcasted: (news || []).filter(n => n.isBroadcasted).length
-  }), [news]);
+      total: localNews.length,
+      important: localNews.filter(n => n.priority === 'high').length,
+      pinned: localNews.filter(n => n.isPinned).length,
+      broadcasted: localNews.filter(n => n.isBroadcasted).length
+  }), [localNews]);
 
-  // Handlers
-  const handleSave = (item: ExtendedNewsItem) => {
-    const isNew = !news.some(n => n.id === item.id);
-    const summary = isNew ? `Tạo tin tức: "${item.title}"` : `Cập nhật tin: "${item.title}"`;
-    const updater = (prev: NewsItem[]) => isNew ? [item, ...prev] : prev.map(n => n.id === item.id ? item : n);
-    setNews(updater, { module: 'News', action: isNew ? 'CREATE' : 'UPDATE', summary, ids: [item.id] });
-    showToast('Lưu tin tức thành công.', 'success');
-    setEditingItem(undefined);
-  };
+  // --- 3. Handlers ---
 
-  const handleDelete = (id: string) => {
-    if (window.confirm('Xóa tin tức này? Hành động không thể hoàn tác.')) {
-      setNews(prev => prev.filter(n => n.id !== id), { module: 'News', action: 'DELETE', summary: 'Xóa tin tức', ids: [id] });
-      showToast('Đã xóa tin tức.', 'success');
+  const handleSave = async (item: ExtendedNewsItem) => {
+    setLoading(true);
+    const isEdit = !!item.id;
+    try {
+        if (IS_PROD) {
+            let newItemId = item.id;
+            // Remove 'id' from the doc payload
+            const { id, ...docData } = item; 
+
+            if (isEdit && !item.id.startsWith('news_') && !item.id.startsWith('mock')) {
+                await updateDoc(doc(db, 'news', item.id), docData);
+            } else {
+                const docRef = await addDoc(collection(db, 'news'), docData);
+                newItemId = docRef.id;
+            }
+            const newItemWithId = { ...item, id: newItemId };
+            setLocalNews(prev => isEdit ? prev.map(n => n.id === item.id ? newItemWithId : n) : [newItemWithId, ...prev]);
+            showToast('Đã lưu tin tức thành công.', 'success');
+        } else {
+            // Dev Mode
+            const mockId = isEdit ? item.id : `news_mock_${Date.now()}`;
+            const newItem = { ...item, id: mockId };
+            setLocalNews(prev => isEdit ? prev.map(n => n.id === item.id ? newItem : n) : [newItem, ...prev]);
+            showToast('[DEV] Lưu tin tức thành công (Local).', 'success');
+        }
+        setEditingItem(undefined);
+    } catch (error: any) {
+        showToast('Lỗi khi lưu: ' + error.message, 'error');
+    } finally {
+        setLoading(false);
     }
   };
-  
+
+  const handleDelete = async (id: string) => {
+    if (!window.confirm('Xóa tin tức này?')) return;
+    setLoading(true);
+    try {
+        if (IS_PROD) {
+            await deleteDoc(doc(db, 'news', id));
+        }
+        setLocalNews(prev => prev.filter(n => n.id !== id));
+        showToast('Đã xóa tin tức.', 'success');
+    } catch (error: any) {
+        showToast('Lỗi khi xóa: ' + error.message, 'error');
+    } finally {
+        setLoading(false);
+    }
+  };
+
   const handleBroadcast = async (item: NewsItem) => {
     if (!window.confirm('Gửi thông báo đẩy (Push Notification) tới toàn bộ cư dân?')) return;
-
-    // Create the updated state with broadcast info
+    
+    setLoading(true);
     const broadcastTime = new Date().toISOString();
     
-    // FULL OBJECT UPSERT STRATEGY
-    // We create a complete object to save to Firestore. 
-    // This ensures that if the document doesn't exist yet (e.g. created in local state only), 
-    // it gets created with all fields, not just the status updates.
-    const newsItemToPersist = {
-        ...item,
-        isBroadcasted: true,
-        broadcastTime: broadcastTime
-    };
-
-    if (isProduction()) {
+    // Logic for sending
+    if (IS_PROD) {
         try {
-            const residents = users.filter(u => u.Role === 'Resident');
-            
-            // Note: In a real robust app, chunk this into batches of 500
-            // For now, assuming standard batch size limit (500)
             const batch = writeBatch(db);
+            
+            // 1. Resolve Document ID
+            // If the item has a mock ID (created locally but not yet sync to valid Firestore ID), create a new ID
+            const isMockId = item.id.startsWith('news_') || item.id.startsWith('mock');
+            const newsId = isMockId ? doc(collection(db, 'news')).id : item.id;
+            const newsRef = doc(db, 'news', newsId);
+
+            // 2. Upsert News Item (Ensures doc exists)
+            const newsPayload = { ...item, id: newsId, isBroadcasted: true, broadcastTime };
+            delete (newsPayload as any).id; // don't store id inside doc
+            batch.set(newsRef, newsPayload, { merge: true });
+
+            // 3. Create Notifications
+            const residents = users.filter(u => u.Role === 'Resident');
             let count = 0;
-
-            // 1. Create notifications for residents
-            residents.forEach(res => {
-                if (count < 400) { // Safety buffer for batch limit
-                    const docRef = doc(collection(db, 'notifications')); // Auto-ID
-                    batch.set(docRef, {
-                        recipientId: res.Email, 
-                        title: item.title,
-                        // Strip HTML tags for plain text body preview
-                        body: item.content.replace(/<[^>]*>?/gm, '').substring(0, 100) + '...', 
-                        read: false,
-                        createdAt: broadcastTime,
-                        type: 'news',
-                        linkId: item.id
-                    });
-                    count++;
-                }
+            
+            // Limit to ~400 for batch limit safety (max 500 ops)
+            residents.slice(0, 400).forEach(res => {
+                const notifRef = doc(collection(db, 'notifications'));
+                batch.set(notifRef, {
+                    userId: res.Username, // Targeting the user by Username (Unit ID)
+                    title: item.title,
+                    body: item.content.replace(/<[^>]*>?/gm, '').substring(0, 100) + '...',
+                    isRead: false,
+                    createdAt: serverTimestamp(),
+                    type: 'news',
+                    linkId: newsId
+                });
+                count++;
             });
-
-            // 2. Upsert the News Document (Fix for "No document to update")
-            // using set() with { merge: true } ensures creation if it doesn't exist 
-            // (e.g. created in local state only) or updates it if it does.
-            const newsRef = doc(db, 'news', item.id);
-            batch.set(newsRef, newsItemToPersist, { merge: true });
 
             await batch.commit();
             
-            // Optimistic Update
-            setNews((prev: NewsItem[]) => prev.map(n => n.id === item.id ? newsItemToPersist : n));
-            showToast(`Đã gửi thông báo tới ${count} cư dân thành công.`, 'success');
+            // Update local state with real ID if it changed
+            setLocalNews(prev => prev.map(n => n.id === item.id ? { ...n, id: newsId, isBroadcasted: true, broadcastTime } : n));
+            showToast(`Đã gửi thông báo tới ${count} cư dân.`, 'success');
 
         } catch (error: any) {
             console.error("Broadcast failed", error);
             showToast('Lỗi khi gửi thông báo: ' + error.message, 'error');
         }
     } else {
-        // Mock Dev
+        // Dev Mode
+        await new Promise(r => setTimeout(r, 1000));
         const residentCount = users.filter(u => u.Role === 'Resident').length;
-        setNews(prev => prev.map(n => n.id === item.id ? newsItemToPersist : n));
+        setLocalNews(prev => prev.map(n => n.id === item.id ? { ...n, isBroadcasted: true, broadcastTime } : n));
         showToast(`[DEV] Simulated sending to ${residentCount} residents.`, 'success');
     }
-  };
-
-  const handleArchive = (id: string) => {
-      setNews(prev => prev.map(n => n.id === id ? { ...n, isArchived: !n.isArchived } : n));
-      showToast('Đã cập nhật trạng thái lưu trữ.', 'info');
-  };
-
-  const handlePin = (id: string) => {
-      setNews((prev: any[]) => prev.map(n => n.id === id ? { ...n, isPinned: !n.isPinned } : n));
-      showToast('Đã cập nhật ghim tin tức.', 'info');
+    setLoading(false);
   };
 
   return (
     <div className="h-full flex flex-col space-y-6">
-      {editingItem !== undefined && <NewsEditorModal newsItem={editingItem} onSave={handleSave} onClose={() => setEditingItem(undefined)} />}
+      {editingItem !== undefined && <NewsEditorModal newsItem={editingItem} onSave={handleSave} onClose={() => setEditingItem(undefined)} loading={loading} />}
 
       {/* 1. Compact Stat Cards */}
       <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
@@ -409,13 +421,7 @@ const NewsManagementPage: React.FC<NewsManagementPageProps> = ({ news: initialNe
       <div className="bg-white p-3 rounded-lg shadow-sm border border-gray-200 flex flex-col md:flex-row items-center gap-3">
         <div className="relative flex-grow w-full md:w-auto">
             <SearchIcon className="absolute left-3 top-1/2 -translate-y-1/2 h-5 w-5 text-gray-400" />
-            <input 
-                type="text" 
-                placeholder="Tìm kiếm tiêu đề tin..." 
-                value={searchTerm}
-                onChange={e => setSearchTerm(e.target.value)}
-                className="w-full h-10 pl-10 pr-3 border border-gray-300 rounded-lg bg-white text-gray-900 focus:ring-2 focus:ring-primary focus:border-transparent outline-none"
-            />
+            <input type="text" placeholder="Tìm kiếm tiêu đề tin..." value={searchTerm} onChange={e => setSearchTerm(e.target.value)} className="w-full h-10 pl-10 pr-3 border border-gray-300 rounded-lg bg-white text-gray-900 focus:ring-2 focus:ring-primary focus:border-transparent outline-none"/>
         </div>
         <select value={categoryFilter} onChange={e => setCategoryFilter(e.target.value)} className="h-10 px-3 border border-gray-300 rounded-lg bg-white text-gray-900 focus:ring-2 focus:ring-primary outline-none">
             <option value="all">Tất cả danh mục</option>
@@ -431,31 +437,11 @@ const NewsManagementPage: React.FC<NewsManagementPageProps> = ({ news: initialNe
       {/* 3. News List */}
       <div className="flex-1 overflow-y-auto space-y-4 pr-1 pb-4">
         {paginatedNews.map(item => (
-            <div 
-                key={item.id} 
-                className={`group flex flex-col md:flex-row bg-white border rounded-lg overflow-hidden shadow-sm hover:shadow-md transition-all 
-                    ${item.priority === 'high' ? 'border-l-4 border-l-red-500' : 'border-l-4 border-l-blue-500'} 
-                    ${item.isPinned ? 'bg-amber-50 ring-1 ring-orange-200' : ''} 
-                    ${item.isArchived ? 'opacity-60 grayscale' : ''}
-                `}
-            >
-                {/* Thumbnail */}
+            <div key={item.id} className={`group flex flex-col md:flex-row bg-white border rounded-lg overflow-hidden shadow-sm hover:shadow-md transition-all ${item.priority === 'high' ? 'border-l-4 border-l-red-500' : 'border-l-4 border-l-blue-500'} ${item.isPinned ? 'bg-amber-50 ring-1 ring-orange-200' : ''} ${item.isArchived ? 'opacity-60 grayscale' : ''}`}>
                 <div className="w-full md:w-48 h-48 md:h-auto flex-shrink-0 bg-gray-200 relative">
-                    {item.imageUrl ? (
-                        <img src={item.imageUrl} alt="" className="w-full h-full object-cover" />
-                    ) : (
-                        <div className="w-full h-full flex items-center justify-center text-gray-400">
-                            <NewspaperIcon className="w-10 h-10" />
-                        </div>
-                    )}
-                    {item.isPinned && (
-                        <div className="absolute top-2 left-2 bg-orange-500 text-white p-1 rounded-full shadow-md" title="Đã ghim">
-                            <PinIcon className="w-4 h-4" filled />
-                        </div>
-                    )}
+                    {item.imageUrl ? (<img src={item.imageUrl} alt="" className="w-full h-full object-cover" />) : (<div className="w-full h-full flex items-center justify-center text-gray-400"><NewspaperIcon className="w-10 h-10" /></div>)}
+                    {item.isPinned && (<div className="absolute top-2 left-2 bg-orange-500 text-white p-1 rounded-full shadow-md"><PinIcon className="w-4 h-4" filled /></div>)}
                 </div>
-
-                {/* Content */}
                 <div className="flex-grow p-4 flex flex-col justify-between">
                     <div>
                         <div className="flex flex-wrap items-center gap-2 mb-2">
@@ -473,35 +459,16 @@ const NewsManagementPage: React.FC<NewsManagementPageProps> = ({ news: initialNe
                         {item.isBroadcasted && item.broadcastTime && <span>Gửi lúc: {timeAgo(item.broadcastTime)}</span>}
                     </div>
                 </div>
-
-                {/* Actions */}
                 {canManage && (
                     <div className="flex md:flex-col justify-end md:justify-center gap-2 p-3 bg-gray-50 border-t md:border-t-0 md:border-l border-gray-100">
-                        <button onClick={() => handlePin(item.id)} className={`p-2 rounded-md transition-colors ${item.isPinned ? 'text-orange-600 bg-orange-100' : 'text-gray-400 hover:text-orange-600 hover:bg-white'}`} title={item.isPinned ? "Bỏ ghim" : "Ghim tin"}><PinIcon className="w-5 h-5" filled={item.isPinned}/></button>
                         <button onClick={() => setEditingItem(item)} className="p-2 text-gray-400 hover:text-blue-600 hover:bg-white rounded-md transition-colors" title="Chỉnh sửa"><PencilSquareIcon className="w-5 h-5"/></button>
-                        <button 
-                            onClick={() => handleBroadcast(item)} 
-                            disabled={item.isBroadcasted} 
-                            className={`p-2 rounded-md transition-colors ${item.isBroadcasted ? 'text-green-600 bg-green-50 cursor-default' : 'text-gray-400 hover:text-green-600 hover:bg-white'}`} 
-                            title={item.isBroadcasted ? `Đã gửi lúc ${timeAgo(item.broadcastTime)}` : "Gửi thông báo"}
-                        >
-                            {item.isBroadcasted ? <CheckCircleIcon className="w-5 h-5"/> : <PaperAirplaneIcon className="w-5 h-5"/>}
-                        </button>
-                        <button onClick={() => handleArchive(item.id)} className={`p-2 rounded-md transition-colors ${item.isArchived ? 'text-yellow-600 bg-yellow-50' : 'text-gray-400 hover:text-yellow-600 hover:bg-white'}`} title={item.isArchived ? "Bỏ lưu trữ" : "Lưu trữ"}><ArchiveBoxIcon className="w-5 h-5"/></button>
+                        <button onClick={() => handleBroadcast(item)} disabled={item.isBroadcasted || loading} className={`p-2 rounded-md transition-colors ${item.isBroadcasted ? 'text-green-600 bg-green-50 cursor-default' : 'text-gray-400 hover:text-green-600 hover:bg-white'}`} title={item.isBroadcasted ? `Đã gửi lúc ${timeAgo(item.broadcastTime)}` : "Gửi thông báo"}>{item.isBroadcasted ? <CheckCircleIcon className="w-5 h-5"/> : <PaperAirplaneIcon className="w-5 h-5"/>}</button>
                         <button onClick={() => handleDelete(item.id)} className="p-2 text-gray-400 hover:text-red-600 hover:bg-white rounded-md transition-colors" title="Xóa tin"><TrashIcon className="w-5 h-5"/></button>
                     </div>
                 )}
             </div>
         ))}
-        {paginatedNews.length === 0 && (
-            <div className="flex flex-col items-center justify-center py-16 bg-white border border-dashed border-gray-300 rounded-lg text-gray-400">
-                <NewspaperIcon className="w-12 h-12 mb-2 opacity-50" />
-                <p>Không có tin tức nào.</p>
-            </div>
-        )}
       </div>
-
-      {/* Footer Pagination */}
       {totalPages > 1 && (
         <div className="flex justify-between items-center pt-2 border-t border-gray-200">
             <span className="text-sm text-gray-500">Trang {currentPage} / {totalPages}</span>

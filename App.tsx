@@ -1,9 +1,9 @@
-
 import React, { useState, useEffect, useCallback, createContext, useMemo } from 'react';
 import type { Role, UserPermission, Unit, Owner, Vehicle, WaterReading, ChargeRaw, TariffService, TariffParking, TariffWater, Adjustment, InvoiceSettings, ActivityLog, VehicleTier, TariffCollection, AllData, NewsItem, FeedbackItem, FeedbackReply } from './types';
 import { patchKiosAreas, MOCK_NEWS_ITEMS, MOCK_FEEDBACK_ITEMS } from './constants';
 import { loadAllData, updateFeeSettings, updateResidentData, saveChargesBatch, saveVehicles, saveWaterReadings, saveTariffs, saveUsers, saveAdjustments, importResidentsBatch, wipeAllBusinessData, resetUserPassword } from './services';
-import { requestForToken, onMessageListener } from './firebaseConfig';
+import { requestForToken, onMessageListener, db } from './firebaseConfig';
+import { collection, query, where, onSnapshot, orderBy, limit } from 'firebase/firestore';
 
 import Header from './components/layout/Header';
 import Sidebar from './components/layout/Sidebar';
@@ -150,6 +150,32 @@ const App: React.FC = () => {
         }
     }, [currentUser]);
 
+    // 2. Real-time Firestore Listener for In-App Notifications
+    useEffect(() => {
+        if (currentUser && IS_PROD) {
+            // Note: If console says "Index required", click the link in console to create it.
+            const q = query(
+                collection(db, 'notifications'),
+                where('userId', '==', currentUser.Username), // Match Username/Unit ID
+                where('isRead', '==', false),
+                orderBy('createdAt', 'desc'),
+                limit(1)
+            );
+
+            const unsubscribe = onSnapshot(q, (snapshot) => {
+                snapshot.docChanges().forEach((change) => {
+                    if (change.type === 'added') {
+                        const data = change.doc.data();
+                        showToast(data.title, 'info', 5000);
+                        setNotifications(prev => ({ ...prev, hasNewNotifications: true }));
+                    }
+                });
+            });
+
+            return () => unsubscribe();
+        }
+    }, [currentUser, IS_PROD]);
+
     // Check notifications logic
     useEffect(() => {
         if (!currentUser) return;
@@ -174,13 +200,14 @@ const App: React.FC = () => {
             ? Math.max(...news.map(n => new Date(n.date).getTime())) 
             : 0;
         
-        const hasNewNotifications = latestNewsTime > lastViewedBellTime;
+        // Combine logic: check new news OR flag from listener
+        const hasNewNotifications = latestNewsTime > lastViewedBellTime || notifications.hasNewNotifications;
 
-        setNotifications({
+        setNotifications(prev => ({
             unreadNews: unreadNewsCount,
             hasUnpaidBill,
             hasNewNotifications
-        });
+        }));
 
     }, [currentUser, charges, news]);
 
