@@ -32,18 +32,12 @@ declare const html2canvas: any;
 declare const JSZip: any;
 declare const XLSX: any;
 
-// Extend ChargeRaw locally to support sentCount without modifying types.ts immediately if not accessible
+// Extend ChargeRaw locally to support sentCount
 type ExtendedCharge = ChargeRaw & { sentCount?: number };
 
 const CreditCardIcon: React.FC<{ className?: string }> = ({ className = "h-5 w-5" }) => (
     <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" strokeWidth={1.5} stroke="currentColor" className={className}>
       <path strokeLinecap="round" strokeLinejoin="round" d="M2.25 8.25h19.5M2.25 9h19.5m-16.5 5.25h6m-6 2.25h3m-3.75 3h15a2.25 2.25 0 0 0 2.25-2.25V6.75A2.25 2.25 0 0 0 19.5 4.5h-15a2.25 2.25 0 0 0-2.25 2.25v10.5A2.25 2.25 0 0 0 4.5 19.5Z" />
-    </svg>
-);
-
-const BroadcastIcon: React.FC<{ className?: string }> = ({ className = "h-5 w-5" }) => (
-    <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" strokeWidth={1.5} stroke="currentColor" className={className}>
-      <path strokeLinecap="round" strokeLinejoin="round" d="M6 12 3.269 3.125A59.769 59.769 0 0 1 21.485 12 59.768 59.768 0 0 1 3.27 20.875L5.999 12Zm0 0h7.5" />
     </svg>
 );
 
@@ -394,8 +388,10 @@ const BillingPage: React.FC<BillingPageProps> = ({ charges, setCharges, allData,
                 const validUnits = new Set(allData.units.map(u => u.UnitID));
 
                 for (let i = headerIndex + 1; i < json.length; i++) {
-                    const row = json[i];
-                    const amount = Math.round(parseFloat(String(row[colCredit] || '0').replace(/[^0-9.-]+/g,"")));
+                    const row = json[i] as any[];
+                    const rawAmt = row[colCredit];
+                    const amtStr = typeof rawAmt === 'string' ? rawAmt : String(rawAmt ?? '0'); 
+                    const amount = Math.round(parseFloat(amtStr.replace(/[^0-9.-]+/g,"")));
                     const desc = String(row[colDesc] || '');
                     
                     if (amount > 0) {
@@ -509,35 +505,45 @@ const BillingPage: React.FC<BillingPageProps> = ({ charges, setCharges, allData,
         if (!singleCharge && !window.confirm(`Gửi thông báo phí qua App cho ${targets.length} căn hộ?`)) return;
 
         setIsLoading(true);
-        let successCount = 0;
 
         try {
             if (IS_PROD) {
                 const batch = writeBatch(db);
-                // Notification Docs
+                
                 targets.forEach(c => {
+                    // Action A: Create Notification
                     const notifRef = doc(collection(db, 'notifications'));
                     batch.set(notifRef, {
-                        userId: c.UnitID,
+                        userId: c.UnitID, // Targeting UnitID string e.g. "202"
                         title: `Thông báo phí T${c.Period.split('-')[1]}`,
                         body: `Tổng phí: ${formatCurrency(c.TotalDue)}. Vui lòng thanh toán.`,
+                        type: 'bill', // Specific type for NotificationListener
+                        link: 'portalBilling', // Maps to ResidentLayout activePage
                         isRead: false,
                         createdAt: serverTimestamp(),
-                        type: 'bill',
                         linkId: `${c.Period}_${c.UnitID}`
                     });
                     
-                    // Increment counter
+                    // Action B: Update Charge
                     const chargeRef = doc(db, 'charges', `${c.Period}_${c.UnitID}`);
-                    batch.update(chargeRef, { sentCount: increment(1) });
+                    batch.update(chargeRef, { 
+                        isSent: true,
+                        sentCount: increment(1) 
+                    });
                 });
+                
                 await batch.commit();
             }
 
-            // Optimistic Update
+            // Optimistic Update for UI
+            const targetedUnitIds = new Set(targets.map(t => t.UnitID));
             setCharges(prev => prev.map(c => {
-                if (targets.find(t => t.UnitID === c.UnitID && t.Period === c.Period)) {
-                    return { ...c, sentCount: ((c as ExtendedCharge).sentCount || 0) + 1 };
+                if (c.Period === period && targetedUnitIds.has(c.UnitID)) {
+                    return { 
+                        ...c, 
+                        isSent: true,
+                        sentCount: ((c as ExtendedCharge).sentCount || 0) + 1 
+                    };
                 }
                 return c;
             }));
@@ -860,7 +866,8 @@ const BillingPage: React.FC<BillingPageProps> = ({ charges, setCharges, allData,
                                     } else if (charge.paymentStatus === 'reconciling') {
                                         statusBadge = <span className="px-2 py-0.5 text-xs font-bold rounded-full bg-pink-100 text-pink-800 border border-pink-200">Chờ đối soát</span>;
                                     } else if (charge.sentCount && charge.sentCount > 0) {
-                                        statusBadge = <span className="px-2 py-0.5 text-xs font-bold rounded-full bg-cyan-100 text-cyan-800 border border-cyan-200">Đã gửi - {charge.sentCount}</span>;
+                                        const color = charge.sentCount > 1 ? 'text-blue-800 bg-blue-100 border-blue-200' : 'text-cyan-800 bg-cyan-100 border-cyan-200';
+                                        statusBadge = <span className={`px-2 py-0.5 text-xs font-bold rounded-full border ${color}`}>Đã gửi - {charge.sentCount}</span>;
                                     } else {
                                         statusBadge = <span className="px-2 py-0.5 text-xs font-bold rounded-full bg-orange-100 text-orange-800 border border-orange-200">Đang chờ</span>;
                                     }

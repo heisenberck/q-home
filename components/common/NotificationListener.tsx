@@ -37,8 +37,12 @@ const NotificationListener: React.FC<NotificationListenerProps> = ({ userId }) =
             snapshot.docChanges().forEach((change) => {
                 if (change.type === 'added') {
                     const data = change.doc.data();
-                    // Show toast for new incoming notifications
-                    showToast(`🔔 ${data.title}`, 'info', 5000);
+                    // Customize message based on type
+                    let message = `🔔 ${data.title}`;
+                    if (data.type === 'bill') {
+                        message = `🔔 Bạn có hóa đơn mới: ${data.body}`;
+                    }
+                    showToast(message, 'info', 5000);
                 }
             });
         }, (error) => {
