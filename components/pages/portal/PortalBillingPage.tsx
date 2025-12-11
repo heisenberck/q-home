@@ -291,16 +291,7 @@ const PortalBillingPage: React.FC<PortalBillingPageProps> = ({ charges, user }) 
             <div className="mt-4 space-y-3">
                 {[...sortedCharges].reverse().slice(0, 3).map(bill => {
                     const isBillPaid = ['paid', 'paid_tm', 'paid_ck'].includes(bill.paymentStatus);
-                    const isProcessing = isPaymentInitiated && bill.Period === currentCharge.Period && !isBillPaid;
                     
-                    let statusText = isBillPaid ? 'Đã thanh toán' : 'Chưa thanh toán';
-                    let statusColor = isBillPaid ? 'text-green-600' : 'text-red-500';
-                    
-                    if (isProcessing) {
-                        statusText = 'Đang xử lý';
-                        statusColor = 'text-orange-500';
-                    }
-
                     return (
                         <div key={bill.Period} className="flex justify-between items-center text-sm border-b border-gray-50 pb-2 last:border-0 last:pb-0">
                             <div>
@@ -309,9 +300,8 @@ const PortalBillingPage: React.FC<PortalBillingPageProps> = ({ charges, user }) 
                             </div>
                             <div className="text-right">
                                 <p className="font-bold text-gray-800">{formatCurrency(bill.TotalDue)}</p>
-                                <span className={`text-[10px] font-bold ${statusColor} flex items-center justify-end gap-1`}>
-                                    {isProcessing && <ClockIcon className="w-3 h-3"/>}
-                                    {statusText}
+                                <span className={`text-[10px] font-bold ${isBillPaid ? 'text-green-600' : 'text-red-500'}`}>
+                                    {isBillPaid ? 'Đã thanh toán' : 'Chưa thanh toán'}
                                 </span>
                             </div>
                         </div>
