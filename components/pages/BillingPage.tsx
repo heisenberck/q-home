@@ -5,7 +5,6 @@ import { UnitType } from '../../types';
 import { LogPayload } from '../../App';
 import { useNotification } from '../../App';
 import { 
-    updateChargeStatuses, 
     confirmSinglePayment,
     loadAllData,
     updateChargePayments
@@ -508,34 +507,41 @@ const BillingPage: React.FC<BillingPageProps> = ({ charges, setCharges, allData,
 
         try {
             if (IS_PROD) {
-                const batch = writeBatch(db);
-                
-                targets.forEach(c => {
-                    // Action A: Create Notification
-                    const notifRef = doc(collection(db, 'notifications'));
-                    batch.set(notifRef, {
-                        userId: c.UnitID, // Targeting UnitID string e.g. "202"
-                        title: `Thông báo phí T${c.Period.split('-')[1]}`,
-                        body: `Tổng phí: ${formatCurrency(c.TotalDue)}. Vui lòng thanh toán.`,
-                        type: 'bill', // Specific type for NotificationListener
-                        link: 'portalBilling', // Maps to ResidentLayout activePage
-                        isRead: false,
-                        createdAt: serverTimestamp(),
-                        linkId: `${c.Period}_${c.UnitID}`
+                // Chunking logic (max 500 ops per batch, using 400 for safety)
+                const chunkSize = 400;
+                for (let i = 0; i < targets.length; i += chunkSize) {
+                    const chunk = targets.slice(i, i + chunkSize);
+                    const batch = writeBatch(db);
+                    
+                    chunk.forEach(c => {
+                        const chargeId = `${c.Period}_${c.UnitID}`;
+                        
+                        // 1. Create Notification
+                        const notifRef = doc(collection(db, 'notifications'));
+                        batch.set(notifRef, {
+                            type: 'bill',
+                            title: `Thông báo phí T${c.Period.split('-')[1]}`,
+                            body: `Tổng: ${formatCurrency(c.TotalDue)}. Vui lòng thanh toán.`,
+                            userId: c.UnitID, // Targeting UnitID string e.g. "202"
+                            isRead: false,
+                            createdAt: serverTimestamp(),
+                            link: 'portalBilling',
+                            chargeId: chargeId
+                        });
+
+                        // 2. Update Charge Status
+                        const chargeRef = doc(db, 'charges', chargeId);
+                        batch.update(chargeRef, {
+                            isSent: true,
+                            sentCount: increment(1)
+                        });
                     });
                     
-                    // Action B: Update Charge
-                    const chargeRef = doc(db, 'charges', `${c.Period}_${c.UnitID}`);
-                    batch.update(chargeRef, { 
-                        isSent: true,
-                        sentCount: increment(1) 
-                    });
-                });
-                
-                await batch.commit();
+                    await batch.commit();
+                }
             }
 
-            // Optimistic Update for UI
+            // Optimistic UI Update
             const targetedUnitIds = new Set(targets.map(t => t.UnitID));
             setCharges(prev => prev.map(c => {
                 if (c.Period === period && targetedUnitIds.has(c.UnitID)) {

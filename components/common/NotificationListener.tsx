@@ -37,25 +37,28 @@ const NotificationListener: React.FC<NotificationListenerProps> = ({ userId }) =
             snapshot.docChanges().forEach((change) => {
                 if (change.type === 'added') {
                     const data = change.doc.data();
+                    
                     // Customize message based on type
                     let message = `🔔 ${data.title}`;
                     if (data.type === 'bill') {
-                        message = `🔔 Bạn có hóa đơn mới: ${data.body}`;
+                        // Special format for bills
+                        message = `🔔 ${data.title}: ${data.body}`;
+                    } else if (data.type === 'news') {
+                        message = `📰 Tin mới: ${data.title}`;
                     }
-                    showToast(message, 'info', 5000);
+                    
+                    showToast(message, 'info', 6000);
                 }
             });
         }, (error) => {
             console.error("[NotificationListener] Error:", error);
             if (error.message.includes("indexes")) {
                 console.warn("FIRESTORE INDEX MISSING: Click the link in the console error above to create the required composite index.");
-                // Optional: showToast("System Warning: Notification Index Required (See Console)", "warn");
             }
         });
 
         // CRITICAL: Cleanup function to prevent infinite loops
         return () => {
-            // console.log(`[NotificationListener] Unsubscribing for user: ${userId}`);
             unsubscribe();
         };
     }, [userId, showToast]); // Strict dependency array
