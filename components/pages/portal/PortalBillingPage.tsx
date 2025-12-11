@@ -14,7 +14,7 @@ import { formatCurrency, generateTransferContent } from '../../../utils/helpers'
 import { 
     ReceiptIcon, CheckCircleIcon, ClipboardIcon, 
     HomeIcon, DropletsIcon, CarIcon, XMarkIcon, 
-    ArrowDownTrayIcon, BanknotesIcon
+    ArrowDownTrayIcon, BanknotesIcon, ClockIcon
 } from '../../ui/Icons';
 import { useNotification, useSettings } from '../../../App';
 import Modal from '../../ui/Modal';
@@ -55,8 +55,9 @@ const CopyButton: React.FC<{ text: string; label: string }> = ({ text, label }) 
 const QRModal: React.FC<{ 
     qrUrl: string; 
     amount: number; 
-    onClose: () => void; 
-}> = ({ qrUrl, amount, onClose }) => {
+    onClose: () => void;
+    onDownloadSuccess: () => void;
+}> = ({ qrUrl, amount, onClose, onDownloadSuccess }) => {
     const handleDownload = async () => {
         try {
             const response = await fetch(qrUrl);
@@ -68,6 +69,8 @@ const QRModal: React.FC<{
             document.body.appendChild(link);
             link.click();
             document.body.removeChild(link);
+            
+            onDownloadSuccess();
         } catch (e) {
             console.error("Download failed", e);
         }
@@ -104,7 +107,9 @@ const QRModal: React.FC<{
 
 const PortalBillingPage: React.FC<PortalBillingPageProps> = ({ charges, user }) => {
   const { invoiceSettings } = useSettings();
+  const { showToast } = useNotification();
   const [showQR, setShowQR] = useState(false);
+  const [isPaymentInitiated, setIsPaymentInitiated] = useState(false);
 
   // 1. Logic: Filter & Sort Data
   const sortedCharges = useMemo(() => 
@@ -123,13 +128,18 @@ const PortalBillingPage: React.FC<PortalBillingPageProps> = ({ charges, user }) 
 
   // 2. Logic: Payment Info
   const paymentContent = currentCharge ? generateTransferContent(currentCharge, invoiceSettings) : '';
-  const bankId = invoiceSettings.bankName?.split('-')[0]?.trim().replace(/\s/g, '') || 'MB'; // Simple heuristic
+  const bankId = invoiceSettings.bankName?.split('-')[0]?.trim().replace(/\s/g, '') || 'MB'; 
   const accountName = encodeURIComponent(invoiceSettings.accountName || '');
   
-  // VietQR API Format
   const qrUrl = currentCharge 
     ? `https://img.vietqr.io/image/${bankId}-${invoiceSettings.accountNumber}-compact2.png?amount=${currentCharge.TotalDue}&addInfo=${encodeURIComponent(paymentContent)}&accountName=${accountName}`
     : '';
+
+  const handleQRDownloadSuccess = () => {
+      setShowQR(false);
+      setIsPaymentInitiated(true);
+      showToast("Đã lưu mã QR. Vui lòng hoàn tất chuyển khoản trên App ngân hàng.", "success", 5000);
+  };
 
   if (!currentCharge) {
       return (
@@ -142,10 +152,21 @@ const PortalBillingPage: React.FC<PortalBillingPageProps> = ({ charges, user }) 
   }
 
   const isPaid = ['paid', 'paid_tm', 'paid_ck'].includes(currentCharge.paymentStatus);
+  // Safe access for optional properties
+  const sentCount = (currentCharge as any).sentCount || 1;
+  const [year, month] = currentCharge.Period.split('-');
+  const deadline = `20/${month}/${year}`;
 
   return (
     <div className="p-4 space-y-6 max-w-lg mx-auto pb-24">
-        {showQR && <QRModal qrUrl={qrUrl} amount={currentCharge.TotalDue} onClose={() => setShowQR(false)} />}
+        {showQR && (
+            <QRModal 
+                qrUrl={qrUrl} 
+                amount={currentCharge.TotalDue} 
+                onClose={() => setShowQR(false)} 
+                onDownloadSuccess={handleQRDownloadSuccess}
+            />
+        )}
 
         {/* SECTION A: BILL SUMMARY CARD */}
         <section className="bg-white rounded-2xl shadow-sm border border-gray-100 overflow-hidden relative">
@@ -162,7 +183,9 @@ const PortalBillingPage: React.FC<PortalBillingPageProps> = ({ charges, user }) 
             
             <div className="p-5">
                 <h2 className="text-xl font-bold text-gray-800 mb-1">Thông báo phí {currentCharge.Period}</h2>
-                <p className="text-xs text-gray-500 mb-6">Hạn thanh toán: 25/{currentCharge.Period.split('-')[1]}</p>
+                <p className="text-red-500 text-sm font-medium mb-6">
+                    Lần {sentCount} - Hạn thanh toán: {deadline}
+                </p>
 
                 <div className="space-y-1">
                     <DetailRow label="Phí dịch vụ" value={currentCharge.ServiceFee_Total} icon={<HomeIcon className="w-4 h-4 text-blue-600"/>} colorClass="bg-blue-50" />
@@ -216,12 +239,21 @@ const PortalBillingPage: React.FC<PortalBillingPageProps> = ({ charges, user }) 
                     </div>
                 </div>
 
-                <button 
-                    onClick={() => setShowQR(true)}
-                    className="w-full py-3.5 bg-gradient-to-r from-[#006f3a] to-[#005a2f] text-white font-bold rounded-xl shadow-lg shadow-green-900/20 hover:shadow-xl active:scale-[0.98] transition-all flex items-center justify-center gap-2"
-                >
-                    <ArrowDownTrayIcon className="w-5 h-5" /> Thanh toán ngay (QR)
-                </button>
+                {isPaymentInitiated ? (
+                    <button 
+                        disabled
+                        className="w-full py-3.5 bg-green-600 text-white font-bold rounded-xl shadow-md cursor-default flex items-center justify-center gap-2 transition-all opacity-100"
+                    >
+                        <CheckCircleIcon className="w-5 h-5" /> Đã thực hiện thanh toán
+                    </button>
+                ) : (
+                    <button 
+                        onClick={() => setShowQR(true)}
+                        className="w-full py-3.5 bg-gradient-to-r from-[#006f3a] to-[#005a2f] text-white font-bold rounded-xl shadow-lg shadow-green-900/20 hover:shadow-xl active:scale-[0.98] transition-all flex items-center justify-center gap-2"
+                    >
+                        <ArrowDownTrayIcon className="w-5 h-5" /> Thanh toán ngay (QR)
+                    </button>
+                )}
             </section>
         )}
 
@@ -257,20 +289,34 @@ const PortalBillingPage: React.FC<PortalBillingPageProps> = ({ charges, user }) 
             </div>
             
             <div className="mt-4 space-y-3">
-                {[...sortedCharges].reverse().slice(0, 3).map(bill => (
-                    <div key={bill.Period} className="flex justify-between items-center text-sm border-b border-gray-50 pb-2 last:border-0 last:pb-0">
-                        <div>
-                            <p className="font-semibold text-gray-700">Tháng {bill.Period.split('-')[1]}</p>
-                            <p className="text-xs text-gray-400">{new Date(bill.CreatedAt).toLocaleDateString('vi-VN')}</p>
+                {[...sortedCharges].reverse().slice(0, 3).map(bill => {
+                    const isBillPaid = ['paid', 'paid_tm', 'paid_ck'].includes(bill.paymentStatus);
+                    const isProcessing = isPaymentInitiated && bill.Period === currentCharge.Period && !isBillPaid;
+                    
+                    let statusText = isBillPaid ? 'Đã thanh toán' : 'Chưa thanh toán';
+                    let statusColor = isBillPaid ? 'text-green-600' : 'text-red-500';
+                    
+                    if (isProcessing) {
+                        statusText = 'Đang xử lý';
+                        statusColor = 'text-orange-500';
+                    }
+
+                    return (
+                        <div key={bill.Period} className="flex justify-between items-center text-sm border-b border-gray-50 pb-2 last:border-0 last:pb-0">
+                            <div>
+                                <p className="font-semibold text-gray-700">Tháng {bill.Period.split('-')[1]}</p>
+                                <p className="text-xs text-gray-400">{new Date(bill.CreatedAt).toLocaleDateString('vi-VN')}</p>
+                            </div>
+                            <div className="text-right">
+                                <p className="font-bold text-gray-800">{formatCurrency(bill.TotalDue)}</p>
+                                <span className={`text-[10px] font-bold ${statusColor} flex items-center justify-end gap-1`}>
+                                    {isProcessing && <ClockIcon className="w-3 h-3"/>}
+                                    {statusText}
+                                </span>
+                            </div>
                         </div>
-                        <div className="text-right">
-                            <p className="font-bold text-gray-800">{formatCurrency(bill.TotalDue)}</p>
-                            <span className={`text-[10px] font-bold ${['paid', 'paid_tm', 'paid_ck'].includes(bill.paymentStatus) ? 'text-green-600' : 'text-red-500'}`}>
-                                {['paid', 'paid_tm', 'paid_ck'].includes(bill.paymentStatus) ? 'Đã thanh toán' : 'Chưa thanh toán'}
-                            </span>
-                        </div>
-                    </div>
-                ))}
+                    );
+                })}
             </div>
         </section>
     </div>
