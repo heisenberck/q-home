@@ -13,6 +13,7 @@ const NotificationListener: React.FC<NotificationListenerProps> = ({ userId }) =
     const isFirstLoad = useRef(true);
 
     useEffect(() => {
+        // Guard clause: Don't subscribe if userId is empty/null
         if (!userId) return;
 
         // OPTIMIZATION: Limit to 10 to prevent quota explosion
@@ -57,8 +58,9 @@ const NotificationListener: React.FC<NotificationListenerProps> = ({ userId }) =
             }
         });
 
-        // CRITICAL: Cleanup function to prevent infinite loops
+        // CRITICAL: Cleanup function to prevent infinite loops and memory leaks
         return () => {
+            console.log(`[NotificationListener] Unsubscribing for user: ${userId}`);
             unsubscribe();
         };
     }, [userId, showToast]); // Strict dependency array

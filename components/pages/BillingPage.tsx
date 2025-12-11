@@ -1,6 +1,6 @@
 
 import React, { useState, useCallback, useMemo, useRef, useEffect } from 'react';
-import type { ChargeRaw, Adjustment, AllData, Role, PaymentStatus, InvoiceSettings } from '../../types';
+import type { ChargeRaw, Adjustment, AllData, Role, PaymentStatus, InvoiceSettings, Owner } from '../../types';
 import { UnitType } from '../../types';
 import { LogPayload } from '../../App';
 import { useNotification } from '../../App';
@@ -262,7 +262,15 @@ const BillingPage: React.FC<BillingPageProps> = ({ charges, setCharges, allData,
         const debt = totalDue - totalPaid;
         const count = currentCharges.length;
         const paidCount = currentCharges.filter(c => ['paid', 'paid_tm', 'paid_ck'].includes(c.paymentStatus)).length;
-        return { totalDue, totalPaid, debt, progress: count > 0 ? (paidCount / count) * 100 : 0 };
+        
+        return { 
+            totalDue, 
+            totalPaid, 
+            debt, 
+            progress: count > 0 ? (paidCount / count) * 100 : 0,
+            count,
+            paidCount
+        };
     }, [charges, period]);
 
     // --- Logic: Calculation & Lock ---
@@ -293,7 +301,7 @@ const BillingPage: React.FC<BillingPageProps> = ({ charges, setCharges, allData,
             
             const inputs = unitsToCalc.map(unit => ({ 
                 unit, 
-                owner: freshData.owners.find(o => o.OwnerID === unit.OwnerID) as any,
+                owner: (freshData.owners.find(o => o.OwnerID === unit.OwnerID) || { OwnerID: unit.OwnerID, OwnerName: 'Unknown', Phone: '', Email: '' }) as Owner,
                 vehicles: freshData.vehicles.filter(v => v.UnitID === unit.UnitID), 
                 adjustments: freshData.adjustments.filter(a => a.UnitID === unit.UnitID && a.Period === period) 
             }));
@@ -363,19 +371,19 @@ const BillingPage: React.FC<BillingPageProps> = ({ charges, setCharges, allData,
         reader.onload = async (e) => {
             try {
                 const data = new Uint8Array(e.target?.result as ArrayBuffer);
-                const workbook = XLSX.read(data, { type: 'array' });
-                // Fix: Safely access SheetNames
+                // Fix: Cast workbook to any to allow loose typing on SheetNames
+                const workbook: any = XLSX.read(data, { type: 'array' });
                 const firstSheetName = workbook.SheetNames[0];
-                const sheet = workbook.Sheets[String(firstSheetName)];
-                const json: any[][] = XLSX.utils.sheet_to_json(sheet, { header: 1 });
+                const sheet = workbook.Sheets[firstSheetName];
+                const json = XLSX.utils.sheet_to_json(sheet, { header: 1 }) as any[][];
 
                 let headerIndex = -1, colCredit = -1, colDesc = -1;
                 for (let i = 0; i < Math.min(20, json.length); i++) {
                     const row = (json[i] as any[]).map((c: any) => String(c ?? "").toLowerCase());
-                    if (row.some((c: string) => c.includes('credit') || c.includes('ghi co') || c.includes('số tiền')) && row.some((c: string) => c.includes('noi dung') || c.includes('desc') || c.includes('diễn giải'))) {
+                    if (row.some(c => c.includes('credit') || c.includes('ghi co') || c.includes('số tiền')) && row.some(c => c.includes('noi dung') || c.includes('desc') || c.includes('diễn giải'))) {
                         headerIndex = i;
-                        colCredit = row.findIndex((c: string) => c.includes('credit') || c.includes('ghi co') || c.includes('số tiền'));
-                        colDesc = row.findIndex((c: string) => c.includes('noi dung') || c.includes('desc') || c.includes('diễn giải'));
+                        colCredit = row.findIndex(c => c.includes('credit') || c.includes('ghi co') || c.includes('số tiền'));
+                        colDesc = row.findIndex(c => c.includes('noi dung') || c.includes('desc') || c.includes('diễn giải'));
                         break;
                     }
                 }
@@ -387,11 +395,11 @@ const BillingPage: React.FC<BillingPageProps> = ({ charges, setCharges, allData,
                 const validUnits = new Set(allData.units.map(u => u.UnitID));
 
                 for (let i = headerIndex + 1; i < json.length; i++) {
-                    const row = json[i] as any[];
-                    const rawAmt = row[colCredit];
+                    // Removed unused 'row' variable to avoid type confusion and warnings
+                    const rawAmt = json[i][colCredit];
                     const amtStr = typeof rawAmt === 'string' ? rawAmt : String(rawAmt ?? '0'); 
                     const amount = Math.round(parseFloat(amtStr.replace(/[^0-9.-]+/g,"")));
-                    const desc = String(row[colDesc] || '');
+                    const desc = String(json[i][colDesc] || '');
                     
                     if (amount > 0) {
                         let match;
@@ -762,7 +770,21 @@ const BillingPage: React.FC<BillingPageProps> = ({ charges, setCharges, allData,
                         <MinimalStatCard label="Doanh thu dự kiến" value={formatCurrency(stats.totalDue)} colorClass="border-blue-500" onClick={() => setStatusFilter('all')} />
                         <MinimalStatCard label="Thực thu" value={formatCurrency(stats.totalPaid)} colorClass="border-emerald-500" onClick={() => setStatusFilter('paid')} />
                         <MinimalStatCard label="Công nợ" value={formatCurrency(stats.debt)} colorClass="border-red-500" onClick={() => setStatusFilter('debt')} />
-                        <MinimalStatCard label="Tiến độ thu" value={`${stats.progress.toFixed(0)}%`} colorClass="border-purple-500" />
+                        
+                        {/* Custom Progress Card */}
+                        <div className="bg-white rounded-xl shadow-sm border-l-4 border-purple-500 p-4 hover:shadow-md transition-shadow">
+                            <p className="text-xs font-bold text-gray-400 uppercase tracking-wider">Tiến độ thu</p>
+                            <div className="flex justify-between items-end mt-1">
+                                <p className="text-2xl font-bold text-gray-800">{stats.progress.toFixed(0)}%</p>
+                                <p className="text-xs text-gray-500 font-medium mb-1">{stats.paidCount}/{stats.count} căn</p>
+                            </div>
+                            <div className="w-full bg-gray-200 rounded-full h-2 mt-2 overflow-hidden">
+                                <div 
+                                    className="bg-purple-600 h-2 rounded-full transition-all duration-500 ease-out" 
+                                    style={{ width: `${stats.progress}%` }}
+                                ></div>
+                            </div>
+                        </div>
                     </div>
                 )}
             </div>

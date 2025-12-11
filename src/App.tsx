@@ -136,23 +136,29 @@ const App: React.FC = () => {
     const [dataLoaded, setDataLoaded] = useState(false);
     const IS_PROD = isProduction();
 
-    // 1. Notification Setup (Firebase Messaging)
+    // Moved showToast definition here to avoid block-scoped variable used before declaration error
+    const showToast = useCallback((message: string, type: ToastType = 'info', duration?: number) => {
+        setToasts(prev => [...prev, { id: Date.now() + Math.random(), message, type, duration }]);
+    }, []);
+
+    const handleCloseToast = useCallback((id: number) => setToasts(prev => prev.filter(t => t.id !== id)), []);
+    const handleClearAllToasts = useCallback(() => setToasts([]), []);
+
+    // 1. Notification Setup (Firebase Messaging) - Token request only
     useEffect(() => {
         if (currentUser) {
             requestForToken();
-            
             onMessageListener()
                 .then((payload: any) => {
                     const title = payload?.notification?.title || 'Thông báo mới';
                     const body = payload?.notification?.body || '';
                     showToast(`${title}: ${body}`, 'info', 6000);
-                    // Optionally refresh data here
                 })
                 .catch((err) => console.log('failed: ', err));
         }
-    }, [currentUser]);
+    }, [currentUser, showToast]);
 
-    // Check notifications logic
+    // Check notifications logic (Local State Calculation)
     useEffect(() => {
         if (!currentUser) return;
 
@@ -185,7 +191,7 @@ const App: React.FC = () => {
             hasNewNotifications
         }));
 
-    }, [currentUser, charges, news]);
+    }, [currentUser, charges, news]); // Only re-run when these change
 
     const handleMarkNewsAsRead = () => {
         localStorage.setItem('lastViewedNews', Date.now().toString());
@@ -201,13 +207,6 @@ const App: React.FC = () => {
         document.documentElement.classList.remove('dark');
         document.documentElement.classList.add('light');
     }, []);
-
-    const showToast = useCallback((message: string, type: ToastType = 'info', duration?: number) => {
-        setToasts(prev => [...prev, { id: Date.now() + Math.random(), message, type, duration }]);
-    }, []);
-
-    const handleCloseToast = useCallback((id: number) => setToasts(prev => prev.filter(t => t.id !== id)), []);
-    const handleClearAllToasts = useCallback(() => setToasts([]), []);
 
     const handleResetPassword = useCallback(async (email: string) => {
         const userToReset = users.find(u => u.Email.toLowerCase() === email.toLowerCase());
@@ -469,7 +468,7 @@ const App: React.FC = () => {
         <AppContext.Provider value={contextValue}>
             {isPasswordModalOpen && <ChangePasswordModal onClose={() => setIsPasswordModalOpen(false)} onSave={handlePasswordChanged} />}
             
-            {/* INTEGRATION: Notification Listener */}
+            {/* INTEGRATION: Notification Listener. Cleaned up duplication in App.tsx effects. */}
             {currentUser && <NotificationListener userId={currentUser.Username || currentUser.residentId || ''} />}
 
             {role === 'Resident' ? (

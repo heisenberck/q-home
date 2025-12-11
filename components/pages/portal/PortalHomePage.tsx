@@ -36,10 +36,6 @@ const PortalHomePage: React.FC<PortalHomePageProps> = ({ user, charges, news, se
         if (IS_PROD) {
             setLoadingCharge(true);
             
-            // Prefer direct doc reference if ID schema is standard: `${period}_${unitID}`
-            // But requirement said "Query: collection(db, 'charges')...", so we use query with limit(1)
-            // to stay flexible if IDs change, though doc ref is cheaper.
-            // Let's use the query as requested for safety.
             const q = query(
                 collection(db, 'charges'), 
                 where('UnitID', '==', user.residentId), 
@@ -62,7 +58,8 @@ const PortalHomePage: React.FC<PortalHomePageProps> = ({ user, charges, news, se
 
             return () => unsubscribe();
         }
-    }, [user.residentId, currentPeriod, charges, IS_PROD]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, [user.residentId, currentPeriod, IS_PROD]); // Removed 'charges' to prevent re-subscription loops
 
     // 4. Render Logic based on Real-time Data
     const renderBillStatus = () => {
