@@ -497,13 +497,24 @@ const DataImportModal: React.FC<{
             if (!unitId) return null;
             const unitType = unitId.toLowerCase().startsWith('k') ? UnitType.KIOS : UnitType.APARTMENT;
             const vehicles: any[] = [];
-            if (row.vehicles_motorbike) String(row.vehicles_motorbike).split(/[,;]/).forEach(p => { if (p.trim()) vehicles.push({ PlateNumber: p.trim(), Type: VehicleTier.MOTORBIKE }); });
-            if (row.vehicles_ebike) String(row.vehicles_ebike).split(/[,;]/).forEach(p => { if (p.trim()) vehicles.push({ PlateNumber: p.trim(), Type: VehicleTier.EBIKE }); });
-            if (row.vehicles_bicycle) String(row.vehicles_bicycle).split(/[,;]/).forEach(p => { vehicles.push({ PlateNumber: p.trim(), Type: VehicleTier.BICYCLE }); });
-            if (row.vehicles_car) String(row.vehicles_car).split(/[,;]/).forEach(p => { if (p.trim()) vehicles.push({ PlateNumber: p.trim(), Type: VehicleTier.CAR }); });
-            if (row.vehicles_car_a) String(row.vehicles_car_a).split(/[,;]/).forEach(p => { if (p.trim()) vehicles.push({ PlateNumber: p.trim(), Type: VehicleTier.CAR_A }); });
+            
+            if (row.vehicles_motorbike) String(row.vehicles_motorbike as any).split(/[,;]/).forEach(p => { if (p.trim()) vehicles.push({ PlateNumber: p.trim(), Type: VehicleTier.MOTORBIKE }); });
+            if (row.vehicles_ebike) String(row.vehicles_ebike as any).split(/[,;]/).forEach(p => { if (p.trim()) vehicles.push({ PlateNumber: p.trim(), Type: VehicleTier.EBIKE }); });
+            if (row.vehicles_bicycle) String(row.vehicles_bicycle as any).split(/[,;]/).forEach(p => { vehicles.push({ PlateNumber: p.trim(), Type: VehicleTier.BICYCLE }); });
+            if (row.vehicles_car) String(row.vehicles_car as any).split(/[,;]/).forEach(p => { if (p.trim()) vehicles.push({ PlateNumber: p.trim(), Type: VehicleTier.CAR }); });
+            if (row.vehicles_car_a) String(row.vehicles_car_a as any).split(/[,;]/).forEach(p => { if (p.trim()) vehicles.push({ PlateNumber: p.trim(), Type: VehicleTier.CAR_A }); });
 
-            return { unitId, unitType, ownerName: String(row.ownerName || ''), status: row.status || 'Owner', area: parseFloat(String(row.area||'0'))||0, phone: normalizePhoneNumber(String(row.phone||'')), email: String(row.email||''), vehicles, parkingStatus: row.parkingStatus||null, };
+            return { 
+                unitId, 
+                unitType, 
+                ownerName: String(row.ownerName || ''), 
+                status: row.status || 'Owner', 
+                area: parseFloat(String(row.area||'0'))||0, 
+                phone: normalizePhoneNumber(String((row.phone as any)||'')), 
+                email: String(row.email||''), 
+                vehicles, 
+                parkingStatus: row.parkingStatus||null, 
+            };
         }).filter(Boolean);
         onImport(updates);
         onClose();
