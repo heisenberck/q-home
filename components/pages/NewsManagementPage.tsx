@@ -1,14 +1,17 @@
 
 import React, { useState, useRef, useMemo, useEffect } from 'react';
-import type { NewsItem, Role } from '../../types';
+import type { NewsItem, Role, UserPermission } from '../../types';
 import { useNotification, useLogger } from '../../App';
 import Modal from '../ui/Modal';
 import { 
     PencilSquareIcon, TrashIcon, UploadIcon, MegaphoneIcon, ArchiveBoxIcon, 
     CheckCircleIcon, ListBulletIcon, SearchIcon, ChevronLeftIcon, ChevronRightIcon,
-    ClockIcon, PlusIcon
+    ClockIcon, PlusIcon, PaperAirplaneIcon
 } from '../ui/Icons';
 import { timeAgo } from '../../utils/helpers';
+import { isProduction } from '../../utils/env';
+import { writeBatch, doc, collection } from 'firebase/firestore';
+import { db } from '../../firebaseConfig';
 
 // --- Local Icons (Missing in global Icons.tsx) ---
 const NewspaperIcon: React.FC<{ className?: string }> = ({ className = "h-6 w-6" }) => (
@@ -36,6 +39,7 @@ interface NewsManagementPageProps {
   news: NewsItem[];
   setNews: (updater: React.SetStateAction<NewsItem[]>, logPayload?: any) => void;
   role: Role;
+  users: UserPermission[];
 }
 
 // --- Compact Stat Card ---
@@ -251,7 +255,7 @@ const NewsEditorModal: React.FC<{
   );
 };
 
-const NewsManagementPage: React.FC<NewsManagementPageProps> = ({ news: initialNews = [], setNews, role }) => {
+const NewsManagementPage: React.FC<NewsManagementPageProps> = ({ news: initialNews = [], setNews, role, users }) => {
   const { showToast } = useNotification();
   const canManage = role === 'Admin';
 
@@ -312,10 +316,53 @@ const NewsManagementPage: React.FC<NewsManagementPageProps> = ({ news: initialNe
     }
   };
   
-  const handleBroadcast = (id: string) => {
-    if (window.confirm('Gửi thông báo đẩy (Push Notification) tới toàn bộ cư dân?')) {
-        setNews(prev => prev.map(n => n.id === id ? { ...n, isBroadcasted: true, broadcastTime: new Date().toISOString() } : n));
-        showToast('Đã gửi thông báo thành công.', 'success');
+  const handleBroadcast = async (item: NewsItem) => {
+    if (!window.confirm('Gửi thông báo đẩy (Push Notification) tới toàn bộ cư dân?')) return;
+
+    if (isProduction()) {
+        try {
+            const residents = users.filter(u => u.Role === 'Resident');
+            
+            // Note: In a real robust app, chunk this into batches of 500
+            // For now, assuming standard batch size limit (500)
+            const batch = writeBatch(db);
+            let count = 0;
+
+            residents.forEach(res => {
+                if (count < 490) { // Safety buffer
+                    const docRef = doc(collection(db, 'notifications')); // Auto-ID
+                    batch.set(docRef, {
+                        recipientId: res.Email, 
+                        title: item.title,
+                        body: item.content.substring(0, 100) + '...', // Truncate for notification body
+                        read: false,
+                        createdAt: new Date().toISOString(),
+                        type: 'news',
+                        linkId: item.id
+                    });
+                    count++;
+                }
+            });
+
+            // Update News Item status
+            const newsRef = doc(db, 'news', item.id);
+            batch.update(newsRef, { isBroadcasted: true, broadcastTime: new Date().toISOString() });
+
+            await batch.commit();
+            
+            // Optimistic Update
+            setNews((prev: NewsItem[]) => prev.map(n => n.id === item.id ? { ...n, isBroadcasted: true, broadcastTime: new Date().toISOString() } : n));
+            showToast(`Đã gửi thông báo tới ${count} cư dân thành công.`, 'success');
+
+        } catch (error) {
+            console.error("Broadcast failed", error);
+            showToast('Lỗi khi gửi thông báo: ' + (error as any).message, 'error');
+        }
+    } else {
+        // Mock Dev
+        const residentCount = users.filter(u => u.Role === 'Resident').length;
+        setNews(prev => prev.map(n => n.id === item.id ? { ...n, isBroadcasted: true, broadcastTime: new Date().toISOString() } : n));
+        showToast(`[DEV] Simulated sending to ${residentCount} residents.`, 'success');
     }
   };
 
@@ -415,7 +462,14 @@ const NewsManagementPage: React.FC<NewsManagementPageProps> = ({ news: initialNe
                     <div className="flex md:flex-col justify-end md:justify-center gap-2 p-3 bg-gray-50 border-t md:border-t-0 md:border-l border-gray-100">
                         <button onClick={() => handlePin(item.id)} className={`p-2 rounded-md transition-colors ${item.isPinned ? 'text-orange-600 bg-orange-100' : 'text-gray-400 hover:text-orange-600 hover:bg-white'}`} title={item.isPinned ? "Bỏ ghim" : "Ghim tin"}><PinIcon className="w-5 h-5" filled={item.isPinned}/></button>
                         <button onClick={() => setEditingItem(item)} className="p-2 text-gray-400 hover:text-blue-600 hover:bg-white rounded-md transition-colors" title="Chỉnh sửa"><PencilSquareIcon className="w-5 h-5"/></button>
-                        <button onClick={() => handleBroadcast(item.id)} disabled={item.isBroadcasted} className={`p-2 rounded-md transition-colors ${item.isBroadcasted ? 'text-green-300 cursor-not-allowed' : 'text-gray-400 hover:text-green-600 hover:bg-white'}`} title="Gửi thông báo"><MegaphoneIcon className="w-5 h-5"/></button>
+                        <button 
+                            onClick={() => handleBroadcast(item)} 
+                            disabled={item.isBroadcasted} 
+                            className={`p-2 rounded-md transition-colors ${item.isBroadcasted ? 'text-green-600 bg-green-50 cursor-default' : 'text-gray-400 hover:text-green-600 hover:bg-white'}`} 
+                            title={item.isBroadcasted ? `Đã gửi lúc ${timeAgo(item.broadcastTime)}` : "Gửi thông báo"}
+                        >
+                            {item.isBroadcasted ? <CheckCircleIcon className="w-5 h-5"/> : <PaperAirplaneIcon className="w-5 h-5"/>}
+                        </button>
                         <button onClick={() => handleArchive(item.id)} className={`p-2 rounded-md transition-colors ${item.isArchived ? 'text-yellow-600 bg-yellow-50' : 'text-gray-400 hover:text-yellow-600 hover:bg-white'}`} title={item.isArchived ? "Bỏ lưu trữ" : "Lưu trữ"}><ArchiveBoxIcon className="w-5 h-5"/></button>
                         <button onClick={() => handleDelete(item.id)} className="p-2 text-gray-400 hover:text-red-600 hover:bg-white rounded-md transition-colors" title="Xóa tin"><TrashIcon className="w-5 h-5"/></button>
                     </div>

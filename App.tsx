@@ -1,10 +1,9 @@
 
-
-
 import React, { useState, useEffect, useCallback, createContext, useMemo } from 'react';
 import type { Role, UserPermission, Unit, Owner, Vehicle, WaterReading, ChargeRaw, TariffService, TariffParking, TariffWater, Adjustment, InvoiceSettings, ActivityLog, VehicleTier, TariffCollection, AllData, NewsItem, FeedbackItem, FeedbackReply } from './types';
 import { patchKiosAreas, MOCK_NEWS_ITEMS, MOCK_FEEDBACK_ITEMS } from './constants';
 import { loadAllData, updateFeeSettings, updateResidentData, saveChargesBatch, saveVehicles, saveWaterReadings, saveTariffs, saveUsers, saveAdjustments, importResidentsBatch, wipeAllBusinessData, resetUserPassword } from './services';
+import { requestForToken, onMessageListener } from './firebaseConfig';
 
 import Header from './components/layout/Header';
 import Sidebar from './components/layout/Sidebar';
@@ -134,6 +133,22 @@ const App: React.FC = () => {
     const [usersLoaded, setUsersLoaded] = useState(false);
     const [dataLoaded, setDataLoaded] = useState(false);
     const IS_PROD = isProduction();
+
+    // 1. Notification Setup (Firebase Messaging)
+    useEffect(() => {
+        if (currentUser) {
+            requestForToken();
+            
+            onMessageListener()
+                .then((payload: any) => {
+                    const title = payload?.notification?.title || 'Thông báo mới';
+                    const body = payload?.notification?.body || '';
+                    showToast(`${title}: ${body}`, 'info', 6000);
+                    // Optionally refresh data here
+                })
+                .catch((err) => console.log('failed: ', err));
+        }
+    }, [currentUser]);
 
     // Check notifications logic
     useEffect(() => {
@@ -421,7 +436,7 @@ const App: React.FC = () => {
             case 'settings': return <SettingsPage invoiceSettings={invoiceSettings} setInvoiceSettings={updateFeeSettings} role={role!} />;
             case 'backup': return <BackupRestorePage allData={{ units, owners, vehicles, waterReadings, charges, tariffs, users, adjustments, invoiceSettings }} onRestore={handleRestoreAllData} role={role!} />;
             case 'activityLog': return <ActivityLogPage logs={activityLogs} onUndo={() => {}} role={role!} />;
-            case 'newsManagement': return <NewsManagementPage news={news} setNews={handleSetNews} role={role!} />;
+            case 'newsManagement': return <NewsManagementPage news={news} setNews={handleSetNews} role={role!} users={users} />;
             case 'feedbackManagement': return <FeedbackManagementPage feedback={feedback} setFeedback={handleSetFeedback} role={role!} />;
             default: return <OverviewPage allUnits={units} allOwners={owners} allVehicles={vehicles} allWaterReadings={waterReadings} charges={charges} activityLogs={activityLogs} feedback={feedback} onNavigate={setActivePage as (p: AdminPage) => void} />;
         }

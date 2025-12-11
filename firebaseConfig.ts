@@ -1,9 +1,10 @@
+
 // firebaseConfig.ts
 import { initializeApp } from "firebase/app";
 import { getFirestore } from "firebase/firestore";
 import { getAuth } from "firebase/auth";
+import { getMessaging, getToken, onMessage } from "firebase/messaging";
 
-// Cấu hình MỚI (Project q-home2)
 const firebaseConfig = {
     apiKey: "AIzaSyBQ1CO4ZzCVecXgN8Cn6Idvrmudm7y-lbA",
     authDomain: "q-home2.firebaseapp.com",
@@ -13,13 +14,48 @@ const firebaseConfig = {
     appId: "1:761941461134:web:8ace84c20573a27700e1df"
 };
 
-// 1. Khởi tạo App
+// 1. Initialize App
 const app = initializeApp(firebaseConfig);
 
-// 2. Khởi tạo Firestore (Chuẩn Native Mode, KHÔNG dùng Persistence để tránh lỗi cache trên Vercel)
+// 2. Initialize Firestore
 const db = getFirestore(app);
 
-// 3. Khởi tạo Auth
+// 3. Initialize Auth
 const auth = getAuth(app);
 
-export { db, auth, app };
+// 4. Initialize Messaging
+let messaging: any = null;
+try {
+    messaging = getMessaging(app);
+} catch (err) {
+    console.warn("Firebase Messaging failed to initialize (likely due to unsupported browser environment):", err);
+}
+
+const VAPID_KEY = "BABQ1CfvtLt5ufsa-qOjtA5rGdfvlk8S7JwybGCMmnc2YR9FU44qz-oGXZdxBcLlzkExjPt5eR-2W6WVeV-juX58";
+
+export const requestForToken = async () => {
+    if (!messaging) return null;
+    try {
+        const currentToken = await getToken(messaging, { vapidKey: VAPID_KEY });
+        if (currentToken) {
+            console.log('FCM Token:', currentToken);
+            return currentToken;
+        } else {
+            console.log('No registration token available. Request permission to generate one.');
+            return null;
+        }
+    } catch (err) {
+        console.log('An error occurred while retrieving token. ', err);
+        return null;
+    }
+};
+
+export const onMessageListener = () =>
+    new Promise((resolve) => {
+        if (!messaging) return;
+        onMessage(messaging, (payload) => {
+            resolve(payload);
+        });
+    });
+
+export { db, auth, app, messaging };
