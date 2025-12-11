@@ -1,3 +1,4 @@
+
 import React, { useState, useMemo, useEffect } from 'react';
 import type { Vehicle, Unit, Owner, Role, ActivityLog, VehicleTier } from '../../types';
 import { useNotification } from '../../App';
@@ -7,9 +8,13 @@ import {
     TrashIcon, MotorbikeIcon, BikeIcon, EBikeIcon, 
     ShieldCheckIcon, DocumentArrowDownIcon,
     XMarkIcon, UserIcon, PhoneArrowUpRightIcon,
-    CurrencyDollarIcon, ClockIcon, CheckCircleIcon
+    CurrencyDollarIcon, ClockIcon, CheckCircleIcon,
+    SparklesIcon
 } from '../ui/Icons';
 import { formatLicensePlate, translateVehicleType, vehicleTypeLabels, compressImageToWebP, timeAgo, getPastelColorForName, parseUnitCode } from '../../utils/helpers';
+import { collection, getDocs, writeBatch, doc } from 'firebase/firestore';
+import { db } from '../../firebaseConfig';
+import { isProduction } from '../../utils/env';
 
 declare const XLSX: any;
 
@@ -506,6 +511,89 @@ const VehiclesPage: React.FC<VehiclesPageProps> = ({ vehicles, units, owners, ac
         XLSX.writeFile(wb, `DanhSachXe_${new Date().toISOString().slice(0,10)}.xlsx`);
     };
 
+    const handleCleanupDuplicates = async () => {
+        if (!window.confirm("BẠN CHẮC CHẮN MUỐN CHẠY CÔNG CỤ QUÉT TRÙNG?\n\nHành động này sẽ quét toàn bộ dữ liệu xe trên hệ thống (Firestore), tìm các biển số bị trùng lặp và XOÁ các bản ghi thừa (giữ lại bản ghi cũ nhất).\n\nHãy sao lưu dữ liệu trước khi thực hiện!")) return;
+    
+        showToast('Đang quét dữ liệu xe từ máy chủ...', 'info', 10000);
+    
+        try {
+            const vehiclesRef = collection(db, 'vehicles');
+            const snapshot = await getDocs(vehiclesRef);
+            
+            if (snapshot.empty) {
+                showToast('Không tìm thấy dữ liệu xe nào.', 'info');
+                return;
+            }
+    
+            const plateMap = new Map<string, { id: string, createdAt: string }[]>();
+            const allDuplicates: string[] = [];
+    
+            snapshot.docs.forEach(docSnap => {
+                const data = docSnap.data();
+                const rawPlate = data.PlateNumber;
+                // Normalize: remove spaces, dots, dashes, uppercase
+                if (!rawPlate) return;
+                const normalizedPlate = String(rawPlate).trim().toUpperCase().replace(/[\s.-]/g, '');
+                
+                if (!plateMap.has(normalizedPlate)) {
+                    plateMap.set(normalizedPlate, []);
+                }
+                
+                // Try to find a creation date. StartDate is date string YYYY-MM-DD usually. updatedAt is ISO.
+                // If neither, we rely on the order or random.
+                const sortKey = data.updatedAt || data.StartDate || '0000-00-00';
+                plateMap.get(normalizedPlate)!.push({ 
+                    id: docSnap.id, 
+                    createdAt: sortKey 
+                });
+            });
+    
+            let duplicateCount = 0;
+            plateMap.forEach((records, plate) => {
+                if (records.length > 1) {
+                    // Sort ascending by createdAt (oldest first)
+                    records.sort((a, b) => a.createdAt.localeCompare(b.createdAt));
+                    
+                    // Keep the first (oldest), mark others for deletion
+                    const [keep, ...remove] = records;
+                    remove.forEach(r => allDuplicates.push(r.id));
+                    duplicateCount += remove.length;
+                    console.log(`[Duplicate] Plate ${plate}: Keeping ${keep.id}, Removing ${remove.map(r=>r.id).join(', ')}`);
+                }
+            });
+    
+            if (allDuplicates.length === 0) {
+                showToast('Tuyệt vời! Không tìm thấy dữ liệu trùng lặp nào.', 'success');
+                return;
+            }
+    
+            if (!window.confirm(`Tìm thấy ${allDuplicates.length} bản ghi xe bị trùng lặp (dựa trên biển số).\n\nBạn có muốn XOÁ VĨNH VIỄN các bản ghi thừa này không?`)) {
+                showToast('Đã huỷ thao tác.', 'info');
+                return;
+            }
+    
+            showToast(`Đang xoá ${allDuplicates.length} bản ghi...`, 'info', 5000);
+    
+            // Batch delete (max 500 per batch)
+            const BATCH_SIZE = 450;
+            for (let i = 0; i < allDuplicates.length; i += BATCH_SIZE) {
+                const batch = writeBatch(db);
+                const chunk = allDuplicates.slice(i, i + BATCH_SIZE);
+                chunk.forEach(id => {
+                    batch.delete(doc(db, 'vehicles', id));
+                });
+                await batch.commit();
+            }
+    
+            showToast(`Đã xoá thành công ${allDuplicates.length} xe trùng. Đang tải lại trang...`, 'success', 3000);
+            setTimeout(() => window.location.reload(), 2000);
+    
+        } catch (e: any) {
+            console.error("Cleanup Error:", e);
+            showToast(`Lỗi: ${e.message}`, 'error');
+        }
+    };
+
     return (
         <div className="flex gap-6 h-full overflow-hidden">
             {editingVehicle && <VehicleEditModal vehicle={editingVehicle} onSave={handleSave} onClose={() => setEditingVehicle(null)} />}
@@ -560,6 +648,11 @@ const VehiclesPage: React.FC<VehiclesPageProps> = ({ vehicles, units, owners, ac
                         <option value="ebike">{vehicleTypeLabels['ebike']}</option>
                         <option value="bicycle">{vehicleTypeLabels['bicycle']}</option>
                     </select>
+                    {(role === 'Admin') && (
+                        <button onClick={handleCleanupDuplicates} className="h-10 px-4 bg-white border border-red-200 text-red-600 font-semibold rounded-lg hover:bg-red-50 flex items-center gap-2 transition-colors whitespace-nowrap">
+                            <SparklesIcon className="w-5 h-5"/> Quét xe trùng
+                        </button>
+                    )}
                     <button onClick={handleExport} className="h-10 px-4 bg-white border border-gray-200 text-gray-700 font-semibold rounded-lg hover:bg-gray-50 flex items-center gap-2 transition-colors">
                         <DocumentArrowDownIcon className="w-5 h-5 text-gray-500"/> Export
                     </button>

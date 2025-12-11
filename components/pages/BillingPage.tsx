@@ -1,106 +1,129 @@
 
-import React, { useState, useCallback, useMemo, useRef } from 'react';
+import React, { useState, useCallback, useMemo, useRef, useEffect } from 'react';
 import type { ChargeRaw, Adjustment, AllData, Role, PaymentStatus, InvoiceSettings } from '../../types';
 import { UnitType } from '../../types';
 import { LogPayload } from '../../App';
-import { useNotification, useLogger } from '../../App';
+import { useNotification } from '../../App';
 import { 
     updateChargeStatuses, 
-    updateChargePayments,
     confirmSinglePayment,
-    updatePaymentStatusBatch
+    loadAllData,
+    updateChargePayments
 } from '../../services';
 import { calculateChargesBatch } from '../../services/feeService';
 import NoticePreviewModal from '../NoticePreviewModal';
-import StatCard from '../ui/StatCard';
 import Spinner from '../ui/Spinner';
-import Modal from '../ui/Modal';
 import { 
-    SearchIcon, TagIcon, BuildingIcon, ChevronLeftIcon, 
-    ChevronRightIcon, CheckCircleIcon, WarningIcon,
-    CircularArrowRefreshIcon, ActionViewIcon, ActionPaidIcon,
-    CalculatorIcon2, LockClosedIcon, ChevronDownIcon,
-    DocumentArrowDownIcon, TableCellsIcon, ArrowUpTrayIcon, BanknotesIcon, PercentageIcon, PaperAirplaneIcon, ChevronUpIcon,
-    MoneyBagIcon
+    SearchIcon, ChevronLeftIcon, ChevronRightIcon, 
+    CheckCircleIcon, CalculatorIcon2, LockClosedIcon,
+    ArrowDownTrayIcon, BanknotesIcon, ArrowUpTrayIcon,
+    PaperAirplaneIcon, TrashIcon, PrinterIcon, EnvelopeIcon, ArrowUturnLeftIcon,
+    ActionViewIcon, ChevronDownIcon, ChevronUpIcon
 } from '../ui/Icons';
 import { loadScript } from '../../utils/scriptLoader';
-import { formatCurrency, parseUnitCode, generateEmailHtmlForCharge, renderInvoiceHTMLForPdf, formatNumber } from '../../utils/helpers';
+import { formatCurrency, parseUnitCode, renderInvoiceHTMLForPdf, formatNumber } from '../../utils/helpers';
+import { writeBatch, collection, query, where, getDocs, doc, addDoc, serverTimestamp, increment, updateDoc } from 'firebase/firestore';
+import { db } from '../../firebaseConfig';
+import { isProduction } from '../../utils/env';
 
+// --- Types & Globals ---
 declare const jspdf: any;
 declare const html2canvas: any;
 declare const JSZip: any;
 declare const XLSX: any;
 
-interface Attachment {
-    name: string;
-    data: string;
-}
+// Extend ChargeRaw locally to support sentCount without modifying types.ts immediately if not accessible
+type ExtendedCharge = ChargeRaw & { sentCount?: number };
 
+const CreditCardIcon: React.FC<{ className?: string }> = ({ className = "h-5 w-5" }) => (
+    <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" strokeWidth={1.5} stroke="currentColor" className={className}>
+      <path strokeLinecap="round" strokeLinejoin="round" d="M2.25 8.25h19.5M2.25 9h19.5m-16.5 5.25h6m-6 2.25h3m-3.75 3h15a2.25 2.25 0 0 0 2.25-2.25V6.75A2.25 2.25 0 0 0 19.5 4.5h-15a2.25 2.25 0 0 0-2.25 2.25v10.5A2.25 2.25 0 0 0 4.5 19.5Z" />
+    </svg>
+);
+
+const BroadcastIcon: React.FC<{ className?: string }> = ({ className = "h-5 w-5" }) => (
+    <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" strokeWidth={1.5} stroke="currentColor" className={className}>
+      <path strokeLinecap="round" strokeLinejoin="round" d="M6 12 3.269 3.125A59.769 59.769 0 0 1 21.485 12 59.768 59.768 0 0 1 3.27 20.875L5.999 12Zm0 0h7.5" />
+    </svg>
+);
+
+// --- Helper: Send Email API ---
 const sendEmailAPI = async (
-    recipient: string, 
-    subject: string, 
+    recipient: string,
+    subject: string,
     body: string,
     settings: InvoiceSettings,
-    attachment?: Attachment
+    attachmentBase64?: string,
+    attachmentName?: string
 ): Promise<{ success: boolean; error?: string }> => {
-    if (!settings.appsScriptUrl) {
-        return { success: false, error: 'Chưa cấu hình URL Google Apps Script trong Cài đặt.' };
-    }
+    if (!settings.appsScriptUrl) return { success: false, error: 'Chưa cấu hình URL Google Apps Script.' };
 
     try {
         const formData = new URLSearchParams();
         formData.append('email', recipient);
         formData.append('subject', subject);
         formData.append('htmlBody', body);
-        if (settings.senderName) {
-            formData.append('senderName', settings.senderName);
-        }
-
-        if (attachment) {
-            formData.append('attachmentData', attachment.data);
-            formData.append('attachmentName', attachment.name);
+        if (settings.senderName) formData.append('senderName', settings.senderName);
+        if (attachmentBase64 && attachmentName) {
+            formData.append('attachmentBase64', attachmentBase64);
+            formData.append('attachmentName', attachmentName);
+            formData.append('attachmentMimeType', 'application/pdf');
         }
 
         const response = await fetch(settings.appsScriptUrl, {
             method: 'POST',
-            headers: {
-                'Content-Type': 'application/x-www-form-urlencoded',
-            },
+            headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
             body: formData,
         });
-        
-        if (!response.ok) {
-            let errorMsg = `Server returned an error: ${response.status} ${response.statusText}`;
-            try {
-                const errorResult = await response.json();
-                if (errorResult.error) errorMsg = `Server error: ${errorResult.error}`;
-            } catch (e) { /* ignore */ }
-            return { success: false, error: errorMsg };
-        }
-        
-        return { success: true };
 
+        if (!response.ok) return { success: false, error: `Server error: ${response.status}` };
+        return { success: true };
     } catch (e: any) {
-        if (e.name === 'TypeError' && e.message === 'Failed to fetch') {
-            return { success: false, error: `Lỗi mạng hoặc CORS. Vui lòng kiểm tra lại URL Google Apps Script và đảm bảo đã public đúng cách.`};
-        }
-        return { success: false, error: `Lỗi mạng khi gửi yêu cầu: ${e.message}` };
+        return { success: false, error: e.message };
     }
 };
 
-interface BillingPageProps {
-    charges: ChargeRaw[];
-    setCharges: (updater: React.SetStateAction<ChargeRaw[]>, logPayload?: LogPayload) => void;
-    allData: AllData;
-    onUpdateAdjustments: (updater: React.SetStateAction<Adjustment[]>, logPayload?: LogPayload) => void;
-    role: Role;
-    invoiceSettings: InvoiceSettings;
-}
+// --- Components ---
 
-const BATCH_SIZE = 50; 
-type PrimaryActionState = 'calculate' | 'recalculate' | 'locked';
+const MinimalStatCard: React.FC<{ label: string; value: string; colorClass: string; onClick?: () => void }> = ({ label, value, colorClass, onClick }) => (
+    <div onClick={onClick} className={`bg-white rounded-xl shadow-sm border-l-4 ${colorClass} p-4 cursor-pointer hover:shadow-md transition-shadow`}>
+        <p className="text-xs font-bold text-gray-400 uppercase tracking-wider">{label}</p>
+        <p className="text-2xl font-bold text-gray-800 mt-1">{value}</p>
+    </div>
+);
 
-const MonthPicker: React.FC<{
+const QuickActionMenu: React.FC<{ onSelect: (method: 'paid_tm' | 'paid_ck') => void; disabled?: boolean; trigger: React.ReactNode }> = ({ onSelect, disabled, trigger }) => {
+    const [isOpen, setIsOpen] = useState(false);
+    const menuRef = useRef<HTMLDivElement>(null);
+    
+    useEffect(() => {
+        const handleClickOutside = (event: MouseEvent) => {
+            if (menuRef.current && !menuRef.current.contains(event.target as Node)) setIsOpen(false);
+        };
+        document.addEventListener("mousedown", handleClickOutside);
+        return () => document.removeEventListener("mousedown", handleClickOutside);
+    }, []);
+
+    return (
+        <div className="relative" ref={menuRef}>
+            <div onClick={() => !disabled && setIsOpen(!isOpen)} className={disabled ? 'opacity-50 cursor-not-allowed' : 'cursor-pointer'}>
+                {trigger}
+            </div>
+            {isOpen && (
+                <div className="absolute right-0 top-full mt-1 w-40 bg-white rounded-lg shadow-xl border border-gray-100 z-50 animate-fade-in-down overflow-hidden">
+                    <button onClick={() => { onSelect('paid_tm'); setIsOpen(false); }} className="w-full text-left px-4 py-2.5 text-xs font-semibold text-gray-700 hover:bg-green-50 hover:text-green-700 flex items-center gap-2">
+                        <BanknotesIcon className="w-4 h-4" /> Tiền mặt
+                    </button>
+                    <button onClick={() => { onSelect('paid_ck'); setIsOpen(false); }} className="w-full text-left px-4 py-2.5 text-xs font-semibold text-gray-700 hover:bg-blue-50 hover:text-blue-700 flex items-center gap-2 border-t border-gray-50">
+                        <CreditCardIcon className="w-4 h-4" /> Chuyển khoản
+                    </button>
+                </div>
+            )}
+        </div>
+    );
+};
+
+const MonthPickerPopover: React.FC<{
     currentPeriod: string;
     onSelectPeriod: (period: string) => void;
     onClose: () => void;
@@ -108,7 +131,7 @@ const MonthPicker: React.FC<{
     const pickerRef = useRef<HTMLDivElement>(null);
     const [displayYear, setDisplayYear] = useState(new Date(currentPeriod + '-02').getFullYear());
 
-    React.useEffect(() => {
+    useEffect(() => {
         const handleClickOutside = (event: MouseEvent) => {
             if (pickerRef.current && !pickerRef.current.contains(event.target as Node)) {
                 onClose();
@@ -118,29 +141,25 @@ const MonthPicker: React.FC<{
         return () => document.removeEventListener("mousedown", handleClickOutside);
     }, [onClose]);
 
-    const now = new Date();
-    const currentSystemYear = now.getFullYear();
-    const currentSystemMonth = now.getMonth();
-
     const months = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
 
     return (
-        <div ref={pickerRef} className="absolute top-full mt-2 left-0 z-20 bg-white p-4 rounded-xl shadow-lg border w-72">
+        <div ref={pickerRef} className="absolute top-full mt-2 left-0 z-20 bg-white p-4 rounded-xl shadow-lg border border-gray-200 w-72">
             <div className="flex justify-between items-center mb-4">
-                <button onClick={() => setDisplayYear(y => y - 1)} className="p-1 rounded-full hover:bg-gray-200"><ChevronLeftIcon /></button>
-                <span className="font-bold text-lg">{displayYear}</span>
-                <button onClick={() => setDisplayYear(y => y + 1)} disabled={displayYear >= currentSystemYear} className="p-1 rounded-full hover:bg-gray-200 disabled:opacity-50"><ChevronRightIcon /></button>
+                <button onClick={() => setDisplayYear(y => y - 1)} className="p-1 rounded-full hover:bg-gray-100"><ChevronLeftIcon /></button>
+                <span className="font-bold text-lg text-gray-800">{displayYear}</span>
+                <button onClick={() => setDisplayYear(y => y + 1)} className="p-1 rounded-full hover:bg-gray-100"><ChevronRightIcon /></button>
             </div>
             <div className="grid grid-cols-3 gap-2">
                 {months.map((month, index) => {
-                    const isFuture = displayYear > currentSystemYear || (displayYear === currentSystemYear && index > currentSystemMonth);
-                    const isSelected = displayYear === new Date(currentPeriod + '-02').getFullYear() && index === new Date(currentPeriod + '-02').getMonth();
+                    const monthNum = String(index + 1).padStart(2, '0');
+                    const value = `${displayYear}-${monthNum}`;
+                    const isSelected = value === currentPeriod;
                     return (
                         <button
                             key={month}
-                            disabled={isFuture}
-                            onClick={() => onSelectPeriod(`${displayYear}-${String(index + 1).padStart(2, '0')}`)}
-                            className={`p-2 rounded-lg text-sm transition-colors ${isSelected ? 'bg-primary text-white font-bold' : 'hover:bg-gray-200'} ${isFuture ? 'opacity-50 cursor-not-allowed' : ''}`}
+                            onClick={() => { onSelectPeriod(value); onClose(); }}
+                            className={`p-2 rounded-lg text-sm transition-colors ${isSelected ? 'bg-primary text-white font-bold' : 'hover:bg-gray-100 text-gray-700'}`}
                         >
                             {month}
                         </button>
@@ -151,1043 +170,784 @@ const MonthPicker: React.FC<{
     );
 };
 
-const ExportProgressModal: React.FC<{
-    isOpen: boolean;
-    done: number;
-    total: number;
-    onCancel: () => void;
-}> = ({ isOpen, done, total, onCancel }) => {
-    if (!isOpen) return null;
-    const percent = total > 0 ? Math.round((done / total) * 100) : 0;
-    return (
-        <div className="fixed inset-0 bg-black bg-opacity-60 flex justify-center items-center z-50 p-4">
-            <div className="bg-white p-6 rounded-lg shadow-xl w-full max-w-md">
-                <h4 className="text-lg font-bold mb-4">Exporting Invoices...</h4>
-                <div className="w-full bg-gray-200 rounded-full h-2.5">
-                    <div className="bg-primary h-2.5 rounded-full" style={{ width: `${percent}%` }}></div>
-                </div>
-                <div className="text-center my-2 font-semibold">{`${done} / ${total} (${percent}%)`}</div>
-                <div className="flex justify-end mt-4">
-                    <button onClick={onCancel} className="px-4 py-2 bg-gray-200 rounded-md hover:bg-gray-300">Cancel</button>
-                </div>
-            </div>
-        </div>
-    );
-};
+// --- Main Page ---
 
-const PaymentMethodModal: React.FC<{
-    onClose: () => void;
-    onConfirm: (method: 'paid_tm' | 'paid_ck') => void;
-    unitId: string;
-    amount: number;
-}> = ({ onClose, onConfirm, unitId, amount }) => {
-    return (
-        <Modal title="Xác nhận thanh toán" onClose={onClose} size="sm">
-            <div className="text-center mb-6">
-                <p className="text-gray-600 mb-1">Xác nhận đã thu tiền cho căn hộ <strong className="text-gray-900">{unitId}</strong></p>
-                <p className="text-2xl font-bold text-primary">{formatCurrency(amount)}</p>
-            </div>
-            <div className="grid grid-cols-2 gap-4">
-                <button
-                    onClick={() => onConfirm('paid_tm')}
-                    className="flex flex-col items-center justify-center p-4 rounded-xl border-2 border-green-100 bg-green-50 hover:bg-green-100 hover:border-green-300 transition-all group"
-                >
-                    <MoneyBagIcon className="w-8 h-8 text-green-600 mb-2 group-hover:scale-110 transition-transform" />
-                    <span className="font-bold text-green-800">Tiền mặt</span>
-                </button>
-                <button
-                    onClick={() => onConfirm('paid_ck')}
-                    className="flex flex-col items-center justify-center p-4 rounded-xl border-2 border-blue-100 bg-blue-50 hover:bg-blue-100 hover:border-blue-300 transition-all group"
-                >
-                    <ArrowUpTrayIcon className="w-8 h-8 text-blue-600 mb-2 group-hover:scale-110 transition-transform" />
-                    <span className="font-bold text-blue-800">Chuyển khoản</span>
-                </button>
-            </div>
-            <div className="mt-6 text-center">
-                <button onClick={onClose} className="text-sm text-gray-500 hover:text-gray-800 underline">Huỷ bỏ</button>
-            </div>
-        </Modal>
-    );
-};
-
-const FilterPill: React.FC<{
-  icon: React.ReactNode;
-  options: { value: string; label: string }[];
-  currentValue: string;
-  onValueChange: (value: string) => void;
-  tooltip: string;
-}> = ({ icon, options, currentValue, onValueChange, tooltip }) => {
-    const [isOpen, setIsOpen] = useState(false);
-    const pillRef = useRef<HTMLDivElement>(null);
-
-    React.useEffect(() => {
-        const handleClickOutside = (event: MouseEvent) => {
-            if (pillRef.current && !pillRef.current.contains(event.target as Node)) {
-                setIsOpen(false);
-            }
-        };
-        document.addEventListener("mousedown", handleClickOutside);
-        return () => document.removeEventListener("mousedown", handleClickOutside);
-    }, []);
-
-    const currentLabel = options.find(o => o.value === currentValue)?.label || 'Select';
-
-    return (
-        <div className="relative" ref={pillRef} data-tooltip={tooltip}>
-            <button
-                onClick={() => setIsOpen(!isOpen)}
-                className="h-10 px-3 border border-gray-300 bg-white rounded-lg flex items-center gap-2 hover:border-primary transition-colors w-full justify-between"
-                aria-haspopup="true"
-                aria-expanded={isOpen}
-            >
-                <div className='flex items-center gap-2'>
-                    {icon}
-                    <span className="text-sm font-medium">{currentLabel}</span>
-                </div>
-                <ChevronDownIcon />
-            </button>
-            {isOpen && (
-                <div className="absolute top-full mt-1.5 z-20 bg-white p-2 rounded-lg shadow-lg border w-full">
-                    {options.map(option => (
-                        <button
-                            key={option.value}
-                            onClick={() => {
-                                onValueChange(option.value);
-                                setIsOpen(false);
-                            }}
-                            className={`w-full text-left p-2 rounded-md text-sm ${currentValue === option.value ? 'bg-primary text-white' : 'hover:bg-gray-100'}`}
-                        >
-                            {option.label}
-                        </button>
-                    ))}
-                </div>
-            )}
-        </div>
-    );
-};
-
+interface BillingPageProps {
+    charges: ChargeRaw[];
+    setCharges: (updater: React.SetStateAction<ChargeRaw[]>, logPayload?: LogPayload) => void;
+    allData: AllData;
+    onUpdateAdjustments: (updater: React.SetStateAction<Adjustment[]>, logPayload?: LogPayload) => void;
+    role: Role;
+    invoiceSettings: InvoiceSettings;
+}
 
 const BillingPage: React.FC<BillingPageProps> = ({ charges, setCharges, allData, onUpdateAdjustments, role, invoiceSettings }) => {
     const { showToast } = useNotification();
-    const { logAction } = useLogger();
     const canCalculate = ['Admin', 'Accountant'].includes(role);
-    const [isLoading, setIsLoading] = useState(false);
-    const [progress, setProgress] = useState({ current: 0, total: 0 });
-    const [previewCharge, setPreviewCharge] = useState<ChargeRaw | null>(null);
-    const [searchTerm, setSearchTerm] = useState('');
-    const [statusFilter, setStatusFilter] = useState('all');
-    const [selectedUnits, setSelectedUnits] = useState<Set<string>>(new Set());
+    const IS_PROD = isProduction();
+
+    // State
     const [period, setPeriod] = useState(new Date().toISOString().slice(0, 7));
-    
-    const [isRefreshing, setIsRefreshing] = useState(false);
-    const [primaryActionState, setPrimaryActionState] = useState<PrimaryActionState>('calculate');
-    
     const [lockedPeriods, setLockedPeriods] = useState<Set<string>>(() => {
         const saved = localStorage.getItem('lockedBillingPeriods');
         return saved ? new Set(JSON.parse(saved)) : new Set();
     });
+    const [isLoading, setIsLoading] = useState(false);
+    const [selectedUnits, setSelectedUnits] = useState<Set<string>>(new Set());
+    const [searchTerm, setSearchTerm] = useState('');
+    const [statusFilter, setStatusFilter] = useState('all');
+    const [floorFilter, setFloorFilter] = useState('all');
+    const [previewCharge, setPreviewCharge] = useState<ChargeRaw | null>(null);
+    const [editedPayments, setEditedPayments] = useState<Record<string, number>>({});
+    
+    // UI State
+    const [showStats, setShowStats] = useState(true);
+    const [isMonthPickerOpen, setIsMonthPickerOpen] = useState(false);
+    
+    // Refs
+    const fileInputRef = useRef<HTMLInputElement>(null);
     const primaryActionTimeout = useRef<number | null>(null);
     const lastClickTime = useRef(0);
 
-    const [isMonthPickerOpen, setIsMonthPickerOpen] = useState(false);
-    const [activeKpiFilter, setActiveKpiFilter] = useState<string>('all');
-    const [specialFilter, setSpecialFilter] = useState<string | null>(null);
+    const isPeriodLocked = lockedPeriods.has(period);
     
-    const [exportProgress, setExportProgress] = useState({ isOpen: false, done: 0, total: 0 });
-    const cancelExportToken = useRef({ cancelled: false });
-    const fileInputRef = useRef<HTMLInputElement>(null);
-    
-    const [editedPayments, setEditedPayments] = useState<Record<string, number>>({});
-    
-    const [paymentConfirmationState, setPaymentConfirmationState] = useState<{ isOpen: boolean; charge: ChargeRaw | null }>({ isOpen: false, charge: null });
+    // Logic: Disable calculation for future periods
+    const currentMonthStr = new Date().toISOString().slice(0, 7);
+    const isFuturePeriod = period > currentMonthStr;
 
-    const [isDataStale, setIsDataStale] = useState(false);
-    const [dataSnapshot, setDataSnapshot] = useState('');
-    const [isStatsExpanded, setIsStatsExpanded] = useState(true);
-
-    const currentISODate = new Date().toISOString().slice(0, 7);
-    
-
-    const createSnapshot = useCallback((data: AllData) => {
-        return JSON.stringify({
-            vehicles: data.vehicles,
-            waterReadings: data.waterReadings,
-        });
-    }, []);
-
-    React.useEffect(() => {
-        if (!dataSnapshot) {
-            setDataSnapshot(createSnapshot(allData));
-            return;
-        }
-        const currentSnapshot = createSnapshot(allData);
-        if (currentSnapshot !== dataSnapshot) {
-            setIsDataStale(true);
-        }
-    }, [allData, dataSnapshot, createSnapshot]);
-    
-    React.useEffect(() => {
+    // Persist Lock
+    useEffect(() => {
         localStorage.setItem('lockedBillingPeriods', JSON.stringify(Array.from(lockedPeriods)));
     }, [lockedPeriods]);
 
-    React.useEffect(() => {
-        if (lockedPeriods.has(period)) {
-            setPrimaryActionState('locked');
-        } else if (charges.some(c => c.Period === period)) {
-            setPrimaryActionState('recalculate');
-        } else {
-            setPrimaryActionState('calculate');
-        }
-    }, [period, charges, lockedPeriods]);
-    
+    // Data Filtering
     const floors = useMemo(() => {
-        const floorNumbers = Array.from(new Set(allData.units.filter(u=>u.UnitType === UnitType.APARTMENT).map(u => u.UnitID.slice(0,-2)))).sort((a,b) => parseInt(String(a), 10) - parseInt(String(b), 10));
-        return [{value: 'all', label: 'All Floors'}, ...floorNumbers.map(f => ({value: f, label: `Floor ${f}`})), {value: 'KIOS', label: 'KIOS'}];
+        const nums = Array.from(new Set(allData.units.filter(u => u.UnitType === UnitType.APARTMENT).map(u => u.UnitID.slice(0, -2)))).sort((a,b) => parseInt(a,10) - parseInt(b,10));
+        return [{value: 'all', label: 'Tất cả tầng'}, ...nums.map(f => ({value: f, label: `Tầng ${f}`})), {value: 'KIOS', label: 'KIOS'}];
     }, [allData.units]);
 
-    const [floorFilter, setFloorFilter] = useState('all');
-
-    React.useEffect(() => {
-        setSelectedUnits(new Set()); 
-        setActiveKpiFilter('all');
-        setSpecialFilter(null);
-    }, [period]);
-    
     const filteredCharges = useMemo(() => {
-        return charges.filter(c => {
+        return (charges as ExtendedCharge[]).filter(c => {
             if (c.Period !== period) return false;
             
             if (statusFilter !== 'all') {
                 if (statusFilter === 'paid') {
-                    if (c.paymentStatus !== 'paid' && c.paymentStatus !== 'paid_tm' && c.paymentStatus !== 'paid_ck') return false;
+                    // Include both payment methods in generic "paid" filter
+                    if (!['paid', 'paid_tm', 'paid_ck'].includes(c.paymentStatus)) return false;
+                } else if (statusFilter === 'debt') {
+                    if (['paid', 'paid_tm', 'paid_ck'].includes(c.paymentStatus)) return false;
+                } else if (statusFilter === 'pending') {
+                    if (c.paymentStatus !== 'pending') return false;
+                } else if (statusFilter === 'unpaid') {
+                    if (c.paymentStatus !== 'unpaid') return false;
                 } else {
+                    // Specific status matches (paid_tm, paid_ck)
                     if (c.paymentStatus !== statusFilter) return false;
                 }
             }
-            
-            const unitInfo = parseUnitCode(c.UnitID);
+
             if (floorFilter !== 'all') {
-                const floor = unitInfo?.floor === 99 ? 'KIOS' : String(unitInfo?.floor);
+                const floor = c.UnitID.startsWith('K') ? 'KIOS' : parseUnitCode(c.UnitID)?.floor?.toString();
                 if (floor !== floorFilter) return false;
             }
-
-            if (specialFilter === 'has_difference' && (c.TotalDue - c.TotalPaid === 0)) return false;
-            if (specialFilter === 'not_paid' && (c.paymentStatus === 'paid' || c.paymentStatus === 'paid_tm' || c.paymentStatus === 'paid_ck')) return false;
-
             const s = searchTerm.toLowerCase();
             if (s && !(c.UnitID.toLowerCase().includes(s) || (c.OwnerName || '').toLowerCase().includes(s))) return false;
-            
             return true;
-        });
-    }, [charges, period, searchTerm, statusFilter, floorFilter, specialFilter]);
-    
-    const sortedAndFilteredCharges = useMemo(() => {
-        return [...filteredCharges].sort((a, b) => {
+        }).sort((a, b) => {
             const pa = parseUnitCode(a.UnitID) || { floor: 100, apt: 0 };
             const pb = parseUnitCode(b.UnitID) || { floor: 100, apt: 0 };
             if (pa.floor !== pb.floor) return pa.floor - pb.floor;
             return pa.apt - pb.apt;
         });
-    }, [filteredCharges]);
+    }, [charges, period, searchTerm, statusFilter, floorFilter]);
 
-    React.useEffect(() => { setSelectedUnits(new Set()); }, [searchTerm, statusFilter, floorFilter, period, specialFilter]);
+    // Stats
+    const stats = useMemo(() => {
+        const currentCharges = charges.filter(c => c.Period === period);
+        const totalDue = currentCharges.reduce((s, c) => s + c.TotalDue, 0);
+        const totalPaid = currentCharges.reduce((s, c) => s + c.TotalPaid, 0);
+        const debt = totalDue - totalPaid;
+        const count = currentCharges.length;
+        const paidCount = currentCharges.filter(c => ['paid', 'paid_tm', 'paid_ck'].includes(c.paymentStatus)).length;
+        return { totalDue, totalPaid, debt, progress: count > 0 ? (paidCount / count) * 100 : 0 };
+    }, [charges, period]);
 
-    const formatPeriodForDisplay = (isoPeriod: string): string => {
-        const date = new Date(isoPeriod + '-02');
-        return new Intl.DateTimeFormat('en-US', { month: 'short', year: 'numeric' }).format(date);
-    };
+    // --- Logic: Calculation & Lock ---
 
-    const navigatePeriod = (direction: 'prev' | 'next' | 'current') => {
-        if (direction === 'current') { setPeriod(currentISODate); return; }
-        const d = new Date(period + '-02');
-        d.setMonth(d.getMonth() + (direction === 'next' ? 1 : -1));
-        const newPeriodDate = new Date(d.getFullYear(), d.getMonth(), 1);
-        const currentPeriodDate = new Date(new Date().getFullYear(), new Date().getMonth(), 1);
-        if (direction === 'next' && newPeriodDate > currentPeriodDate) {
-            showToast("Cannot view or calculate for future periods.", "info");
+    const handleCalculate = async () => {
+        if (isPeriodLocked) {
+            showToast('Kỳ này đã khóa. Nhấn đúp để mở.', 'error');
             return;
         }
-        setPeriod(d.toISOString().slice(0, 7));
-    };
-    
-    const handleRefreshData = useCallback(async () => {
-        if (isRefreshing) return;
-        setIsRefreshing(true);
-        try {
-            await new Promise(resolve => setTimeout(resolve, 300));
-            setDataSnapshot(createSnapshot(allData));
-            setIsDataStale(false);
-            showToast('Dữ liệu đã được làm mới.', 'success');
-        } catch (error) { 
-            showToast('Lỗi khi làm mới dữ liệu.', 'error');
-        } 
-        finally { setIsRefreshing(false); }
-    }, [isRefreshing, allData, showToast, createSnapshot]);
+        if (isFuturePeriod) {
+            showToast('Không thể tính phí cho kỳ tương lai.', 'error');
+            return;
+        }
 
-    const executeCalculation = useCallback(async (isRecalculation = false) => {
         setIsLoading(true);
-        setProgress({ current: 0, total: allData.units.length });
+        showToast('Đang tính toán lại phí...', 'info');
 
         try {
-            const existingChargesForPeriod = charges.filter(c => c.Period === period);
-            const unitsToSkip = isRecalculation
-                ? new Set(existingChargesForPeriod.filter(c => c.paymentStatus === 'paid' || c.paymentStatus === 'reconciling' || c.paymentStatus === 'paid_tm' || c.paymentStatus === 'paid_ck').map(c => c.UnitID))
-                : new Set<string>();
+            // 1. Fetch fresh data
+            const freshData = await loadAllData();
             
-            const unitsToCalculate = allData.units.filter(unit => !unitsToSkip.has(unit.UnitID));
+            // 2. Separate existing PAID charges (Preserve them)
+            const existingPaid = charges.filter(c => c.Period === period && ['paid', 'paid_tm', 'paid_ck', 'reconciling'].includes(c.paymentStatus));
+            const paidUnitIds = new Set(existingPaid.map(c => c.UnitID));
 
-            if (unitsToCalculate.length === 0) {
-                showToast('Không có căn hộ nào cần tính lại.', 'info');
-                setIsLoading(false);
-                return;
-            }
-
-            const calculationInputs = unitsToCalculate.map(unit => {
-                const owner = allData.owners.find(o => o.OwnerID === unit.OwnerID)!;
-                return { unit, owner, vehicles: allData.vehicles.filter(v => v.UnitID === unit.UnitID), adjustments: allData.adjustments.filter(a => a.UnitID === unit.UnitID && a.Period === period) };
-            });
-
-            const newChargesFromCalc = await calculateChargesBatch(period, calculationInputs, allData);
-            const newChargesWithMeta = newChargesFromCalc.map(c => ({...c, CreatedAt: new Date().toISOString(), Locked: false }));
-
-            const updater = (prev: ChargeRaw[]) => {
-                const chargesFromOtherPeriods = prev.filter(c => c.Period !== period);
-                const chargesToKeep = isRecalculation
-                    ? existingChargesForPeriod.filter(c => unitsToSkip.has(c.UnitID))
-                    : [];
-                return [...chargesFromOtherPeriods, ...chargesToKeep, ...newChargesWithMeta];
-            };
-
-            setCharges(updater, {
-                module: 'Billing',
-                action: 'CALCULATE_CHARGES',
-                summary: `Tính phí cho kỳ ${period} - ${newChargesWithMeta.length} căn hộ`,
-                count: newChargesWithMeta.length,
-                ids: newChargesWithMeta.map(c => c.UnitID),
-                before_snapshot: charges,
-            });
-
-            showToast(`Tính phí hoàn tất cho ${newChargesWithMeta.length} căn hộ.`, 'success');
+            // 3. Identify units needing calculation
+            const unitsToCalc = freshData.units.filter(u => !paidUnitIds.has(u.UnitID));
             
-            setLockedPeriods(prev => {
-                const next = new Set(prev);
-                next.add(period);
-                return next;
-            });
-            showToast('Kỳ đã được tự động khoá. Nhấn đúp để mở khoá và tính lại.', 'info');
+            const inputs = unitsToCalc.map(unit => ({ 
+                unit, 
+                owner: freshData.owners.find(o => o.OwnerID === unit.OwnerID) as any,
+                vehicles: freshData.vehicles.filter(v => v.UnitID === unit.UnitID), 
+                adjustments: freshData.adjustments.filter(a => a.UnitID === unit.UnitID && a.Period === period) 
+            }));
 
-        } catch (error) {
-            showToast('Quá trình tính phí xảy ra lỗi.', 'error');
+            // 4. Calculate
+            const newCharges = await calculateChargesBatch(period, inputs, freshData);
+            
+            // 5. Enhance with Meta & Auto-fill TotalPaid for convenience
+            const finalNewCharges = newCharges.map(c => ({
+                ...c,
+                CreatedAt: new Date().toISOString(),
+                Locked: false,
+                paymentStatus: 'pending' as PaymentStatus,
+                PaymentConfirmed: false,
+                TotalPaid: c.TotalDue, // Auto-fill Input
+                isPrinted: false,
+                isSent: false,
+                sentCount: 0 // New field
+            }));
+
+            // 6. Update State
+            setCharges(prev => {
+                const otherPeriodCharges = prev.filter(c => c.Period !== period);
+                return [...otherPeriodCharges, ...existingPaid, ...finalNewCharges];
+            }, {
+                module: 'Billing', action: 'CALCULATE',
+                summary: `Tính phí kỳ ${period} cho ${finalNewCharges.length} căn`,
+                before_snapshot: charges
+            });
+
+            // 7. Auto-Lock
+            setLockedPeriods(prev => new Set(prev).add(period));
+            showToast(`Đã tính xong và khóa kỳ ${period}.`, 'success');
+
+        } catch (e: any) {
+            showToast(`Lỗi: ${e.message}`, 'error');
         } finally {
             setIsLoading(false);
-            setProgress({ current: 0, total: 0 });
         }
-    }, [period, allData, setCharges, showToast, charges, setLockedPeriods]);
+    };
 
-    const runRecalculation = useCallback(async () => {
-        if (lockedPeriods.has(period)) {
-            showToast('Đang khoá tính phí. Nhấn đúp nút Locked để mở khoá.', 'warn');
-            return;
-        }
-        await executeCalculation(true);
-    }, [period, showToast, lockedPeriods, executeCalculation]);
-
-    const runInitialCalculation = useCallback(async () => {
-        if (lockedPeriods.has(period)) {
-            showToast('Đang khoá tính phí. Nhấn đúp nút Locked để mở khoá.', 'warn');
-            return;
-        }
-        await executeCalculation(false);
-    }, [period, showToast, lockedPeriods, executeCalculation]);
-    
-    const handlePrimaryAction = useCallback(() => {
+    const handleLockToggle = () => {
         const now = Date.now();
-        const isDoubleClick = (now - lastClickTime.current) < 350;
-        lastClickTime.current = now;
-
-        if (isDoubleClick) {
-            if (primaryActionTimeout.current) clearTimeout(primaryActionTimeout.current);
-            if (!canCalculate) { showToast('Bạn không có quyền thực hiện hành động này.', 'error'); return; }
-            
+        if ((now - lastClickTime.current) < 350) { // Double click
             setLockedPeriods(prev => {
                 const next = new Set(prev);
-                if (next.has(period)) {
-                    next.delete(period);
-                    showToast('Đã mở khóa chức năng tính phí.', 'success');
-                } else {
-                    next.add(period);
-                    showToast('Đã khóa chức năng tính phí. Các thao tác khác vẫn dùng bình thường.', 'success');
-                }
+                if (next.has(period)) next.delete(period);
+                else next.add(period);
                 return next;
             });
-        } else {
+            showToast(isPeriodLocked ? 'Đã mở khóa tính toán.' : 'Đã khóa kỳ thu.', 'success');
+        } else { // Single Click
             primaryActionTimeout.current = window.setTimeout(() => {
-                if (isDataStale) {
-                    showToast('Dữ liệu nguồn đã thay đổi. Vui lòng bấm "Refresh" trước khi tính toán.', 'warn');
-                    return;
-                }
-                if (primaryActionState === 'locked') {
-                    showToast('Kỳ đang bị khóa. Nhấn đúp để mở khóa.', 'info');
-                } else if (primaryActionState === 'calculate') {
-                    runInitialCalculation();
-                } else if (primaryActionState === 'recalculate') {
-                    runRecalculation();
-                }
+                if (isPeriodLocked) showToast('Nhấn đúp để mở khóa.', 'info');
+                else handleCalculate();
             }, 250);
         }
-    }, [primaryActionState, period, role, showToast, runInitialCalculation, runRecalculation, isDataStale, setLockedPeriods, canCalculate]);
-
-    const handleBulkSetStatus = useCallback(async (targetStatus: 'paid' | 'unpaid') => {
-        if (selectedUnits.size === 0) return;
-        if (role === 'Operator') { showToast('Bạn không có quyền.', 'error'); return; }
-        
-        const unitIds = Array.from(selectedUnits) as string[];
-        await updatePaymentStatusBatch(period, unitIds, targetStatus, charges);
-    
-        const updater = (prev: ChargeRaw[]) => prev.map(c => {
-            if (c.Period === period && selectedUnits.has(c.UnitID)) {
-                const updatedCharge = { ...c, paymentStatus: targetStatus };
-                if (targetStatus === 'paid') {
-                    updatedCharge.PaymentConfirmed = true;
-                    updatedCharge.TotalPaid = c.TotalDue;
-                } else {
-                    updatedCharge.PaymentConfirmed = false;
-                    updatedCharge.TotalPaid = 0;
-                }
-                return updatedCharge;
-            }
-            return c;
-        });
-    
-        setCharges(updater, {
-            module: 'Billing',
-            action: 'BULK_UPDATE_CHARGE_STATUS',
-            summary: `Đánh dấu '${targetStatus}' cho ${selectedUnits.size} căn hộ kỳ ${period}`,
-            count: selectedUnits.size,
-            ids: unitIds,
-            before_snapshot: charges,
-        });
-    
-        showToast(`Đã đánh dấu ${targetStatus} cho ${selectedUnits.size} căn`, 'success');
-        setSelectedUnits(new Set());
-    }, [period, role, selectedUnits, setCharges, showToast, charges]);
-
-
-    const handleExportReport = useCallback(() => {
-        if (primaryActionState === 'calculate') { showToast('Vui lòng tính phí trước khi xuất báo cáo.', 'error'); return; }
-        
-        const targets = selectedUnits.size > 0 ? charges.filter(c => c.Period === period && selectedUnits.has(c.UnitID)) : sortedAndFilteredCharges;
-        if (targets.length === 0) { showToast('Không có dữ liệu để xuất báo cáo.', 'info'); return; }
-
-        const BOM = "\uFEFF";
-        const headers = ['Kỳ', 'Căn hộ', 'Chủ hộ', 'Diện tích (m2)', 'Phí Dịch vụ', 'SL Ô tô', 'SL Xe máy', 'Phí Gửi xe', 'Tiêu thụ nước (m3)', 'Tiền nước', 'Điều chỉnh', 'Tổng phải thu', 'Đã nộp', 'Còn nợ', 'Trạng thái'];
-        const rows = [headers.join(',')];
-
-        targets.forEach(c => {
-            const diff = c.TotalDue - c.TotalPaid;
-            let statusText = 'Pending';
-            if (c.paymentStatus === 'paid') statusText = 'Paid';
-            else if (c.paymentStatus === 'paid_tm') statusText = 'Paid Cash';
-            else if (c.paymentStatus === 'paid_ck') statusText = 'Paid Transfer';
-            else if (c.paymentStatus === 'unpaid') statusText = 'Unpaid';
-            else if (c.paymentStatus === 'reconciling') statusText = 'Reconciling';
-            
-            const line = [`"${c.Period}"`, `"${c.UnitID}"`, `"${c.OwnerName}"`, c.Area_m2, c.ServiceFee_Total, c['#CAR'] + c['#CAR_A'], c['#MOTORBIKE'], c.ParkingFee_Total, c.Water_m3, c.WaterFee_Total, c.Adjustments, c.TotalDue, c.TotalPaid, diff, `"${statusText}"`];
-            rows.push(line.join(','));
-        });
-
-        const csvContent = BOM + rows.join('\n');
-        const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' });
-        const url = URL.createObjectURL(blob);
-        const link = document.createElement("a");
-        link.href = url;
-        link.setAttribute("download", `BaoCao_Phi_Ky_${period}.csv`);
-        document.body.appendChild(link);
-        link.click();
-        document.body.removeChild(link);
-        showToast(`Đã xuất báo cáo chi tiết (${targets.length} căn).`, 'success');
-    }, [primaryActionState, charges, period, selectedUnits, sortedAndFilteredCharges, showToast]);
-
-
-    const handleDownloadPDFs = useCallback(async () => {
-        if (primaryActionState === 'calculate') { showToast('Vui lòng tính phí trước khi xuất PDF.', 'error'); return; }
-        const targets = selectedUnits.size > 0 ? charges.filter(c => c.Period === period && selectedUnits.has(c.UnitID)) : sortedAndFilteredCharges;
-        if (targets.length === 0) { showToast('Không có dữ liệu để xuất file.', 'info'); return; }
-    
-        try {
-            await Promise.all([ loadScript('jspdf'), loadScript('html2canvas'), loadScript('jszip') ]);
-        } catch (error) {
-            showToast('Không thể tải thư viện xuất file. Vui lòng thử lại.', 'error');
-            return;
-        }
-
-        cancelExportToken.current.cancelled = false;
-        setExportProgress({ isOpen: true, done: 0, total: targets.length });
-    
-        const files: { name: string, blob: Blob }[] = [];
-        for (let i = 0; i < targets.length; i++) {
-            if (cancelExportToken.current.cancelled) break;
-            const charge = targets[i];
-            try {
-                const host = document.createElement('div');
-                host.style.cssText = 'position:fixed; left:-9999px; top:0; width:210mm; height:148mm; background:#fff; z-index:-1;';
-                document.body.appendChild(host);
-                if (host) {
-                    host.innerHTML = renderInvoiceHTMLForPdf(charge, allData, invoiceSettings);
-                    await new Promise(r => setTimeout(r, 50));
-                    const canvas = await html2canvas(host, { scale: 2, useCORS: true, logging: false, backgroundColor: '#ffffff' });
-                    const { jsPDF } = jspdf;
-                    const pdf = new jsPDF({ orientation: 'landscape', unit: 'mm', format: 'a5' });
-                    pdf.addImage(canvas.toDataURL('image/jpeg', 0.95), 'JPEG', 0, 0, 210, 148);
-                    files.push({ name: `PhieuBaoPhi_${charge.UnitID}_${charge.Period}.pdf`, blob: pdf.output('blob') });
-                }
-                host.remove();
-            } catch (e) { /* ignore */ }
-            setExportProgress(p => ({ ...p, done: i + 1 }));
-        }
-    
-        setExportProgress({ isOpen: false, done: 0, total: 0 });
-        if (cancelExportToken.current.cancelled) { showToast('Export cancelled.', 'info'); return; }
-    
-        const downloadBlob = (blob: Blob, name: string) => { const a = document.createElement('a'); a.href = URL.createObjectURL(blob); a.download = name; a.click(); URL.revokeObjectURL(a.href); };
-        if (files.length === 1) { downloadBlob(files[0].blob, files[0].name); }
-        else if (files.length > 1) {
-            const zip = new JSZip(); files.forEach(f => zip.file(f.name, f.blob));
-            downloadBlob(await zip.generateAsync({ type: 'blob' }), `Invoices_${period}.zip`);
-        }
-        
-        if (files.length > 0) {
-            showToast(`Successfully downloaded ${files.length} invoices.`, 'success');
-            const unitIds = targets.map(t => t.UnitID);
-            await updateChargeStatuses(period, unitIds, { isPrinted: true });
-            setCharges(prev => prev.map(c => unitIds.includes(c.UnitID) && c.Period === period ? {...c, isPrinted: true} : c));
-        }
-    }, [primaryActionState, period, selectedUnits, charges, sortedAndFilteredCharges, allData, invoiceSettings, showToast, setCharges]);
-    
-    const handleBulkSendEmail = useCallback(async () => {
-        const recipients = charges.filter(c => c.Period === period && selectedUnits.has(c.UnitID) && c.Email);
-        if (recipients.length === 0) {
-            showToast('Không có căn hộ nào được chọn có địa chỉ email hợp lệ.', 'warn');
-            return;
-        }
-        
-        showToast(`Bắt đầu gửi email tới ${recipients.length} người nhận...`, 'info');
-        let successCount = 0;
-        let failCount = 0;
-        const sentUnitIds: string[] = [];
-
-        try {
-            await Promise.all([ loadScript('jspdf'), loadScript('html2canvas'), ]);
-        } catch(error) {
-            showToast('Không thể tải thư viện PDF để đính kèm. Vui lòng thử lại.', 'error');
-            return;
-        }
-
-        for (const [index, charge] of recipients.entries()) {
-            showToast(`[${index + 1}/${recipients.length}] Đang tạo PDF cho ${charge.UnitID}...`, 'info', 3000);
-            let attachment: Attachment | undefined;
-            try {
-                const host = document.createElement('div');
-                host.style.cssText = 'position:fixed; left:-9999px; top:0; width:210mm; height:148mm; background:#fff; z-index:-1;';
-                document.body.appendChild(host);
-                if (host) {
-                    host.innerHTML = renderInvoiceHTMLForPdf(charge, allData, invoiceSettings);
-                    await new Promise(r => setTimeout(r, 50));
-                    const canvas = await html2canvas(host, { scale: 2, useCORS: true, logging: false, backgroundColor: '#ffffff' });
-                    const { jsPDF } = jspdf;
-                    const pdf = new jsPDF({ orientation: 'landscape', unit: 'mm', format: 'a5' });
-                    pdf.addImage(canvas.toDataURL('image/jpeg', 0.95), 'JPEG', 0, 0, 210, 148);
-                    
-                    const base64Data = pdf.output('datauristring').split(',')[1];
-                    attachment = { name: `PhieuBaoPhi_${charge.UnitID}_${charge.Period}.pdf`, data: base64Data };
-                }
-                host.remove();
-            } catch (e) {
-                showToast(`Lỗi tạo PDF cho ${charge.UnitID}, bỏ qua...`, 'error');
-                failCount++;
-                continue;
-            }
-
-            showToast(`[${index + 1}/${recipients.length}] Đang gửi mail cho ${charge.UnitID}...`, 'info', 3000);
-            const subjectTemplate = invoiceSettings.emailSubject || '[BQL HUD3] Thông báo phí dịch vụ kỳ {{period}} cho căn hộ {{unit_id}}';
-            const personalizedSubject = subjectTemplate.replace(/{{unit_id}}/g, charge.UnitID).replace(/{{owner_name}}/g, charge.OwnerName).replace(/{{period}}/g, charge.Period).replace(/{{total_due}}/g, formatCurrency(charge.TotalDue));
-            const bodyTemplate = invoiceSettings.emailBody || '';
-            const personalizedBody = bodyTemplate.replace(/{{unit_id}}/g, charge.UnitID).replace(/{{owner_name}}/g, charge.OwnerName).replace(/{{period}}/g, charge.Period).replace(/{{total_due}}/g, formatCurrency(charge.TotalDue));
-            const emailBodyHtml = generateEmailHtmlForCharge(charge, allData, invoiceSettings, personalizedBody);
-            const result = await sendEmailAPI(charge.Email, personalizedSubject, emailBodyHtml, invoiceSettings, attachment);
-
-            if (result.success) {
-                successCount++;
-                sentUnitIds.push(charge.UnitID);
-            } else {
-                failCount++;
-                showToast(`Gửi mail thất bại cho ${charge.UnitID}: ${result.error}`, 'error', 8000);
-            }
-            
-            await new Promise(resolve => setTimeout(resolve, 500));
-        }
-
-        if (sentUnitIds.length > 0) {
-            await updateChargeStatuses(period, sentUnitIds, { isSent: true });
-            setCharges(prev => prev.map(c => sentUnitIds.includes(c.UnitID) && c.Period === period ? {...c, isSent: true} : c));
-        }
-
-        showToast(`Hoàn tất gửi mail: ${successCount} thành công, ${failCount} thất bại.`, failCount > 0 ? 'warn' : 'success', 10000);
-        setSelectedUnits(new Set());
-    }, [charges, period, selectedUnits, allData, invoiceSettings, showToast, setCharges]);
-
-    const handleSendSingleEmail = useCallback(async (charge: ChargeRaw) => {
-        if (!charge.Email) {
-            showToast('Căn hộ này không có địa chỉ email.', 'error');
-            return;
-        }
-        showToast(`Đang chuẩn bị email cho căn hộ ${charge.UnitID}...`, 'info');
-        
-        try {
-            await Promise.all([ loadScript('jspdf'), loadScript('html2canvas'), ]);
-        } catch(error) {
-            showToast('Không thể tải thư viện PDF để đính kèm. Vui lòng thử lại.', 'error');
-            return;
-        }
-
-        let attachment: Attachment | undefined;
-        try {
-            const host = document.createElement('div');
-            host.style.cssText = 'position:fixed; left:-9999px; top:0; width:210mm; height:148mm; background:#fff; z-index:-1;';
-            document.body.appendChild(host);
-            if (host) {
-                host.innerHTML = renderInvoiceHTMLForPdf(charge, allData, invoiceSettings);
-                await new Promise(r => setTimeout(r, 50));
-                const canvas = await html2canvas(host, { scale: 2, useCORS: true, logging: false, backgroundColor: '#ffffff' });
-                const { jsPDF } = jspdf;
-                const pdf = new jsPDF({ orientation: 'landscape', unit: 'mm', format: 'a5' });
-                pdf.addImage(canvas.toDataURL('image/jpeg', 0.95), 'JPEG', 0, 0, 210, 148);
-                
-                const base64Data = pdf.output('datauristring').split(',')[1];
-                attachment = { name: `PhieuBaoPhi_${charge.UnitID}_${charge.Period}.pdf`, data: base64Data };
-            }
-            host.remove();
-        } catch (e) {
-            showToast(`Lỗi tạo PDF cho ${charge.UnitID}, email sẽ được gửi không có đính kèm.`, 'error');
-        }
-
-        const subjectTemplate = invoiceSettings.emailSubject || '[BQL HUD3] Thông báo phí dịch vụ kỳ {{period}} cho căn hộ {{unit_id}}';
-        const personalizedSubject = subjectTemplate.replace(/{{unit_id}}/g, charge.UnitID).replace(/{{owner_name}}/g, charge.OwnerName).replace(/{{period}}/g, charge.Period).replace(/{{total_due}}/g, formatCurrency(charge.TotalDue));
-        const bodyTemplate = invoiceSettings.emailBody || '';
-        const personalizedBody = bodyTemplate.replace(/{{unit_id}}/g, charge.UnitID).replace(/{{owner_name}}/g, charge.OwnerName).replace(/{{period}}/g, charge.Period).replace(/{{total_due}}/g, formatCurrency(charge.TotalDue));
-        const emailBodyHtml = generateEmailHtmlForCharge(charge, allData, invoiceSettings, personalizedBody);
-        const result = await sendEmailAPI(charge.Email, personalizedSubject, emailBodyHtml, invoiceSettings, attachment);
-
-        if (result.success) {
-            showToast(`Yêu cầu gửi email đã được thực hiện cho ${charge.UnitID}.`, 'success');
-            await updateChargeStatuses(period, [charge.UnitID], { isSent: true });
-            setCharges(prev => prev.map(c => (c.UnitID === charge.UnitID && c.Period === period) ? {...c, isSent: true} : c));
-        } else {
-            showToast(`Gửi mail thất bại cho ${charge.UnitID}: ${result.error}`, 'error', 10000);
-        }
-    }, [allData, invoiceSettings, showToast, period, setCharges]);
-    
-    const handlePaymentChange = (unitId: string, value: string) => {
-        const digits = value.replace(/\D/g, '');
-        const amount = parseInt(digits, 10);
-        if (digits.length > 9) return;
-        setEditedPayments(prev => ({ ...prev, [unitId]: isNaN(amount) ? 0 : amount }));
-    };
-    
-    const executePayment = async (charge: ChargeRaw, status: 'paid_tm' | 'paid_ck') => {
-        const finalPaidAmount = editedPayments[charge.UnitID] ?? charge.TotalPaid;
-        
-        await confirmSinglePayment(charge, finalPaidAmount, status);
-
-        const chargeUpdater = (prev: ChargeRaw[]) => prev.map(c =>
-            (c.UnitID === charge.UnitID && c.Period === period)
-                ? { ...c, TotalPaid: finalPaidAmount, PaymentConfirmed: true, paymentStatus: status as PaymentStatus }
-                : c
-        );
-        
-        const logPayload: LogPayload = {
-            module: 'Billing', action: 'CONFIRM_PAYMENT',
-            summary: `Xác nhận thanh toán ${formatNumber(finalPaidAmount)} (${status === 'paid_tm' ? 'Tiền mặt' : 'Chuyển khoản'}) cho ${charge.UnitID}`,
-            count: 1, ids: [charge.UnitID],
-            before_snapshot: charges
-        };
-        setCharges(chargeUpdater, logPayload);
-
-        const difference = finalPaidAmount - charge.TotalDue;
-        if (difference !== 0) {
-            const nextPeriodDate = new Date(period + '-02');
-            nextPeriodDate.setMonth(nextPeriodDate.getMonth() + 1);
-            const nextPeriod = nextPeriodDate.toISOString().slice(0, 7);
-            const newAdjustment: Adjustment = { UnitID: charge.UnitID, Period: nextPeriod, Amount: -difference, Description: `Công nợ kỳ trước`, SourcePeriod: period };
-            
-            onUpdateAdjustments(
-                prev => [...prev.filter(a => !(a.UnitID === newAdjustment.UnitID && a.SourcePeriod === newAdjustment.SourcePeriod)), newAdjustment], 
-                {
-                    module: 'Billing',
-                    action: 'CREATE_ADJUSTMENT',
-                    summary: `Tạo điều chỉnh công nợ ${formatNumber(-difference)} cho ${charge.UnitID} từ kỳ ${period}`,
-                    ids: [charge.UnitID],
-                    before_snapshot: allData.adjustments
-                }
-            );
-            showToast(`Đã tạo khoản điều chỉnh ${formatNumber(-difference)} cho kỳ sau.`, 'info');
-        } else {
-             showToast(`Đã xác nhận thanh toán đủ cho căn hộ ${charge.UnitID}.`, 'success');
-        }
-        
-        setEditedPayments(prev => { const next = { ...prev }; delete next[charge.UnitID]; return next; });
+        lastClickTime.current = now;
     };
 
-    const handleInitiatePayment = (charge: ChargeRaw) => {
-        if (charge.paymentStatus === 'reconciling') {
-            executePayment(charge, 'paid_ck');
-        } else {
-            setPaymentConfirmationState({ isOpen: true, charge });
-        }
-    };
-
-    const handleConfirmFromModal = (method: 'paid_tm' | 'paid_ck') => {
-        if (paymentConfirmationState.charge) {
-            executePayment(paymentConfirmationState.charge, method);
-            setPaymentConfirmationState({ isOpen: false, charge: null });
-        }
-    };
-    
+    // --- Logic: Bank Import ---
     const handleStatementFileChange = async (event: React.ChangeEvent<HTMLInputElement>) => {
         const file = event.target.files?.[0];
         if (!file) return;
         
-        if (role === 'Operator' || role === 'Viewer') {
-            showToast('Bạn không có quyền thực hiện hành động này.', 'error');
-            return;
-        }
-
         const reader = new FileReader();
         reader.onload = async (e) => {
             try {
                 const data = new Uint8Array(e.target?.result as ArrayBuffer);
                 const workbook = XLSX.read(data, { type: 'array' });
-                const sheetName = workbook.SheetNames[0];
-                const sheet = workbook.Sheets[sheetName];
+                // Fix: Safely access SheetNames
+                const firstSheetName = workbook.SheetNames[0];
+                const sheet = workbook.Sheets[String(firstSheetName)];
                 const json: any[][] = XLSX.utils.sheet_to_json(sheet, { header: 1 });
 
                 let headerIndex = -1, colCredit = -1, colDesc = -1;
                 for (let i = 0; i < Math.min(20, json.length); i++) {
-                    if (Array.isArray(json[i])) {
-                        const row: string[] = (json[i] as any[]).map((cell: any) => String(cell ?? "").toLowerCase());
-                        const cIdx = row.findIndex(cell => cell.includes('so tien ghi co') || cell.includes('credit amount'));
-                        const dIdx = row.findIndex(cell => cell.includes('noi dung') || cell.includes('transaction detail') || cell.includes('description'));
-                        if (cIdx !== -1 && dIdx !== -1) { headerIndex = i; colCredit = cIdx; colDesc = dIdx; break; }
+                    const row = (json[i] as any[]).map((c: any) => String(c ?? "").toLowerCase());
+                    if (row.some((c: string) => c.includes('credit') || c.includes('ghi co') || c.includes('số tiền')) && row.some((c: string) => c.includes('noi dung') || c.includes('desc') || c.includes('diễn giải'))) {
+                        headerIndex = i;
+                        colCredit = row.findIndex((c: string) => c.includes('credit') || c.includes('ghi co') || c.includes('số tiền'));
+                        colDesc = row.findIndex((c: string) => c.includes('noi dung') || c.includes('desc') || c.includes('diễn giải'));
+                        break;
                     }
                 }
-                if (headerIndex === -1) throw new Error('Không tìm thấy cột "Số tiền ghi có" hoặc "Nội dung".');
+                
+                if (headerIndex === -1) throw new Error('Không tìm thấy cột "Số tiền" và "Nội dung" trong 20 dòng đầu.');
 
-                const amountMap = new Map<string, number>();
-                const validUnitSet = new Set(allData.units.map(u => u.UnitID));
-                const unitRegex = /(?:^|[^a-zA-Z0-9])(?:P|Ph|Phong|Can|C|Apt|Căn)?\s*([0-9]{3,4})(?=[^0-9]|$)/gi;
+                const updates = new Map<string, number>();
+                const unitRegex = /(?:^|[^a-zA-Z0-9])(?:P|Ph|Phong|Can|C|Apt|Căn)?\s*([0-9]{3,4}|K[0-9]{2})(?=[^0-9]|$)/gi;
+                const validUnits = new Set(allData.units.map(u => u.UnitID));
 
                 for (let i = headerIndex + 1; i < json.length; i++) {
-                    if (!Array.isArray(json[i])) continue;
                     const row = json[i];
-                    if (!row[colCredit]) continue;
-                    const amount = Math.round(parseFloat(String(row[colCredit]).replace(/,/g, '')));
-                    if (isNaN(amount) || amount <= 0) continue;
-
-                    const description = String(row[colDesc] || '');
-                    let matchedUnitID = '';
-                    let match;
-                    unitRegex.lastIndex = 0;
-                    while ((match = unitRegex.exec(description)) !== null) {
-                        if (validUnitSet.has(match[1])) { matchedUnitID = match[1]; break; }
-                    }
-                    if (!matchedUnitID) {
-                         const kioskRegex = /(?:^|[^0-9])(K\d{2})(?=[^0-9]|$)/gi;
-                         if ((match = kioskRegex.exec(description)) && validUnitSet.has(match[1])) { matchedUnitID = match[1]; }
-                    }
-
-                    if (matchedUnitID) amountMap.set(matchedUnitID, (amountMap.get(matchedUnitID) || 0) + amount);
-                }
-                
-                const currentPeriodCharges = new Set(charges.filter(c => c.Period === period).map(c => c.UnitID));
-                const updatesToApply = new Map<string, number>();
-                let totalReconciledAmount = 0;
-                
-                amountMap.forEach((amount, unitId) => {
-                    if (currentPeriodCharges.has(unitId)) {
-                        updatesToApply.set(unitId, amount);
-                        totalReconciledAmount += amount;
-                    }
-                });
-
-                if (updatesToApply.size > 0) {
-                    await updateChargePayments(period, updatesToApply);
+                    const amount = Math.round(parseFloat(String(row[colCredit] || '0').replace(/[^0-9.-]+/g,"")));
+                    const desc = String(row[colDesc] || '');
                     
-                    const updater = (prev: ChargeRaw[]) => prev.map(charge => {
-                        if (charge.Period === period && updatesToApply.has(charge.UnitID)) {
-                            return {
-                                ...charge,
-                                TotalPaid: updatesToApply.get(charge.UnitID)!,
-                                paymentStatus: 'reconciling' as PaymentStatus,
-                                PaymentConfirmed: false,
-                            };
+                    if (amount > 0) {
+                        let match;
+                        unitRegex.lastIndex = 0;
+                        while ((match = unitRegex.exec(desc)) !== null) {
+                            if (validUnits.has(match[1])) {
+                                updates.set(match[1], (updates.get(match[1]) || 0) + amount);
+                                break; // Found unit, stop matching
+                            }
                         }
-                        return charge;
-                    });
-                    
-                    setCharges(updater, {
-                        module: 'Billing', action: 'IMPORT_BANK_STATEMENT',
-                        summary: `Đối soát ${updatesToApply.size} giao dịch, tổng: ${formatCurrency(totalReconciledAmount)}`,
-                        count: updatesToApply.size, ids: Array.from(updatesToApply.keys()),
-                        before_snapshot: charges
-                    });
-                    showToast(`Đã đối soát thành công ${updatesToApply.size} giao dịch. Trạng thái đã chuyển thành "Chờ đối soát".`, 'success');
-                } else {
-                    showToast('Không tìm thấy giao dịch nào khớp với mã căn hộ trong kỳ này.', 'warn');
+                    }
                 }
-            } catch (error: any) {
-                showToast(`Lỗi khi đọc file sao kê: ${error.message}`, 'error');
+
+                if (updates.size > 0) {
+                    await updateChargePayments(period, updates);
+                    setCharges(prev => prev.map(c => 
+                        (c.Period === period && updates.has(c.UnitID)) 
+                        ? { ...c, TotalPaid: updates.get(c.UnitID)!, paymentStatus: 'reconciling', PaymentConfirmed: false } 
+                        : c
+                    ));
+                    showToast(`Đã đối soát ${updates.size} giao dịch.`, 'success');
+                } else {
+                    showToast('Không tìm thấy giao dịch phù hợp.', 'warn');
+                }
+            } catch (err: any) {
+                showToast(err.message, 'error');
             } finally {
-                if (fileInputRef.current) fileInputRef.current.value = "";
+                if(fileInputRef.current) fileInputRef.current.value = "";
             }
         };
         reader.readAsArrayBuffer(file);
     };
 
-    const handleImportStatementClick = () => { fileInputRef.current?.click(); };
-    
-    const kpiStats = useMemo(() => {
-        const rows = charges.filter(c => c.Period === period);
-        if (rows.length === 0) {
-            return { totalDue: 0, totalPaid: 0, difference: 0, paidCount: 0, totalCount: 0, progress: 0 };
+    // --- Logic: Print PDF ---
+    const handleDownloadPDFs = async () => {
+        const targets = charges.filter(c => c.Period === period && selectedUnits.has(c.UnitID));
+        if (targets.length === 0) return;
+
+        setIsLoading(true);
+        showToast('Đang tạo PDF...', 'info');
+
+        try {
+            await Promise.all([loadScript('jspdf'), loadScript('html2canvas'), loadScript('jszip')]);
+            const { jsPDF } = jspdf;
+            const JSZip = (window as any).JSZip;
+            
+            // Temporary Container
+            const container = document.createElement('div');
+            container.style.position = 'absolute';
+            container.style.left = '-9999px';
+            container.style.top = '0';
+            document.body.appendChild(container);
+
+            // A5 Landscape Configuration
+            const pdfConfig = { orientation: 'landscape', unit: 'mm', format: 'a5' };
+
+            if (targets.length === 1) {
+                // SINGLE FILE MODE
+                const charge = targets[0];
+                container.innerHTML = renderInvoiceHTMLForPdf(charge, allData, invoiceSettings);
+                const element = container.firstElementChild as HTMLElement;
+                const canvas = await html2canvas(element, { scale: 2, useCORS: true, logging: false });
+                const pdf = new jsPDF('l', 'mm', 'a5'); // Landscape
+                const imgData = canvas.toDataURL('image/jpeg', 0.95);
+                // A5 Landscape: 210mm x 148mm
+                pdf.addImage(imgData, 'JPEG', 0, 0, 210, 148);
+                pdf.save(`PhieuThu_${charge.UnitID}_${period}.pdf`);
+                showToast('Đã tải xuống PDF.', 'success');
+            } else {
+                // ZIP MODE
+                const zip = new JSZip();
+                for (const charge of targets) {
+                    container.innerHTML = renderInvoiceHTMLForPdf(charge, allData, invoiceSettings);
+                    const element = container.firstElementChild as HTMLElement;
+                    const canvas = await html2canvas(element, { scale: 2, useCORS: true, logging: false });
+                    const pdf = new jsPDF('l', 'mm', 'a5'); // Landscape
+                    const imgData = canvas.toDataURL('image/jpeg', 0.95);
+                    pdf.addImage(imgData, 'JPEG', 0, 0, 210, 148);
+                    zip.file(`PhieuThu_${charge.UnitID}_${period}.pdf`, pdf.output('blob'));
+                }
+                const content = await zip.generateAsync({ type: 'blob' });
+                const link = document.createElement('a');
+                link.href = URL.createObjectURL(content);
+                link.download = `PhieuThu_${period}.zip`;
+                link.click();
+                showToast('Tải xuống ZIP hoàn tất.', 'success');
+            }
+
+            document.body.removeChild(container);
+            setSelectedUnits(new Set());
+        } catch (e) {
+            console.error(e);
+            showToast('Lỗi tạo PDF.', 'error');
+        } finally {
+            setIsLoading(false);
         }
-        const totalDue = Math.round(rows.reduce((s, r) => s + r.TotalDue, 0));
-        const paidRows = rows.filter(r => r.paymentStatus === 'paid' || r.paymentStatus === 'paid_tm' || r.paymentStatus === 'paid_ck');
-        const totalPaid = Math.round(paidRows.reduce((s, r) => s + r.TotalPaid, 0));
-        const difference = totalDue - totalPaid;
-        const paidCount = paidRows.length;
-        const totalCount = rows.length;
-        const progress = totalCount > 0 ? (paidCount / totalCount) * 100 : 0;
+    };
+
+    // --- Logic: Broadcast (App Notification) ---
+    const handleBroadcastNotification = async (singleCharge?: ExtendedCharge) => {
+        let targets: ExtendedCharge[] = [];
+        if (singleCharge) {
+            targets = [singleCharge];
+        } else {
+            targets = (charges as ExtendedCharge[]).filter(c => c.Period === period && selectedUnits.has(c.UnitID));
+        }
+
+        if (targets.length === 0) return;
         
-        return { totalDue, totalPaid, difference, paidCount, totalCount, progress };
-    }, [charges, period]);
+        if (!singleCharge && !window.confirm(`Gửi thông báo phí qua App cho ${targets.length} căn hộ?`)) return;
 
-    const clearAllFilters = () => { setStatusFilter('all'); setFloorFilter('all'); setSearchTerm(''); setActiveKpiFilter('all'); setSpecialFilter(null); };
+        setIsLoading(true);
+        let successCount = 0;
 
+        try {
+            if (IS_PROD) {
+                const batch = writeBatch(db);
+                // Notification Docs
+                targets.forEach(c => {
+                    const notifRef = doc(collection(db, 'notifications'));
+                    batch.set(notifRef, {
+                        userId: c.UnitID,
+                        title: `Thông báo phí T${c.Period.split('-')[1]}`,
+                        body: `Tổng phí: ${formatCurrency(c.TotalDue)}. Vui lòng thanh toán.`,
+                        isRead: false,
+                        createdAt: serverTimestamp(),
+                        type: 'bill',
+                        linkId: `${c.Period}_${c.UnitID}`
+                    });
+                    
+                    // Increment counter
+                    const chargeRef = doc(db, 'charges', `${c.Period}_${c.UnitID}`);
+                    batch.update(chargeRef, { sentCount: increment(1) });
+                });
+                await batch.commit();
+            }
+
+            // Optimistic Update
+            setCharges(prev => prev.map(c => {
+                if (targets.find(t => t.UnitID === c.UnitID && t.Period === c.Period)) {
+                    return { ...c, sentCount: ((c as ExtendedCharge).sentCount || 0) + 1 };
+                }
+                return c;
+            }));
+
+            showToast(`Đã gửi thông báo cho ${targets.length} căn hộ.`, 'success');
+        } catch (e: any) {
+            console.error("Broadcast Error:", e);
+            showToast('Lỗi gửi thông báo: ' + e.message, 'error');
+        } finally {
+            setIsLoading(false);
+            if (!singleCharge) setSelectedUnits(new Set());
+        }
+    };
+
+    // --- Logic: Send Email (Original) ---
+    const handleBulkSendEmail = async (singleUnitId?: string) => {
+        let targets = [];
+        if (singleUnitId) {
+            targets = charges.filter(c => c.Period === period && c.UnitID === singleUnitId);
+        } else {
+            targets = charges.filter(c => c.Period === period && selectedUnits.has(c.UnitID));
+        }
+
+        if (targets.length === 0) return;
+        if (!invoiceSettings.appsScriptUrl) { showToast('Chưa cấu hình Email Server.', 'error'); return; }
+
+        if (!singleUnitId && !window.confirm(`Gửi email cho ${targets.length} căn hộ?`)) return;
+
+        setIsLoading(true);
+        let successCount = 0;
+
+        try {
+            await Promise.all([loadScript('jspdf'), loadScript('html2canvas')]);
+            const { jsPDF } = jspdf;
+            const container = document.createElement('div');
+            container.style.position = 'absolute'; container.style.left = '-9999px';
+            document.body.appendChild(container);
+
+            for (const charge of targets) {
+                if (!charge.Email) continue;
+
+                // 1. Generate PDF Blob
+                container.innerHTML = renderInvoiceHTMLForPdf(charge, allData, invoiceSettings);
+                const element = container.firstElementChild as HTMLElement;
+                const canvas = await html2canvas(element, { scale: 2, useCORS: true });
+                const pdf = new jsPDF('l', 'mm', 'a5'); // Landscape A5
+                pdf.addImage(canvas.toDataURL('image/jpeg', 0.95), 'JPEG', 0, 0, 210, 148);
+                const pdfBlob = pdf.output('blob');
+
+                // 2. Convert Blob to Base64
+                const reader = new FileReader();
+                const base64Promise = new Promise<string>((resolve) => {
+                    reader.onloadend = () => resolve((reader.result as string).split(',')[1]);
+                    reader.readAsDataURL(pdfBlob);
+                });
+                const base64 = await base64Promise;
+
+                // 3. Send
+                const subject = (invoiceSettings.emailSubject || 'THONG BAO PHI').replace('{{period}}', period).replace('{{unit_id}}', charge.UnitID);
+                const body = (invoiceSettings.emailBody || '').replace('{{owner_name}}', charge.OwnerName).replace('{{unit_id}}', charge.UnitID).replace('{{period}}', period).replace('{{total_due}}', formatCurrency(charge.TotalDue));
+                
+                const res = await sendEmailAPI(charge.Email, subject, body, invoiceSettings, base64, `PhieuThu_${charge.UnitID}.pdf`);
+                if (res.success) successCount++;
+            }
+            document.body.removeChild(container);
+            
+            // Mark as sent
+            if (IS_PROD) {
+                const batch = writeBatch(db);
+                targets.forEach(c => {
+                    if (c.Email) batch.update(doc(db, 'charges', `${c.Period}_${c.UnitID}`), { isSent: true });
+                });
+                await batch.commit();
+            }
+            
+            setCharges(prev => prev.map(c => targets.find(t => t.UnitID === c.UnitID) && c.Email ? { ...c, isSent: true } : c));
+            showToast(singleUnitId ? 'Đã gửi email.' : `Đã gửi thành công ${successCount}/${targets.length} email.`, 'success');
+
+        } catch (e: any) {
+            showToast('Lỗi gửi email: ' + e.message, 'error');
+        } finally {
+            setIsLoading(false);
+            if (!singleUnitId) setSelectedUnits(new Set());
+        }
+    };
+
+    // --- Logic: CSV Export (FULL REPORT) ---
+    const handleExportReport = () => {
+        const targets = filteredCharges;
+        if (targets.length === 0) {
+            showToast('Không có dữ liệu để xuất.', 'warn');
+            return;
+        }
+        
+        // Define Columns
+        const header = "Kỳ,Căn hộ,Chủ hộ,Diện tích,Phí DV,SL Ô tô,SL Xe máy,Phí Gửi xe,Tiêu thụ nước,Tiền nước,Điều chỉnh,Tổng phải thu,Đã nộp,Còn nợ,Trạng thái\n";
+        
+        const rows = targets.map(c => {
+            const debt = c.TotalDue - c.TotalPaid;
+            const carCount = c['#CAR'] + c['#CAR_A'];
+            const motoCount = c['#MOTORBIKE'];
+            
+            // Handle CSV injection/escaping
+            const escape = (val: string | number) => `"${String(val).replace(/"/g, '""')}"`;
+
+            return [
+                c.Period,
+                c.UnitID,
+                escape(c.OwnerName),
+                c.Area_m2,
+                c.ServiceFee_Total,
+                carCount,
+                motoCount,
+                c.ParkingFee_Total,
+                c.Water_m3,
+                c.WaterFee_Total,
+                c.Adjustments,
+                c.TotalDue,
+                c.TotalPaid,
+                debt,
+                c.paymentStatus
+            ].join(',');
+        }).join('\n');
+
+        const blob = new Blob(["\uFEFF" + header + rows], { type: 'text/csv;charset=utf-8;' });
+        const url = URL.createObjectURL(blob);
+        const link = document.createElement("a");
+        link.href = url;
+        link.setAttribute("download", `Bao_cao_phi_ky_${period}.csv`);
+        document.body.appendChild(link);
+        link.click();
+        document.body.removeChild(link);
+    };
+
+    // --- Actions ---
+    const handleDeleteBulk = async () => {
+        if (!window.confirm("Bạn có chắc muốn xóa các dòng phí đã chọn?")) return;
+        const targetIds = Array.from(selectedUnits);
+        if (IS_PROD) {
+            const batch = writeBatch(db);
+            targetIds.forEach(id => batch.delete(doc(db, 'charges', `${period}_${id}`)));
+            await batch.commit();
+        }
+        setCharges(prev => prev.filter(c => !(c.Period === period && selectedUnits.has(c.UnitID))));
+        setSelectedUnits(new Set());
+        showToast('Đã xóa dữ liệu.', 'success');
+    };
+
+    const handleMarkPaid = async (method: 'paid_tm' | 'paid_ck' | 'pending') => {
+        const targets = charges.filter(c => c.Period === period && selectedUnits.has(c.UnitID));
+        if (targets.length === 0) return;
+        
+        setIsLoading(true);
+        try {
+            if (IS_PROD) {
+                const batch = writeBatch(db);
+                targets.forEach(c => {
+                    const update = {
+                        paymentStatus: method,
+                        PaymentConfirmed: method !== 'pending',
+                        TotalPaid: method === 'pending' ? 0 : c.TotalDue
+                    };
+                    batch.update(doc(db, 'charges', `${period}_${c.UnitID}`), update);
+                });
+                await batch.commit();
+            }
+            
+            setCharges(prev => prev.map(c => {
+                if (c.Period === period && selectedUnits.has(c.UnitID)) {
+                    return {
+                        ...c,
+                        paymentStatus: method as PaymentStatus,
+                        PaymentConfirmed: method !== 'pending',
+                        TotalPaid: method === 'pending' ? 0 : c.TotalDue
+                    };
+                }
+                return c;
+            }));
+            showToast('Cập nhật trạng thái thành công.', 'success');
+        } finally {
+            setIsLoading(false);
+            setSelectedUnits(new Set());
+        }
+    };
+
+    const handleSinglePayment = async (charge: ChargeRaw, method: 'paid_tm' | 'paid_ck') => {
+        const amount = editedPayments[charge.UnitID] ?? charge.TotalPaid;
+        await confirmSinglePayment(charge, amount, method);
+        setCharges(prev => prev.map(c => c.UnitID === charge.UnitID && c.Period === period ? { ...c, paymentStatus: method, PaymentConfirmed: true, TotalPaid: amount } : c));
+        showToast(`Đã thu ${formatCurrency(amount)} cho căn ${charge.UnitID}`, 'success');
+    };
+
+    const formatPeriod = (p: string) => { const d = new Date(p + '-02'); return `T${d.getMonth() + 1}/${d.getFullYear()}`; };
+    
     return (
-        <div className="space-y-4 h-full flex flex-col">
+        <div className="space-y-4 h-full flex flex-col relative">
             <input type="file" ref={fileInputRef} onChange={handleStatementFileChange} accept=".xlsx, .xls, .csv" className="hidden" />
+            
+            {/* 1. StatCards (Toggleable) */}
+            <div className="relative">
+                <button 
+                    onClick={() => setShowStats(!showStats)} 
+                    className="absolute right-0 -top-8 text-gray-400 hover:text-gray-600 flex items-center gap-1 text-xs font-semibold z-10"
+                >
+                    {showStats ? <><ChevronUpIcon className="w-4 h-4" /> Thu gọn</> : <><ChevronDownIcon className="w-4 h-4" /> Mở rộng</>}
+                </button>
+                
+                {showStats && (
+                    <div className="grid grid-cols-2 lg:grid-cols-4 gap-4 animate-fade-in-down mb-4">
+                        <MinimalStatCard label="Doanh thu dự kiến" value={formatCurrency(stats.totalDue)} colorClass="border-blue-500" onClick={() => setStatusFilter('all')} />
+                        <MinimalStatCard label="Thực thu" value={formatCurrency(stats.totalPaid)} colorClass="border-emerald-500" onClick={() => setStatusFilter('paid')} />
+                        <MinimalStatCard label="Công nợ" value={formatCurrency(stats.debt)} colorClass="border-red-500" onClick={() => setStatusFilter('debt')} />
+                        <MinimalStatCard label="Tiến độ thu" value={`${stats.progress.toFixed(0)}%`} colorClass="border-purple-500" />
+                    </div>
+                )}
+            </div>
 
-             <div className="relative bg-white p-4 rounded-xl shadow-sm">
-                <div className="absolute top-2 right-2 z-10">
+            {/* 2. Toolbar */}
+            <div className="bg-white p-3 rounded-xl shadow-sm border border-gray-200 flex flex-col md:flex-row items-center gap-3">
+                
+                {/* Month Picker */}
+                <div className="relative flex items-center gap-1 bg-gray-100 p-1 rounded-lg">
+                    <button onClick={() => setPeriod(p => { const d=new Date(p+'-02'); d.setMonth(d.getMonth()-1); return d.toISOString().slice(0,7); })} className="p-1.5 hover:bg-gray-200 rounded"><ChevronLeftIcon /></button>
                     <button 
-                        onClick={() => setIsStatsExpanded(p => !p)} 
-                        className="p-1.5 rounded-full hover:bg-gray-200"
-                        data-tooltip={isStatsExpanded ? "Thu gọn" : "Mở rộng"}
+                        onClick={() => setIsMonthPickerOpen(!isMonthPickerOpen)}
+                        className="px-3 font-bold text-gray-800 text-sm w-24 text-center hover:bg-gray-200 rounded py-1.5"
                     >
-                        {isStatsExpanded ? <ChevronUpIcon /> : <ChevronDownIcon />}
+                        {formatPeriod(period)}
+                    </button>
+                    {isMonthPickerOpen && (
+                        <MonthPickerPopover currentPeriod={period} onSelectPeriod={setPeriod} onClose={() => setIsMonthPickerOpen(false)} />
+                    )}
+                    <button onClick={() => setPeriod(p => { const d=new Date(p+'-02'); d.setMonth(d.getMonth()+1); return d.toISOString().slice(0,7); })} className="p-1.5 hover:bg-gray-200 rounded"><ChevronRightIcon /></button>
+                </div>
+
+                {/* Search */}
+                <div className="relative flex-grow min-w-[200px]">
+                    <SearchIcon className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-gray-400" />
+                    <input type="text" placeholder="Tìm căn hộ..." value={searchTerm} onChange={e => setSearchTerm(e.target.value)} className="w-full h-9 pl-9 pr-3 text-sm border border-gray-300 rounded-lg focus:ring-2 focus:ring-primary outline-none bg-white text-gray-900" />
+                </div>
+
+                {/* Filter Floors */}
+                <select value={floorFilter} onChange={e => setFloorFilter(e.target.value)} className="h-9 px-2 text-sm border border-gray-300 rounded-lg bg-white text-gray-900 outline-none">
+                    {floors.map(f => <option key={f.value} value={f.value}>{f.label}</option>)}
+                </select>
+
+                {/* Filter Status */}
+                <select value={statusFilter} onChange={e => setStatusFilter(e.target.value)} className="h-9 px-2 text-sm border border-gray-300 rounded-lg bg-white text-gray-900 outline-none">
+                    <option value="all">Tất cả trạng thái</option>
+                    <option value="pending">Đang chờ</option>
+                    <option value="paid">Đã thu (Tất cả)</option>
+                    <option value="paid_tm">Đã thu (TM)</option>
+                    <option value="paid_ck">Đã thu (CK)</option>
+                    <option value="debt">Còn nợ</option>
+                </select>
+
+                {/* Action Buttons */}
+                <div className="flex items-center gap-2 border-l pl-3">
+                    <button 
+                        onClick={handleLockToggle}
+                        disabled={isLoading || !canCalculate || (isFuturePeriod && !isPeriodLocked)}
+                        title={isPeriodLocked ? "Bấm đúp để mở khoá" : "Bấm để tính phí cho kỳ hiện tại"}
+                        className={`h-9 px-4 rounded-lg font-bold text-sm flex items-center gap-2 text-white shadow-sm transition-colors ${
+                            isPeriodLocked ? 'bg-gray-500 hover:bg-gray-600' : 
+                            isFuturePeriod ? 'bg-gray-300 cursor-not-allowed' :
+                            'bg-[#006f3a] hover:bg-[#005a2f]'
+                        }`}
+                    >
+                        {isLoading ? <Spinner /> : isPeriodLocked ? <LockClosedIcon className="w-4 h-4"/> : <CalculatorIcon2 className="w-4 h-4"/>}
+                        {isPeriodLocked ? "Đã khóa" : "Tính phí"}
+                    </button>
+                    <button 
+                        onClick={() => fileInputRef.current?.click()} 
+                        title="Nhập sao kê để đối soát"
+                        className="h-9 px-3 bg-white border border-gray-300 text-gray-700 font-semibold rounded-lg hover:bg-gray-50 flex items-center gap-1 text-sm"
+                    >
+                        <ArrowUpTrayIcon className="w-4 h-4"/> Import
+                    </button>
+                    <button 
+                        onClick={handleExportReport} 
+                        title="Xuất báo cáo"
+                        className="h-9 px-3 bg-white border border-gray-300 text-gray-700 font-semibold rounded-lg hover:bg-gray-50 flex items-center gap-1 text-sm"
+                    >
+                        <ArrowDownTrayIcon className="w-4 h-4"/> Export
                     </button>
                 </div>
-                {isStatsExpanded && (
-                    <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6">
-                        <div onClick={clearAllFilters}>
-                             <StatCard 
-                                label="Doanh thu" 
-                                value={formatCurrency(kpiStats.totalDue)}
-                                icon={<BanknotesIcon className="w-7 h-7 text-blue-600" />} 
-                                iconBgClass="bg-blue-100" 
-                                className="border-l-4 border-blue-500 cursor-pointer"
-                            />
-                        </div>
-                        <div onClick={() => { clearAllFilters(); setStatusFilter('paid'); setActiveKpiFilter('paid'); }}>
-                            <StatCard 
-                                label="Đã thanh toán" 
-                                value={formatCurrency(kpiStats.totalPaid)} 
-                                icon={<CheckCircleIcon className="w-7 h-7 text-emerald-600" />} 
-                                iconBgClass="bg-emerald-100" 
-                                className="border-l-4 border-green-500 cursor-pointer"
-                            />
-                        </div>
-                        <div onClick={() => { clearAllFilters(); setSpecialFilter('has_difference'); setActiveKpiFilter('difference'); }}>
-                             <StatCard 
-                                label="Còn nợ" 
-                                value={formatCurrency(kpiStats.difference)}
-                                icon={<WarningIcon className="w-7 h-7 text-red-600" />} 
-                                iconBgClass="bg-red-100" 
-                                className="border-l-4 border-red-500 cursor-pointer"
-                            />
-                        </div>
-                        <div className={`bg-white p-5 rounded-xl shadow-sm flex items-center gap-5 cursor-pointer h-full border-l-4 border-purple-500`} onClick={() => { clearAllFilters(); setSpecialFilter('not_paid'); setActiveKpiFilter('progress'); }}>
-                            <div className="flex-shrink-0 w-14 h-14 flex items-center justify-center rounded-full bg-purple-100">
-                                <PercentageIcon className="w-7 h-7 text-purple-600" />
-                            </div>
-                            <div className="flex-1">
-                                <p className="text-sm font-medium text-gray-500">Tiến độ thu</p>
-                                <div className="mt-1">
-                                    <div className="flex items-baseline gap-2">
-                                        <p className="text-2xl font-bold text-gray-900">{kpiStats.progress.toFixed(0)}%</p>
-                                        <p className="text-sm font-medium text-gray-500">({kpiStats.paidCount}/{kpiStats.totalCount})</p>
-                                    </div>
-                                    <div className="w-full bg-gray-200 rounded-full h-1.5 mt-2">
-                                        <div className="bg-purple-600 h-1.5 rounded-full transition-all duration-500" style={{ width: `${kpiStats.progress}%` }}></div>
-                                    </div>
-                                </div>
-                            </div>
-                        </div>
-                    </div>
-                )}
-            </div>
-            
-            <div className="bg-white p-4 rounded-xl shadow-sm">
-                <div className="flex items-center gap-2 md:gap-4">
-                    <div className="flex items-center gap-2 flex-shrink-0">
-                        <div className="relative flex items-center gap-1 p-1 bg-gray-100 rounded-lg">
-                            <button onClick={() => navigatePeriod('prev')} data-tooltip="Kỳ trước"><ChevronLeftIcon /></button>
-                            <button onClick={() => setIsMonthPickerOpen(p => !p)} className="p-1.5 w-32 font-semibold hover:bg-gray-200 rounded-md" data-tooltip="Chọn kỳ tính phí">
-                                {formatPeriodForDisplay(period)}
-                            </button>
-                            {isMonthPickerOpen && <MonthPicker currentPeriod={period} onSelectPeriod={(p) => { setPeriod(p); setIsMonthPickerOpen(false); }} onClose={() => setIsMonthPickerOpen(false)}/>}
-                            <button onClick={() => navigatePeriod('next')} data-tooltip="Kỳ sau"><ChevronRightIcon /></button>
-                        </div>
-                        <button onClick={() => navigatePeriod('current')} data-tooltip="Về kỳ hiện tại" className="h-10 px-3 text-sm font-semibold rounded-lg border border-gray-300 bg-white hover:bg-gray-50">Current</button>
-                    </div>
-
-                    <div className="flex items-center gap-2 flex-grow">
-                        <div className="relative flex-grow min-w-[150px] md:min-w-[200px]">
-                            <SearchIcon className="absolute left-3 top-1/2 -translate-y-1/2 h-5 w-5 text-gray-400" />
-                            <input type="text" placeholder="Tìm theo mã hoặc tên..." value={searchTerm} onChange={e => setSearchTerm(e.target.value)} className="w-full h-10 pl-10 pr-3 border rounded-lg bg-white border-gray-300 text-gray-900"/>
-                        </div>
-                        <div className="hidden md:block">
-                             <FilterPill
-                                icon={<TagIcon className="h-5 w-5 text-gray-400" />}
-                                currentValue={statusFilter}
-                                onValueChange={setStatusFilter}
-                                tooltip="Lọc theo trạng thái"
-                                options={[
-                                    { value: 'all', label: 'All Statuses' },
-                                    { value: 'paid', label: 'Paid (Any)' },
-                                    { value: 'reconciling', label: 'Reconciling' },
-                                    { value: 'unpaid', label: 'Unpaid' },
-                                    { value: 'pending', label: 'Pending' },
-                                ]}
-                            />
-                        </div>
-                        <div className="hidden md:block"><FilterPill icon={<BuildingIcon className="h-5 w-5 text-gray-400" />} currentValue={floorFilter} onValueChange={setFloorFilter} tooltip="Lọc theo tầng" options={floors} /></div>
-                    </div>
-
-                    <div className="flex items-center gap-2 flex-shrink-0">
-                        <button onClick={handleRefreshData} data-tooltip={isDataStale ? "Dữ liệu nguồn (xe, nước) đã thay đổi. Bấm để cập nhật." : "Làm mới dữ liệu nguồn"} disabled={isRefreshing || isLoading} className={`h-10 w-10 flex items-center justify-center font-semibold rounded-lg hover:bg-opacity-80 disabled:opacity-50 border ${ isDataStale ? 'bg-green-100 border-green-600 text-green-700 animate-pulse' : 'border-gray-300 bg-white text-gray-700 hover:bg-gray-50' }`}> 
-                            <CircularArrowRefreshIcon /> 
-                        </button>
-                        
-                        <div className="relative" title={!isLoading && canCalculate ? 'Nhấn đúp để khóa/mở khóa' : ''}>
-                             <button onClick={handlePrimaryAction} disabled={isLoading || !canCalculate || isRefreshing} data-tooltip={primaryActionState === 'locked' ? 'Kỳ đang bị khóa. Nhấn đúp để mở.' : 'Tính phí cho kỳ'} className={`h-10 px-4 text-white font-bold rounded-lg shadow-sm transition-colors flex items-center gap-1.5 disabled:bg-gray-400 disabled:cursor-not-allowed ${primaryActionState === 'locked' ? 'bg-gray-700 hover:bg-gray-800' : (primaryActionState === 'recalculate' ? 'bg-yellow-500 hover:bg-yellow-600' : 'bg-primary hover:bg-primary-focus')}`}>
-                                {primaryActionState === 'locked' ? <LockClosedIcon /> : (isLoading ? <Spinner /> : (primaryActionState === 'recalculate' ? <CircularArrowRefreshIcon /> : <CalculatorIcon2 />))}
-                                {primaryActionState === 'locked' ? 'Locked' : (isLoading ? 'Calculating...' : (primaryActionState === 'recalculate' ? 'Recalculate' : 'Calculate'))}
-                            </button>
-                        </div>
-                        
-                        <button onClick={handleImportStatementClick} data-tooltip="Nhập sao kê để tự động đối soát" disabled={!canCalculate} className="h-10 px-4 font-semibold rounded-lg disabled:opacity-50 flex items-center gap-2 border border-gray-300 text-gray-700 hover:bg-gray-50 bg-white">
-                            <ArrowUpTrayIcon className="w-5 h-5" /> <span className="hidden lg:inline">Import</span>
-                        </button>
-                        <button onClick={handleExportReport} data-tooltip="Xuất báo cáo tổng hợp" disabled={primaryActionState === 'calculate'} className="h-10 px-4 text-sm font-semibold rounded-lg flex items-center gap-2 border border-gray-300 text-gray-700 hover:bg-gray-50 disabled:opacity-50">
-                            <TableCellsIcon className="w-5 h-5" /> <span className="hidden lg:inline">Export</span>
-                        </button>
-                    </div>
-                </div>
             </div>
 
-            <div className="bg-white rounded-xl shadow-sm flex-1 flex flex-col overflow-hidden">
-                {selectedUnits.size > 0 && (
-                     <div className="p-3 border-b bg-gray-50 flex items-center gap-4 animate-fade-in-down">
-                        <span className="font-semibold text-sm">{selectedUnits.size} đã chọn</span>
-                        <button onClick={() => setSelectedUnits(new Set())} className="text-sm text-gray-500 hover:text-gray-800">Bỏ chọn</button>
-                        <div className="h-5 border-l ml-2"></div>
-                        <div className="ml-auto flex items-center gap-4">
-                             {(role === 'Admin' || role === 'Accountant') && <>
-                                <button onClick={() => handleBulkSetStatus('paid')} className="flex items-center gap-2 text-sm font-semibold text-green-600 hover:text-green-800"><CheckCircleIcon /> Mark Paid</button>
-                                <button onClick={() => handleBulkSetStatus('unpaid')} className="flex items-center gap-2 text-sm font-semibold text-orange-600 hover:text-orange-800"><WarningIcon /> Mark Unpaid</button>
-                            </>}
-                            <button onClick={handleDownloadPDFs} disabled={exportProgress.isOpen} className="flex items-center gap-2 text-sm font-semibold text-blue-600 hover:text-blue-800"><DocumentArrowDownIcon className="w-5 h-5" /> Tải PDF (Zip)</button>
-                            <button onClick={handleBulkSendEmail} className="flex items-center gap-2 text-sm font-semibold text-indigo-600 hover:text-indigo-800"><PaperAirplaneIcon /> Send Mail</button>
-                        </div>
-                    </div>
-                )}
+            {/* 3. Table */}
+            <div className="bg-white rounded-xl shadow-sm border border-gray-200 flex-1 flex flex-col overflow-hidden relative">
                 <div className="overflow-y-auto">
-                    <table className="min-w-full">
-                        <thead className="bg-gray-50 sticky top-0 z-10"><tr>
-                            <th className="px-4 py-2 w-12 text-center"><input type="checkbox" onChange={e => setSelectedUnits(e.target.checked ? new Set(sortedAndFilteredCharges.map(c => c.UnitID)) : new Set())} checked={sortedAndFilteredCharges.length > 0 && selectedUnits.size > 0 && sortedAndFilteredCharges.every(c => selectedUnits.has(c.UnitID))} disabled={sortedAndFilteredCharges.length === 0}/></th>
-                            <th className="px-4 py-3 text-left text-xs font-bold text-gray-700 uppercase tracking-wider">Căn hộ</th>
-                            <th className="px-4 py-3 text-left text-xs font-bold text-gray-700 uppercase tracking-wider">Chủ SH</th>
-                            <th className="px-4 py-3 text-right text-xs font-bold text-gray-700 uppercase tracking-wider">Tổng phí</th>
-                            <th className="px-4 py-3 text-right text-xs font-bold text-gray-700 uppercase tracking-wider">Tổng TT</th>
-                            <th className="px-4 py-3 text-right text-xs font-bold text-gray-700 uppercase tracking-wider">C.Lệch</th>
-                            <th className="px-4 py-3 text-center text-xs font-bold text-gray-700 uppercase tracking-wider">Trạng thái</th>
-                            <th className="px-4 py-3 text-center text-xs font-bold text-gray-700 uppercase tracking-wider">H.động</th>
-                        </tr></thead>
-                        <tbody className="text-sm divide-y divide-gray-200">
-                            {isLoading && primaryActionState !== 'recalculate' ? ( Array.from({ length: 10 }).map((_, i) => ( <tr key={i}><td colSpan={8} className="p-2"><div className="h-12 bg-gray-200 animate-pulse rounded-md"></div></td></tr> )) ) 
-                            : sortedAndFilteredCharges.length === 0 ? ( <tr><td colSpan={8} className="text-center p-8 text-gray-500">{charges.filter(c=>c.Period===period).length > 0 ? 'Không có dữ liệu nào khớp với bộ lọc.' : 'Chưa có dữ liệu cho kỳ này. Vui lòng bấm "Calculate".'}</td></tr> ) 
-                            : ( sortedAndFilteredCharges.map(charge => {
-                                    const finalPaidAmount = editedPayments[charge.UnitID] ?? charge.TotalPaid;
-                                    const difference = finalPaidAmount - charge.TotalDue;
-                                    const isPaid = charge.paymentStatus === 'paid' || charge.paymentStatus === 'paid_tm' || charge.paymentStatus === 'paid_ck';
+                    <table className="min-w-full text-sm">
+                        <thead className="bg-gray-50 sticky top-0 z-10 border-b border-gray-200">
+                            <tr>
+                                <th className="w-10 px-4 py-3 text-center"><input type="checkbox" checked={selectedUnits.size > 0 && selectedUnits.size === filteredCharges.length} onChange={() => setSelectedUnits(prev => prev.size === filteredCharges.length ? new Set() : new Set(filteredCharges.map(c => c.UnitID)))} className="w-4 h-4 rounded text-primary focus:ring-primary cursor-pointer"/></th>
+                                <th className="px-4 py-3 text-left font-bold text-gray-600">Căn hộ</th>
+                                <th className="px-4 py-3 text-left font-bold text-gray-600">Chủ hộ</th>
+                                <th className="px-4 py-3 text-right font-bold text-gray-600">Tổng phí</th>
+                                <th className="px-4 py-3 text-right font-bold text-gray-600 w-32">Thực thu</th>
+                                <th className="px-4 py-3 text-right font-bold text-gray-600">C.Lệch</th>
+                                <th className="px-4 py-3 text-center font-bold text-gray-600">Trạng thái</th>
+                                <th className="px-4 py-3 text-center font-bold text-gray-600 w-32">H.Động</th>
+                            </tr>
+                        </thead>
+                        <tbody className="divide-y divide-gray-200">
+                            {filteredCharges.length === 0 ? (
+                                <tr><td colSpan={8} className="p-8 text-center text-gray-500">Chưa có dữ liệu.</td></tr>
+                            ) : (
+                                (filteredCharges as ExtendedCharge[]).map(charge => {
+                                    const finalPaid = editedPayments[charge.UnitID] ?? charge.TotalPaid;
+                                    const diff = finalPaid - charge.TotalDue;
+                                    const isPaid = ['paid', 'paid_tm', 'paid_ck'].includes(charge.paymentStatus);
+                                    
+                                    // Status Badge Logic
+                                    let statusBadge;
+                                    if (charge.paymentStatus === 'paid_tm') {
+                                        statusBadge = <span className="px-2 py-0.5 text-xs font-bold rounded-full bg-green-100 text-green-800 border border-green-200">Đã thu (TM)</span>;
+                                    } else if (charge.paymentStatus === 'paid_ck' || charge.paymentStatus === 'paid') {
+                                        statusBadge = <span className="px-2 py-0.5 text-xs font-bold rounded-full bg-blue-100 text-blue-800 border border-blue-200">Đã thu (CK)</span>;
+                                    } else if (charge.paymentStatus === 'reconciling') {
+                                        statusBadge = <span className="px-2 py-0.5 text-xs font-bold rounded-full bg-pink-100 text-pink-800 border border-pink-200">Chờ đối soát</span>;
+                                    } else if (charge.sentCount && charge.sentCount > 0) {
+                                        statusBadge = <span className="px-2 py-0.5 text-xs font-bold rounded-full bg-cyan-100 text-cyan-800 border border-cyan-200">Đã gửi - {charge.sentCount}</span>;
+                                    } else {
+                                        statusBadge = <span className="px-2 py-0.5 text-xs font-bold rounded-full bg-orange-100 text-orange-800 border border-orange-200">Đang chờ</span>;
+                                    }
+
+                                    // Input Styling Logic
+                                    const inputClass = isPaid
+                                        ? "w-full text-right p-1.5 text-sm border border-green-200 rounded-md bg-green-50 text-green-700 font-bold focus:outline-none"
+                                        : "w-full text-right p-1.5 text-sm border border-gray-300 rounded-md bg-white text-gray-900 focus:ring-2 focus:ring-[#006f3a] focus:border-transparent outline-none";
+
                                     return (
-                                    <tr key={charge.UnitID} className="hover:bg-gray-50">
-                                        <td className="w-12 text-center"><input type="checkbox" checked={selectedUnits.has(charge.UnitID)} onChange={(e) => setSelectedUnits(p => { const n = new Set(p); e.target.checked ? n.add(charge.UnitID) : n.delete(charge.UnitID); return n; })} /></td>
-                                        <td className="font-medium px-4 py-3 text-gray-900">{charge.UnitID}</td>
-                                        <td className="px-4 py-3 text-gray-900">{charge.OwnerName}</td>
-                                        <td className="px-4 py-3 text-right text-gray-900 font-bold">{formatNumber(charge.TotalDue)}</td>
-                                        <td className="px-4 py-3 text-right">
-                                            <input 
-                                                type="text"
-                                                value={new Intl.NumberFormat('vi-VN').format(finalPaidAmount)}
-                                                onChange={(e) => handlePaymentChange(charge.UnitID, e.target.value)}
-                                                disabled={charge.PaymentConfirmed || role === 'Operator'}
-                                                className="w-36 text-right p-2 text-sm border rounded-md bg-white text-gray-900 border-gray-300 focus:ring-2 focus:ring-primary disabled:bg-transparent disabled:border-transparent font-bold disabled:text-emerald-600"
-                                            />
-                                        </td>
-                                         <td className={`font-bold px-4 py-3 text-right whitespace-nowrap ${difference > 0 ? 'text-green-600' : (difference < 0 ? 'text-red-600' : 'text-gray-900')}`}>
-                                            {difference !== 0 ? formatNumber(difference) : ''}
-                                        </td>
-                                        <td className="px-4 py-3 text-center">
-                                            {charge.paymentStatus === 'paid' ? <span className="px-2.5 py-1 inline-flex text-xs font-semibold rounded-full bg-green-100 text-green-800">Paid</span> :
-                                             charge.paymentStatus === 'paid_tm' ? <span className="px-2.5 py-1 inline-flex text-xs font-semibold rounded-full bg-green-100 text-green-800">Đã thu (TM)</span> :
-                                             charge.paymentStatus === 'paid_ck' ? <span className="px-2.5 py-1 inline-flex text-xs font-semibold rounded-full bg-blue-100 text-blue-800">Đã thu (CK)</span> :
-                                             charge.paymentStatus === 'reconciling' ? <span className="px-2.5 py-1 inline-flex text-xs font-semibold rounded-full bg-yellow-100 text-yellow-800">Reconciling</span> :
-                                             (charge.isPrinted && charge.isSent) ? <span className="px-2.5 py-1 inline-flex text-xs font-semibold rounded-full bg-blue-200 text-blue-800">Printed & Sent</span> :
-                                             charge.isSent ? <span className="px-2.5 py-1 inline-flex text-xs font-semibold rounded-full bg-sky-100 text-sky-800">Sent</span> :
-                                             charge.isPrinted ? <span className="px-2.5 py-1 inline-flex text-xs font-semibold rounded-full bg-orange-100 text-orange-800">Printed</span> :
-                                             <span className="px-2.5 py-1 inline-flex text-xs font-semibold rounded-full bg-gray-100 text-gray-800">Pending</span>
-                                            }
-                                        </td>
-                                        <td className="px-4 py-3"><div className="flex justify-center items-center gap-2">
-                                            <button 
-                                                onClick={() => handleInitiatePayment(charge)}
-                                                disabled={isPaid || role === 'Operator'}
-                                                className="p-2 rounded-full hover:bg-gray-200 disabled:opacity-30"
-                                                data-tooltip="Xác nhận thanh toán"
-                                            >
-                                                <ActionPaidIcon className="w-5 h-5 text-green-500" />
-                                            </button>
-                                            <button onClick={() => setPreviewCharge(charge)} className="p-2 rounded-full hover:bg-gray-200" data-tooltip="View & Send"><ActionViewIcon className="text-blue-500 w-5 h-5" /></button>
-                                        </div></td>
-                                    </tr>
-                                )
-                            }))}
+                                        <tr key={charge.UnitID} className={`hover:bg-gray-50 transition-colors ${selectedUnits.has(charge.UnitID) ? 'bg-blue-50' : ''}`}>
+                                            <td className="px-4 py-3 text-center"><input type="checkbox" checked={selectedUnits.has(charge.UnitID)} onChange={() => setSelectedUnits(p => { const n = new Set(p); if(n.has(charge.UnitID)) n.delete(charge.UnitID); else n.add(charge.UnitID); return n; })} className="w-4 h-4 rounded text-primary focus:ring-primary cursor-pointer"/></td>
+                                            <td className="px-4 py-3 font-bold text-gray-900">{charge.UnitID}</td>
+                                            <td className="px-4 py-3 text-gray-700">{charge.OwnerName}</td>
+                                            <td className="px-4 py-3 text-right font-medium text-gray-900">{formatNumber(charge.TotalDue)}</td>
+                                            <td className="px-4 py-3 text-right">
+                                                <input 
+                                                    type="text" 
+                                                    value={formatNumber(finalPaid)} 
+                                                    onChange={e => { 
+                                                        if (!isPaid) {
+                                                            const val = parseInt(e.target.value.replace(/\D/g, '') || '0', 10); 
+                                                            setEditedPayments(prev => ({ ...prev, [charge.UnitID]: val })); 
+                                                        }
+                                                    }}
+                                                    readOnly={isPaid}
+                                                    className={inputClass}
+                                                />
+                                            </td>
+                                            <td className={`px-4 py-3 text-right font-bold ${diff === 0 ? 'text-gray-300' : diff > 0 ? 'text-blue-600' : 'text-red-500'}`}>{diff === 0 ? '-' : formatNumber(diff)}</td>
+                                            <td className="px-4 py-3 text-center">
+                                                {statusBadge}
+                                            </td>
+                                            <td className="px-4 py-3 text-center">
+                                                <div className="flex justify-center gap-1">
+                                                    <button onClick={() => setPreviewCharge(charge)} title="Xem chi tiết" className="p-1.5 rounded hover:bg-gray-200 text-gray-500 hover:text-gray-700"><ActionViewIcon className="w-4 h-4"/></button>
+                                                    <button onClick={() => handleBroadcastNotification(charge)} title="Gửi App Notification" className="p-1.5 rounded hover:bg-blue-50 text-blue-500 hover:text-blue-700"><PaperAirplaneIcon className="w-4 h-4"/></button>
+                                                    <QuickActionMenu 
+                                                        onSelect={(m) => handleSinglePayment(charge, m)} 
+                                                        disabled={role === 'Operator'} 
+                                                        trigger={
+                                                            <button title="Xác nhận thu" className="p-1.5 rounded hover:bg-green-50 text-green-500 hover:text-green-700">
+                                                                <CheckCircleIcon className="w-4 h-4"/>
+                                                            </button>
+                                                        }
+                                                    />
+                                                </div>
+                                            </td>
+                                        </tr>
+                                    );
+                                })
+                            )}
                         </tbody>
                     </table>
                 </div>
             </div>
-            
-            <ExportProgressModal isOpen={exportProgress.isOpen} done={exportProgress.done} total={exportProgress.total} onCancel={() => { cancelExportToken.current.cancelled = true; showToast('Cancellation requested...', 'info'); }}/>
-            {previewCharge && <NoticePreviewModal charge={previewCharge} onClose={() => setPreviewCharge(null)} invoiceSettings={invoiceSettings} allData={allData} onSendEmail={handleSendSingleEmail} />}
-            
-            {paymentConfirmationState.isOpen && paymentConfirmationState.charge && (
-                <PaymentMethodModal
-                    onClose={() => setPaymentConfirmationState({ isOpen: false, charge: null })}
-                    onConfirm={handleConfirmFromModal}
-                    unitId={paymentConfirmationState.charge.UnitID}
-                    amount={editedPayments[paymentConfirmationState.charge.UnitID] ?? paymentConfirmationState.charge.TotalPaid}
+
+            {/* 4. Floating Action Bar */}
+            {selectedUnits.size > 0 && (
+                <div className="fixed bottom-6 left-1/2 transform -translate-x-1/2 bg-white rounded-full shadow-2xl border border-gray-200 p-2 flex items-center gap-4 z-50 animate-fade-in-down">
+                    <div className="pl-4 pr-3 border-r border-gray-200 flex items-center gap-2">
+                        <span className="text-sm font-bold text-gray-800">{selectedUnits.size}</span>
+                        <button onClick={() => setSelectedUnits(new Set())} className="text-xs text-red-500 hover:underline">Bỏ chọn</button>
+                    </div>
+                    <div className="flex items-center gap-2">
+                        <button onClick={() => handleMarkPaid('paid_tm')} disabled={isLoading} className="flex items-center gap-1 px-3 py-1.5 rounded-full bg-green-50 text-green-700 hover:bg-green-100 text-xs font-bold"><BanknotesIcon className="w-4 h-4"/> Thu TM</button>
+                        <button onClick={() => handleMarkPaid('paid_ck')} disabled={isLoading} className="flex items-center gap-1 px-3 py-1.5 rounded-full bg-blue-50 text-blue-700 hover:bg-blue-100 text-xs font-bold"><CreditCardIcon className="w-4 h-4"/> Thu CK</button>
+                        <button onClick={() => handleMarkPaid('pending')} disabled={isLoading} className="flex items-center gap-1 px-3 py-1.5 rounded-full bg-orange-50 text-orange-700 hover:bg-orange-100 text-xs font-bold"><ArrowUturnLeftIcon className="w-4 h-4"/> Hủy thu</button>
+                    </div>
+                    <div className="flex items-center gap-2 border-l pl-3 border-gray-200">
+                        <button onClick={() => handleBroadcastNotification()} disabled={isLoading} className="p-2 rounded-full hover:bg-cyan-50 text-cyan-600" title="Gửi App"><PaperAirplaneIcon className="w-5 h-5"/></button>
+                        <button onClick={() => handleBulkSendEmail()} disabled={isLoading} className="p-2 rounded-full hover:bg-indigo-50 text-indigo-600" title="Gửi Email"><EnvelopeIcon className="w-5 h-5"/></button>
+                        <button onClick={handleDownloadPDFs} disabled={isLoading} className="p-2 rounded-full hover:bg-gray-100 text-gray-700" title="Tải PDF"><PrinterIcon className="w-5 h-5"/></button>
+                    </div>
+                    <div className="pl-2 border-l border-gray-200 pr-2">
+                        <button onClick={handleDeleteBulk} disabled={isLoading} className="p-2 rounded-full hover:bg-red-50 text-red-600" title="Xóa"><TrashIcon className="w-5 h-5"/></button>
+                    </div>
+                </div>
+            )}
+
+            {previewCharge && (
+                <NoticePreviewModal 
+                    charge={previewCharge} 
+                    onClose={() => setPreviewCharge(null)} 
+                    invoiceSettings={invoiceSettings} 
+                    allData={allData} 
+                    onSendEmail={() => handleBulkSendEmail(previewCharge.UnitID)}
                 />
             )}
         </div>
