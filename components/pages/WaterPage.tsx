@@ -1,3 +1,4 @@
+
 import React, { useState, useMemo, useEffect, useRef } from 'react';
 import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, LineChart, Line, Legend } from 'recharts';
 import type { WaterReading, Unit, Role, TariffWater, TariffCollection } from '../../types';
@@ -427,7 +428,36 @@ const WaterPage: React.FC<WaterPageProps> = ({ waterReadings, setWaterReadings, 
 
             <div className="w-1/3 bg-white rounded-xl shadow-sm overflow-y-auto p-6 space-y-6 relative border-l">
                 {selectedUnitId ? (
-                    <div className="animate-fade-in-down"><button onClick={() => setSelectedUnitId(null)} className="absolute top-4 right-4 p-2 rounded-full hover:bg-gray-200 z-10" data-tooltip="Quay lại Phân tích chung"><XMarkIcon /></button><h3 className="text-xl font-bold text-gray-900">Lịch sử: Căn hộ {selectedUnitId}</h3><div className="border-t pt-4 mt-4"><div className="flex justify-between items-center mb-2"><h4 className="font-semibold">Hóa đơn nước (ước tính)</h4><p className="text-xl font-bold text-emerald-600">{formatCurrency(selectedUnitBill)}</p></div><h4 className="font-semibold mb-2">Tiêu thụ 6 tháng</h4><div className="h-56"><ResponsiveContainer width="100%" height="100%"><BarChart data={waterReadingsMap.get(selectedUnitId)?.slice(-6).map(r => ({name: r.Period.slice(5,7), 'Tiêu thụ': r.consumption})) || []} margin={{ top: 5, right: 20, left: -10, bottom: 5 }}><CartesianGrid strokeDasharray="3 3" /><XAxis dataKey="name" tick={{ fontSize: 12 }} /><YAxis unit=" m³" tick={{ fontSize: 12 }} /><Tooltip formatter={(v: number) => [`${v} m³`, 'Tiêu thụ']} /><Bar dataKey="Tiêu thụ" fill="#3b82f6" radius={[4, 4, 0, 0]} /></ResponsiveContainer></div></div>{individualUnitAnalytics && (<div className="border-t pt-4 mt-4 space-y-3"><h4 className="font-semibold">Thống kê riêng (12 tháng)</h4><div className="flex justify-between text-sm p-2 bg-gray-50 rounded-md"><span>Tiêu thụ trung bình:</span> <span className="font-bold">{individualUnitAnalytics.average.toFixed(1)} m³</span></div>{individualUnitAnalytics.highest && <div className="flex justify-between text-sm p-2 bg-gray-50 rounded-md"><span>Tháng cao nhất ({individualUnitAnalytics.highest.Period}):</span> <span className="font-bold">{individualUnitAnalytics.highest.consumption} m³</span></div>}{individualUnitAnalytics.lowest && <div className="flex justify-between text-sm p-2 bg-gray-50 rounded-md"><span>Tháng thấp nhất ({individualUnitAnalytics.lowest.Period}):</span> <span className="font-bold">{individualUnitAnalytics.lowest.consumption} m³</span></div>}</div>)}</div>
+                    <div className="animate-fade-in-down">
+                        <button onClick={() => setSelectedUnitId(null)} className="absolute top-4 right-4 p-2 rounded-full hover:bg-gray-200 z-10" data-tooltip="Quay lại Phân tích chung"><XMarkIcon /></button>
+                        <h3 className="text-xl font-bold text-gray-900">Lịch sử: Căn hộ {selectedUnitId}</h3>
+                        <div className="border-t pt-4 mt-4">
+                            <div className="flex justify-between items-center mb-2">
+                                <h4 className="font-semibold">Hóa đơn nước (ước tính)</h4>
+                                <p className="text-xl font-bold text-emerald-600">{formatCurrency(selectedUnitBill)}</p>
+                            </div>
+                            <h4 className="font-semibold mb-2">Tiêu thụ 6 tháng</h4>
+                            <div className="h-56">
+                                <ResponsiveContainer width="100%" height="100%">
+                                    <BarChart data={waterReadingsMap.get(selectedUnitId)?.slice(-6).map(r => ({name: r.Period.slice(5,7), 'Tiêu thụ': r.consumption})) || []} margin={{ top: 5, right: 20, left: -10, bottom: 5 }}>
+                                        <CartesianGrid strokeDasharray="3 3" />
+                                        <XAxis dataKey="name" tick={{ fontSize: 12 }} />
+                                        <YAxis unit=" m³" tick={{ fontSize: 12 }} />
+                                        <Tooltip formatter={(v: number) => [`${v} m³`, 'Tiêu thụ']} />
+                                        <Bar dataKey="Tiêu thụ" fill="#3b82f6" radius={[4, 4, 0, 0]} />
+                                    </BarChart>
+                                </ResponsiveContainer>
+                            </div>
+                        </div>
+                        {individualUnitAnalytics && (
+                            <div className="border-t pt-4 mt-4 space-y-3">
+                                <h4 className="font-semibold">Thống kê riêng (12 tháng)</h4>
+                                <div className="flex justify-between text-sm p-2 bg-gray-50 rounded-md"><span>Tiêu thụ trung bình:</span> <span className="font-bold">{individualUnitAnalytics.average.toFixed(1)} m³</span></div>
+                                {individualUnitAnalytics.highest && <div className="flex justify-between text-sm p-2 bg-gray-50 rounded-md"><span>Tháng cao nhất ({individualUnitAnalytics.highest.Period}):</span> <span className="font-bold">{individualUnitAnalytics.highest.consumption} m³</span></div>}
+                                {individualUnitAnalytics.lowest && <div className="flex justify-between text-sm p-2 bg-gray-50 rounded-md"><span>Tháng thấp nhất ({individualUnitAnalytics.lowest.Period}):</span> <span className="font-bold">{individualUnitAnalytics.lowest.consumption} m³</span></div>}
+                            </div>
+                        )}
+                    </div>
                 ) : (
                     <div className="animate-fade-in-down">
                         <div className="pt-4 mt-4">
