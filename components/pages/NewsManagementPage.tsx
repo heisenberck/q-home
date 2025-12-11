@@ -319,6 +319,19 @@ const NewsManagementPage: React.FC<NewsManagementPageProps> = ({ news: initialNe
   const handleBroadcast = async (item: NewsItem) => {
     if (!window.confirm('Gửi thông báo đẩy (Push Notification) tới toàn bộ cư dân?')) return;
 
+    // Create the updated state with broadcast info
+    const broadcastTime = new Date().toISOString();
+    
+    // FULL OBJECT UPSERT STRATEGY
+    // We create a complete object to save to Firestore. 
+    // This ensures that if the document doesn't exist yet (e.g. created in local state only), 
+    // it gets created with all fields, not just the status updates.
+    const newsItemToPersist = {
+        ...item,
+        isBroadcasted: true,
+        broadcastTime: broadcastTime
+    };
+
     if (isProduction()) {
         try {
             const residents = users.filter(u => u.Role === 'Resident');
@@ -328,15 +341,17 @@ const NewsManagementPage: React.FC<NewsManagementPageProps> = ({ news: initialNe
             const batch = writeBatch(db);
             let count = 0;
 
+            // 1. Create notifications for residents
             residents.forEach(res => {
-                if (count < 490) { // Safety buffer
+                if (count < 400) { // Safety buffer for batch limit
                     const docRef = doc(collection(db, 'notifications')); // Auto-ID
                     batch.set(docRef, {
                         recipientId: res.Email, 
                         title: item.title,
-                        body: item.content.substring(0, 100) + '...', // Truncate for notification body
+                        // Strip HTML tags for plain text body preview
+                        body: item.content.replace(/<[^>]*>?/gm, '').substring(0, 100) + '...', 
                         read: false,
-                        createdAt: new Date().toISOString(),
+                        createdAt: broadcastTime,
                         type: 'news',
                         linkId: item.id
                     });
@@ -344,24 +359,26 @@ const NewsManagementPage: React.FC<NewsManagementPageProps> = ({ news: initialNe
                 }
             });
 
-            // Update News Item status
+            // 2. Upsert the News Document (Fix for "No document to update")
+            // using set() with { merge: true } ensures creation if it doesn't exist 
+            // (e.g. created in local state only) or updates it if it does.
             const newsRef = doc(db, 'news', item.id);
-            batch.update(newsRef, { isBroadcasted: true, broadcastTime: new Date().toISOString() });
+            batch.set(newsRef, newsItemToPersist, { merge: true });
 
             await batch.commit();
             
             // Optimistic Update
-            setNews((prev: NewsItem[]) => prev.map(n => n.id === item.id ? { ...n, isBroadcasted: true, broadcastTime: new Date().toISOString() } : n));
+            setNews((prev: NewsItem[]) => prev.map(n => n.id === item.id ? newsItemToPersist : n));
             showToast(`Đã gửi thông báo tới ${count} cư dân thành công.`, 'success');
 
-        } catch (error) {
+        } catch (error: any) {
             console.error("Broadcast failed", error);
-            showToast('Lỗi khi gửi thông báo: ' + (error as any).message, 'error');
+            showToast('Lỗi khi gửi thông báo: ' + error.message, 'error');
         }
     } else {
         // Mock Dev
         const residentCount = users.filter(u => u.Role === 'Resident').length;
-        setNews(prev => prev.map(n => n.id === item.id ? { ...n, isBroadcasted: true, broadcastTime: new Date().toISOString() } : n));
+        setNews(prev => prev.map(n => n.id === item.id ? newsItemToPersist : n));
         showToast(`[DEV] Simulated sending to ${residentCount} residents.`, 'success');
     }
   };
