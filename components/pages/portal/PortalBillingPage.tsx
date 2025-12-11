@@ -1,191 +1,278 @@
-import React, { useState, useMemo, useEffect, useRef } from 'react';
-import type { ChargeRaw, UserPermission } from '../../../types';
-import { formatCurrency, formatNumber, generateTransferContent } from '../../../utils/helpers';
-import { ReceiptIcon, CheckCircleIcon, WarningIcon, ClipboardIcon, HomeIcon, DropletsIcon, CarIcon } from '../../ui/Icons';
-import { useNotification } from '../../../App';
-import { useSettings } from '../../../App';
-import { isProduction } from '../../../utils/env';
 
-declare const Chart: any;
+import React, { useState, useMemo, useRef } from 'react';
+import {
+  LineChart,
+  Line,
+  XAxis,
+  YAxis,
+  CartesianGrid,
+  Tooltip,
+  ResponsiveContainer,
+} from 'recharts';
+import type { ChargeRaw, UserPermission } from '../../../types';
+import { formatCurrency, generateTransferContent } from '../../../utils/helpers';
+import { 
+    ReceiptIcon, CheckCircleIcon, ClipboardIcon, 
+    HomeIcon, DropletsIcon, CarIcon, XMarkIcon, 
+    ArrowDownTrayIcon, BanknotesIcon
+} from '../../ui/Icons';
+import { useNotification, useSettings } from '../../../App';
+import Modal from '../../ui/Modal';
 
 interface PortalBillingPageProps {
   charges: ChargeRaw[];
   user: UserPermission;
 }
 
-const FeeDetailCard: React.FC<{ label: string, amount: number, icon: React.ReactNode }> = ({ label, amount, icon }) => (
-    <div className="bg-gray-50 p-3 rounded-lg flex items-center gap-3">
-        <div className="bg-white p-2 rounded-full border">{icon}</div>
-        <div>
-            <p className="text-xs text-gray-500">{label}</p>
-            <p className="font-bold text-gray-800">{formatCurrency(amount)}</p>
+// --- Helper Components ---
+
+const DetailRow: React.FC<{ label: string; value: number; icon: React.ReactNode; colorClass: string }> = ({ label, value, icon, colorClass }) => (
+    <div className="flex justify-between items-center py-2">
+        <div className="flex items-center gap-3">
+            <div className={`p-1.5 rounded-full ${colorClass}`}>
+                {icon}
+            </div>
+            <span className="text-gray-600 text-sm font-medium">{label}</span>
         </div>
+        <span className="font-semibold text-gray-900">{formatCurrency(value)}</span>
     </div>
 );
 
-const PortalBillingPage: React.FC<PortalBillingPageProps> = ({ charges, user }) => {
-  const { showToast } = useNotification();
-  const { invoiceSettings } = useSettings();
-  const chartRef = useRef<HTMLCanvasElement>(null);
-  const chartInstanceRef = useRef<any>(null);
-  const IS_PROD = isProduction();
+const CopyButton: React.FC<{ text: string; label: string }> = ({ text, label }) => {
+    const { showToast } = useNotification();
+    const handleCopy = (e: React.MouseEvent) => {
+        e.stopPropagation();
+        navigator.clipboard.writeText(text);
+        showToast(`Đã sao chép ${label}`, 'success');
+    };
+    return (
+        <button onClick={handleCopy} className="p-1.5 text-gray-400 hover:text-primary hover:bg-gray-100 rounded-md transition-colors" title="Sao chép">
+            <ClipboardIcon className="w-4 h-4" />
+        </button>
+    );
+};
 
-  const residentCharges = useMemo(() => 
-    charges
-        .filter(c => c.UnitID === user.residentId)
-        .sort((a, b) => a.Period.localeCompare(b.Period)), // Sort oldest to newest for chart
-    [charges, user.residentId]
-  );
-  
-  const currentBill = residentCharges.length > 0 ? residentCharges[residentCharges.length - 1] : null;
-  const historyBills = residentCharges.slice(-7, -1); // Last 6 months from history, excluding current
-
-  const handleCopy = (textToCopy: string, label: string) => {
-      navigator.clipboard.writeText(textToCopy).then(() => {
-          showToast(`Đã sao chép ${label}`, 'success');
-      }).catch(() => {
-          showToast(`Sao chép thất bại`, 'error');
-      });
-  };
-  
-  const paymentContent = currentBill ? generateTransferContent(currentBill, invoiceSettings) : '';
-
-  useEffect(() => {
-    if (chartRef.current && historyBills.length > 0 && !IS_PROD) {
-        if (chartInstanceRef.current) {
-            chartInstanceRef.current.destroy();
-        }
-
-        const ctx = chartRef.current.getContext('2d');
-        if (ctx) {
-            chartInstanceRef.current = new Chart(ctx, {
-                type: 'line',
-                data: {
-                    labels: historyBills.map(c => c.Period.substring(5)), // "MM"
-                    datasets: [{
-                        label: 'Tổng phí hàng tháng',
-                        data: historyBills.map(c => c.TotalDue),
-                        borderColor: '#006f3a',
-                        backgroundColor: 'rgba(0, 111, 58, 0.1)',
-                        fill: true,
-                        tension: 0.3,
-                    }]
-                },
-                options: {
-                    responsive: true,
-                    maintainAspectRatio: false,
-                    scales: {
-                        y: {
-                            beginAtZero: false,
-                            ticks: {
-                                callback: function(value: any) {
-                                    if (value >= 1000000) return (value / 1000000) + 'tr';
-                                    if (value >= 1000) return (value / 1000) + 'k';
-                                    return value;
-                                }
-                            }
-                        }
-                    },
-                    plugins: { legend: { display: false } }
-                }
-            });
-        }
-    }
-    return () => {
-        if (chartInstanceRef.current) {
-            chartInstanceRef.current.destroy();
+const QRModal: React.FC<{ 
+    qrUrl: string; 
+    amount: number; 
+    onClose: () => void; 
+}> = ({ qrUrl, amount, onClose }) => {
+    const handleDownload = async () => {
+        try {
+            const response = await fetch(qrUrl);
+            const blob = await response.blob();
+            const url = URL.createObjectURL(blob);
+            const link = document.createElement('a');
+            link.href = url;
+            link.download = `QR_ThanhToan_${amount}.png`;
+            document.body.appendChild(link);
+            link.click();
+            document.body.removeChild(link);
+        } catch (e) {
+            console.error("Download failed", e);
         }
     };
-  }, [historyBills, IS_PROD]);
 
-  if (IS_PROD) {
     return (
-        <div className="p-4">
-            <div className="bg-white p-6 rounded-xl shadow-sm border text-center">
-                <p className="mt-4 text-gray-500">Chờ dữ liệu từ Ban Quản Lý...</p>
-                <p className="text-xs text-gray-400 mt-2">Tính năng này sẽ tự động hiển thị hóa đơn khi BQL chốt phí hàng tháng.</p>
-            </div>
-        </div>
-    );
-  }
-
-  // --- DEV MODE MOCKUP ---
-  return (
-    <div className="p-4 space-y-6">
-      {currentBill ? (
-        <div className="bg-white p-4 rounded-xl shadow-sm border space-y-4">
-            <div className="text-center">
-                <p className="text-sm text-gray-500">Tổng phí kỳ {currentBill.Period}</p>
-                <div className="flex items-center justify-center gap-2">
-                    <p className="text-4xl font-bold text-primary">{formatCurrency(currentBill.TotalDue)}</p>
-                    <button onClick={() => handleCopy(String(currentBill.TotalDue), 'tổng phí')} className="p-2 rounded-full hover:bg-gray-100">
-                        <ClipboardIcon className="w-5 h-5 text-gray-500" />
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/60 backdrop-blur-sm animate-fade-in-down">
+            <div className="bg-white rounded-2xl shadow-2xl w-full max-w-sm overflow-hidden flex flex-col">
+                <div className="p-4 bg-primary text-white flex justify-between items-center">
+                    <h3 className="font-bold text-lg">Quét mã thanh toán</h3>
+                    <button onClick={onClose} className="p-1 hover:bg-white/20 rounded-full"><XMarkIcon className="w-6 h-6"/></button>
+                </div>
+                <div className="p-8 flex flex-col items-center bg-white">
+                    <div className="p-2 border-2 border-primary/20 rounded-xl shadow-inner bg-white">
+                        <img src={qrUrl} alt="VietQR" className="w-64 h-64 object-contain rounded-lg" />
+                    </div>
+                    <p className="mt-4 text-2xl font-bold text-primary">{formatCurrency(amount)}</p>
+                    <p className="text-sm text-gray-500 text-center mt-2">Sử dụng App Ngân hàng hoặc Camera để quét mã</p>
+                </div>
+                <div className="p-4 border-t border-gray-100 bg-gray-50 flex justify-center">
+                    <button 
+                        onClick={handleDownload}
+                        className="flex items-center gap-2 px-6 py-2.5 bg-white border border-gray-300 text-gray-700 font-semibold rounded-full shadow-sm hover:bg-gray-100 transition-colors"
+                    >
+                        <ArrowDownTrayIcon className="w-5 h-5"/> Lưu ảnh QR
                     </button>
                 </div>
             </div>
-            
-            <div className="grid grid-cols-2 gap-3">
-                <FeeDetailCard label="Phí dịch vụ" amount={currentBill.ServiceFee_Total} icon={<HomeIcon className="w-5 h-5 text-green-600"/>} />
-                <FeeDetailCard label="Tiền nước" amount={currentBill.WaterFee_Total} icon={<DropletsIcon className="w-5 h-5 text-blue-600"/>} />
-                <FeeDetailCard label="Phí gửi xe" amount={currentBill.ParkingFee_Total} icon={<CarIcon className="w-5 h-5 text-orange-600"/>} />
-                <FeeDetailCard label="Điều chỉnh" amount={currentBill.Adjustments} icon={<ReceiptIcon className="w-5 h-5 text-purple-600"/>} />
-            </div>
-
-            <div className="space-y-3 pt-4 border-t">
-                 <h3 className="font-bold text-center">Thông tin chuyển khoản</h3>
-                 <div className="flex justify-between items-center text-sm">
-                    <span className="text-gray-500">Ngân hàng</span>
-                    <span className="font-semibold">{invoiceSettings.bankName}</span>
-                </div>
-                 <div className="flex justify-between items-center text-sm">
-                    <span className="text-gray-500">Chủ tài khoản</span>
-                    <span className="font-semibold">{invoiceSettings.accountName}</span>
-                </div>
-                <div className="flex justify-between items-center text-sm">
-                    <span className="text-gray-500">Số tài khoản</span>
-                    <div className="flex items-center gap-2">
-                        <span className="font-semibold font-mono">{invoiceSettings.accountNumber}</span>
-                        <button onClick={() => handleCopy(invoiceSettings.accountNumber, 'STK')}><ClipboardIcon className="w-4 h-4 text-gray-400"/></button>
-                    </div>
-                </div>
-                <div className="flex justify-between items-center text-sm">
-                    <span className="text-gray-500">Nội dung</span>
-                    <div className="flex items-center gap-2">
-                         <span className="font-semibold font-mono bg-gray-100 px-1 rounded">{paymentContent}</span>
-                        <button onClick={() => handleCopy(paymentContent, 'nội dung')}><ClipboardIcon className="w-4 h-4 text-gray-400"/></button>
-                    </div>
-                </div>
-            </div>
-            <button className="w-full p-3 bg-primary text-white font-bold rounded-lg shadow-md hover:bg-primary-focus">Thanh toán ngay</button>
         </div>
-      ) : (
-        <div className="text-center py-10 bg-white rounded-xl border">
-            <p className="text-gray-500">Chưa có dữ liệu hóa đơn.</p>
-        </div>
-      )}
+    );
+};
 
-      {historyBills.length > 0 && (
-        <div className="bg-white p-4 rounded-xl shadow-sm border">
-          <h2 className="font-bold text-xl mb-4">Lịch sử Thanh toán</h2>
-          <div className="h-48 mb-4">
-            <canvas ref={chartRef}></canvas>
+// --- Main Page ---
+
+const PortalBillingPage: React.FC<PortalBillingPageProps> = ({ charges, user }) => {
+  const { invoiceSettings } = useSettings();
+  const [showQR, setShowQR] = useState(false);
+
+  // 1. Logic: Filter & Sort Data
+  const sortedCharges = useMemo(() => 
+    charges
+        .filter(c => c.UnitID === user.residentId)
+        .sort((a, b) => a.Period.localeCompare(b.Period)), 
+    [charges, user.residentId]
+  );
+
+  const currentCharge = sortedCharges.length > 0 ? sortedCharges[sortedCharges.length - 1] : null;
+  const historyData = sortedCharges.slice(-6).map(c => ({
+      name: `T${c.Period.split('-')[1]}`,
+      amount: c.TotalDue,
+      fullDate: c.Period
+  }));
+
+  // 2. Logic: Payment Info
+  const paymentContent = currentCharge ? generateTransferContent(currentCharge, invoiceSettings) : '';
+  const bankId = invoiceSettings.bankName?.split('-')[0]?.trim().replace(/\s/g, '') || 'MB'; // Simple heuristic
+  const accountName = encodeURIComponent(invoiceSettings.accountName || '');
+  
+  // VietQR API Format
+  const qrUrl = currentCharge 
+    ? `https://img.vietqr.io/image/${bankId}-${invoiceSettings.accountNumber}-compact2.png?amount=${currentCharge.TotalDue}&addInfo=${encodeURIComponent(paymentContent)}&accountName=${accountName}`
+    : '';
+
+  if (!currentCharge) {
+      return (
+          <div className="flex flex-col items-center justify-center h-64 p-4 text-center">
+              <ReceiptIcon className="w-16 h-16 text-gray-300 mb-4" />
+              <h3 className="text-lg font-semibold text-gray-600">Chưa có thông báo phí</h3>
+              <p className="text-sm text-gray-500 max-w-xs mt-2">Hiện tại căn hộ của bạn chưa có dữ liệu phí dịch vụ nào.</p>
           </div>
-          <ul className="space-y-2">
-            {[...residentCharges].reverse().map(charge => (
-                 <li key={charge.Period} className="flex justify-between items-center text-sm p-2 rounded-md hover:bg-gray-50">
+      );
+  }
+
+  const isPaid = ['paid', 'paid_tm', 'paid_ck'].includes(currentCharge.paymentStatus);
+
+  return (
+    <div className="p-4 space-y-6 max-w-lg mx-auto pb-24">
+        {showQR && <QRModal qrUrl={qrUrl} amount={currentCharge.TotalDue} onClose={() => setShowQR(false)} />}
+
+        {/* SECTION A: BILL SUMMARY CARD */}
+        <section className="bg-white rounded-2xl shadow-sm border border-gray-100 overflow-hidden relative">
+            {isPaid && (
+                <div className="absolute top-4 right-4 z-10">
+                    <span className="flex items-center gap-1 px-3 py-1 bg-green-100 text-green-700 text-xs font-bold rounded-full border border-green-200 shadow-sm">
+                        <CheckCircleIcon className="w-3 h-3"/> Đã thanh toán
+                    </span>
+                </div>
+            )}
+            
+            {/* Header Pattern */}
+            <div className="h-2 bg-gradient-to-r from-primary to-emerald-400"></div>
+            
+            <div className="p-5">
+                <h2 className="text-xl font-bold text-gray-800 mb-1">Thông báo phí {currentCharge.Period}</h2>
+                <p className="text-xs text-gray-500 mb-6">Hạn thanh toán: 25/{currentCharge.Period.split('-')[1]}</p>
+
+                <div className="space-y-1">
+                    <DetailRow label="Phí dịch vụ" value={currentCharge.ServiceFee_Total} icon={<HomeIcon className="w-4 h-4 text-blue-600"/>} colorClass="bg-blue-50" />
+                    <DetailRow label="Phí gửi xe" value={currentCharge.ParkingFee_Total} icon={<CarIcon className="w-4 h-4 text-orange-600"/>} colorClass="bg-orange-50" />
+                    <DetailRow label="Tiền nước" value={currentCharge.WaterFee_Total} icon={<DropletsIcon className="w-4 h-4 text-cyan-600"/>} colorClass="bg-cyan-50" />
+                    {currentCharge.Adjustments !== 0 && (
+                        <DetailRow label="Điều chỉnh" value={currentCharge.Adjustments} icon={<ReceiptIcon className="w-4 h-4 text-purple-600"/>} colorClass="bg-purple-50" />
+                    )}
+                </div>
+
+                <div className="my-4 border-t border-dashed border-gray-300"></div>
+
+                <div className="flex justify-between items-end">
+                    <span className="text-sm font-semibold text-gray-600 mb-1">TỔNG CỘNG</span>
+                    <div className="flex items-center gap-2">
+                        <span className="text-3xl font-bold text-red-600">{formatCurrency(currentCharge.TotalDue)}</span>
+                        <CopyButton text={currentCharge.TotalDue.toString()} label="số tiền" />
+                    </div>
+                </div>
+            </div>
+        </section>
+
+        {/* SECTION B: SMART PAY */}
+        {!isPaid && (
+            <section className="bg-white rounded-2xl shadow-sm border border-gray-100 p-5 space-y-4">
+                <div className="flex items-center gap-3 mb-2">
+                    <div className="p-2 bg-primary/10 rounded-lg text-primary">
+                        <BanknotesIcon className="w-6 h-6"/>
+                    </div>
                     <div>
-                        <p className="font-semibold">Hóa đơn Kỳ {charge.Period}</p>
-                        <p className="text-xs text-gray-400">Ngày tạo: {new Date(charge.CreatedAt).toLocaleDateString('vi-VN')}</p>
+                        <h3 className="font-bold text-gray-800">Thông tin chuyển khoản</h3>
+                        <p className="text-xs text-gray-500">{invoiceSettings.bankName}</p>
                     </div>
-                    <div className="text-right">
-                         <p className="font-bold">{formatCurrency(charge.TotalDue)}</p>
-                         <span className="text-xs font-semibold text-green-600">Đã thanh toán</span>
+                </div>
+
+                <div className="bg-gray-50 rounded-xl p-3 border border-gray-200 space-y-3">
+                    <div className="flex justify-between items-center">
+                        <div className="overflow-hidden">
+                            <p className="text-xs text-gray-500 uppercase font-semibold">Số tài khoản</p>
+                            <p className="text-lg font-mono font-bold text-gray-800 tracking-wide truncate">{invoiceSettings.accountNumber}</p>
+                        </div>
+                        <CopyButton text={invoiceSettings.accountNumber} label="số tài khoản" />
                     </div>
-                </li>
-            ))}
-          </ul>
-        </div>
-      )}
+                    <div className="w-full h-px bg-gray-200"></div>
+                    <div className="flex justify-between items-center">
+                        <div className="overflow-hidden">
+                            <p className="text-xs text-gray-500 uppercase font-semibold">Nội dung</p>
+                            <p className="text-sm font-mono font-bold text-primary truncate">{paymentContent}</p>
+                        </div>
+                        <CopyButton text={paymentContent} label="nội dung" />
+                    </div>
+                </div>
+
+                <button 
+                    onClick={() => setShowQR(true)}
+                    className="w-full py-3.5 bg-gradient-to-r from-[#006f3a] to-[#005a2f] text-white font-bold rounded-xl shadow-lg shadow-green-900/20 hover:shadow-xl active:scale-[0.98] transition-all flex items-center justify-center gap-2"
+                >
+                    <ArrowDownTrayIcon className="w-5 h-5" /> Thanh toán ngay (QR)
+                </button>
+            </section>
+        )}
+
+        {/* SECTION C: HISTORY CHART */}
+        <section className="bg-white rounded-2xl shadow-sm border border-gray-100 p-5">
+            <h3 className="font-bold text-gray-800 mb-4 text-sm uppercase tracking-wider">Lịch sử 6 tháng</h3>
+            <div className="h-48 w-full -ml-2">
+                <ResponsiveContainer width="100%" height="100%">
+                    <LineChart data={historyData}>
+                        <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#f3f4f6" />
+                        <XAxis 
+                            dataKey="name" 
+                            tick={{fontSize: 11, fill: '#9ca3af'}} 
+                            axisLine={false} 
+                            tickLine={false} 
+                            dy={10}
+                        />
+                        <YAxis hide />
+                        <Tooltip 
+                            formatter={(value: number) => [formatCurrency(value), 'Tổng']}
+                            contentStyle={{ borderRadius: '8px', border: 'none', boxShadow: '0 4px 12px rgba(0,0,0,0.1)' }}
+                        />
+                        <Line 
+                            type="monotone" 
+                            dataKey="amount" 
+                            stroke="#006f3a" 
+                            strokeWidth={3} 
+                            dot={{ r: 3, fill: '#006f3a', strokeWidth: 2, stroke: '#fff' }} 
+                            activeDot={{ r: 6 }}
+                        />
+                    </LineChart>
+                </ResponsiveContainer>
+            </div>
+            
+            <div className="mt-4 space-y-3">
+                {[...sortedCharges].reverse().slice(0, 3).map(bill => (
+                    <div key={bill.Period} className="flex justify-between items-center text-sm border-b border-gray-50 pb-2 last:border-0 last:pb-0">
+                        <div>
+                            <p className="font-semibold text-gray-700">Tháng {bill.Period.split('-')[1]}</p>
+                            <p className="text-xs text-gray-400">{new Date(bill.CreatedAt).toLocaleDateString('vi-VN')}</p>
+                        </div>
+                        <div className="text-right">
+                            <p className="font-bold text-gray-800">{formatCurrency(bill.TotalDue)}</p>
+                            <span className={`text-[10px] font-bold ${['paid', 'paid_tm', 'paid_ck'].includes(bill.paymentStatus) ? 'text-green-600' : 'text-red-500'}`}>
+                                {['paid', 'paid_tm', 'paid_ck'].includes(bill.paymentStatus) ? 'Đã thanh toán' : 'Chưa thanh toán'}
+                            </span>
+                        </div>
+                    </div>
+                ))}
+            </div>
+        </section>
     </div>
   );
 };
