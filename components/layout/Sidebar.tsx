@@ -3,11 +3,13 @@ import React, { useState, useMemo } from 'react';
 import { 
     PieChartIcon, CalculatorIcon, UsersIcon, WaterIcon, ReceiptIcon, 
     CarIcon, MegaphoneIcon, ChatBubbleLeftEllipsisIcon,
-    ChevronLeftIcon, ChevronRightIcon, ChevronDownIcon, ChevronUpIcon
+    ChevronLeftIcon, ChevronRightIcon, ChevronDownIcon,
+    BuildingIcon 
 } from '../ui/Icons';
 import type { Role, UserPermission } from '../../types';
 import { useSettings, useAuth } from '../../App';
 import { isProduction } from '../../utils/env';
+import SystemStatusFooter from './SystemStatusFooter';
 
 type Page = 'overview' | 'billing' | 'residents' | 'vehicles' | 'water' | 'pricing' | 'users' | 'settings' | 'backup' | 'activityLog' | 'newsManagement' | 'feedbackManagement';
 
@@ -58,7 +60,6 @@ const menuGroups: (MenuItem | MenuGroup)[] = [
     }
 ];
 
-// Local extension for permissions
 interface ExtendedUser extends UserPermission {
     permissions?: string[];
 }
@@ -70,45 +71,30 @@ const Sidebar: React.FC<SidebarProps> = ({ activePage, setActivePage, role }) =>
   const [expandedGroups, setExpandedGroups] = useState<Set<string>>(new Set(['residents_group', 'finance_group', 'comm_group']));
 
   const isDev = !isProduction();
-  const themeClass = isDev 
-    ? 'border-red-500 bg-red-50 text-red-700' 
-    : 'border-emerald-500 bg-emerald-50 text-emerald-700';
-  const versionText = isDev ? 'v2.1-DEV' : 'v2.1';
-
   const extendedUser = user as ExtendedUser;
+
+  // --- DYNAMIC BRANDING LOGIC ---
+  const buildingName = invoiceSettings?.buildingName?.toUpperCase() || 'Q-HOME MANAGER';
 
   // Filter Menu based on Permissions
   const filteredMenuGroups = useMemo(() => {
-      // 1. Admin sees everything
       if (role === 'Admin') return menuGroups;
-
-      // 2. Logic for Staff (Accountant, Operator, Viewer)
       const userPermissions = new Set(extendedUser.permissions || []);
 
       return menuGroups.map(group => {
           if ('items' in group) {
-              // It's a Group -> Filter items
               const visibleItems = group.items.filter(item => {
-                  // Map specific page IDs to permission keys if necessary
                   let permissionKey = item.id;
-                  
-                  // "pricing" page is controlled by "billing" permission
                   if (item.id === 'pricing') permissionKey = 'billing';
-
                   return userPermissions.has(permissionKey);
               });
-
-              // Only return group if it has visible items
-              if (visibleItems.length > 0) {
-                  return { ...group, items: visibleItems };
-              }
+              if (visibleItems.length > 0) return { ...group, items: visibleItems };
               return null;
           } else {
-              // It's a Single Item (Overview) -> Always show Overview
               if (group.id === 'overview') return group;
               return null;
           }
-      }).filter(Boolean) as (MenuItem | MenuGroup)[]; // Remove nulls
+      }).filter(Boolean) as (MenuItem | MenuGroup)[];
   }, [role, extendedUser.permissions]);
 
   const toggleGroup = (groupId: string) => {
@@ -130,72 +116,66 @@ const Sidebar: React.FC<SidebarProps> = ({ activePage, setActivePage, role }) =>
   };
 
   return (
-    <aside className={`${isCollapsed ? 'w-20' : 'w-64'} bg-white flex-shrink-0 flex flex-col border-r border-gray-200 h-full transition-all duration-300 ease-in-out`}>
-      {/* Header */}
-      <div className="p-4 border-b border-gray-200 flex items-center justify-between h-[88px]">
-        {!isCollapsed && (
-            <div className="flex items-center gap-3 overflow-hidden">
-                <div className="bg-primary text-white p-2 rounded-lg shadow-sm flex-shrink-0">
-                    <svg xmlns="http://www.w3.org/2000/svg" className="h-6 w-6" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth="2.5">
-                        <path strokeLinecap="round" strokeLinejoin="round" d="M3 9l9-7 9 7v11a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"></path>
-                        <polyline points="9 22 9 12 15 12 15 22"></polyline>
-                    </svg>
-                </div>
-                <div className="flex flex-col justify-center min-w-0">
-                    <span className="text-lg font-black text-gray-800 tracking-tight truncate">Q-Home</span>
-                    <span className="text-xs font-bold text-gray-500 uppercase truncate max-w-[120px]">
-                        {invoiceSettings.buildingName || 'Manager'}
+    <aside className={`${isCollapsed ? 'w-20' : 'w-72'} bg-white flex-shrink-0 flex flex-col border-r border-gray-200 h-full transition-all duration-300 ease-in-out shadow-xl z-20`}>
+      
+      {/* 1. BRANDING HEADER */}
+      <div className="h-[88px] flex items-center justify-center border-b border-gray-100 bg-white">
+          <div className={`flex items-center gap-3 px-4 w-full ${isCollapsed ? 'justify-center' : 'justify-start'}`}>
+            <div className="bg-gradient-to-tr from-slate-800 to-slate-700 text-white p-2 rounded-lg shadow-sm flex-shrink-0">
+                <BuildingIcon className="w-6 h-6" />
+            </div>
+            
+            {!isCollapsed && (
+                <div className="flex flex-col min-w-0 animate-fade-in-down">
+                    <span className="text-xs text-gray-400 font-bold uppercase tracking-widest leading-none mb-0.5">
+                        Management
+                    </span>
+                    <span 
+                        className="text-sm font-extrabold text-slate-800 uppercase tracking-tight truncate leading-tight" 
+                        title={buildingName}
+                    >
+                        {buildingName}
                     </span>
                 </div>
-            </div>
-        )}
-        {isCollapsed && (
-             <div className="w-full flex justify-center">
-                <div className="bg-primary text-white p-2 rounded-lg shadow-sm">
-                    <span className="font-bold text-lg">Q</span>
-                </div>
-             </div>
-        )}
+            )}
+          </div>
       </div>
       
-      {/* Navigation */}
-      <nav className="flex-1 p-2 space-y-2 overflow-y-auto overflow-x-hidden">
+      {/* 2. NAVIGATION */}
+      <nav className="flex-1 p-3 space-y-1 overflow-y-auto overflow-x-hidden custom-scrollbar">
         {filteredMenuGroups.map((item) => {
             if ('items' in item) {
-                // Group
                 const isExpanded = expandedGroups.has(item.id);
                 const hasActiveChild = item.items.some(child => child.id === activePage);
                 
                 return (
-                    <div key={item.id} className="mb-1">
+                    <div key={item.id} className="mb-3">
                         <button
                             onClick={() => handleGroupClick(item.id)}
-                            className={`w-full flex items-center justify-between px-3 py-2.5 text-sm font-semibold rounded-lg transition-colors duration-200
-                                ${hasActiveChild ? 'bg-gray-50 text-primary' : 'text-gray-600 hover:bg-gray-100'}
+                            className={`w-full flex items-center justify-between px-3 py-2 text-xs font-bold uppercase tracking-wider rounded-lg transition-all duration-200 group
+                                ${hasActiveChild ? 'text-primary bg-primary/5' : 'text-gray-400 hover:bg-gray-50 hover:text-gray-600'}
                                 ${isCollapsed ? 'justify-center' : ''}
                             `}
                             title={isCollapsed ? item.label : undefined}
                         >
-                            <div className="flex items-center">
+                            <div className="flex items-center gap-3">
                                 {isCollapsed ? (
-                                    <div className="relative group">
+                                    <div className={`relative ${hasActiveChild ? 'text-primary' : 'text-gray-400'}`}>
                                         {item.items[0].icon} 
-                                        <div className="absolute -bottom-1 -right-1 w-2 h-2 bg-gray-400 rounded-full border border-white"></div>
                                     </div>
                                 ) : (
-                                    <span className="uppercase text-xs font-bold text-gray-400 tracking-wider">{item.label}</span>
+                                    <span>{item.label}</span>
                                 )}
                             </div>
                             {!isCollapsed && (
-                                <span className="text-gray-400">
-                                    {isExpanded ? <ChevronUpIcon className="w-4 h-4"/> : <ChevronDownIcon className="w-4 h-4"/>}
+                                <span className={`transition-transform duration-200 ${isExpanded ? 'rotate-180' : ''}`}>
+                                    <ChevronDownIcon className="w-3 h-3 opacity-50"/>
                                 </span>
                             )}
                         </button>
                         
-                        {/* Sub-menu */}
                         {(!isCollapsed && isExpanded) && (
-                            <div className="mt-1 space-y-1 ml-1">
+                            <div className="mt-1 space-y-0.5">
                                 {item.items.map(subItem => {
                                     const isActive = activePage === subItem.id;
                                     return (
@@ -203,8 +183,8 @@ const Sidebar: React.FC<SidebarProps> = ({ activePage, setActivePage, role }) =>
                                             key={subItem.id}
                                             href="#"
                                             onClick={(e) => { e.preventDefault(); setActivePage(subItem.id); }}
-                                            className={`flex items-center px-4 py-2 text-sm font-medium rounded-lg transition-colors duration-200
-                                                ${isActive ? 'bg-primary/10 text-primary' : 'text-gray-600 hover:bg-gray-100 hover:text-gray-900'}
+                                            className={`flex items-center px-3 py-2.5 text-sm font-medium rounded-lg transition-all duration-200 relative ml-2 border-l-2
+                                                ${isActive ? 'border-primary text-gray-900 bg-gray-50' : 'border-transparent text-gray-500 hover:text-gray-900 hover:border-gray-200'}
                                             `}
                                         >
                                             <span className={`mr-3 ${isActive ? 'text-primary' : 'text-gray-400 group-hover:text-gray-500'}`}>
@@ -219,15 +199,14 @@ const Sidebar: React.FC<SidebarProps> = ({ activePage, setActivePage, role }) =>
                     </div>
                 );
             } else {
-                // Single Item (Dashboard)
                 const isActive = activePage === item.id;
                 return (
                     <a
                         key={item.id}
                         href="#"
                         onClick={(e) => { e.preventDefault(); setActivePage(item.id); }}
-                        className={`flex items-center pl-5 pr-3 py-3 text-sm font-semibold rounded-lg transition-colors duration-200 mb-2
-                            ${isActive ? 'bg-primary text-white shadow-md' : 'text-gray-600 hover:bg-gray-100'}
+                        className={`flex items-center px-4 py-3 text-sm font-bold rounded-xl transition-all duration-200 mb-6
+                            ${isActive ? 'bg-slate-800 text-white shadow-lg shadow-slate-300' : 'text-gray-600 hover:bg-gray-100'}
                             ${isCollapsed ? 'justify-center' : ''}
                         `}
                         title={isCollapsed ? item.label : undefined}
@@ -240,18 +219,39 @@ const Sidebar: React.FC<SidebarProps> = ({ activePage, setActivePage, role }) =>
         })}
       </nav>
 
-      {/* Footer Toggle */}
-      <div className="p-4 border-t border-gray-200 flex flex-col gap-2">
+      {/* 3. FOOTER */}
+      <div className="mt-auto px-3 pb-4 pt-2 border-t border-transparent space-y-3">
+        
+        {/* System Monitor (Only shown when expanded for better UI, or condensed if needed) */}
         {!isCollapsed && (
-            <div className={`p-2 rounded-lg border text-center ${themeClass}`}>
-                <p className="text-[10px] font-bold">{versionText}</p>
+            <div className="animate-fade-in-down">
+                <SystemStatusFooter />
             </div>
         )}
+
+        {/* Signature Badge */}
+        {!isCollapsed ? (
+            <div className="text-center animate-fade-in-down select-none">
+                <div className={`inline-flex items-center gap-1.5 px-3 py-0.5 rounded-full text-[10px] font-bold border mx-auto mb-2
+                    ${isDev ? 'bg-red-50 text-red-600 border-red-100' : 'bg-green-50 text-green-600 border-green-100'}
+                `}>
+                    <span className={`w-1.5 h-1.5 rounded-full ${isDev ? 'bg-red-500' : 'bg-green-500'}`}></span>
+                    {isDev ? 'DEV MODE' : 'V3.0 (c) 2025 by QN'}
+                </div>
+            </div>
+        ) : (
+            <div className="flex justify-center">
+                <span className="text-[10px] font-bold text-gray-300">v3.0</span>
+            </div>
+        )}
+        
+        {/* Toggle Button */}
         <button 
             onClick={() => setIsCollapsed(!isCollapsed)} 
-            className="w-full flex items-center justify-center p-2 rounded-lg hover:bg-gray-100 text-gray-500 transition-colors"
+            className="w-full flex items-center justify-center py-2 hover:bg-gray-50 text-gray-400 hover:text-gray-600 transition-colors rounded-lg"
+            title="Thu gọn / Mở rộng"
         >
-            {isCollapsed ? <ChevronRightIcon className="w-5 h-5"/> : <ChevronLeftIcon className="w-5 h-5"/>}
+            {isCollapsed ? <ChevronRightIcon className="w-4 h-4"/> : <ChevronLeftIcon className="w-4 h-4"/>}
         </button>
       </div>
     </aside>

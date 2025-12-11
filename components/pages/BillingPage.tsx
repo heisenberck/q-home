@@ -379,7 +379,11 @@ const BillingPage: React.FC<BillingPageProps> = ({ charges, setCharges, allData,
 
                 let headerIndex = -1, colCredit = -1, colDesc = -1;
                 for (let i = 0; i < Math.min(20, json.length); i++) {
-                    const row = (json[i] as any[]).map((c: any) => String(c ?? "").toLowerCase());
+                    const rowArray = json[i] as any[];
+                    if (!Array.isArray(rowArray)) continue;
+                    
+                    const row: string[] = rowArray.map((c: any) => String(c ?? "").toLowerCase());
+                    
                     if (row.some(c => c.includes('credit') || c.includes('ghi co') || c.includes('số tiền')) && row.some(c => c.includes('noi dung') || c.includes('desc') || c.includes('diễn giải'))) {
                         headerIndex = i;
                         colCredit = row.findIndex(c => c.includes('credit') || c.includes('ghi co') || c.includes('số tiền'));
@@ -397,7 +401,7 @@ const BillingPage: React.FC<BillingPageProps> = ({ charges, setCharges, allData,
                 for (let i = headerIndex + 1; i < json.length; i++) {
                     // Removed unused 'row' variable to avoid type confusion and warnings
                     const rawAmt = json[i][colCredit];
-                    const amtStr = typeof rawAmt === 'string' ? rawAmt : String(rawAmt ?? '0'); 
+                    const amtStr = typeof rawAmt === 'string' ? rawAmt : String((rawAmt as any) ?? '0'); 
                     const amount = Math.round(parseFloat(amtStr.replace(/[^0-9.-]+/g,"")));
                     const desc = String(json[i][colDesc] || '');
                     
