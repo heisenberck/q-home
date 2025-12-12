@@ -33,6 +33,7 @@ type EnhancedVehicle = Vehicle & {
     ownerPhone: string;
     waitingPriority?: number; // Calculated dynamic index
     isBillable: boolean;
+    isDuplicate?: boolean; // New flag for UI
 };
 
 interface VehiclesPageProps {
@@ -348,7 +349,7 @@ const VehicleDetailPanel: React.FC<{
     onDelete: (v: Vehicle) => void,
     onClose: () => void
 }> = ({ vehicle, activityLogs, onEdit, onDelete, onClose }) => {
-    const theme = getPastelColorForName(vehicle.ownerName); // Reuse resident color helper
+    const theme = getPastelColorForName(vehicle.ownerName);
 
     const relevantLogs = useMemo(() => {
         return activityLogs.filter(log => 
@@ -467,19 +468,31 @@ const VehiclesPage: React.FC<VehiclesPageProps> = ({ vehicles, units, owners, ac
     }, [vehicles]);
 
     const enhancedVehicles = useMemo((): EnhancedVehicle[] => {
+        // Detect duplicates locally for UI flagging
+        const plateCounts = new Map<string, number>();
+        vehicles.forEach(v => {
+            if (v.isActive && v.PlateNumber) {
+                const normalized = v.PlateNumber.replace(/[\s.-]/g, '').toUpperCase();
+                plateCounts.set(normalized, (plateCounts.get(normalized) || 0) + 1);
+            }
+        });
+
         return vehicles.map(v => {
             const unit = units.find(u => u.UnitID === v.UnitID);
             const owner = unit ? ownersMap.get(unit.OwnerID) : undefined;
+            const normalized = (v.PlateNumber || '').replace(/[\s.-]/g, '').toUpperCase();
             
             // Business Logic: Billable if Main or Extra Slot
             const isBillable = v.isActive && (v.parkingStatus === 'Lốt chính' || v.parkingStatus === 'Lốt tạm');
+            const isDuplicate = v.isActive && (plateCounts.get(normalized) || 0) > 1;
             
             return {
                 ...v,
                 ownerName: owner?.OwnerName ?? 'Unknown',
                 ownerPhone: owner?.Phone ?? '',
                 waitingPriority: waitingListMap.get(v.VehicleId),
-                isBillable
+                isBillable,
+                isDuplicate
             };
         });
     }, [vehicles, units, ownersMap, waitingListMap]);
@@ -542,6 +555,8 @@ const VehiclesPage: React.FC<VehiclesPageProps> = ({ vehicles, units, owners, ac
             waiting: active.filter(v => v.parkingStatus === 'Xếp lốt').length
         };
     }, [enhancedVehicles]);
+
+    const duplicateCount = useMemo(() => filteredVehicles.filter(v => v.isDuplicate).length, [filteredVehicles]);
 
     // --- 4. Handlers ---
     const handleSave = (updatedVehicle: Vehicle, reason: string) => {
@@ -615,8 +630,11 @@ const VehiclesPage: React.FC<VehiclesPageProps> = ({ vehicles, units, owners, ac
                 const rawPlate = data.PlateNumber;
                 // Normalize: remove spaces, dots, dashes, uppercase
                 if (!rawPlate) return;
+                // Strict normalization to catch "29Y5-177.77" vs "29Y517777"
                 const normalizedPlate = String(rawPlate).trim().toUpperCase().replace(/[\s.-]/g, '');
                 
+                if (!normalizedPlate) return;
+
                 if (!plateMap.has(normalizedPlate)) {
                     plateMap.set(normalizedPlate, []);
                 }
@@ -640,7 +658,7 @@ const VehiclesPage: React.FC<VehiclesPageProps> = ({ vehicles, units, owners, ac
                     const [keep, ...remove] = records;
                     remove.forEach(r => allDuplicates.push(r.id));
                     duplicateCount += remove.length;
-                    console.log(`[Duplicate] Plate ${plate}: Keeping ${keep.id}, Removing ${remove.map(r=>r.id).join(', ')}`);
+                    console.log(`[Duplicate] Plate ${plate}: Keeping ${keep.id}, Removing ${remove.length} items`);
                 }
             });
     
@@ -740,6 +758,17 @@ const VehiclesPage: React.FC<VehiclesPageProps> = ({ vehicles, units, owners, ac
                     </button>
                 </div>
 
+                {/* Duplicate Warning */}
+                {duplicateCount > 0 && (
+                    <div className="bg-red-50 border border-red-200 text-red-800 p-3 rounded-lg flex items-center justify-between">
+                        <div className="flex items-center gap-2">
+                            <WarningIcon className="w-5 h-5" />
+                            <span className="font-semibold text-sm">Cảnh báo: Phát hiện {duplicateCount} xe có biển số trùng lặp trong danh sách hiển thị.</span>
+                        </div>
+                        <button onClick={handleCleanupDuplicates} className="text-xs font-bold underline hover:text-red-900">Xử lý ngay</button>
+                    </div>
+                )}
+
                 {/* 3. Table */}
                 <div className="bg-white rounded-xl shadow-sm flex-1 flex flex-col overflow-hidden border border-gray-100">
                     <div className="overflow-y-auto">
@@ -755,12 +784,19 @@ const VehiclesPage: React.FC<VehiclesPageProps> = ({ vehicles, units, owners, ac
                                 </tr>
                             </thead>
                             <tbody className="divide-y divide-gray-100">
-                                {filteredVehicles.map(v => (
-                                    <tr key={v.VehicleId} onClick={() => setSelectedVehicle(v)} className={`cursor-pointer transition-colors ${selectedVehicle?.VehicleId === v.VehicleId ? 'bg-blue-50' : 'hover:bg-gray-50'}`}>
+                                {filteredVehicles.map((v, index) => (
+                                    <tr 
+                                        key={v.VehicleId + index} /* Use combined key to prevent React duplicate key errors */
+                                        onClick={() => setSelectedVehicle(v)} 
+                                        className={`cursor-pointer transition-colors ${selectedVehicle?.VehicleId === v.VehicleId ? 'bg-blue-50' : v.isDuplicate ? 'bg-red-50 hover:bg-red-100' : 'hover:bg-gray-50'}`}
+                                    >
                                         <td className="px-6 py-4 text-sm font-bold text-gray-900">{v.UnitID}</td>
                                         <td className="px-6 py-4 text-sm text-gray-700">{v.ownerName}</td>
                                         <td className="px-6 py-4">
-                                            <span className="font-mono font-bold text-gray-800 text-base bg-gray-100 px-2 py-0.5 rounded border border-gray-200">{v.PlateNumber}</span>
+                                            <span className={`font-mono font-bold text-base px-2 py-0.5 rounded border ${v.isDuplicate ? 'bg-red-100 text-red-700 border-red-300' : 'bg-gray-100 text-gray-800 border-gray-200'}`}>
+                                                {v.PlateNumber}
+                                            </span>
+                                            {v.isDuplicate && <span className="ml-2 text-xs text-red-500 font-bold">(Trùng)</span>}
                                         </td>
                                         <td className="px-6 py-4 text-center">
                                             <div className="flex justify-center"><VehicleTypeBadge type={v.Type} /></div>

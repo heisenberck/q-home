@@ -370,7 +370,7 @@ const BillingPage: React.FC<BillingPageProps> = ({ charges, setCharges, allData,
                 const data = new Uint8Array(e.target?.result as ArrayBuffer);
                 // Fix: Cast workbook to any to allow loose typing on SheetNames
                 const workbook: any = XLSX.read(data, { type: 'array' });
-                const firstSheetName = workbook.SheetNames[0];
+                const firstSheetName = String(workbook.SheetNames[0]);
                 const sheet = workbook.Sheets[firstSheetName];
                 const json = XLSX.utils.sheet_to_json(sheet, { header: 1 }) as any[][];
 
