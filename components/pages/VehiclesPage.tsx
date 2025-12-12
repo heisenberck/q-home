@@ -9,7 +9,7 @@ import {
     ShieldCheckIcon, DocumentArrowDownIcon,
     XMarkIcon, UserIcon, PhoneArrowUpRightIcon,
     CurrencyDollarIcon, ClockIcon, CheckCircleIcon,
-    SparklesIcon
+    SparklesIcon, PaperclipIcon
 } from '../ui/Icons';
 import { formatLicensePlate, translateVehicleType, vehicleTypeLabels, compressImageToWebP, timeAgo, getPastelColorForName, parseUnitCode } from '../../utils/helpers';
 import { collection, getDocs, writeBatch, doc } from 'firebase/firestore';
@@ -104,6 +104,7 @@ const VehicleEditModal: React.FC<{
         );
     };
 
+    // Initialize state safely to avoid undefined document structure
     const [vehicle, setVehicle] = useState<Vehicle>({ 
         ...initialVehicle,
         documents: initialVehicle.documents || {}
@@ -128,7 +129,7 @@ const VehicleEditModal: React.FC<{
             setVehicle(prev => ({
                 ...prev,
                 documents: {
-                    ...prev.documents,
+                    ...(prev.documents || {}), // Ensure safe spread
                     [docType]: {
                         fileId: `DOC_${Date.now()}`,
                         name: file.name,
@@ -155,7 +156,25 @@ const VehicleEditModal: React.FC<{
             showToast('Vui lòng chọn hoặc nhập lý do thay đổi.', 'error');
             return;
         }
-        onSave(vehicle, finalReason);
+
+        // CRITICAL FIX: Sanitize the object before saving.
+        // 1. Remove calculated fields (ownerName, ownerPhone, etc) from EnhancedVehicle type.
+        // 2. Ensure no field is undefined (Firestore throws error on undefined).
+        const cleanVehicle: Vehicle = {
+            VehicleId: vehicle.VehicleId,
+            UnitID: vehicle.UnitID,
+            Type: vehicle.Type,
+            VehicleName: vehicle.VehicleName || '',
+            PlateNumber: vehicle.PlateNumber || '',
+            StartDate: vehicle.StartDate,
+            isActive: vehicle.isActive,
+            parkingStatus: vehicle.parkingStatus || null, // Convert "" or undefined to null
+            documents: vehicle.documents || {},
+            log: vehicle.log || null,
+            updatedAt: new Date().toISOString()
+        };
+
+        onSave(cleanVehicle, finalReason);
     };
 
     const tabClass = (tab: string) => `px-4 py-2 text-sm font-medium border-b-2 transition-colors ${activeTab === tab ? 'border-primary text-primary' : 'border-transparent text-gray-500 hover:text-gray-700'}`;
@@ -192,7 +211,7 @@ const VehicleEditModal: React.FC<{
                             </div>
                             <div>
                                 <label className={labelClass}>Tên xe / Model</label>
-                                <input name="VehicleName" value={vehicle.VehicleName} onChange={handleChange} className={inputClass}/>
+                                <input name="VehicleName" value={vehicle.VehicleName || ''} onChange={handleChange} className={inputClass}/>
                             </div>
                         </div>
                     )}
@@ -234,9 +253,13 @@ const VehicleEditModal: React.FC<{
                         <div className="grid grid-cols-2 gap-4 animate-fade-in-down">
                             {['registration', 'vehiclePhoto'].map((type) => (
                                 <div key={type} className="border-2 border-dashed border-gray-300 rounded-xl p-4 flex flex-col items-center justify-center text-center hover:bg-gray-50 transition-colors h-40 relative group">
-                                    {vehicle.documents?.[type as 'registration'|'vehiclePhoto'] ? (
+                                    {vehicle.documents?.[type as 'registration'|'vehiclePhoto']?.url ? (
                                         <>
-                                            <img src={vehicle.documents[type as 'registration'|'vehiclePhoto']!.url} className="absolute inset-0 w-full h-full object-cover rounded-xl opacity-50 group-hover:opacity-100 transition-opacity" />
+                                            <img 
+                                                src={vehicle.documents[type as 'registration'|'vehiclePhoto']!.url} 
+                                                className="absolute inset-0 w-full h-full object-cover rounded-xl opacity-50 group-hover:opacity-100 transition-opacity" 
+                                                alt={type}
+                                            />
                                             <div className="relative z-10">
                                                 <button type="button" onClick={() => setVehicle(p => {const d={...p.documents}; delete d[type as 'registration'|'vehiclePhoto']; return {...p, documents:d}})} className="bg-red-500 text-white px-3 py-1 rounded text-xs shadow">Xóa ảnh</button>
                                             </div>
@@ -359,6 +382,36 @@ const VehicleDetailPanel: React.FC<{
                             {vehicle.isBillable 
                                 ? <span className="text-green-600 font-bold text-xs bg-green-50 px-2 py-0.5 rounded">Được tính phí</span> 
                                 : <span className="text-gray-500 font-bold text-xs bg-gray-100 px-2 py-0.5 rounded">Miễn phí / Chờ</span>}
+                        </div>
+                    </div>
+                </section>
+
+                <section>
+                    <h3 className="text-xs font-bold text-gray-400 uppercase tracking-wider mb-3 flex items-center gap-2"><PaperclipIcon className="w-4 h-4"/> Hồ sơ & Tài liệu</h3>
+                    <div className="grid grid-cols-2 gap-4">
+                        <div>
+                            <p className="text-xs font-medium text-gray-500 mb-1.5">Đăng ký xe</p>
+                            {vehicle.documents?.registration?.url ? (
+                                <a href={vehicle.documents.registration.url} target="_blank" rel="noopener noreferrer" className="block h-24 w-full rounded-lg overflow-hidden border border-gray-200 relative group cursor-zoom-in">
+                                    <img src={vehicle.documents.registration.url} alt="Registration" className="w-full h-full object-cover transition-transform duration-500 group-hover:scale-110" />
+                                </a>
+                            ) : (
+                                <div className="h-24 w-full rounded-lg border-2 border-dashed border-gray-200 bg-gray-50 flex items-center justify-center text-gray-400 text-xs">
+                                    Chưa có ảnh
+                                </div>
+                            )}
+                        </div>
+                        <div>
+                            <p className="text-xs font-medium text-gray-500 mb-1.5">Ảnh xe</p>
+                            {vehicle.documents?.vehiclePhoto?.url ? (
+                                <a href={vehicle.documents.vehiclePhoto.url} target="_blank" rel="noopener noreferrer" className="block h-24 w-full rounded-lg overflow-hidden border border-gray-200 relative group cursor-zoom-in">
+                                    <img src={vehicle.documents.vehiclePhoto.url} alt="Vehicle" className="w-full h-full object-cover transition-transform duration-500 group-hover:scale-110" />
+                                </a>
+                            ) : (
+                                <div className="h-24 w-full rounded-lg border-2 border-dashed border-gray-200 bg-gray-50 flex items-center justify-center text-gray-400 text-xs">
+                                    Chưa có ảnh
+                                </div>
+                            )}
                         </div>
                     </div>
                 </section>
