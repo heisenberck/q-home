@@ -93,7 +93,17 @@ const VehicleEditModal: React.FC<{
 }> = ({ vehicle: initialVehicle, onSave, onClose }) => {
     const { showToast } = useNotification();
     const [activeTab, setActiveTab] = useState<'info' | 'parking' | 'docs'>('info');
-    const [reason, setReason] = useState('');
+    
+    // REFACTOR: Use checkboxes for reason + optional text input
+    const [selectedReasons, setSelectedReasons] = useState<string[]>([]);
+    const [otherReason, setOtherReason] = useState('');
+
+    const toggleReason = (r: string) => {
+        setSelectedReasons(prev => 
+            prev.includes(r) ? prev.filter(i => i !== r) : [...prev, r]
+        );
+    };
+
     const [vehicle, setVehicle] = useState<Vehicle>({ 
         ...initialVehicle,
         documents: initialVehicle.documents || {}
@@ -135,11 +145,17 @@ const VehicleEditModal: React.FC<{
 
     const handleSubmit = (e: React.FormEvent) => {
         e.preventDefault();
-        if (!reason.trim()) {
-            showToast('Vui lòng nhập lý do thay đổi.', 'error');
+        
+        // Construct final reason string
+        const checkboxPart = selectedReasons.join(', ');
+        // Append detail text if exists. Join parts with ". " for readability.
+        const finalReason = [checkboxPart, otherReason.trim()].filter(Boolean).join('. ');
+
+        if (!finalReason) {
+            showToast('Vui lòng chọn hoặc nhập lý do thay đổi.', 'error');
             return;
         }
-        onSave(vehicle, reason);
+        onSave(vehicle, finalReason);
     };
 
     const tabClass = (tab: string) => `px-4 py-2 text-sm font-medium border-b-2 transition-colors ${activeTab === tab ? 'border-primary text-primary' : 'border-transparent text-gray-500 hover:text-gray-700'}`;
@@ -240,13 +256,29 @@ const VehicleEditModal: React.FC<{
 
                 <div className="pt-4 border-t mt-auto">
                     <label className={labelClass}>Lý do thay đổi <span className="text-red-500">*</span></label>
-                    <textarea 
-                        value={reason} 
-                        onChange={e => setReason(e.target.value)} 
-                        className={`${inputClass} h-20 resize-none`} 
-                        placeholder="Vui lòng nhập lý do cập nhật (VD: Đổi xe, Cấp lốt mới...)"
-                        required
+                    
+                    <div className="grid grid-cols-2 gap-3 mb-3">
+                        {["Cập nhật biển số", "Cập nhật loại xe", "Cập nhật hình ảnh", "Cập nhật lốt xe"].map(r => (
+                            <label key={r} className="flex items-center gap-2 cursor-pointer hover:bg-gray-50 p-1 rounded -ml-1 select-none">
+                                <input 
+                                    type="checkbox" 
+                                    checked={selectedReasons.includes(r)}
+                                    onChange={() => toggleReason(r)}
+                                    className="w-4 h-4 text-primary rounded border-gray-300 focus:ring-primary"
+                                />
+                                <span className="text-sm text-gray-700">{r}</span>
+                            </label>
+                        ))}
+                    </div>
+
+                    <input 
+                        type="text"
+                        value={otherReason} 
+                        onChange={e => setOtherReason(e.target.value)} 
+                        className={inputClass} 
+                        placeholder="Chi tiết khác (tùy chọn, VD: Đổi xe mới...)"
                     />
+
                     <div className="flex justify-end gap-3 mt-4">
                         <button type="button" onClick={onClose} className="px-5 py-2 rounded-lg text-gray-700 bg-gray-100 hover:bg-gray-200 font-medium text-sm">Hủy</button>
                         <button type="submit" className="px-5 py-2 rounded-lg text-white bg-primary hover:bg-primary-focus font-bold shadow-lg text-sm">Lưu thay đổi</button>

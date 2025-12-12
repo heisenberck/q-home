@@ -161,45 +161,6 @@ const DocumentPreviewModal: React.FC<{
     );
 };
 
-
-const ReasonModal: React.FC<{ onConfirm: (reason: string) => void; onCancel: () => void; }> = ({ onConfirm, onCancel }) => {
-    const [reason, setReason] = useState('');
-    const inputRef = useRef<HTMLTextAreaElement>(null);
-    useEffect(() => {
-        inputRef.current?.focus();
-    }, []);
-
-    const handleConfirm = () => {
-        if (reason.trim()) {
-            onConfirm(reason.trim());
-        }
-    };
-
-    return (
-        <Modal title="Xác nhận thay đổi" onClose={onCancel} size="md">
-            <div className="space-y-4">
-                <div>
-                    <label htmlFor="reason" className="block text-sm font-medium text-gray-700 mb-1">Nhập lý do thay đổi (Bắt buộc)</label>
-                    <textarea
-                        id="reason"
-                        ref={inputRef}
-                        value={reason}
-                        onChange={(e) => setReason(e.target.value)}
-                        rows={4}
-                        className="w-full p-2 border rounded-md bg-white text-gray-900 border-gray-300 focus:ring-2 focus:ring-primary focus:border-transparent"
-                        placeholder="VD: Cập nhật SĐT mới cho chủ hộ, thêm xe mới,..."
-                    />
-                </div>
-                <div className="flex justify-end gap-3 pt-2">
-                    <button type="button" onClick={onCancel} className="px-4 py-2 bg-gray-200 rounded-md">Hủy</button>
-                    <button type="button" onClick={handleConfirm} disabled={!reason.trim()} className="px-4 py-2 bg-primary text-white font-semibold rounded-md shadow-sm hover:bg-primary-focus disabled:bg-gray-400">Xác nhận</button>
-                </div>
-            </div>
-        </Modal>
-    );
-};
-
-
 const ResidentDetailModal: React.FC<{
     resident: ResidentData;
     onClose: () => void;
@@ -207,7 +168,7 @@ const ResidentDetailModal: React.FC<{
 }> = ({ resident, onClose, onSave }) => {
     const { showToast } = useNotification();
     
-    // --- LEGACY LOGIC ---
+    // Form Data State
     const [formData, setFormData] = useState<{unit: Unit, owner: Owner, vehicles: Vehicle[]}>({
         unit: { ...resident.unit },
         owner: {
@@ -216,18 +177,28 @@ const ResidentDetailModal: React.FC<{
         },
         vehicles: JSON.parse(JSON.stringify(resident.vehicles.filter(v => v.isActive)))
     });
+
+    // UI States
+    const [activeTab, setActiveTab] = useState<'info'|'vehicles'|'docs'>('info');
     const [errors, setErrors] = useState<Record<number, VehicleErrors>>({});
     const [isSaving, setIsSaving] = useState(false);
-    const [reasonModalOpen, setReasonModalOpen] = useState(false);
     const [isUploadModalOpen, setIsUploadModalOpen] = useState(false);
 
-    // --- NEW UI STATE ---
-    const [activeTab, setActiveTab] = useState<'info'|'vehicles'|'docs'>('info');
+    // Reason Logic State
+    const [selectedReasons, setSelectedReasons] = useState<string[]>([]);
+    const [otherReason, setOtherReason] = useState('');
 
-    const formElementStyle = `w-full p-2.5 border border-gray-300 rounded-lg bg-white text-gray-900 focus:ring-2 focus:ring-primary focus:border-transparent outline-none`;
+    const REASON_OPTIONS = [
+        "Thay đổi thông tin",
+        "Thay đổi trạng thái căn hộ",
+        "Thay đổi phương tiện (thêm bớt)",
+        "Cập nhật hình ảnh"
+    ];
+
+    const formElementStyle = `w-full p-2.5 border border-gray-300 rounded-lg bg-white text-gray-900 focus:ring-2 focus:ring-primary focus:border-transparent outline-none text-sm`;
     const labelStyle = `block text-sm font-medium text-gray-700 mb-1`;
 
-    // --- LEGACY LOGIC ---
+    // --- Validation Logic ---
     const validateVehicle = useCallback((vehicle: Vehicle): VehicleErrors => {
         const vErrors: VehicleErrors = {};
         if (vehicle.Type !== VehicleTier.BICYCLE && !vehicle.PlateNumber?.trim()) {
@@ -244,9 +215,16 @@ const ResidentDetailModal: React.FC<{
         });
         setErrors(allErrors);
     }, [formData.vehicles, validateVehicle]);
-    
+
+    // --- Handlers ---
     const handleOwnerChange = (e: React.ChangeEvent<HTMLInputElement>) => setFormData(p => ({ ...p, owner: { ...p.owner, [e.target.name]: e.target.value } }));
-    const handleUnitChange = (e: React.ChangeEvent<HTMLSelectElement>) => setFormData(p => ({ ...p, unit: { ...p.unit, [e.target.name]: e.target.value as any }}));
+    
+    const handleUnitChange = (e: React.ChangeEvent<HTMLSelectElement | HTMLInputElement>) => {
+        const { name, value, type } = e.target;
+        const val = type === 'number' ? parseFloat(value) : value;
+        setFormData(p => ({ ...p, unit: { ...p.unit, [name]: val }}));
+    };
+    
     const handleVehicleChange = (index: number, e: React.ChangeEvent<HTMLInputElement | HTMLSelectElement>) => {
         const { name, value } = e.target;
         const updatedVehicles = [...formData.vehicles];
@@ -274,26 +252,6 @@ const ResidentDetailModal: React.FC<{
     };
     
     const handleRemoveVehicle = (index: number) => setFormData(p => ({ ...p, vehicles: p.vehicles.filter((_, i) => i !== index) }));
-    
-    const handleSubmit = async (e: React.FormEvent) => {
-        e.preventDefault();
-        if (Object.keys(errors).length > 0) {
-            showToast('Vui lòng sửa các lỗi trong biểu mẫu trước khi lưu.', 'error');
-            return;
-        }
-        setReasonModalOpen(true);
-    };
-
-    const handleConfirmSave = async (reason: string) => {
-        setReasonModalOpen(false);
-        setIsSaving(true);
-        try {
-            await onSave(formData, reason);
-            onClose(); 
-        } finally {
-            setIsSaving(false);
-        }
-    };
 
     const handleOwnerFileUpload = async (e: React.ChangeEvent<HTMLInputElement>, docType: 'nationalId' | 'title') => {
         const file = e.target.files?.[0];
@@ -313,7 +271,7 @@ const ResidentDetailModal: React.FC<{
             setFormData(prev => { const newDocs = { ...prev.owner.documents }; delete newDocs[docType]; return { ...prev, owner: { ...prev.owner, documents: newDocs } }; });
         }
     };
-    
+
     const handleConfirmUploadOtherFile = (fileName: string, file: File) => {
         try {
             showToast('Đang xử lý file...', 'info');
@@ -335,7 +293,37 @@ const ResidentDetailModal: React.FC<{
         }
     };
 
-    // --- NEW UI COMPONENTS ---
+    // --- Reason Logic ---
+    const toggleReason = (r: string) => {
+        setSelectedReasons(prev => prev.includes(r) ? prev.filter(i => i !== r) : [...prev, r]);
+    };
+
+    const handleSubmit = async (e: React.FormEvent) => {
+        e.preventDefault();
+        if (Object.keys(errors).length > 0) {
+            showToast('Vui lòng sửa các lỗi trong biểu mẫu trước khi lưu.', 'error');
+            return;
+        }
+
+        // Construct Reason String
+        const checkboxPart = selectedReasons.join(', ');
+        const finalReason = [checkboxPart, otherReason.trim()].filter(Boolean).join('. ');
+
+        if (!finalReason) {
+            showToast('Vui lòng chọn hoặc nhập lý do điều chỉnh.', 'error');
+            return;
+        }
+
+        setIsSaving(true);
+        try {
+            await onSave(formData, finalReason);
+            onClose(); 
+        } finally {
+            setIsSaving(false);
+        }
+    };
+
+    // --- UI Sub-components ---
     const TabButton: React.FC<{ tabId: 'info'|'vehicles'|'docs', label: string, icon: React.ReactNode }> = ({ tabId, label, icon }) => (
         <button type="button" onClick={() => setActiveTab(tabId)} className={`flex items-center gap-2 px-4 py-2 text-sm font-medium border-b-2 transition-colors ${activeTab === tabId ? 'border-primary text-primary' : 'border-transparent text-gray-500 hover:text-gray-700'}`}>
             {icon} {label}
@@ -368,13 +356,12 @@ const ResidentDetailModal: React.FC<{
         const [fileName, setFileName] = useState('');
         const [file, setFile] = useState<File | null>(null);
         useEffect(() => { if (file) setFileName(file.name); }, [file]);
-        const handleConfirm = () => { if (fileName.trim() && file) onConfirm(fileName.trim(), file); };
         return (
             <Modal title="Upload File" onClose={onCancel} size="md">
                 <div className="space-y-4">
                     <div><label className={labelStyle}>Tên file</label><input type="text" value={fileName} onChange={e => setFileName(e.target.value)} className={formElementStyle} /></div>
                     <div><label className={labelStyle}>Chọn file</label><input type="file" onChange={e => setFile(e.target.files?.[0] || null)} className="w-full p-2 border rounded-md bg-white border-gray-300" /></div>
-                    <div className="flex justify-end gap-3 pt-4 border-t"><button type="button" onClick={onCancel} className="px-4 py-2 bg-gray-200 rounded-md">Hủy</button><button type="button" onClick={handleConfirm} disabled={!fileName.trim() || !file} className="px-4 py-2 bg-primary text-white rounded-md">Xác nhận</button></div>
+                    <div className="flex justify-end gap-3 pt-4 border-t"><button type="button" onClick={onCancel} className="px-4 py-2 bg-gray-200 rounded-md">Hủy</button><button type="button" onClick={() => file && onConfirm(fileName, file)} disabled={!fileName.trim() || !file} className="px-4 py-2 bg-primary text-white rounded-md">Xác nhận</button></div>
                 </div>
             </Modal>
         );
@@ -382,12 +369,11 @@ const ResidentDetailModal: React.FC<{
 
     return (
         <Modal title={`Cập nhật thông tin - Căn hộ ${resident.unit.UnitID}`} onClose={onClose} size="3xl">
-            {reasonModalOpen && <ReasonModal onConfirm={handleConfirmSave} onCancel={() => setReasonModalOpen(false)} />}
             {isUploadModalOpen && <UploadFileModal onConfirm={handleConfirmUploadOtherFile} onCancel={() => setIsUploadModalOpen(false)} />}
 
             <form onSubmit={handleSubmit} className="flex flex-col h-[70vh]">
-                {/* Sticky Tabs */}
-                <div className="flex border-b mb-4 sticky top-0 bg-white z-10">
+                {/* Sticky Header Tabs */}
+                <div className="flex border-b mb-4 sticky top-0 bg-white z-10 pt-1">
                     <TabButton tabId="info" label="Thông tin chung" icon={<UserIcon className="w-4 h-4" />} />
                     <TabButton tabId="vehicles" label="Phương tiện" icon={<CarIcon className="w-4 h-4" />} />
                     <TabButton tabId="docs" label="Tài liệu" icon={<DocumentTextIcon className="w-4 h-4" />} />
@@ -398,15 +384,28 @@ const ResidentDetailModal: React.FC<{
                     {activeTab === 'info' && (
                          <section className="animate-fade-in-down">
                             <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                                {/* Row 1: Owner Info */}
                                 <div><label className={labelStyle}>Tên chủ hộ</label><input name="OwnerName" value={formData.owner.OwnerName} onChange={handleOwnerChange} className={formElementStyle} /></div>
                                 <div><label className={labelStyle}>SĐT chủ hộ</label><input name="Phone" value={formData.owner.Phone} onChange={handleOwnerChange} className={formElementStyle} /></div>
+                                
+                                {/* Row 2: Email & Status (Side-by-side) */}
+                                <div><label className={labelStyle}>Email</label><input type="email" name="Email" value={formData.owner.Email} onChange={handleOwnerChange} className={formElementStyle} /></div>
+                                <div>
+                                    <label className={labelStyle}>Trạng thái căn hộ</label>
+                                    <select name="Status" value={formData.unit.Status} onChange={handleUnitChange} className={formElementStyle}>
+                                        <option value="Owner">Chính chủ</option>
+                                        <option value="Rent">Hộ thuê</option>
+                                        <option value="Business">Kinh doanh</option>
+                                    </select>
+                                </div>
+
+                                {/* Row 3: Spouse Info */}
                                 <div><label className={labelStyle}>Tên Vợ/Chồng (Optional)</label><input name="secondOwnerName" value={formData.owner.secondOwnerName || ''} onChange={handleOwnerChange} className={formElementStyle} /></div>
                                 <div><label className={labelStyle}>SĐT Vợ/Chồng (Optional)</label><input name="secondOwnerPhone" value={formData.owner.secondOwnerPhone || ''} onChange={handleOwnerChange} className={formElementStyle} /></div>
-                                <div className="md:col-span-2"><label className={labelStyle}>Email</label><input type="email" name="Email" value={formData.owner.Email} onChange={handleOwnerChange} className={formElementStyle} /></div>
-                                <div><label className={labelStyle}>Trạng thái căn hộ</label><select name="Status" value={formData.unit.Status} onChange={handleUnitChange} className={formElementStyle}><option value="Owner">Chính chủ</option><option value="Rent">Hộ thuê</option><option value="Business">Kinh doanh</option></select></div>
                             </div>
                         </section>
                     )}
+
                     {activeTab === 'vehicles' && (
                         <section className="animate-fade-in-down">
                             <div className="space-y-3 max-h-96 overflow-y-auto pr-2">
@@ -423,6 +422,7 @@ const ResidentDetailModal: React.FC<{
                             <button type="button" onClick={handleAddVehicle} className="mt-4 px-4 py-2 bg-primary text-white text-sm font-semibold rounded-md shadow-sm hover:bg-primary-focus">+ Thêm xe</button>
                         </section>
                     )}
+
                     {activeTab === 'docs' && (
                         <section className="animate-fade-in-down">
                             <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
@@ -440,12 +440,37 @@ const ResidentDetailModal: React.FC<{
                     )}
                 </div>
 
-                {/* Footer Actions */}
-                <div className="flex justify-end gap-3 pt-4 border-t mt-auto">
-                    <button type="button" onClick={onClose} className="px-4 py-2 bg-gray-200 text-gray-800 rounded-md hover:bg-gray-300">Hủy</button>
-                    <button type="submit" disabled={isSaving || Object.keys(errors).length > 0} className="px-6 py-2 bg-primary text-white font-semibold rounded-md disabled:bg-gray-400">
-                        {isSaving ? 'Đang lưu...' : 'Lưu thay đổi'}
-                    </button>
+                {/* Footer Reason & Actions */}
+                <div className="pt-4 border-t mt-auto sticky bottom-0 bg-white z-10 pb-1">
+                    <label className="block text-sm font-bold text-gray-700 mb-2">Lý do điều chỉnh <span className="text-red-500">*</span></label>
+                    <div className="grid grid-cols-2 gap-3 mb-3">
+                        {REASON_OPTIONS.map(r => (
+                            <label key={r} className="flex items-start gap-2 cursor-pointer hover:bg-gray-50 p-1.5 rounded border border-gray-100 select-none">
+                                <input
+                                    type="checkbox"
+                                    checked={selectedReasons.includes(r)}
+                                    onChange={() => toggleReason(r)}
+                                    className="w-4 h-4 text-primary rounded border-gray-300 focus:ring-primary mt-0.5"
+                                />
+                                <span className="text-sm text-gray-700 leading-snug">{r}</span>
+                            </label>
+                        ))}
+                    </div>
+
+                    <input
+                        type="text"
+                        value={otherReason}
+                        onChange={(e) => setOtherReason(e.target.value)}
+                        className="w-full p-2.5 border rounded-lg bg-white text-gray-900 border-gray-300 focus:ring-2 focus:ring-primary focus:border-transparent outline-none text-sm"
+                        placeholder="Chi tiết khác (tùy chọn)..."
+                    />
+
+                    <div className="flex justify-end gap-3 pt-4 mt-4">
+                        <button type="button" onClick={onClose} className="px-4 py-2 bg-gray-200 text-gray-800 rounded-md hover:bg-gray-300">Hủy</button>
+                        <button type="submit" disabled={isSaving || Object.keys(errors).length > 0} className="px-6 py-2 bg-primary text-white font-semibold rounded-md disabled:bg-gray-400">
+                            {isSaving ? 'Đang lưu...' : 'Lưu thay đổi'}
+                        </button>
+                    </div>
                 </div>
             </form>
         </Modal>

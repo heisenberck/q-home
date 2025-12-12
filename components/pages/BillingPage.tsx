@@ -215,7 +215,7 @@ const BillingPage: React.FC<BillingPageProps> = ({ charges, setCharges, allData,
 
     // Data Filtering
     const floors = useMemo(() => {
-        const nums = Array.from(new Set(allData.units.filter(u => u.UnitType === UnitType.APARTMENT).map(u => u.UnitID.slice(0, -2)))).sort((a,b) => parseInt(a,10) - parseInt(b,10));
+        const nums = Array.from(new Set(allData.units.filter(u => u.UnitType === UnitType.APARTMENT).map(u => u.UnitID.slice(0, -2)))).sort((a: string, b: string) => parseInt(a,10) - parseInt(b,10));
         return [{value: 'all', label: 'Tất cả tầng'}, ...nums.map(f => ({value: f, label: `Tầng ${f}`})), {value: 'KIOS', label: 'KIOS'}];
     }, [allData.units]);
 
