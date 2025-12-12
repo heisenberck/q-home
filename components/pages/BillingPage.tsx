@@ -1,4 +1,5 @@
 
+// ... existing imports ...
 import React, { useState, useCallback, useMemo, useRef, useEffect } from 'react';
 import type { ChargeRaw, Adjustment, AllData, Role, PaymentStatus, InvoiceSettings, Owner } from '../../types';
 import { UnitType } from '../../types';
@@ -240,15 +241,15 @@ const BillingPage: React.FC<BillingPageProps> = ({ charges, setCharges, allData,
             }
 
             if (floorFilter !== 'all') {
-                const floor = c.UnitID.startsWith('K') ? 'KIOS' : parseUnitCode(String(c.UnitID))?.floor?.toString();
+                const floor = c.UnitID.startsWith('K') ? 'KIOS' : parseUnitCode(`${c.UnitID}`)?.floor?.toString();
                 if (floor !== floorFilter) return false;
             }
             const s = searchTerm.toLowerCase();
             if (s && !(c.UnitID.toLowerCase().includes(s) || (c.OwnerName || '').toLowerCase().includes(s))) return false;
             return true;
         }).sort((a, b) => {
-            const pa = parseUnitCode(String(a.UnitID)) || { floor: 100, apt: 0 };
-            const pb = parseUnitCode(String(b.UnitID)) || { floor: 100, apt: 0 };
+            const pa = parseUnitCode(`${a.UnitID}`) || { floor: 100, apt: 0 };
+            const pb = parseUnitCode(`${b.UnitID}`) || { floor: 100, apt: 0 };
             if (pa.floor !== pb.floor) return pa.floor - pb.floor;
             return pa.apt - pb.apt;
         });

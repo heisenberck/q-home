@@ -9,7 +9,6 @@ import {
 import type { Role, UserPermission } from '../../types';
 import { useSettings, useAuth } from '../../App';
 import { isProduction } from '../../utils/env';
-import SystemStatusFooter from './SystemStatusFooter';
 
 type Page = 'overview' | 'billing' | 'residents' | 'vehicles' | 'water' | 'pricing' | 'users' | 'settings' | 'backup' | 'activityLog' | 'newsManagement' | 'feedbackManagement';
 
@@ -70,7 +69,6 @@ const Sidebar: React.FC<SidebarProps> = ({ activePage, setActivePage, role }) =>
   const [isCollapsed, setIsCollapsed] = useState(false);
   const [expandedGroups, setExpandedGroups] = useState<Set<string>>(new Set(['residents_group', 'finance_group', 'comm_group']));
 
-  const isDev = !isProduction();
   const extendedUser = user as ExtendedUser;
 
   // --- DYNAMIC BRANDING LOGIC ---
@@ -219,29 +217,13 @@ const Sidebar: React.FC<SidebarProps> = ({ activePage, setActivePage, role }) =>
         })}
       </nav>
 
-      {/* 3. FOOTER */}
-      <div className="mt-auto px-3 pb-4 pt-2 border-t border-transparent space-y-3">
+      {/* 3. STATIC FOOTER */}
+      <div className="mt-auto px-3 pb-4 pt-2 border-t border-transparent flex flex-col items-center gap-2">
         
-        {/* System Monitor (Only shown when expanded for better UI, or condensed if needed) */}
         {!isCollapsed && (
-            <div className="animate-fade-in-down">
-                <SystemStatusFooter />
-            </div>
-        )}
-
-        {/* Signature Badge */}
-        {!isCollapsed ? (
-            <div className="text-center animate-fade-in-down select-none">
-                <div className={`inline-flex items-center gap-1.5 px-3 py-0.5 rounded-full text-[10px] font-bold border mx-auto mb-2
-                    ${isDev ? 'bg-red-50 text-red-600 border-red-100' : 'bg-green-50 text-green-600 border-green-100'}
-                `}>
-                    <span className={`w-1.5 h-1.5 rounded-full ${isDev ? 'bg-red-500' : 'bg-green-500'}`}></span>
-                    {isDev ? 'DEV MODE' : 'V3.0 (c) 2025 by QN'}
-                </div>
-            </div>
-        ) : (
-            <div className="flex justify-center">
-                <span className="text-[10px] font-bold text-gray-300">v3.0</span>
+            <div className="flex flex-col items-center justify-center gap-1 animate-fade-in-down select-none">
+                <span className="text-[10px] font-bold tracking-[0.15em] text-gray-300 uppercase">Q-HOME MANAGER</span>
+                <span className="text-[9px] text-gray-400 font-medium">V3.0 (c) 2025 by QN</span>
             </div>
         )}
         
@@ -249,7 +231,7 @@ const Sidebar: React.FC<SidebarProps> = ({ activePage, setActivePage, role }) =>
         <button 
             onClick={() => setIsCollapsed(!isCollapsed)} 
             className="w-full flex items-center justify-center py-2 hover:bg-gray-50 text-gray-400 hover:text-gray-600 transition-colors rounded-lg"
-            title="Thu gọn / Mở rộng"
+            title={isCollapsed ? "Mở rộng" : "Thu gọn"}
         >
             {isCollapsed ? <ChevronRightIcon className="w-4 h-4"/> : <ChevronLeftIcon className="w-4 h-4"/>}
         </button>
