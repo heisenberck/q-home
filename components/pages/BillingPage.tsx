@@ -1,4 +1,3 @@
-
 // ... existing imports ...
 import React, { useState, useCallback, useMemo, useRef, useEffect } from 'react';
 import type { ChargeRaw, Adjustment, AllData, Role, PaymentStatus, InvoiceSettings, Owner, LogPayload } from '../../types';
@@ -217,7 +216,7 @@ const BillingPage: React.FC<BillingPageProps> = ({ charges, setCharges, allData,
 
     // Data Filtering
     const floors = useMemo(() => {
-        const nums = Array.from(new Set(allData.units.filter(u => u.UnitType === UnitType.APARTMENT).map(u => u.UnitID.slice(0, -2)))).sort((a,b) => parseInt(a,10) - parseInt(b,10));
+        const nums = Array.from(new Set(allData.units.filter(u => u.UnitType === UnitType.APARTMENT).map(u => u.UnitID.slice(0, -2)))).sort((a,b) => parseInt(String(a), 10) - parseInt(String(b), 10));
         return [{value: 'all', label: 'Tất cả tầng'}, ...nums.map(f => ({value: f, label: `Tầng ${f}`})), {value: 'KIOS', label: 'KIOS'}];
     }, [allData.units]);
 
