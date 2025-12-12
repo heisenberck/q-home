@@ -1,9 +1,7 @@
-
 import React, { useState, useEffect } from 'react';
 import type { InvoiceSettings, Role } from '../../types';
 import { useNotification } from '../../App';
 import { processFooterHtml } from '../../utils/helpers';
-import { ArrowPathIcon } from '../ui/Icons';
 
 const sendEmailAPI = async (
     recipient: string,
@@ -148,18 +146,6 @@ const SettingsPage: React.FC<SettingsPageProps> = ({ invoiceSettings, setInvoice
         }));
     };
 
-    const handleClearCache = () => {
-        if (!confirm("Hành động này sẽ xóa dữ liệu tạm trong trình duyệt và tải lại trang. Bạn có chắc chắn không?")) return;
-        
-        Object.keys(localStorage).forEach(key => {
-            if (key.startsWith('qhome_')) {
-                localStorage.removeItem(key);
-            }
-        });
-        showToast('Đã xóa cache. Đang tải lại...', 'success');
-        setTimeout(() => window.location.reload(), 1000);
-    };
-
     const variables = ['{{YEAR}}', '{{BUILDING_NAME}}', '{{HOTLINE}}', '{{ADDRESS}}', '{{EMAIL_SUPPORT}}', '{{WEBSITE}}'];
     
     const inputStyle = "p-2 border rounded-md w-full mt-1 bg-light-bg dark:bg-dark-bg border-light-border dark:border-dark-border text-light-text-primary dark:text-dark-text-primary focus:ring-primary focus:border-primary disabled:bg-gray-200 dark:disabled:bg-gray-700 dark:disabled:text-gray-400 disabled:cursor-not-allowed";
@@ -168,16 +154,7 @@ const SettingsPage: React.FC<SettingsPageProps> = ({ invoiceSettings, setInvoice
     return (
         <div className="space-y-6">
             <div className="bg-light-bg-secondary dark:bg-dark-bg-secondary p-6 rounded-lg shadow-md">
-                <div className="flex justify-between items-center border-b pb-3 mb-6 dark:border-dark-border">
-                    <h3 className="text-xl font-semibold">Cấu hình Chung & Thương hiệu</h3>
-                    <button 
-                        onClick={handleClearCache} 
-                        className="px-3 py-1.5 bg-orange-100 text-orange-700 text-sm font-bold rounded hover:bg-orange-200 flex items-center gap-2 transition-colors"
-                        title="Dùng khi dữ liệu bị lỗi hiển thị hoặc không đồng bộ"
-                    >
-                        <ArrowPathIcon className="w-4 h-4"/> Xóa Cache & Tải lại
-                    </button>
-                </div>
+                <h3 className="text-xl font-semibold border-b pb-3 mb-6 dark:border-dark-border">Cấu hình Chung & Thương hiệu</h3>
                 <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
                     <div>
                         <label htmlFor="buildingName" className={labelStyle}>Tên Tòa nhà</label>

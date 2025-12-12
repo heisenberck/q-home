@@ -1,15 +1,14 @@
-// ... existing imports ...
+
 import React, { useState, useCallback, useMemo, useRef, useEffect } from 'react';
-import type { ChargeRaw, Adjustment, AllData, Role, PaymentStatus, InvoiceSettings, Owner, LogPayload } from '../../types';
+import type { ChargeRaw, Adjustment, AllData, Role, PaymentStatus, InvoiceSettings, Owner } from '../../types';
 import { UnitType } from '../../types';
-// FIX: Import from Context directly to avoid cycle
-import { useNotification } from '../../contexts/AppContext'; 
+import { LogPayload } from '../../App';
+import { useNotification } from '../../App';
 import { 
     confirmSinglePayment,
     loadAllData,
     updateChargePayments
 } from '../../services';
-// ... rest of the file ...
 import { calculateChargesBatch } from '../../services/feeService';
 import NoticePreviewModal from '../NoticePreviewModal';
 import Spinner from '../ui/Spinner';
@@ -21,7 +20,7 @@ import {
     ActionViewIcon, ChevronDownIcon, ChevronUpIcon
 } from '../ui/Icons';
 import { loadScript } from '../../utils/scriptLoader';
-import { formatCurrency, parseUnitCode, renderInvoiceHTMLForPdf, formatNumber, sortUnitsComparator } from '../../utils/helpers';
+import { formatCurrency, parseUnitCode, renderInvoiceHTMLForPdf, formatNumber } from '../../utils/helpers';
 import { writeBatch, collection, query, where, getDocs, doc, addDoc, serverTimestamp, increment, updateDoc } from 'firebase/firestore';
 import { db } from '../../firebaseConfig';
 import { isProduction } from '../../utils/env';
@@ -216,7 +215,7 @@ const BillingPage: React.FC<BillingPageProps> = ({ charges, setCharges, allData,
 
     // Data Filtering
     const floors = useMemo(() => {
-        const nums = Array.from(new Set(allData.units.filter(u => u.UnitType === UnitType.APARTMENT).map(u => u.UnitID.slice(0, -2)))).sort((a,b) => parseInt(String(a), 10) - parseInt(String(b), 10));
+        const nums = Array.from(new Set(allData.units.filter(u => u.UnitType === UnitType.APARTMENT).map(u => u.UnitID.slice(0, -2)))).sort((a,b) => parseInt(a,10) - parseInt(b,10));
         return [{value: 'all', label: 'Tất cả tầng'}, ...nums.map(f => ({value: f, label: `Tầng ${f}`})), {value: 'KIOS', label: 'KIOS'}];
     }, [allData.units]);
 
@@ -247,7 +246,12 @@ const BillingPage: React.FC<BillingPageProps> = ({ charges, setCharges, allData,
             const s = searchTerm.toLowerCase();
             if (s && !(c.UnitID.toLowerCase().includes(s) || (c.OwnerName || '').toLowerCase().includes(s))) return false;
             return true;
-        }).sort(sortUnitsComparator);
+        }).sort((a, b) => {
+            const pa = parseUnitCode(a.UnitID) || { floor: 100, apt: 0 };
+            const pb = parseUnitCode(b.UnitID) || { floor: 100, apt: 0 };
+            if (pa.floor !== pb.floor) return pa.floor - pb.floor;
+            return pa.apt - pb.apt;
+        });
     }, [charges, period, searchTerm, statusFilter, floorFilter]);
 
     // Stats
@@ -369,7 +373,7 @@ const BillingPage: React.FC<BillingPageProps> = ({ charges, setCharges, allData,
                 const data = new Uint8Array(e.target?.result as ArrayBuffer);
                 // Fix: Cast workbook to any to allow loose typing on SheetNames
                 const workbook: any = XLSX.read(data, { type: 'array' });
-                const firstSheetName = String(workbook.SheetNames[0] || "");
+                const firstSheetName = workbook.SheetNames[0];
                 const sheet = workbook.Sheets[firstSheetName];
                 const json = XLSX.utils.sheet_to_json(sheet, { header: 1 }) as any[][];
 
@@ -395,13 +399,11 @@ const BillingPage: React.FC<BillingPageProps> = ({ charges, setCharges, allData,
                 const validUnits = new Set(allData.units.map(u => u.UnitID));
 
                 for (let i = headerIndex + 1; i < json.length; i++) {
-                    const rowArray = json[i] as any[];
-                    // Explicit casts to handle potential 'unknown' types from XLSX
-                    const rawAmt = rowArray[colCredit];
-                    const amtStr: string = String(rawAmt ?? '0');
+                    // Removed unused 'row' variable to avoid type confusion and warnings
+                    const rawAmt = json[i][colCredit];
+                    const amtStr = typeof rawAmt === 'string' ? rawAmt : String(rawAmt ?? '0'); 
                     const amount = Math.round(parseFloat(amtStr.replace(/[^0-9.-]+/g,"")));
-                    const rawDesc = rowArray[colDesc];
-                    const desc: string = String(rawDesc ?? '');
+                    const desc = String(json[i][colDesc] || '');
                     
                     if (amount > 0) {
                         let match;

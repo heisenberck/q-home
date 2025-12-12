@@ -13,19 +13,6 @@ type AppDataForService = {
     tariffs: AllData['tariffs']; hasData: boolean;
 };
 
-// --- HELPER: Sanitize Data for Firestore ---
-// Converts 'undefined' to 'null' because Firestore does not support 'undefined'.
-const sanitizeForFirestore = <T>(obj: T): T => {
-    return JSON.parse(JSON.stringify(obj, (key, value) => {
-        return value === undefined ? null : value;
-    }));
-};
-
-// --- HELPER: Normalize License Plate ---
-const normalizePlate = (plate: string): string => {
-    return plate.replace(/[\s.-]/g, '').toUpperCase();
-};
-
 export const loadAllData = async (): Promise<AppDataForService> => {
     const collectionsToFetch = ['units', 'owners', 'vehicles', 'waterReadings', 'charges', 'adjustments', 'users', 'activityLogs'];
     const promises = collectionsToFetch.map(c => getDocs(collection(db, c)));
@@ -58,12 +45,12 @@ export const loadAllData = async (): Promise<AppDataForService> => {
     };
 };
 
-export const updateFeeSettings = (settings: InvoiceSettings) => setDoc(doc(db, 'settings', 'invoice'), sanitizeForFirestore(settings), { merge: true });
+export const updateFeeSettings = (settings: InvoiceSettings) => setDoc(doc(db, 'settings', 'invoice'), settings, { merge: true });
 
 export const saveChargesBatch = (charges: ChargeRaw[]) => {
     if (charges.length === 0) return Promise.resolve();
     const batch = writeBatch(db);
-    charges.forEach(charge => batch.set(doc(db, 'charges', `${charge.Period}_${charge.UnitID}`), sanitizeForFirestore(charge)));
+    charges.forEach(charge => batch.set(doc(db, 'charges', `${charge.Period}_${charge.UnitID}`), charge));
     return batch.commit();
 };
 
@@ -90,7 +77,7 @@ export const confirmSinglePayment = async (charge: ChargeRaw, finalPaidAmount: n
         nextPeriod.setMonth(nextPeriod.getMonth() + 1);
         const nextPeriodStr = nextPeriod.toISOString().slice(0, 7);
         const adj: Adjustment = { UnitID: charge.UnitID, Period: nextPeriodStr, Amount: -diff, Description: 'Công nợ kỳ trước', SourcePeriod: charge.Period };
-        batch.set(doc(db, 'adjustments', `ADJ_${nextPeriodStr}_${charge.UnitID}`), sanitizeForFirestore(adj), { merge: true });
+        batch.set(doc(db, 'adjustments', `ADJ_${nextPeriodStr}_${charge.UnitID}`), adj, { merge: true });
     }
     return batch.commit();
 };
@@ -111,10 +98,8 @@ export const updateResidentData = async (
     data: { unit: Unit; owner: Owner; vehicles: Vehicle[] }
 ) => {
     const batch = writeBatch(db);
-    
-    // Sanitize Units and Owners
-    batch.set(doc(db, 'units', data.unit.UnitID), sanitizeForFirestore(data.unit));
-    batch.set(doc(db, 'owners', data.owner.OwnerID), sanitizeForFirestore(data.owner));
+    batch.set(doc(db, 'units', data.unit.UnitID), data.unit);
+    batch.set(doc(db, 'owners', data.owner.OwnerID), data.owner);
 
     const activeIds = new Set<string>();
 
@@ -134,19 +119,12 @@ export const updateResidentData = async (
             vehicleToSave.PlateNumber = `${data.unit.UnitID}-XD${maxIndex}`;
         }
 
-        // Prepare Safe Payload
-        const payload = sanitizeForFirestore({
-            ...vehicleToSave,
-            updatedAt: new Date().toISOString()
-        });
-
         if (id.startsWith('VEH_NEW_')) {
             const newRef = doc(collection(db, 'vehicles'));
             id = newRef.id;
-            // Ensure ID is correct in the new doc
-            batch.set(newRef, { ...payload, VehicleId: id });
+            batch.set(newRef, { ...vehicleToSave, VehicleId: id, updatedAt: new Date().toISOString() });
         } else {
-            batch.set(doc(db, 'vehicles', id), payload);
+            batch.set(doc(db, 'vehicles', id), { ...vehicleToSave, updatedAt: new Date().toISOString() });
         }
         activeIds.add(id);
     });
@@ -176,14 +154,13 @@ const saveBatch = (name: string, data: any[]) => {
     const batch = writeBatch(db);
     data.forEach(item => {
         const id = item.id ?? item.Email ?? item.UnitID ?? item.OwnerID ?? item.VehicleId ?? `${item.Period}_${item.UnitID}`;
-        // Sanitize every item in the batch
-        batch.set(doc(db, name, id), sanitizeForFirestore(item));
+        batch.set(doc(db, name, id), item);
     });
     return batch.commit();
 };
 
 export const saveUsers = (d: UserPermission[]) => saveBatch('users', d);
-export const saveTariffs = (d: AllData['tariffs']) => setDoc(doc(db, 'settings', 'tariffs'), sanitizeForFirestore(d));
+export const saveTariffs = (d: AllData['tariffs']) => setDoc(doc(db, 'settings', 'tariffs'), d);
 export const saveAdjustments = (d: Adjustment[]) => saveBatch('adjustments', d);
 export const saveWaterReadings = (d: WaterReading[]) => saveBatch('waterReadings', d);
 export const saveVehicles = (d: Vehicle[]) => saveBatch('vehicles', d);
@@ -198,13 +175,15 @@ export const importResidentsBatch = async (
     const plateCounters = new Map<string, { xd: number, eb: number }>();
 
     const unitIdsToUpdate = new Set(updates.map(up => String(up.unitId).trim()));
-    const vehiclesProcessedIds = new Set<string>();
 
-    // FIX: Instead of blindly deactivating all vehicles, we will mark IDs that are processed.
-    // At the end, we can decide if we want to deactivate untouched ones or not.
-    // For now, to solve duplication, we prioritize matching existing active vehicles.
+    // Deactivate all existing vehicles for the units being updated
+    currentVehicles.forEach(v => {
+        if (unitIdsToUpdate.has(v.UnitID)) {
+            batch.update(doc(db, "vehicles", v.VehicleId), { isActive: false, log: `Deactivated on import ${new Date().toISOString()}` });
+        }
+    });
 
-    // Pre-calculate the starting sequence index for all units in the batch (for auto-gen plates)
+    // Pre-calculate the starting sequence index for all units in the batch
     unitIdsToUpdate.forEach(unitId => {
         const existingBicycles = currentVehicles.filter(v => v.UnitID === unitId && v.PlateNumber.startsWith(`${unitId}-XD`));
         const maxXd = existingBicycles.reduce((max, v) => {
@@ -227,13 +206,13 @@ export const importResidentsBatch = async (
         const existingUnit = currentUnits.find(u => u.UnitID === unitId);
 
         if (existingUnit) {
-            batch.update(doc(db, "units", unitId), sanitizeForFirestore({ Status: up.status, Area_m2: up.area, UnitType: up.unitType }));
-            batch.update(doc(db, "owners", existingUnit.OwnerID), sanitizeForFirestore({ OwnerName: up.ownerName, Phone: up.phone, Email: up.email }));
+            batch.update(doc(db, "units", unitId), { Status: up.status, Area_m2: up.area, UnitType: up.unitType });
+            batch.update(doc(db, "owners", existingUnit.OwnerID), { OwnerName: up.ownerName, Phone: up.phone, Email: up.email });
             updated++;
         } else {
             const newOwnerId = doc(collection(db, "owners")).id;
-            batch.set(doc(db, "owners", newOwnerId), sanitizeForFirestore({ OwnerID: newOwnerId, OwnerName: up.ownerName, Phone: up.phone, Email: up.email }));
-            batch.set(doc(db, "units", unitId), sanitizeForFirestore({ UnitID: unitId, OwnerID: newOwnerId, UnitType: up.unitType, Area_m2: up.area, Status: up.status }));
+            batch.set(doc(db, "owners", newOwnerId), { OwnerID: newOwnerId, OwnerName: up.ownerName, Phone: up.phone, Email: up.email });
+            batch.set(doc(db, "units", unitId), { UnitID: unitId, OwnerID: newOwnerId, UnitType: up.unitType, Area_m2: up.area, Status: up.status });
             created++;
         }
         
@@ -248,8 +227,6 @@ export const importResidentsBatch = async (
                 const quantity = isNumericQuantity ? parseInt(plate, 10) : 0;
 
                 if ((isBicycle || isEBike) && (quantity > 0 || plate === '')) {
-                    // Logic for auto-generating plates (Bicycles/E-bikes without plates)
-                    // For these, we usually always create NEW because matching is hard without unique ID
                     const count = plate === '' ? 1 : quantity;
                     const counters = plateCounters.get(unitId)!;
                     const prefix = isBicycle ? 'XD' : 'EB';
@@ -261,7 +238,7 @@ export const importResidentsBatch = async (
                         const newPlate = `${unitId}-${prefix}${counters[typeKey]}`;
                         
                         const newVehicleRef = doc(collection(db, "vehicles"));
-                        const vehicleData = {
+                        batch.set(newVehicleRef, {
                             VehicleId: newVehicleRef.id,
                             UnitID: unitId,
                             Type: type,
@@ -270,60 +247,28 @@ export const importResidentsBatch = async (
                             StartDate: new Date().toISOString().split('T')[0],
                             isActive: true,
                             parkingStatus: up.parkingStatus || null,
-                        };
-                        batch.set(newVehicleRef, sanitizeForFirestore(vehicleData));
-                        vehiclesProcessedIds.add(newVehicleRef.id);
+                        });
                         vehicleCount++;
                     }
                     plateCounters.set(unitId, counters); // Update map with new counters
                 } else {
-                    // Logic for Cars/Motorbikes with specific plates
-                    // FIX: Check if vehicle exists to prevent duplicate
-                    const normalizedInputPlate = normalizePlate(plate);
-                    
-                    const existingVehicle = currentVehicles.find(curr => 
-                        curr.UnitID === unitId && 
-                        normalizePlate(curr.PlateNumber) === normalizedInputPlate
-                    );
-
-                    let targetRef;
-                    let vehicleId;
-
-                    if (existingVehicle) {
-                        // Reuse existing document
-                        vehicleId = existingVehicle.VehicleId;
-                        targetRef = doc(db, "vehicles", vehicleId);
-                    } else {
-                        // Create new document
-                        targetRef = doc(collection(db, "vehicles"));
-                        vehicleId = targetRef.id;
-                    }
-
-                    const vehicleData = {
-                        VehicleId: vehicleId,
+                    // This is a vehicle with a specific plate number
+                    const newVehicleRef = doc(collection(db, "vehicles"));
+                    batch.set(newVehicleRef, {
+                        VehicleId: newVehicleRef.id,
                         UnitID: unitId,
                         Type: v.Type,
                         VehicleName: v.VehicleName || '',
-                        PlateNumber: plate, // Use formatted input plate
-                        StartDate: existingVehicle ? existingVehicle.StartDate : new Date().toISOString().split('T')[0],
-                        isActive: true, // Reactivate if it was inactive
+                        PlateNumber: plate,
+                        StartDate: new Date().toISOString().split('T')[0],
+                        isActive: true,
                         parkingStatus: up.parkingStatus || null,
-                    };
-                    
-                    batch.set(targetRef, sanitizeForFirestore(vehicleData), { merge: true });
-                    vehiclesProcessedIds.add(vehicleId);
+                    });
                     vehicleCount++;
                 }
             });
         }
     });
-
-    // OPTIONAL: If strict sync is desired, deactivate vehicles in these units that were NOT in the import file.
-    // currentVehicles.forEach(v => {
-    //     if (unitIdsToUpdate.has(v.UnitID) && !vehiclesProcessedIds.has(v.VehicleId)) {
-    //         batch.update(doc(db, "vehicles", v.VehicleId), { isActive: false, log: `Deactivated on sync ${new Date().toISOString()}` });
-    //     }
-    // });
 
     await batch.commit();
     const { units, owners, vehicles } = await loadAllData();

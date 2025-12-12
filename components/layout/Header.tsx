@@ -7,7 +7,7 @@ import {
 import type { UserPermission } from '../../types';
 import { useAuth, useNotification } from '../../App';
 import Modal from '../ui/Modal';
-import { AdminPage } from '../../types';
+import { AdminPage } from '../../App';
 
 interface HeaderProps {
   pageTitle: string;

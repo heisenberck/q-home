@@ -1,8 +1,7 @@
 
 import React, { useState, useMemo, useEffect } from 'react';
 import type { Vehicle, Unit, Owner, Role, ActivityLog, VehicleTier } from '../../types';
-// FIX: Import from Context directly
-import { useNotification } from '../../contexts/AppContext';
+import { useNotification } from '../../App';
 import Modal from '../ui/Modal';
 import { 
     CarIcon, SearchIcon, PencilSquareIcon, WarningIcon, UploadIcon, 
@@ -33,7 +32,6 @@ type EnhancedVehicle = Vehicle & {
     ownerPhone: string;
     waitingPriority?: number; // Calculated dynamic index
     isBillable: boolean;
-    isDuplicate?: boolean; // New flag for UI
 };
 
 interface VehiclesPageProps {
@@ -88,13 +86,6 @@ const VehicleTypeBadge: React.FC<{ type: string }> = ({ type }) => {
 
 // --- Edit Modal (Refactored) ---
 
-const REASON_OPTIONS = [
-    "Cập nhật biển số",
-    "Cập nhật loại xe",
-    "Cập nhật hình ảnh",
-    "Cập nhật lốt xe"
-];
-
 const VehicleEditModal: React.FC<{
     vehicle: Vehicle;
     onSave: (vehicle: Vehicle, reason: string) => void;
@@ -102,11 +93,7 @@ const VehicleEditModal: React.FC<{
 }> = ({ vehicle: initialVehicle, onSave, onClose }) => {
     const { showToast } = useNotification();
     const [activeTab, setActiveTab] = useState<'info' | 'parking' | 'docs'>('info');
-    
-    // Updated State for Reason Logic
-    const [selectedReasons, setSelectedReasons] = useState<string[]>([]);
-    const [otherReason, setOtherReason] = useState('');
-
+    const [reason, setReason] = useState('');
     const [vehicle, setVehicle] = useState<Vehicle>({ 
         ...initialVehicle,
         documents: initialVehicle.documents || {}
@@ -142,38 +129,17 @@ const VehicleEditModal: React.FC<{
                 }
             }));
             showToast('Đã tải ảnh lên.', 'success');
-            // Auto-check "Cập nhật hình ảnh" if not already checked
-            if (!selectedReasons.includes("Cập nhật hình ảnh")) {
-                setSelectedReasons(prev => [...prev, "Cập nhật hình ảnh"]);
-            }
         } catch { showToast('Lỗi tải ảnh.', 'error'); }
         if (e.target) e.target.value = '';
     };
 
-    const toggleReason = (reason: string) => {
-        setSelectedReasons(prev => 
-            prev.includes(reason) 
-                ? prev.filter(r => r !== reason) 
-                : [...prev, reason]
-        );
-    };
-
     const handleSubmit = (e: React.FormEvent) => {
         e.preventDefault();
-        
-        // Construct final reason string
-        const parts = [...selectedReasons];
-        if (otherReason.trim()) parts.push(otherReason.trim());
-        
-        const finalReason = parts.join(', ');
-
-        if (!finalReason) {
-            showToast('Vui lòng chọn hoặc nhập lý do thay đổi.', 'error');
+        if (!reason.trim()) {
+            showToast('Vui lòng nhập lý do thay đổi.', 'error');
             return;
         }
-        
-        // Ensure standard Sanitization is respected implicitly by onSave -> service layer
-        onSave(vehicle, finalReason);
+        onSave(vehicle, reason);
     };
 
     const tabClass = (tab: string) => `px-4 py-2 text-sm font-medium border-b-2 transition-colors ${activeTab === tab ? 'border-primary text-primary' : 'border-transparent text-gray-500 hover:text-gray-700'}`;
@@ -198,32 +164,11 @@ const VehicleEditModal: React.FC<{
                             </div>
                             <div>
                                 <label className={labelClass}>Biển số</label>
-                                <input 
-                                    name="PlateNumber" 
-                                    value={vehicle.PlateNumber} 
-                                    onChange={handleChange} 
-                                    className={`${inputClass} font-mono font-bold uppercase`}
-                                    // Auto-check reason on change
-                                    onBlur={() => {
-                                        if (vehicle.PlateNumber !== initialVehicle.PlateNumber && !selectedReasons.includes("Cập nhật biển số")) {
-                                            setSelectedReasons(prev => [...prev, "Cập nhật biển số"]);
-                                        }
-                                    }}
-                                />
+                                <input name="PlateNumber" value={vehicle.PlateNumber} onChange={handleChange} className={`${inputClass} font-mono font-bold uppercase`}/>
                             </div>
                             <div>
                                 <label className={labelClass}>Loại xe</label>
-                                <select 
-                                    name="Type" 
-                                    value={vehicle.Type} 
-                                    onChange={(e) => {
-                                        handleChange(e);
-                                        if (e.target.value !== initialVehicle.Type && !selectedReasons.includes("Cập nhật loại xe")) {
-                                            setSelectedReasons(prev => [...prev, "Cập nhật loại xe"]);
-                                        }
-                                    }} 
-                                    className={inputClass}
-                                >
+                                <select name="Type" value={vehicle.Type} onChange={handleChange} className={inputClass}>
                                     {Object.entries(vehicleTypeLabels).map(([k, v]) => (
                                         <option key={k} value={k}>{v}</option>
                                     ))}
@@ -241,18 +186,7 @@ const VehicleEditModal: React.FC<{
                             <div className="grid grid-cols-2 gap-4">
                                 <div>
                                     <label className={labelClass}>Trạng thái đỗ</label>
-                                    <select 
-                                        name="parkingStatus" 
-                                        value={vehicle.parkingStatus || ''} 
-                                        onChange={(e) => {
-                                            handleChange(e);
-                                            if (e.target.value !== (initialVehicle.parkingStatus || '') && !selectedReasons.includes("Cập nhật lốt xe")) {
-                                                setSelectedReasons(prev => [...prev, "Cập nhật lốt xe"]);
-                                            }
-                                        }} 
-                                        className={inputClass} 
-                                        disabled={!isCar}
-                                    >
+                                    <select name="parkingStatus" value={vehicle.parkingStatus || ''} onChange={handleChange} className={inputClass} disabled={!isCar}>
                                         <option value="">Không có</option>
                                         <option value="Lốt chính">Lốt chính</option>
                                         <option value="Lốt tạm">Lốt phụ (Ngoài giờ/Ghép)</option>
@@ -304,32 +238,15 @@ const VehicleEditModal: React.FC<{
                     )}
                 </div>
 
-                {/* --- Refactored Reason Input --- */}
-                <div className="pt-4 border-t mt-auto bg-white">
+                <div className="pt-4 border-t mt-auto">
                     <label className={labelClass}>Lý do thay đổi <span className="text-red-500">*</span></label>
-                    <div className="bg-gray-50 p-4 rounded-lg border border-gray-200">
-                        <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 mb-3">
-                            {REASON_OPTIONS.map(opt => (
-                                <label key={opt} className="flex items-center space-x-2 cursor-pointer select-none">
-                                    <input 
-                                        type="checkbox" 
-                                        checked={selectedReasons.includes(opt)}
-                                        onChange={() => toggleReason(opt)}
-                                        className="w-4 h-4 text-primary border-gray-300 rounded focus:ring-primary"
-                                    />
-                                    <span className="text-sm text-gray-700">{opt}</span>
-                                </label>
-                            ))}
-                        </div>
-                        <input 
-                            type="text"
-                            value={otherReason}
-                            onChange={e => setOtherReason(e.target.value)}
-                            placeholder="Chi tiết khác (tùy chọn). VD: Đổi xe mới..."
-                            className="w-full px-3 py-2 border border-gray-300 rounded-md bg-white text-sm focus:ring-1 focus:ring-primary outline-none"
-                        />
-                    </div>
-
+                    <textarea 
+                        value={reason} 
+                        onChange={e => setReason(e.target.value)} 
+                        className={`${inputClass} h-20 resize-none`} 
+                        placeholder="Vui lòng nhập lý do cập nhật (VD: Đổi xe, Cấp lốt mới...)"
+                        required
+                    />
                     <div className="flex justify-end gap-3 mt-4">
                         <button type="button" onClick={onClose} className="px-5 py-2 rounded-lg text-gray-700 bg-gray-100 hover:bg-gray-200 font-medium text-sm">Hủy</button>
                         <button type="submit" className="px-5 py-2 rounded-lg text-white bg-primary hover:bg-primary-focus font-bold shadow-lg text-sm">Lưu thay đổi</button>
@@ -349,7 +266,7 @@ const VehicleDetailPanel: React.FC<{
     onDelete: (v: Vehicle) => void,
     onClose: () => void
 }> = ({ vehicle, activityLogs, onEdit, onDelete, onClose }) => {
-    const theme = getPastelColorForName(vehicle.ownerName);
+    const theme = getPastelColorForName(vehicle.ownerName); // Reuse resident color helper
 
     const relevantLogs = useMemo(() => {
         return activityLogs.filter(log => 
@@ -468,31 +385,19 @@ const VehiclesPage: React.FC<VehiclesPageProps> = ({ vehicles, units, owners, ac
     }, [vehicles]);
 
     const enhancedVehicles = useMemo((): EnhancedVehicle[] => {
-        // Detect duplicates locally for UI flagging
-        const plateCounts = new Map<string, number>();
-        vehicles.forEach(v => {
-            if (v.isActive && v.PlateNumber) {
-                const normalized = v.PlateNumber.replace(/[\s.-]/g, '').toUpperCase();
-                plateCounts.set(normalized, (plateCounts.get(normalized) || 0) + 1);
-            }
-        });
-
         return vehicles.map(v => {
             const unit = units.find(u => u.UnitID === v.UnitID);
             const owner = unit ? ownersMap.get(unit.OwnerID) : undefined;
-            const normalized = (v.PlateNumber || '').replace(/[\s.-]/g, '').toUpperCase();
             
             // Business Logic: Billable if Main or Extra Slot
             const isBillable = v.isActive && (v.parkingStatus === 'Lốt chính' || v.parkingStatus === 'Lốt tạm');
-            const isDuplicate = v.isActive && (plateCounts.get(normalized) || 0) > 1;
             
             return {
                 ...v,
                 ownerName: owner?.OwnerName ?? 'Unknown',
                 ownerPhone: owner?.Phone ?? '',
                 waitingPriority: waitingListMap.get(v.VehicleId),
-                isBillable,
-                isDuplicate
+                isBillable
             };
         });
     }, [vehicles, units, ownersMap, waitingListMap]);
@@ -555,8 +460,6 @@ const VehiclesPage: React.FC<VehiclesPageProps> = ({ vehicles, units, owners, ac
             waiting: active.filter(v => v.parkingStatus === 'Xếp lốt').length
         };
     }, [enhancedVehicles]);
-
-    const duplicateCount = useMemo(() => filteredVehicles.filter(v => v.isDuplicate).length, [filteredVehicles]);
 
     // --- 4. Handlers ---
     const handleSave = (updatedVehicle: Vehicle, reason: string) => {
@@ -630,11 +533,8 @@ const VehiclesPage: React.FC<VehiclesPageProps> = ({ vehicles, units, owners, ac
                 const rawPlate = data.PlateNumber;
                 // Normalize: remove spaces, dots, dashes, uppercase
                 if (!rawPlate) return;
-                // Strict normalization to catch "29Y5-177.77" vs "29Y517777"
                 const normalizedPlate = String(rawPlate).trim().toUpperCase().replace(/[\s.-]/g, '');
                 
-                if (!normalizedPlate) return;
-
                 if (!plateMap.has(normalizedPlate)) {
                     plateMap.set(normalizedPlate, []);
                 }
@@ -658,7 +558,7 @@ const VehiclesPage: React.FC<VehiclesPageProps> = ({ vehicles, units, owners, ac
                     const [keep, ...remove] = records;
                     remove.forEach(r => allDuplicates.push(r.id));
                     duplicateCount += remove.length;
-                    console.log(`[Duplicate] Plate ${plate}: Keeping ${keep.id}, Removing ${remove.length} items`);
+                    console.log(`[Duplicate] Plate ${plate}: Keeping ${keep.id}, Removing ${remove.map(r=>r.id).join(', ')}`);
                 }
             });
     
@@ -758,17 +658,6 @@ const VehiclesPage: React.FC<VehiclesPageProps> = ({ vehicles, units, owners, ac
                     </button>
                 </div>
 
-                {/* Duplicate Warning */}
-                {duplicateCount > 0 && (
-                    <div className="bg-red-50 border border-red-200 text-red-800 p-3 rounded-lg flex items-center justify-between">
-                        <div className="flex items-center gap-2">
-                            <WarningIcon className="w-5 h-5" />
-                            <span className="font-semibold text-sm">Cảnh báo: Phát hiện {duplicateCount} xe có biển số trùng lặp trong danh sách hiển thị.</span>
-                        </div>
-                        <button onClick={handleCleanupDuplicates} className="text-xs font-bold underline hover:text-red-900">Xử lý ngay</button>
-                    </div>
-                )}
-
                 {/* 3. Table */}
                 <div className="bg-white rounded-xl shadow-sm flex-1 flex flex-col overflow-hidden border border-gray-100">
                     <div className="overflow-y-auto">
@@ -784,19 +673,12 @@ const VehiclesPage: React.FC<VehiclesPageProps> = ({ vehicles, units, owners, ac
                                 </tr>
                             </thead>
                             <tbody className="divide-y divide-gray-100">
-                                {filteredVehicles.map((v, index) => (
-                                    <tr 
-                                        key={v.VehicleId + index} /* Use combined key to prevent React duplicate key errors */
-                                        onClick={() => setSelectedVehicle(v)} 
-                                        className={`cursor-pointer transition-colors ${selectedVehicle?.VehicleId === v.VehicleId ? 'bg-blue-50' : v.isDuplicate ? 'bg-red-50 hover:bg-red-100' : 'hover:bg-gray-50'}`}
-                                    >
+                                {filteredVehicles.map(v => (
+                                    <tr key={v.VehicleId} onClick={() => setSelectedVehicle(v)} className={`cursor-pointer transition-colors ${selectedVehicle?.VehicleId === v.VehicleId ? 'bg-blue-50' : 'hover:bg-gray-50'}`}>
                                         <td className="px-6 py-4 text-sm font-bold text-gray-900">{v.UnitID}</td>
                                         <td className="px-6 py-4 text-sm text-gray-700">{v.ownerName}</td>
                                         <td className="px-6 py-4">
-                                            <span className={`font-mono font-bold text-base px-2 py-0.5 rounded border ${v.isDuplicate ? 'bg-red-100 text-red-700 border-red-300' : 'bg-gray-100 text-gray-800 border-gray-200'}`}>
-                                                {v.PlateNumber}
-                                            </span>
-                                            {v.isDuplicate && <span className="ml-2 text-xs text-red-500 font-bold">(Trùng)</span>}
+                                            <span className="font-mono font-bold text-gray-800 text-base bg-gray-100 px-2 py-0.5 rounded border border-gray-200">{v.PlateNumber}</span>
                                         </td>
                                         <td className="px-6 py-4 text-center">
                                             <div className="flex justify-center"><VehicleTypeBadge type={v.Type} /></div>

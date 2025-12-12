@@ -7,11 +7,17 @@ import {
     BuildingIcon, BanknotesIcon, CarIcon, DropletsIcon, ChatBubbleLeftEllipsisIcon,
     WarningIcon,
 } from '../ui/Icons';
-import { getPreviousPeriod } from '../../utils/helpers';
-import type { AdminPage } from '../../types';
-import ActivityBar from '../dashboard/ActivityBar';
+import { getPreviousPeriod, timeAgo } from '../../utils/helpers';
+import type { AdminPage } from '../../App';
+import { isProduction } from '../../utils/env';
 
 // --- Local Components & Helpers ---
+
+const ChatBubbleLeftRightIcon: React.FC<{ className?: string }> = ({ className = "h-5 w-5" }) => (
+    <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" strokeWidth={1.5} stroke="currentColor" className={className}>
+      <path strokeLinecap="round" strokeLinejoin="round" d="M20.25 12c0-2.515-2.035-4.545-4.545-4.545H5.25a2.25 2.25 0 0 0-2.25 2.25v6.75a2.25 2.25 0 0 0 2.25 2.25H9m11.25-8.25a2.25 2.25 0 0 0-2.25-2.25H13.5a2.25 2.25 0 0 0-2.25 2.25v6.75a2.25 2.25 0 0 0 2.25 2.25H18a2.25 2.25 0 0 0 2.25-2.25V12.75Z" />
+    </svg>
+);
 
 const formatCurrency = (value: number) => {
     if (value >= 1_000_000_000) return `${(value / 1_000_000_000).toFixed(1)} tỷ`;
@@ -54,6 +60,50 @@ const ModuleCard: React.FC<ModuleCardProps> = ({ title, icon, borderColor, child
 
 const ProgressBar: React.FC<{ value: number }> = ({ value }) => ( <div className="w-full bg-gray-200 rounded-full h-2.5"><div className="bg-blue-600 h-2.5 rounded-full" style={{ width: `${value}%` }}></div></div>);
 
+// --- NEW Dashboard Footer Component ---
+const DashboardFooter: React.FC<{
+    activityLogs: ActivityLog[];
+    feedback: FeedbackItem[];
+    onNavigate: (page: AdminPage) => void;
+}> = ({ activityLogs, feedback, onNavigate }) => {
+    const IS_PROD = isProduction();
+    const [tickerKey, setTickerKey] = useState(0);
+    const latestLogs = useMemo(() => activityLogs.slice(0, 3), [activityLogs]);
+
+    useEffect(() => {
+        if (latestLogs.length === 0) return;
+        const interval = setInterval(() => { setTickerKey(prev => prev + 1); }, 4000);
+        return () => clearInterval(interval);
+    }, [latestLogs.length]);
+
+    const currentLog = latestLogs.length > 0 ? latestLogs[tickerKey % latestLogs.length] : null;
+    const pendingFeedbackCount = useMemo(() => feedback.filter(f => f.status === 'Pending').length, [feedback]);
+
+    return (
+        <div className="fixed bottom-0 left-64 right-0 bg-white/80 backdrop-blur-sm border-t border-gray-200 h-12 flex items-center justify-between px-6 text-gray-600 z-30">
+            <div className="flex items-center gap-2">
+                <div className={`w-2.5 h-2.5 rounded-full ${IS_PROD ? 'bg-green-500 animate-pulse' : 'bg-red-500'}`}></div>
+                <span className="text-xs font-semibold">{IS_PROD ? 'System Online' : 'Development Mode'}</span>
+            </div>
+            <div className="flex-1 text-center">
+                {currentLog ? (
+                    <div key={tickerKey} className="animate-fade-in-down text-xs text-gray-500">
+                        <span className="font-semibold text-gray-700">{currentLog.actor_email}</span><span className="mx-1">&bull;</span>
+                        <span className="truncate">{currentLog.summary}</span><span className="mx-1 text-gray-400">&bull;</span>
+                        <span className="italic text-gray-400">{timeAgo(currentLog.ts)}</span>
+                    </div>
+                ) : ( <p className="text-xs text-gray-400">Không có hoạt động gần đây.</p> )}
+            </div>
+            <div className="flex items-center">
+                <button onClick={() => onNavigate('feedbackManagement')} className="relative flex items-center gap-2 px-3 py-1.5 rounded-lg text-sm font-semibold hover:bg-gray-100 transition-colors">
+                    <ChatBubbleLeftRightIcon className="w-5 h-5" /><span>Tin nhắn</span>
+                    {pendingFeedbackCount > 0 && (<span className="absolute -top-1 -right-1 flex h-4 w-4 items-center justify-center rounded-full bg-red-500 text-white text-[10px] font-bold ring-2 ring-white">{pendingFeedbackCount}</span>)}
+                </button>
+            </div>
+        </div>
+    );
+};
+
 // --- Main Page Component ---
 interface OverviewPageProps {
     allUnits: Unit[];
@@ -62,8 +112,8 @@ interface OverviewPageProps {
     allWaterReadings: WaterReading[];
     charges: ChargeRaw[];
     activityLogs: ActivityLog[];
-    feedback: FeedbackItem[];
-    onNavigate: (page: string) => void;
+    feedback: any[]; // Updated prop
+    onNavigate: (page: string) => void; // Updated prop
 }
 
 const OverviewPage: React.FC<OverviewPageProps> = ({ allUnits, allOwners, allVehicles, allWaterReadings, charges, activityLogs, feedback, onNavigate }) => {
@@ -148,7 +198,7 @@ const OverviewPage: React.FC<OverviewPageProps> = ({ allUnits, allOwners, allVeh
                 </div>
             </div>
             
-            <ActivityBar onNavigate={onNavigate as (page: AdminPage) => void} feedback={feedback} />
+            <DashboardFooter activityLogs={activityLogs} feedback={feedback} onNavigate={onNavigate as (page: AdminPage) => void} />
         </div>
     );
 };

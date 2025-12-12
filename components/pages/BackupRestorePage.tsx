@@ -1,4 +1,3 @@
-
 import React, { useRef, useState } from 'react';
 import type { Role } from '../../types';
 import { ArrowDownTrayIcon, ArrowUpTrayIcon, WarningIcon, TrashIcon, CircularArrowRefreshIcon } from '../ui/Icons';
@@ -107,22 +106,12 @@ const BackupRestorePage: React.FC<BackupRestorePageProps> = ({ allData, onRestor
             setIsWiping(true);
             try {
                 await wipeAllBusinessData(setWipeProgress);
-                
-                // CRITICAL FIX: Clear Local Cache so UI reflects the empty DB
-                Object.keys(localStorage).forEach(key => {
-                    if (key.startsWith('qhome_')) {
-                        localStorage.removeItem(key);
-                    }
-                });
-
                 const emptyData = { units: [], owners: [], vehicles: [], waterReadings: [], charges: [], adjustments: [], activityLogs: [], lockedPeriods: [], tariffs: allData.tariffs, invoiceSettings: allData.invoiceSettings, users: allData.users };
                 onRestore(emptyData);
-                
-                showToast('Đã xoá sạch dữ liệu! Hệ thống sẽ tự tải lại...', 'success');
-                // Force reload to ensure all memory states are cleared
-                setTimeout(() => window.location.reload(), 1500);
+                showToast('Đã xoá sạch dữ liệu!', 'success');
             } catch (error: any) {
                 showToast(`Lỗi: ${error.message}`, 'error');
+            } finally {
                 setIsWiping(false);
             }
         } else if (action === 'restore_mock') {
