@@ -13,6 +13,14 @@ type AppDataForService = {
     tariffs: AllData['tariffs']; hasData: boolean;
 };
 
+// --- HELPER: Sanitize Data for Firestore ---
+// Converts 'undefined' to 'null' because Firestore does not support 'undefined'.
+const sanitizeForFirestore = <T>(obj: T): T => {
+    return JSON.parse(JSON.stringify(obj, (key, value) => {
+        return value === undefined ? null : value;
+    }));
+};
+
 export const loadAllData = async (): Promise<AppDataForService> => {
     const collectionsToFetch = ['units', 'owners', 'vehicles', 'waterReadings', 'charges', 'adjustments', 'users', 'activityLogs'];
     const promises = collectionsToFetch.map(c => getDocs(collection(db, c)));
@@ -45,12 +53,12 @@ export const loadAllData = async (): Promise<AppDataForService> => {
     };
 };
 
-export const updateFeeSettings = (settings: InvoiceSettings) => setDoc(doc(db, 'settings', 'invoice'), settings, { merge: true });
+export const updateFeeSettings = (settings: InvoiceSettings) => setDoc(doc(db, 'settings', 'invoice'), sanitizeForFirestore(settings), { merge: true });
 
 export const saveChargesBatch = (charges: ChargeRaw[]) => {
     if (charges.length === 0) return Promise.resolve();
     const batch = writeBatch(db);
-    charges.forEach(charge => batch.set(doc(db, 'charges', `${charge.Period}_${charge.UnitID}`), charge));
+    charges.forEach(charge => batch.set(doc(db, 'charges', `${charge.Period}_${charge.UnitID}`), sanitizeForFirestore(charge)));
     return batch.commit();
 };
 
@@ -77,7 +85,7 @@ export const confirmSinglePayment = async (charge: ChargeRaw, finalPaidAmount: n
         nextPeriod.setMonth(nextPeriod.getMonth() + 1);
         const nextPeriodStr = nextPeriod.toISOString().slice(0, 7);
         const adj: Adjustment = { UnitID: charge.UnitID, Period: nextPeriodStr, Amount: -diff, Description: 'Công nợ kỳ trước', SourcePeriod: charge.Period };
-        batch.set(doc(db, 'adjustments', `ADJ_${nextPeriodStr}_${charge.UnitID}`), adj, { merge: true });
+        batch.set(doc(db, 'adjustments', `ADJ_${nextPeriodStr}_${charge.UnitID}`), sanitizeForFirestore(adj), { merge: true });
     }
     return batch.commit();
 };
@@ -98,8 +106,10 @@ export const updateResidentData = async (
     data: { unit: Unit; owner: Owner; vehicles: Vehicle[] }
 ) => {
     const batch = writeBatch(db);
-    batch.set(doc(db, 'units', data.unit.UnitID), data.unit);
-    batch.set(doc(db, 'owners', data.owner.OwnerID), data.owner);
+    
+    // Sanitize Units and Owners
+    batch.set(doc(db, 'units', data.unit.UnitID), sanitizeForFirestore(data.unit));
+    batch.set(doc(db, 'owners', data.owner.OwnerID), sanitizeForFirestore(data.owner));
 
     const activeIds = new Set<string>();
 
@@ -119,12 +129,19 @@ export const updateResidentData = async (
             vehicleToSave.PlateNumber = `${data.unit.UnitID}-XD${maxIndex}`;
         }
 
+        // Prepare Safe Payload
+        const payload = sanitizeForFirestore({
+            ...vehicleToSave,
+            updatedAt: new Date().toISOString()
+        });
+
         if (id.startsWith('VEH_NEW_')) {
             const newRef = doc(collection(db, 'vehicles'));
             id = newRef.id;
-            batch.set(newRef, { ...vehicleToSave, VehicleId: id, updatedAt: new Date().toISOString() });
+            // Ensure ID is correct in the new doc
+            batch.set(newRef, { ...payload, VehicleId: id });
         } else {
-            batch.set(doc(db, 'vehicles', id), { ...vehicleToSave, updatedAt: new Date().toISOString() });
+            batch.set(doc(db, 'vehicles', id), payload);
         }
         activeIds.add(id);
     });
@@ -154,13 +171,14 @@ const saveBatch = (name: string, data: any[]) => {
     const batch = writeBatch(db);
     data.forEach(item => {
         const id = item.id ?? item.Email ?? item.UnitID ?? item.OwnerID ?? item.VehicleId ?? `${item.Period}_${item.UnitID}`;
-        batch.set(doc(db, name, id), item);
+        // Sanitize every item in the batch
+        batch.set(doc(db, name, id), sanitizeForFirestore(item));
     });
     return batch.commit();
 };
 
 export const saveUsers = (d: UserPermission[]) => saveBatch('users', d);
-export const saveTariffs = (d: AllData['tariffs']) => setDoc(doc(db, 'settings', 'tariffs'), d);
+export const saveTariffs = (d: AllData['tariffs']) => setDoc(doc(db, 'settings', 'tariffs'), sanitizeForFirestore(d));
 export const saveAdjustments = (d: Adjustment[]) => saveBatch('adjustments', d);
 export const saveWaterReadings = (d: WaterReading[]) => saveBatch('waterReadings', d);
 export const saveVehicles = (d: Vehicle[]) => saveBatch('vehicles', d);
@@ -206,13 +224,13 @@ export const importResidentsBatch = async (
         const existingUnit = currentUnits.find(u => u.UnitID === unitId);
 
         if (existingUnit) {
-            batch.update(doc(db, "units", unitId), { Status: up.status, Area_m2: up.area, UnitType: up.unitType });
-            batch.update(doc(db, "owners", existingUnit.OwnerID), { OwnerName: up.ownerName, Phone: up.phone, Email: up.email });
+            batch.update(doc(db, "units", unitId), sanitizeForFirestore({ Status: up.status, Area_m2: up.area, UnitType: up.unitType }));
+            batch.update(doc(db, "owners", existingUnit.OwnerID), sanitizeForFirestore({ OwnerName: up.ownerName, Phone: up.phone, Email: up.email }));
             updated++;
         } else {
             const newOwnerId = doc(collection(db, "owners")).id;
-            batch.set(doc(db, "owners", newOwnerId), { OwnerID: newOwnerId, OwnerName: up.ownerName, Phone: up.phone, Email: up.email });
-            batch.set(doc(db, "units", unitId), { UnitID: unitId, OwnerID: newOwnerId, UnitType: up.unitType, Area_m2: up.area, Status: up.status });
+            batch.set(doc(db, "owners", newOwnerId), sanitizeForFirestore({ OwnerID: newOwnerId, OwnerName: up.ownerName, Phone: up.phone, Email: up.email }));
+            batch.set(doc(db, "units", unitId), sanitizeForFirestore({ UnitID: unitId, OwnerID: newOwnerId, UnitType: up.unitType, Area_m2: up.area, Status: up.status }));
             created++;
         }
         
@@ -238,7 +256,7 @@ export const importResidentsBatch = async (
                         const newPlate = `${unitId}-${prefix}${counters[typeKey]}`;
                         
                         const newVehicleRef = doc(collection(db, "vehicles"));
-                        batch.set(newVehicleRef, {
+                        const vehicleData = {
                             VehicleId: newVehicleRef.id,
                             UnitID: unitId,
                             Type: type,
@@ -247,14 +265,15 @@ export const importResidentsBatch = async (
                             StartDate: new Date().toISOString().split('T')[0],
                             isActive: true,
                             parkingStatus: up.parkingStatus || null,
-                        });
+                        };
+                        batch.set(newVehicleRef, sanitizeForFirestore(vehicleData));
                         vehicleCount++;
                     }
                     plateCounters.set(unitId, counters); // Update map with new counters
                 } else {
                     // This is a vehicle with a specific plate number
                     const newVehicleRef = doc(collection(db, "vehicles"));
-                    batch.set(newVehicleRef, {
+                    const vehicleData = {
                         VehicleId: newVehicleRef.id,
                         UnitID: unitId,
                         Type: v.Type,
@@ -263,7 +282,8 @@ export const importResidentsBatch = async (
                         StartDate: new Date().toISOString().split('T')[0],
                         isActive: true,
                         parkingStatus: up.parkingStatus || null,
-                    });
+                    };
+                    batch.set(newVehicleRef, sanitizeForFirestore(vehicleData));
                     vehicleCount++;
                 }
             });

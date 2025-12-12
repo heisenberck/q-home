@@ -400,11 +400,13 @@ const BillingPage: React.FC<BillingPageProps> = ({ charges, setCharges, allData,
                 const validUnits = new Set(allData.units.map(u => u.UnitID));
 
                 for (let i = headerIndex + 1; i < json.length; i++) {
-                    // Removed unused 'row' variable to avoid type confusion and warnings
-                    const rawAmt = (json[i] as any)[colCredit];
-                    const amtStr = String(rawAmt ?? '0');
+                    const rowArray = json[i] as any[];
+                    // Explicit casts to handle potential 'unknown' types from XLSX
+                    const rawAmt = rowArray[colCredit] as unknown;
+                    const amtStr = `${rawAmt ?? '0'}`;
                     const amount = Math.round(parseFloat(amtStr.replace(/[^0-9.-]+/g,"")));
-                    const desc = String((json[i] as any)[colDesc] ?? '');
+                    const rawDesc = rowArray[colDesc] as unknown;
+                    const desc = `${rawDesc ?? ''}`;
                     
                     if (amount > 0) {
                         let match;
