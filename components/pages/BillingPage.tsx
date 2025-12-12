@@ -1,15 +1,16 @@
 
 // ... existing imports ...
 import React, { useState, useCallback, useMemo, useRef, useEffect } from 'react';
-import type { ChargeRaw, Adjustment, AllData, Role, PaymentStatus, InvoiceSettings, Owner } from '../../types';
+import type { ChargeRaw, Adjustment, AllData, Role, PaymentStatus, InvoiceSettings, Owner, LogPayload } from '../../types';
 import { UnitType } from '../../types';
-import { LogPayload } from '../../App';
-import { useNotification } from '../../App';
+// FIX: Import from Context directly to avoid cycle
+import { useNotification } from '../../contexts/AppContext'; 
 import { 
     confirmSinglePayment,
     loadAllData,
     updateChargePayments
 } from '../../services';
+// ... rest of the file ...
 import { calculateChargesBatch } from '../../services/feeService';
 import NoticePreviewModal from '../NoticePreviewModal';
 import Spinner from '../ui/Spinner';
@@ -21,7 +22,7 @@ import {
     ActionViewIcon, ChevronDownIcon, ChevronUpIcon
 } from '../ui/Icons';
 import { loadScript } from '../../utils/scriptLoader';
-import { formatCurrency, parseUnitCode, renderInvoiceHTMLForPdf, formatNumber } from '../../utils/helpers';
+import { formatCurrency, parseUnitCode, renderInvoiceHTMLForPdf, formatNumber, sortUnitsComparator } from '../../utils/helpers';
 import { writeBatch, collection, query, where, getDocs, doc, addDoc, serverTimestamp, increment, updateDoc } from 'firebase/firestore';
 import { db } from '../../firebaseConfig';
 import { isProduction } from '../../utils/env';
@@ -241,18 +242,13 @@ const BillingPage: React.FC<BillingPageProps> = ({ charges, setCharges, allData,
             }
 
             if (floorFilter !== 'all') {
-                const floor = c.UnitID.startsWith('K') ? 'KIOS' : parseUnitCode(`${c.UnitID}`)?.floor?.toString();
+                const floor = c.UnitID.startsWith('K') ? 'KIOS' : parseUnitCode(String(c.UnitID))?.floor?.toString();
                 if (floor !== floorFilter) return false;
             }
             const s = searchTerm.toLowerCase();
             if (s && !(c.UnitID.toLowerCase().includes(s) || (c.OwnerName || '').toLowerCase().includes(s))) return false;
             return true;
-        }).sort((a, b) => {
-            const pa = parseUnitCode(`${a.UnitID}`) || { floor: 100, apt: 0 };
-            const pb = parseUnitCode(`${b.UnitID}`) || { floor: 100, apt: 0 };
-            if (pa.floor !== pb.floor) return pa.floor - pb.floor;
-            return pa.apt - pb.apt;
-        });
+        }).sort(sortUnitsComparator);
     }, [charges, period, searchTerm, statusFilter, floorFilter]);
 
     // Stats
@@ -402,11 +398,11 @@ const BillingPage: React.FC<BillingPageProps> = ({ charges, setCharges, allData,
                 for (let i = headerIndex + 1; i < json.length; i++) {
                     const rowArray = json[i] as any[];
                     // Explicit casts to handle potential 'unknown' types from XLSX
-                    const rawAmt = rowArray[colCredit] as unknown;
-                    const amtStr = `${rawAmt ?? '0'}`;
+                    const rawAmt: unknown = rowArray[colCredit];
+                    const amtStr: string = String(rawAmt ?? '0');
                     const amount = Math.round(parseFloat(amtStr.replace(/[^0-9.-]+/g,"")));
-                    const rawDesc = rowArray[colDesc] as unknown;
-                    const desc = `${rawDesc ?? ''}`;
+                    const rawDesc: unknown = rowArray[colDesc];
+                    const desc: string = String(rawDesc ?? '');
                     
                     if (amount > 0) {
                         let match;

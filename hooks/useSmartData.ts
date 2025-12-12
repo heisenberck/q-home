@@ -3,6 +3,7 @@ import { useState, useEffect, useCallback } from 'react';
 import { collection, getDocs } from 'firebase/firestore';
 import { db } from '../firebaseConfig';
 import { isProduction } from '../utils/env';
+import { loadAllData } from '../services'; // Import service layer
 import { 
     Unit, Owner, Vehicle, WaterReading, ChargeRaw, 
     TariffCollection, UserPermission, InvoiceSettings, Adjustment, ActivityLog 
@@ -21,11 +22,10 @@ interface CachePacket<T> {
 }
 
 /**
- * Core function to fetch data with Local-First strategy
+ * Core function to fetch data with Local-First strategy (Production Only)
  */
 async function fetchWithCache<T>(
     collectionName: string, 
-    fallbackData: T | null = null,
     forceRefresh: boolean = false
 ): Promise<T> {
     const cacheKey = `${CACHE_PREFIX}${collectionName}`;
@@ -46,11 +46,7 @@ async function fetchWithCache<T>(
         }
     }
 
-    // 2. Fetch from Network (Firestore)
-    if (!isProduction()) {
-        return fallbackData as T;
-    }
-
+    // 2. Fetch from Network (Firestore) - Only reachable in Prod via logic below
     try {
         const colRef = collection(db, collectionName);
         const snapshot = await getDocs(colRef);
@@ -121,42 +117,58 @@ export const useSmartSystemData = (skipFetch = false) => {
         setError(null);
         
         try {
-            // Parallel Fetching
-            const [
-                units, owners, vehicles, users, 
-                adjustments, waterReadings, activityLogs,
-            ] = await Promise.all([
-                fetchWithCache<Unit[]>('units', [], force),
-                fetchWithCache<Owner[]>('owners', [], force),
-                fetchWithCache<Vehicle[]>('vehicles', [], force),
-                fetchWithCache<UserPermission[]>('users', MOCK_USER_PERMISSIONS, force),
-                fetchWithCache<Adjustment[]>('adjustments', [], force),
-                fetchWithCache<WaterReading[]>('waterReadings', [], force),
-                fetchWithCache<ActivityLog[]>('activityLogs', [], force),
-            ]);
+            if (!isProduction()) {
+                // --- DEV/MOCK MODE ---
+                // Load directly from the Service Layer (mockAPI).
+                // This ensures that when we Import/Update data in mockAPI variables, 
+                // the UI actually receives the updated data.
+                console.log("[SmartData] Loading from Mock Service...");
+                const allData = await loadAllData();
+                
+                setData({
+                    units: allData.units,
+                    owners: allData.owners,
+                    vehicles: allData.vehicles,
+                    users: allData.users,
+                    adjustments: allData.adjustments,
+                    waterReadings: allData.waterReadings,
+                    activityLogs: allData.activityLogs,
+                    invoiceSettings: allData.invoiceSettings,
+                    tariffs: allData.tariffs,
+                    hasLoaded: true
+                });
+            } else {
+                // --- PRODUCTION MODE ---
+                // Use Granular Caching + Firestore
+                const [
+                    units, owners, vehicles, users, 
+                    adjustments, waterReadings, activityLogs,
+                ] = await Promise.all([
+                    fetchWithCache<Unit[]>('units', force),
+                    fetchWithCache<Owner[]>('owners', force),
+                    fetchWithCache<Vehicle[]>('vehicles', force),
+                    fetchWithCache<UserPermission[]>('users', force),
+                    fetchWithCache<Adjustment[]>('adjustments', force),
+                    fetchWithCache<WaterReading[]>('waterReadings', force),
+                    fetchWithCache<ActivityLog[]>('activityLogs', force),
+                ]);
 
-            let invoiceSettings: InvoiceSettings | null = null;
-            let tariffs: TariffCollection = { service: MOCK_TARIFFS_SERVICE, parking: MOCK_TARIFFS_PARKING, water: MOCK_TARIFFS_WATER };
+                // Fetch Singleton Settings fresh (usually small enough to not cache aggressively or managed differently)
+                let invoiceSettings: InvoiceSettings | null = null;
+                let tariffs: TariffCollection = { service: MOCK_TARIFFS_SERVICE, parking: MOCK_TARIFFS_PARKING, water: MOCK_TARIFFS_WATER };
 
-            if (isProduction()) {
-                // Fetch settings fresh
                 const { doc, getDoc } = await import('firebase/firestore');
                 const invoiceSnap = await getDoc(doc(db, 'settings', 'invoice'));
                 if (invoiceSnap.exists()) invoiceSettings = invoiceSnap.data() as InvoiceSettings;
 
                 const tariffsSnap = await getDoc(doc(db, 'settings', 'tariffs'));
                 if (tariffsSnap.exists()) tariffs = tariffsSnap.data() as TariffCollection;
-            } else {
-                invoiceSettings = {
-                    logoUrl: '', accountName: 'Mock', accountNumber: '123', bankName: 'MockBank',
-                    senderEmail: 'test', buildingName: 'Mock Building'
-                };
-            }
 
-            setData({
-                units, owners, vehicles, users, adjustments, waterReadings, activityLogs,
-                invoiceSettings, tariffs, hasLoaded: true
-            });
+                setData({
+                    units, owners, vehicles, users, adjustments, waterReadings, activityLogs,
+                    invoiceSettings, tariffs, hasLoaded: true
+                });
+            }
 
             // Update Timestamp
             const now = new Date();

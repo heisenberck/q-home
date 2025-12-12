@@ -1,14 +1,7 @@
+
 import React, { useEffect } from 'react';
 import { CheckCircleIcon, WarningIcon } from './Icons';
-
-export type ToastType = 'info' | 'success' | 'warn' | 'error';
-
-export interface ToastMessage {
-  id: number;
-  message: string;
-  type: ToastType;
-  duration?: number;
-}
+import type { ToastMessage, ToastType } from '../../types';
 
 const InformationCircleIcon: React.FC<{ className?: string }> = ({ className = "h-5 w-5" }) => (
     <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" strokeWidth={1.5} stroke="currentColor" className={className}>

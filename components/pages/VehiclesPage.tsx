@@ -1,7 +1,8 @@
 
 import React, { useState, useMemo, useEffect } from 'react';
 import type { Vehicle, Unit, Owner, Role, ActivityLog, VehicleTier } from '../../types';
-import { useNotification } from '../../App';
+// FIX: Import from Context directly
+import { useNotification } from '../../contexts/AppContext';
 import Modal from '../ui/Modal';
 import { 
     CarIcon, SearchIcon, PencilSquareIcon, WarningIcon, UploadIcon, 
@@ -86,6 +87,13 @@ const VehicleTypeBadge: React.FC<{ type: string }> = ({ type }) => {
 
 // --- Edit Modal (Refactored) ---
 
+const REASON_OPTIONS = [
+    "Cập nhật biển số",
+    "Cập nhật loại xe",
+    "Cập nhật hình ảnh",
+    "Cập nhật lốt xe"
+];
+
 const VehicleEditModal: React.FC<{
     vehicle: Vehicle;
     onSave: (vehicle: Vehicle, reason: string) => void;
@@ -93,7 +101,11 @@ const VehicleEditModal: React.FC<{
 }> = ({ vehicle: initialVehicle, onSave, onClose }) => {
     const { showToast } = useNotification();
     const [activeTab, setActiveTab] = useState<'info' | 'parking' | 'docs'>('info');
-    const [reason, setReason] = useState('');
+    
+    // Updated State for Reason Logic
+    const [selectedReasons, setSelectedReasons] = useState<string[]>([]);
+    const [otherReason, setOtherReason] = useState('');
+
     const [vehicle, setVehicle] = useState<Vehicle>({ 
         ...initialVehicle,
         documents: initialVehicle.documents || {}
@@ -129,17 +141,38 @@ const VehicleEditModal: React.FC<{
                 }
             }));
             showToast('Đã tải ảnh lên.', 'success');
+            // Auto-check "Cập nhật hình ảnh" if not already checked
+            if (!selectedReasons.includes("Cập nhật hình ảnh")) {
+                setSelectedReasons(prev => [...prev, "Cập nhật hình ảnh"]);
+            }
         } catch { showToast('Lỗi tải ảnh.', 'error'); }
         if (e.target) e.target.value = '';
     };
 
+    const toggleReason = (reason: string) => {
+        setSelectedReasons(prev => 
+            prev.includes(reason) 
+                ? prev.filter(r => r !== reason) 
+                : [...prev, reason]
+        );
+    };
+
     const handleSubmit = (e: React.FormEvent) => {
         e.preventDefault();
-        if (!reason.trim()) {
-            showToast('Vui lòng nhập lý do thay đổi.', 'error');
+        
+        // Construct final reason string
+        const parts = [...selectedReasons];
+        if (otherReason.trim()) parts.push(otherReason.trim());
+        
+        const finalReason = parts.join(', ');
+
+        if (!finalReason) {
+            showToast('Vui lòng chọn hoặc nhập lý do thay đổi.', 'error');
             return;
         }
-        onSave(vehicle, reason);
+        
+        // Ensure standard Sanitization is respected implicitly by onSave -> service layer
+        onSave(vehicle, finalReason);
     };
 
     const tabClass = (tab: string) => `px-4 py-2 text-sm font-medium border-b-2 transition-colors ${activeTab === tab ? 'border-primary text-primary' : 'border-transparent text-gray-500 hover:text-gray-700'}`;
@@ -164,11 +197,32 @@ const VehicleEditModal: React.FC<{
                             </div>
                             <div>
                                 <label className={labelClass}>Biển số</label>
-                                <input name="PlateNumber" value={vehicle.PlateNumber} onChange={handleChange} className={`${inputClass} font-mono font-bold uppercase`}/>
+                                <input 
+                                    name="PlateNumber" 
+                                    value={vehicle.PlateNumber} 
+                                    onChange={handleChange} 
+                                    className={`${inputClass} font-mono font-bold uppercase`}
+                                    // Auto-check reason on change
+                                    onBlur={() => {
+                                        if (vehicle.PlateNumber !== initialVehicle.PlateNumber && !selectedReasons.includes("Cập nhật biển số")) {
+                                            setSelectedReasons(prev => [...prev, "Cập nhật biển số"]);
+                                        }
+                                    }}
+                                />
                             </div>
                             <div>
                                 <label className={labelClass}>Loại xe</label>
-                                <select name="Type" value={vehicle.Type} onChange={handleChange} className={inputClass}>
+                                <select 
+                                    name="Type" 
+                                    value={vehicle.Type} 
+                                    onChange={(e) => {
+                                        handleChange(e);
+                                        if (e.target.value !== initialVehicle.Type && !selectedReasons.includes("Cập nhật loại xe")) {
+                                            setSelectedReasons(prev => [...prev, "Cập nhật loại xe"]);
+                                        }
+                                    }} 
+                                    className={inputClass}
+                                >
                                     {Object.entries(vehicleTypeLabels).map(([k, v]) => (
                                         <option key={k} value={k}>{v}</option>
                                     ))}
@@ -186,7 +240,18 @@ const VehicleEditModal: React.FC<{
                             <div className="grid grid-cols-2 gap-4">
                                 <div>
                                     <label className={labelClass}>Trạng thái đỗ</label>
-                                    <select name="parkingStatus" value={vehicle.parkingStatus || ''} onChange={handleChange} className={inputClass} disabled={!isCar}>
+                                    <select 
+                                        name="parkingStatus" 
+                                        value={vehicle.parkingStatus || ''} 
+                                        onChange={(e) => {
+                                            handleChange(e);
+                                            if (e.target.value !== (initialVehicle.parkingStatus || '') && !selectedReasons.includes("Cập nhật lốt xe")) {
+                                                setSelectedReasons(prev => [...prev, "Cập nhật lốt xe"]);
+                                            }
+                                        }} 
+                                        className={inputClass} 
+                                        disabled={!isCar}
+                                    >
                                         <option value="">Không có</option>
                                         <option value="Lốt chính">Lốt chính</option>
                                         <option value="Lốt tạm">Lốt phụ (Ngoài giờ/Ghép)</option>
@@ -238,15 +303,32 @@ const VehicleEditModal: React.FC<{
                     )}
                 </div>
 
-                <div className="pt-4 border-t mt-auto">
+                {/* --- Refactored Reason Input --- */}
+                <div className="pt-4 border-t mt-auto bg-white">
                     <label className={labelClass}>Lý do thay đổi <span className="text-red-500">*</span></label>
-                    <textarea 
-                        value={reason} 
-                        onChange={e => setReason(e.target.value)} 
-                        className={`${inputClass} h-20 resize-none`} 
-                        placeholder="Vui lòng nhập lý do cập nhật (VD: Đổi xe, Cấp lốt mới...)"
-                        required
-                    />
+                    <div className="bg-gray-50 p-4 rounded-lg border border-gray-200">
+                        <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 mb-3">
+                            {REASON_OPTIONS.map(opt => (
+                                <label key={opt} className="flex items-center space-x-2 cursor-pointer select-none">
+                                    <input 
+                                        type="checkbox" 
+                                        checked={selectedReasons.includes(opt)}
+                                        onChange={() => toggleReason(opt)}
+                                        className="w-4 h-4 text-primary border-gray-300 rounded focus:ring-primary"
+                                    />
+                                    <span className="text-sm text-gray-700">{opt}</span>
+                                </label>
+                            ))}
+                        </div>
+                        <input 
+                            type="text"
+                            value={otherReason}
+                            onChange={e => setOtherReason(e.target.value)}
+                            placeholder="Chi tiết khác (tùy chọn). VD: Đổi xe mới..."
+                            className="w-full px-3 py-2 border border-gray-300 rounded-md bg-white text-sm focus:ring-1 focus:ring-primary outline-none"
+                        />
+                    </div>
+
                     <div className="flex justify-end gap-3 mt-4">
                         <button type="button" onClick={onClose} className="px-5 py-2 rounded-lg text-gray-700 bg-gray-100 hover:bg-gray-200 font-medium text-sm">Hủy</button>
                         <button type="submit" className="px-5 py-2 rounded-lg text-white bg-primary hover:bg-primary-focus font-bold shadow-lg text-sm">Lưu thay đổi</button>

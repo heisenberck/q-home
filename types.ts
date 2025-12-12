@@ -230,6 +230,9 @@ export interface ActivityLog {
     undo_until: string | null; // ISO string, 24h from creation
 }
 
+// Added LogPayload type
+export type LogPayload = Omit<ActivityLog, 'id' | 'ts' | 'actor_email' | 'actor_role' | 'undone' | 'undo_token' | 'undo_until'>;
+
 // NEW: News and Feedback types
 export interface NewsItem {
     id: string;
@@ -261,4 +264,14 @@ export interface FeedbackItem {
     status: 'Pending' | 'Processing' | 'Resolved';
     date: string; // ISO string
     replies: FeedbackReply[];
+}
+
+// ADDED: Toast Types
+export type ToastType = 'info' | 'success' | 'warn' | 'error';
+
+export interface ToastMessage {
+  id: number;
+  message: string;
+  type: ToastType;
+  duration?: number;
 }

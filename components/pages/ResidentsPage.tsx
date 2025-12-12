@@ -2,7 +2,8 @@
 import React, { useState, useMemo, useRef, useCallback, useEffect } from 'react';
 import type { Unit, Owner, Vehicle, Role, UserPermission, VehicleDocument, ActivityLog } from '../../types';
 import { UnitType, VehicleTier } from '../../types';
-import { useNotification } from '../../App';
+// Updated Import to use new Context file
+import { useNotification } from '../../contexts/AppContext';
 import Modal from '../ui/Modal';
 import StatCard from '../ui/StatCard';
 import { 
@@ -161,44 +162,12 @@ const DocumentPreviewModal: React.FC<{
     );
 };
 
-
-const ReasonModal: React.FC<{ onConfirm: (reason: string) => void; onCancel: () => void; }> = ({ onConfirm, onCancel }) => {
-    const [reason, setReason] = useState('');
-    const inputRef = useRef<HTMLTextAreaElement>(null);
-    useEffect(() => {
-        inputRef.current?.focus();
-    }, []);
-
-    const handleConfirm = () => {
-        if (reason.trim()) {
-            onConfirm(reason.trim());
-        }
-    };
-
-    return (
-        <Modal title="Xác nhận thay đổi" onClose={onCancel} size="md">
-            <div className="space-y-4">
-                <div>
-                    <label htmlFor="reason" className="block text-sm font-medium text-gray-700 mb-1">Nhập lý do thay đổi (Bắt buộc)</label>
-                    <textarea
-                        id="reason"
-                        ref={inputRef}
-                        value={reason}
-                        onChange={(e) => setReason(e.target.value)}
-                        rows={4}
-                        className="w-full p-2 border rounded-md bg-white text-gray-900 border-gray-300 focus:ring-2 focus:ring-primary focus:border-transparent"
-                        placeholder="VD: Cập nhật SĐT mới cho chủ hộ, thêm xe mới,..."
-                    />
-                </div>
-                <div className="flex justify-end gap-3 pt-2">
-                    <button type="button" onClick={onCancel} className="px-4 py-2 bg-gray-200 rounded-md">Hủy</button>
-                    <button type="button" onClick={handleConfirm} disabled={!reason.trim()} className="px-4 py-2 bg-primary text-white font-semibold rounded-md shadow-sm hover:bg-primary-focus disabled:bg-gray-400">Xác nhận</button>
-                </div>
-            </div>
-        </Modal>
-    );
-};
-
+const RESIDENT_REASON_OPTIONS = [
+    "Cập nhật thông tin chủ hộ",
+    "Cập nhật phương tiện",
+    "Cập nhật tài liệu",
+    "Thay đổi trạng thái căn hộ"
+];
 
 const ResidentDetailModal: React.FC<{
     resident: ResidentData;
@@ -218,14 +187,29 @@ const ResidentDetailModal: React.FC<{
     });
     const [errors, setErrors] = useState<Record<number, VehicleErrors>>({});
     const [isSaving, setIsSaving] = useState(false);
-    const [reasonModalOpen, setReasonModalOpen] = useState(false);
     const [isUploadModalOpen, setIsUploadModalOpen] = useState(false);
+
+    // --- NEW REASON LOGIC ---
+    const [selectedReasons, setSelectedReasons] = useState<string[]>([]);
+    const [otherReason, setOtherReason] = useState('');
 
     // --- NEW UI STATE ---
     const [activeTab, setActiveTab] = useState<'info'|'vehicles'|'docs'>('info');
 
     const formElementStyle = `w-full p-2.5 border border-gray-300 rounded-lg bg-white text-gray-900 focus:ring-2 focus:ring-primary focus:border-transparent outline-none`;
     const labelStyle = `block text-sm font-medium text-gray-700 mb-1`;
+
+    const addReason = (reason: string) => {
+        setSelectedReasons(prev => prev.includes(reason) ? prev : [...prev, reason]);
+    };
+
+    const toggleReason = (reason: string) => {
+        setSelectedReasons(prev => 
+            prev.includes(reason) 
+                ? prev.filter(r => r !== reason) 
+                : [...prev, reason]
+        );
+    };
 
     // --- LEGACY LOGIC ---
     const validateVehicle = useCallback((vehicle: Vehicle): VehicleErrors => {
@@ -245,22 +229,34 @@ const ResidentDetailModal: React.FC<{
         setErrors(allErrors);
     }, [formData.vehicles, validateVehicle]);
     
-    const handleOwnerChange = (e: React.ChangeEvent<HTMLInputElement>) => setFormData(p => ({ ...p, owner: { ...p.owner, [e.target.name]: e.target.value } }));
-    const handleUnitChange = (e: React.ChangeEvent<HTMLSelectElement>) => setFormData(p => ({ ...p, unit: { ...p.unit, [e.target.name]: e.target.value as any }}));
+    const handleOwnerChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+        setFormData(p => ({ ...p, owner: { ...p.owner, [e.target.name]: e.target.value } }));
+        addReason("Cập nhật thông tin chủ hộ");
+    };
+
+    const handleUnitChange = (e: React.ChangeEvent<HTMLSelectElement>) => {
+        setFormData(p => ({ ...p, unit: { ...p.unit, [e.target.name]: e.target.value as any }}));
+        addReason("Thay đổi trạng thái căn hộ");
+    };
+
     const handleVehicleChange = (index: number, e: React.ChangeEvent<HTMLInputElement | HTMLSelectElement>) => {
         const { name, value } = e.target;
         const updatedVehicles = [...formData.vehicles];
         updatedVehicles[index] = { ...updatedVehicles[index], [name]: value as any };
         if (name === 'Type' && value === VehicleTier.BICYCLE) updatedVehicles[index].PlateNumber = ''; 
         setFormData(p => ({ ...p, vehicles: updatedVehicles }));
+        addReason("Cập nhật phương tiện");
     };
 
     const handleLicensePlateBlur = (index: number, e: React.FocusEvent<HTMLInputElement>) => {
         const { value } = e.target;
         const formattedPlate = formatLicensePlate(value);
         const updatedVehicles = [...formData.vehicles];
-        updatedVehicles[index].PlateNumber = formattedPlate;
-        setFormData(p => ({ ...p, vehicles: updatedVehicles }));
+        if (updatedVehicles[index].PlateNumber !== formattedPlate) {
+            updatedVehicles[index].PlateNumber = formattedPlate;
+            setFormData(p => ({ ...p, vehicles: updatedVehicles }));
+            addReason("Cập nhật phương tiện");
+        }
     };
 
     const handleAddVehicle = () => {
@@ -271,9 +267,13 @@ const ResidentDetailModal: React.FC<{
             isActive: true,
         };
         setFormData(p => ({...p, vehicles: [...p.vehicles, newVehicle]}));
+        addReason("Cập nhật phương tiện");
     };
     
-    const handleRemoveVehicle = (index: number) => setFormData(p => ({ ...p, vehicles: p.vehicles.filter((_, i) => i !== index) }));
+    const handleRemoveVehicle = (index: number) => {
+        setFormData(p => ({ ...p, vehicles: p.vehicles.filter((_, i) => i !== index) }));
+        addReason("Cập nhật phương tiện");
+    };
     
     const handleSubmit = async (e: React.FormEvent) => {
         e.preventDefault();
@@ -281,14 +281,19 @@ const ResidentDetailModal: React.FC<{
             showToast('Vui lòng sửa các lỗi trong biểu mẫu trước khi lưu.', 'error');
             return;
         }
-        setReasonModalOpen(true);
-    };
 
-    const handleConfirmSave = async (reason: string) => {
-        setReasonModalOpen(false);
+        const parts = [...selectedReasons];
+        if (otherReason.trim()) parts.push(otherReason.trim());
+        const finalReason = parts.join(', ');
+
+        if (!finalReason) {
+            showToast('Vui lòng chọn hoặc nhập lý do thay đổi.', 'error');
+            return;
+        }
+
         setIsSaving(true);
         try {
-            await onSave(formData, reason);
+            await onSave(formData, finalReason);
             onClose(); 
         } finally {
             setIsSaving(false);
@@ -303,6 +308,7 @@ const ResidentDetailModal: React.FC<{
             const compressedDataUrl = await compressImageToWebP(file);
             const newDoc: VehicleDocument = { fileId: `DOC_OWNER_${Date.now()}`, name: file.name.replace(/\.[^/.]+$/, ".webp"), url: compressedDataUrl, type: 'image/webp', uploadedAt: new Date().toISOString() };
             setFormData(prev => ({ ...prev, owner: { ...prev.owner, documents: { ...prev.owner.documents, [docType]: newDoc } } }));
+            addReason("Cập nhật tài liệu");
             showToast(`Đã tải lên ${newDoc.name}`, 'success');
         } catch (error) { showToast('Lỗi khi nén và xử lý ảnh.', 'error'); }
         if(e.target) e.target.value = '';
@@ -311,6 +317,7 @@ const ResidentDetailModal: React.FC<{
     const handleRemoveOwnerFile = (docType: 'nationalId' | 'title') => {
         if (window.confirm('Bạn có chắc muốn xóa file này?')) {
             setFormData(prev => { const newDocs = { ...prev.owner.documents }; delete newDocs[docType]; return { ...prev, owner: { ...prev.owner, documents: newDocs } }; });
+            addReason("Cập nhật tài liệu");
         }
     };
     
@@ -322,6 +329,7 @@ const ResidentDetailModal: React.FC<{
             reader.onload = () => {
                 const newDoc: VehicleDocument = { fileId: `DOC_OTHER_${Date.now()}`, name: fileName, url: reader.result as string, type: file.type, uploadedAt: new Date().toISOString() };
                 setFormData(prev => ({ ...prev, owner: { ...prev.owner, documents: { ...prev.owner.documents, others: [...(prev.owner.documents?.others || []), newDoc] } } }));
+                addReason("Cập nhật tài liệu");
                 showToast(`Đã tải lên file: ${fileName}`, 'success');
             };
             reader.onerror = () => { throw new Error("File reading failed"); };
@@ -332,6 +340,7 @@ const ResidentDetailModal: React.FC<{
     const handleRemoveOtherFile = (fileId: string) => {
         if (window.confirm('Bạn có chắc muốn xóa file này?')) {
             setFormData(prev => ({ ...prev, owner: { ...prev.owner, documents: { ...prev.owner.documents, others: prev.owner.documents?.others?.filter(doc => doc.fileId !== fileId) || [] } } }));
+            addReason("Cập nhật tài liệu");
         }
     };
 
@@ -382,10 +391,9 @@ const ResidentDetailModal: React.FC<{
 
     return (
         <Modal title={`Cập nhật thông tin - Căn hộ ${resident.unit.UnitID}`} onClose={onClose} size="3xl">
-            {reasonModalOpen && <ReasonModal onConfirm={handleConfirmSave} onCancel={() => setReasonModalOpen(false)} />}
             {isUploadModalOpen && <UploadFileModal onConfirm={handleConfirmUploadOtherFile} onCancel={() => setIsUploadModalOpen(false)} />}
 
-            <form onSubmit={handleSubmit} className="flex flex-col h-[70vh]">
+            <form onSubmit={handleSubmit} className="flex flex-col h-[75vh]">
                 {/* Sticky Tabs */}
                 <div className="flex border-b mb-4 sticky top-0 bg-white z-10">
                     <TabButton tabId="info" label="Thông tin chung" icon={<UserIcon className="w-4 h-4" />} />
@@ -440,12 +448,38 @@ const ResidentDetailModal: React.FC<{
                     )}
                 </div>
 
-                {/* Footer Actions */}
-                <div className="flex justify-end gap-3 pt-4 border-t mt-auto">
-                    <button type="button" onClick={onClose} className="px-4 py-2 bg-gray-200 text-gray-800 rounded-md hover:bg-gray-300">Hủy</button>
-                    <button type="submit" disabled={isSaving || Object.keys(errors).length > 0} className="px-6 py-2 bg-primary text-white font-semibold rounded-md disabled:bg-gray-400">
-                        {isSaving ? 'Đang lưu...' : 'Lưu thay đổi'}
-                    </button>
+                {/* Footer with Reason Input */}
+                <div className="pt-4 border-t mt-auto bg-white">
+                    <label className={labelStyle}>Lý do thay đổi <span className="text-red-500">*</span></label>
+                    <div className="bg-gray-50 p-4 rounded-lg border border-gray-200 mb-4">
+                        <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 mb-3">
+                            {RESIDENT_REASON_OPTIONS.map(opt => (
+                                <label key={opt} className="flex items-center space-x-2 cursor-pointer select-none">
+                                    <input 
+                                        type="checkbox" 
+                                        checked={selectedReasons.includes(opt)}
+                                        onChange={() => toggleReason(opt)}
+                                        className="w-4 h-4 text-primary border-gray-300 rounded focus:ring-primary"
+                                    />
+                                    <span className="text-sm text-gray-700">{opt}</span>
+                                </label>
+                            ))}
+                        </div>
+                        <input 
+                            type="text"
+                            value={otherReason}
+                            onChange={e => setOtherReason(e.target.value)}
+                            placeholder="Chi tiết khác (tùy chọn)..."
+                            className="w-full px-3 py-2 border border-gray-300 rounded-md bg-white text-sm focus:ring-1 focus:ring-primary outline-none"
+                        />
+                    </div>
+
+                    <div className="flex justify-end gap-3">
+                        <button type="button" onClick={onClose} className="px-4 py-2 bg-gray-200 text-gray-800 rounded-md hover:bg-gray-300">Hủy</button>
+                        <button type="submit" disabled={isSaving || Object.keys(errors).length > 0} className="px-6 py-2 bg-primary text-white font-semibold rounded-md disabled:bg-gray-400">
+                            {isSaving ? 'Đang lưu...' : 'Lưu thay đổi'}
+                        </button>
+                    </div>
                 </div>
             </form>
         </Modal>
