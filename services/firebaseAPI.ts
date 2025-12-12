@@ -21,6 +21,11 @@ const sanitizeForFirestore = <T>(obj: T): T => {
     }));
 };
 
+// --- HELPER: Normalize License Plate ---
+const normalizePlate = (plate: string): string => {
+    return plate.replace(/[\s.-]/g, '').toUpperCase();
+};
+
 export const loadAllData = async (): Promise<AppDataForService> => {
     const collectionsToFetch = ['units', 'owners', 'vehicles', 'waterReadings', 'charges', 'adjustments', 'users', 'activityLogs'];
     const promises = collectionsToFetch.map(c => getDocs(collection(db, c)));
@@ -193,15 +198,13 @@ export const importResidentsBatch = async (
     const plateCounters = new Map<string, { xd: number, eb: number }>();
 
     const unitIdsToUpdate = new Set(updates.map(up => String(up.unitId).trim()));
+    const vehiclesProcessedIds = new Set<string>();
 
-    // Deactivate all existing vehicles for the units being updated
-    currentVehicles.forEach(v => {
-        if (unitIdsToUpdate.has(v.UnitID)) {
-            batch.update(doc(db, "vehicles", v.VehicleId), { isActive: false, log: `Deactivated on import ${new Date().toISOString()}` });
-        }
-    });
+    // FIX: Instead of blindly deactivating all vehicles, we will mark IDs that are processed.
+    // At the end, we can decide if we want to deactivate untouched ones or not.
+    // For now, to solve duplication, we prioritize matching existing active vehicles.
 
-    // Pre-calculate the starting sequence index for all units in the batch
+    // Pre-calculate the starting sequence index for all units in the batch (for auto-gen plates)
     unitIdsToUpdate.forEach(unitId => {
         const existingBicycles = currentVehicles.filter(v => v.UnitID === unitId && v.PlateNumber.startsWith(`${unitId}-XD`));
         const maxXd = existingBicycles.reduce((max, v) => {
@@ -245,6 +248,8 @@ export const importResidentsBatch = async (
                 const quantity = isNumericQuantity ? parseInt(plate, 10) : 0;
 
                 if ((isBicycle || isEBike) && (quantity > 0 || plate === '')) {
+                    // Logic for auto-generating plates (Bicycles/E-bikes without plates)
+                    // For these, we usually always create NEW because matching is hard without unique ID
                     const count = plate === '' ? 1 : quantity;
                     const counters = plateCounters.get(unitId)!;
                     const prefix = isBicycle ? 'XD' : 'EB';
@@ -267,28 +272,58 @@ export const importResidentsBatch = async (
                             parkingStatus: up.parkingStatus || null,
                         };
                         batch.set(newVehicleRef, sanitizeForFirestore(vehicleData));
+                        vehiclesProcessedIds.add(newVehicleRef.id);
                         vehicleCount++;
                     }
                     plateCounters.set(unitId, counters); // Update map with new counters
                 } else {
-                    // This is a vehicle with a specific plate number
-                    const newVehicleRef = doc(collection(db, "vehicles"));
+                    // Logic for Cars/Motorbikes with specific plates
+                    // FIX: Check if vehicle exists to prevent duplicate
+                    const normalizedInputPlate = normalizePlate(plate);
+                    
+                    const existingVehicle = currentVehicles.find(curr => 
+                        curr.UnitID === unitId && 
+                        normalizePlate(curr.PlateNumber) === normalizedInputPlate
+                    );
+
+                    let targetRef;
+                    let vehicleId;
+
+                    if (existingVehicle) {
+                        // Reuse existing document
+                        vehicleId = existingVehicle.VehicleId;
+                        targetRef = doc(db, "vehicles", vehicleId);
+                    } else {
+                        // Create new document
+                        targetRef = doc(collection(db, "vehicles"));
+                        vehicleId = targetRef.id;
+                    }
+
                     const vehicleData = {
-                        VehicleId: newVehicleRef.id,
+                        VehicleId: vehicleId,
                         UnitID: unitId,
                         Type: v.Type,
                         VehicleName: v.VehicleName || '',
-                        PlateNumber: plate,
-                        StartDate: new Date().toISOString().split('T')[0],
-                        isActive: true,
+                        PlateNumber: plate, // Use formatted input plate
+                        StartDate: existingVehicle ? existingVehicle.StartDate : new Date().toISOString().split('T')[0],
+                        isActive: true, // Reactivate if it was inactive
                         parkingStatus: up.parkingStatus || null,
                     };
-                    batch.set(newVehicleRef, sanitizeForFirestore(vehicleData));
+                    
+                    batch.set(targetRef, sanitizeForFirestore(vehicleData), { merge: true });
+                    vehiclesProcessedIds.add(vehicleId);
                     vehicleCount++;
                 }
             });
         }
     });
+
+    // OPTIONAL: If strict sync is desired, deactivate vehicles in these units that were NOT in the import file.
+    // currentVehicles.forEach(v => {
+    //     if (unitIdsToUpdate.has(v.UnitID) && !vehiclesProcessedIds.has(v.VehicleId)) {
+    //         batch.update(doc(db, "vehicles", v.VehicleId), { isActive: false, log: `Deactivated on sync ${new Date().toISOString()}` });
+    //     }
+    // });
 
     await batch.commit();
     const { units, owners, vehicles } = await loadAllData();
