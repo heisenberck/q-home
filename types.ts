@@ -1,6 +1,9 @@
+
 // types.ts
 
 export type Role = 'Admin' | 'Accountant' | 'Operator' | 'Viewer' | 'Resident';
+
+export type AdminPage = 'overview' | 'billing' | 'residents' | 'vehicles' | 'water' | 'pricing' | 'users' | 'settings' | 'backup' | 'activityLog' | 'newsManagement' | 'feedbackManagement';
 
 // UPDATED: Added specific payment method statuses
 export type PaymentStatus = 'pending' | 'unpaid' | 'paid' | 'reconciling' | 'paid_tm' | 'paid_ck';

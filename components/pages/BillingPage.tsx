@@ -240,15 +240,15 @@ const BillingPage: React.FC<BillingPageProps> = ({ charges, setCharges, allData,
             }
 
             if (floorFilter !== 'all') {
-                const floor = c.UnitID.startsWith('K') ? 'KIOS' : parseUnitCode(c.UnitID)?.floor?.toString();
+                const floor = c.UnitID.startsWith('K') ? 'KIOS' : parseUnitCode(String(c.UnitID))?.floor?.toString();
                 if (floor !== floorFilter) return false;
             }
             const s = searchTerm.toLowerCase();
             if (s && !(c.UnitID.toLowerCase().includes(s) || (c.OwnerName || '').toLowerCase().includes(s))) return false;
             return true;
         }).sort((a, b) => {
-            const pa = parseUnitCode(a.UnitID) || { floor: 100, apt: 0 };
-            const pb = parseUnitCode(b.UnitID) || { floor: 100, apt: 0 };
+            const pa = parseUnitCode(String(a.UnitID)) || { floor: 100, apt: 0 };
+            const pb = parseUnitCode(String(b.UnitID)) || { floor: 100, apt: 0 };
             if (pa.floor !== pb.floor) return pa.floor - pb.floor;
             return pa.apt - pb.apt;
         });
@@ -400,10 +400,10 @@ const BillingPage: React.FC<BillingPageProps> = ({ charges, setCharges, allData,
 
                 for (let i = headerIndex + 1; i < json.length; i++) {
                     // Removed unused 'row' variable to avoid type confusion and warnings
-                    const rawAmt = json[i][colCredit];
-                    const amtStr = typeof rawAmt === 'string' ? rawAmt : String((rawAmt as any) ?? '0'); 
+                    const rawAmt = (json[i] as any)[colCredit];
+                    const amtStr = String(rawAmt ?? '0');
                     const amount = Math.round(parseFloat(amtStr.replace(/[^0-9.-]+/g,"")));
-                    const desc = String(json[i][colDesc] || '');
+                    const desc = String((json[i] as any)[colDesc] ?? '');
                     
                     if (amount > 0) {
                         let match;
