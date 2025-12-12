@@ -18,10 +18,10 @@ import NotificationListener from './components/common/NotificationListener';
 import { useSmartSystemData } from './hooks/useSmartData';
 import { AppContext } from './contexts/AppContext';
 
-// Re-export hooks from the shared context so existing imports from './App' continue to work
+// Re-export hooks from the shared context
 export { useAuth, useNotification, useLogger, useSettings, useDataRefresh } from './contexts/AppContext';
 
-// --- STATIC IMPORTS (NO LAZY LOADING) ---
+// --- STATIC IMPORTS ---
 import OverviewPage from './components/pages/OverviewPage';
 import BillingPage from './components/pages/BillingPage';
 import ResidentsPage from './components/pages/ResidentsPage';
@@ -274,7 +274,28 @@ const App: React.FC = () => {
 
     const handleSetUsers = createDataHandler(setUsers, saveUsers);
     const handleSetCharges = createDataHandler(setCharges, saveChargesBatch);
-    const handleSetVehicles = createDataHandler(() => {}, saveVehicles); // Placeholder
+    
+    // FIX: vehicles is managed by useSmartSystemData, so we can't use createDataHandler with a dummy setter.
+    // We must manually resolve the new state using the current 'vehicles' value and call the API.
+    const handleSetVehicles = useCallback(async (updater: React.SetStateAction<Vehicle[]>, logPayload?: LogPayload) => {
+        try {
+            const newState = typeof updater === 'function' 
+                ? (updater as (prevState: Vehicle[]) => Vehicle[])(vehicles) 
+                : updater;
+            
+            await saveVehicles(newState);
+            
+            if (logPayload) logAction(logPayload);
+            showToast('Dữ liệu phương tiện đã được lưu.', 'success');
+            
+            // Force refresh to update UI with new data from server/cache
+            refreshSystemData(true);
+        } catch (error) {
+            console.error(error);
+            showToast('Lưu dữ liệu thất bại.', 'error');
+        }
+    }, [vehicles, logAction, showToast, refreshSystemData]);
+
     const handleSetWaterReadings = createDataHandler(() => {}, saveWaterReadings);
     const handleSetTariffs = createDataHandler(() => {}, saveTariffs);
     const handleSetAdjustments = createDataHandler(() => {}, saveAdjustments);
@@ -329,7 +350,7 @@ const App: React.FC = () => {
             case 'overview': return <OverviewPage allUnits={units} allOwners={owners} allVehicles={vehicles} allWaterReadings={waterReadings} charges={charges} activityLogs={activityLogs} feedback={feedback} onNavigate={setActivePage as (p: AdminPage) => void} />;
             case 'billing': return <BillingPage charges={charges} setCharges={handleSetCharges} allData={allDataForBilling} onUpdateAdjustments={handleSetAdjustments} role={currentUser!.Role} invoiceSettings={invoiceSettings} />;
             case 'residents': return <ResidentsPage units={units} owners={owners} vehicles={vehicles} activityLogs={activityLogs} onSaveResident={handleSaveResident} onImportData={handleImportResidents} onDeleteResidents={()=>{}} role={currentUser!.Role} currentUser={currentUser!} />;
-            case 'vehicles': return <VehiclesPage vehicles={vehicles} units={units} owners={owners} activityLogs={activityLogs} onSetVehicles={refreshSystemData} role={currentUser!.Role} />;
+            case 'vehicles': return <VehiclesPage vehicles={vehicles} units={units} owners={owners} activityLogs={activityLogs} onSetVehicles={handleSetVehicles} role={currentUser!.Role} />;
             case 'water': return <WaterPage waterReadings={waterReadings} setWaterReadings={handleSetWaterReadings} allUnits={units} role={currentUser!.Role} tariffs={tariffs} />;
             case 'pricing': return <PricingPage tariffs={tariffs} setTariffs={handleSetTariffs} role={currentUser!.Role} />;
             case 'users': return <UsersPage users={users} setUsers={handleSetUsers} units={units} role={currentUser!.Role} />;
