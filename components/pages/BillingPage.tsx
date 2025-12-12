@@ -242,7 +242,7 @@ const BillingPage: React.FC<BillingPageProps> = ({ charges, setCharges, allData,
             }
 
             if (floorFilter !== 'all') {
-                const floor = c.UnitID.startsWith('K') ? 'KIOS' : parseUnitCode(String(c.UnitID))?.floor?.toString();
+                const floor = c.UnitID.startsWith('K') ? 'KIOS' : parseUnitCode(c.UnitID)?.floor?.toString();
                 if (floor !== floorFilter) return false;
             }
             const s = searchTerm.toLowerCase();
@@ -370,7 +370,7 @@ const BillingPage: React.FC<BillingPageProps> = ({ charges, setCharges, allData,
                 const data = new Uint8Array(e.target?.result as ArrayBuffer);
                 // Fix: Cast workbook to any to allow loose typing on SheetNames
                 const workbook: any = XLSX.read(data, { type: 'array' });
-                const firstSheetName = String(workbook.SheetNames[0]);
+                const firstSheetName = String(workbook.SheetNames[0] || "");
                 const sheet = workbook.Sheets[firstSheetName];
                 const json = XLSX.utils.sheet_to_json(sheet, { header: 1 }) as any[][];
 

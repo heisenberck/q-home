@@ -1,6 +1,6 @@
 
 import React, { useState, useEffect, useCallback, createContext, useMemo } from 'react';
-import type { Role, UserPermission, Unit, Owner, Vehicle, WaterReading, ChargeRaw, TariffService, TariffParking, TariffWater, Adjustment, InvoiceSettings, ActivityLog, VehicleTier, TariffCollection, AllData, NewsItem, FeedbackItem, FeedbackReply, AdminPage } from './types';
+import type { Role, UserPermission, Unit, Owner, Vehicle, WaterReading, ChargeRaw, TariffService, TariffParking, TariffWater, Adjustment, InvoiceSettings, ActivityLog, VehicleTier, TariffCollection, AllData, NewsItem, FeedbackItem, FeedbackReply, AdminPage, ToastMessage, ToastType } from './types';
 import { patchKiosAreas, MOCK_NEWS_ITEMS, MOCK_FEEDBACK_ITEMS } from './constants';
 import { updateFeeSettings, updateResidentData, saveChargesBatch, saveVehicles, saveWaterReadings, saveTariffs, saveUsers, saveAdjustments, importResidentsBatch, wipeAllBusinessData, resetUserPassword } from './services';
 import { requestForToken, onMessageListener, db } from './firebaseConfig';
@@ -9,7 +9,7 @@ import { collection, query, where, onSnapshot, orderBy, limit, getDocs } from 'f
 import Header from './components/layout/Header';
 import Sidebar from './components/layout/Sidebar';
 import ResidentLayout, { PortalPage } from './components/layout/ResidentLayout';
-import FooterToast, { type ToastMessage, type ToastType } from './components/ui/Toast';
+import FooterToast from './components/ui/Toast';
 import LoginPage from './components/pages/LoginPage';
 import Spinner from './components/ui/Spinner';
 import ChangePasswordModal from './components/pages/ChangePasswordModal';
@@ -346,7 +346,16 @@ const App: React.FC = () => {
         }
     }, [units, owners, vehicles, showToast, refreshSystemData]);
 
-    const handleRestoreAllData = useCallback(async (data: AppData) => { /* ... */ }, [showToast]);
+    const handleRestoreAllData = useCallback(async (data: AppData) => { 
+        // 1. Clear Local Cache (The critical fix)
+        Object.keys(localStorage).forEach(key => {
+             if (key.startsWith('qhome_')) localStorage.removeItem(key);
+        });
+        
+        // 2. Refresh system data
+        refreshSystemData(true);
+        showToast('Dữ liệu đã được khôi phục/làm mới.', 'success');
+    }, [refreshSystemData, showToast]);
 
     const handleImportResidents = async (updates: any[]) => {
         try {
@@ -398,9 +407,6 @@ const App: React.FC = () => {
     
     // Initial Load State
     if (!smartHasLoaded && !currentUser) {
-        // If we are waiting for smart data but haven't logged in, we might show login immediately if we want
-        // But for this architecture, we load data first or in parallel.
-        // Let's assume we need users list for login.
         return <div className="flex h-screen w-screen items-center justify-center"><Spinner /></div>;
     }
 
