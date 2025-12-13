@@ -1,6 +1,6 @@
 
 // services/mockAPI.ts
-import type { InvoiceSettings, Unit, Owner, Vehicle, WaterReading, ChargeRaw, Adjustment, UserPermission, ActivityLog, AllData, TariffCollection, PaymentStatus } from '../types';
+import type { InvoiceSettings, Unit, Owner, Vehicle, WaterReading, ChargeRaw, Adjustment, UserPermission, ActivityLog, AllData, TariffCollection, PaymentStatus, MonthlyStat } from '../types';
 import { MOCK_UNITS, MOCK_OWNERS, MOCK_VEHICLES, MOCK_WATER_READINGS, MOCK_TARIFFS_SERVICE, MOCK_TARIFFS_PARKING, MOCK_TARIFFS_WATER, MOCK_ADJUSTMENTS, MOCK_USER_PERMISSIONS, patchKiosAreas } from '../constants';
 import { UnitType, VehicleTier } from '../types';
 
@@ -12,6 +12,17 @@ let charges: ChargeRaw[] = [];
 let adjustments: Adjustment[] = JSON.parse(JSON.stringify(MOCK_ADJUSTMENTS));
 let users: UserPermission[] = JSON.parse(JSON.stringify(MOCK_USER_PERMISSIONS));
 let activityLogs: ActivityLog[] = [];
+
+// Initialize some mock historical stats so the Dashboard chart looks good immediately
+let monthlyStats: MonthlyStat[] = [
+    { period: '2024-06', totalService: 50000000, totalParking: 30000000, totalWater: 15000000, totalDue: 95000000, updatedAt: new Date().toISOString() },
+    { period: '2024-07', totalService: 50000000, totalParking: 31000000, totalWater: 16000000, totalDue: 97000000, updatedAt: new Date().toISOString() },
+    { period: '2024-08', totalService: 50000000, totalParking: 30500000, totalWater: 14000000, totalDue: 94500000, updatedAt: new Date().toISOString() },
+    { period: '2024-09', totalService: 52000000, totalParking: 32000000, totalWater: 18000000, totalDue: 102000000, updatedAt: new Date().toISOString() },
+    { period: '2024-10', totalService: 52000000, totalParking: 32500000, totalWater: 17000000, totalDue: 101500000, updatedAt: new Date().toISOString() },
+    { period: '2024-11', totalService: 52000000, totalParking: 33000000, totalWater: 16500000, totalDue: 101500000, updatedAt: new Date().toISOString() },
+];
+
 let tariffs: TariffCollection = {
     service: JSON.parse(JSON.stringify(MOCK_TARIFFS_SERVICE)),
     parking: JSON.parse(JSON.stringify(MOCK_TARIFFS_PARKING)),
@@ -25,14 +36,15 @@ let invoiceSettings: InvoiceSettings | null = {
     transferContentTemplate: 'HUD3 {{unitId}} T{{period}}',
 };
 
-// ADDED: In-memory store for water period lock status
+// ADDED: In-memory store for locks
 let waterLocks = new Map<string, boolean>();
+let billingLocks = new Map<string, boolean>();
 
 patchKiosAreas(units);
 
 export const loadAllData = async () => {
     return Promise.resolve({
-        units, owners, vehicles, waterReadings, charges, adjustments, users, activityLogs, invoiceSettings, tariffs, hasData: units.length > 0
+        units, owners, vehicles, waterReadings, charges, adjustments, users, activityLogs, invoiceSettings, tariffs, monthlyStats, hasData: units.length > 0
     });
 };
 
@@ -41,10 +53,14 @@ export const updateFeeSettings = async (settings: InvoiceSettings) => {
     return Promise.resolve();
 };
 
-export const saveChargesBatch = async (newCharges: ChargeRaw[]) => {
+export const saveChargesBatch = async (newCharges: ChargeRaw[], periodStat?: MonthlyStat) => {
     const period = newCharges[0]?.Period;
     if (period) {
         charges = [...charges.filter(c => c.Period !== period), ...newCharges];
+    }
+    // Update local stats store for mock charts
+    if (periodStat) {
+        monthlyStats = [...monthlyStats.filter(s => s.period !== periodStat.period), periodStat];
     }
     return Promise.resolve();
 };
@@ -129,7 +145,7 @@ export const updateResidentData = async (
 
 export const wipeAllBusinessData = async (progressCallback: (message: string) => void) => {
     progressCallback("Wiping mock data in memory...");
-    units = []; owners = []; vehicles = []; waterReadings = []; charges = []; adjustments = []; activityLogs = [];
+    units = []; owners = []; vehicles = []; waterReadings = []; charges = []; adjustments = []; activityLogs = []; monthlyStats = [];
     await new Promise(r => setTimeout(r, 500));
     progressCallback("Done.");
     return Promise.resolve();
@@ -270,6 +286,15 @@ export const getLockStatus = async (month: string): Promise<boolean> => {
 
 export const setLockStatus = async (month: string, status: boolean): Promise<void> => {
     waterLocks.set(month, status);
+    return Promise.resolve();
+};
+
+export const getBillingLockStatus = async (period: string): Promise<boolean> => {
+    return Promise.resolve(billingLocks.get(period) ?? false);
+};
+
+export const setBillingLockStatus = async (period: string, status: boolean): Promise<void> => {
+    billingLocks.set(period, status);
     return Promise.resolve();
 };
 

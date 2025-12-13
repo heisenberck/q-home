@@ -1,7 +1,7 @@
 
 import React, { useState, useMemo, useEffect } from 'react';
 import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, Legend } from 'recharts';
-import type { Unit, Vehicle, WaterReading, ChargeRaw, ActivityLog, Owner, FeedbackItem } from '../../types';
+import type { Unit, Vehicle, WaterReading, ChargeRaw, ActivityLog, Owner, FeedbackItem, MonthlyStat } from '../../types';
 import { VehicleTier } from '../../types';
 import {
     BuildingIcon, BanknotesIcon, CarIcon, DropletsIcon, ChatBubbleLeftEllipsisIcon,
@@ -112,41 +112,85 @@ interface OverviewPageProps {
     allWaterReadings: WaterReading[];
     charges: ChargeRaw[];
     activityLogs: ActivityLog[];
-    feedback: any[]; // Updated prop
-    onNavigate: (page: string) => void; // Updated prop
+    feedback: any[];
+    onNavigate: (page: string) => void;
+    monthlyStats?: MonthlyStat[]; // NEW Prop
 }
 
-const OverviewPage: React.FC<OverviewPageProps> = ({ allUnits, allOwners, allVehicles, allWaterReadings, charges, activityLogs, feedback, onNavigate }) => {
+const OverviewPage: React.FC<OverviewPageProps> = ({ allUnits, allOwners, allVehicles, allWaterReadings, charges, activityLogs, feedback, onNavigate, monthlyStats = [] }) => {
 
     const commandCenterStats = useMemo(() => {
         const currentPeriod = new Date().toISOString().slice(0, 7);
         const previousPeriod = getPreviousPeriod(currentPeriod);
+        
+        // 1. Resident Stats
         const totalUnits = allUnits.length;
         const occupiedUnits = allUnits.filter(u => u.OwnerID).length;
         const occupancyRate = totalUnits > 0 ? (occupiedUnits / totalUnits) * 100 : 0;
         const residentBreakdown = allUnits.reduce((acc, unit) => { acc[unit.Status] = (acc[unit.Status] || 0) + 1; return acc; }, {} as Record<Unit['Status'], number>);
+        
+        // 2. Finance Stats (Current Period)
         const currentCharges = charges.filter(c => c.Period === currentPeriod);
         const totalPaid = currentCharges.reduce((sum, c) => sum + c.TotalPaid, 0);
         const totalDue = currentCharges.reduce((sum, c) => sum + c.TotalDue, 0);
         const totalDebt = totalDue - totalPaid;
         const collectionRate = totalDue > 0 ? (totalPaid / totalDue) * 100 : 0;
+        
+        // 3. Vehicle Stats
         const activeVehicles = allVehicles.filter(v => v.isActive);
         const carSlotsUsed = activeVehicles.filter(v => v.Type === VehicleTier.CAR || v.Type === VehicleTier.CAR_A).length;
         const motoCount = activeVehicles.filter(v => v.Type === VehicleTier.MOTORBIKE).length;
         const ebikeCount = activeVehicles.filter(v => v.Type === VehicleTier.EBIKE).length;
         const bicycleCount = activeVehicles.filter(v => v.Type === VehicleTier.BICYCLE).length;
         const waitingCount = activeVehicles.filter(v => v.parkingStatus === 'Xếp lốt').length;
+        
+        // 4. Water Stats
         const recordedCount = allWaterReadings.filter(r => r.Period === currentPeriod).length;
         const totalConsumption = allWaterReadings.filter(r => r.Period === currentPeriod).reduce((sum, r) => sum + (r.consumption || 0), 0);
         const prevTotalConsumption = allWaterReadings.filter(r => r.Period === previousPeriod).reduce((sum, r) => sum + (r.consumption || 0), 0);
         const waterTrend = prevTotalConsumption > 0 ? ((totalConsumption - prevTotalConsumption) / prevTotalConsumption) * 100 : 0;
+        
+        // 5. Feedback Stats
         const newFeedbackCount = feedback.filter(f => f.status === 'Pending').length;
         const processingFeedbackCount = feedback.filter(f => f.status === 'Processing').length;
-        const revenueChartData = Array.from({ length: 6 }).map((_, i) => { const d = new Date(); d.setMonth(d.getMonth() - i); const p = d.toISOString().slice(0, 7); const chargesForP = charges.filter(c => c.Period === p); return { name: `T${d.getMonth() + 1}`, 'Dịch vụ': chargesForP.reduce((s,c)=>s+c.ServiceFee_Total,0), 'Gửi xe': chargesForP.reduce((s,c)=>s+c.ParkingFee_Total,0), 'Nước': chargesForP.reduce((s,c)=>s+c.WaterFee_Total,0)}; }).reverse();
+        
+        // 6. Revenue Chart Data (Optimized with MonthlyStats)
+        const revenueChartData = Array.from({ length: 6 }).map((_, i) => { 
+            const d = new Date(); 
+            d.setMonth(d.getMonth() - i); 
+            const p = d.toISOString().slice(0, 7); 
+            
+            // Try to find stats in the optimized collection first
+            const stat = monthlyStats.find(s => s.period === p);
+            
+            if (stat) {
+                return { 
+                    name: `T${d.getMonth() + 1}`, 
+                    'Dịch vụ': stat.totalService, 
+                    'Gửi xe': stat.totalParking, 
+                    'Nước': stat.totalWater
+                };
+            } else {
+                // Fallback to calculation from charges array (backward compatibility or missing stat)
+                const chargesForP = charges.filter(c => c.Period === p); 
+                return { 
+                    name: `T${d.getMonth() + 1}`, 
+                    'Dịch vụ': chargesForP.reduce((s,c)=>s+c.ServiceFee_Total,0), 
+                    'Gửi xe': chargesForP.reduce((s,c)=>s+c.ParkingFee_Total,0), 
+                    'Nước': chargesForP.reduce((s,c)=>s+c.WaterFee_Total,0)
+                }; 
+            }
+        }).reverse();
+
         const unrecordedWaterCount = totalUnits - recordedCount;
-        const alertItems = [unrecordedWaterCount > 0 && { text: `${unrecordedWaterCount} căn chưa chốt số nước`, icon: <WarningIcon className="w-5 h-5 text-red-500"/> }, waitingCount > 0 && { text: `${waitingCount} xe đang trong danh sách chờ`, icon: <WarningIcon className="w-5 h-5 text-orange-500"/>}, { text: 'Thông báo cắt điện chưa gửi', icon: <WarningIcon className="w-5 h-5 text-blue-500"/> },].filter(Boolean);
+        const alertItems = [
+            unrecordedWaterCount > 0 && { text: `${unrecordedWaterCount} căn chưa chốt số nước`, icon: <WarningIcon className="w-5 h-5 text-red-500"/> }, 
+            waitingCount > 0 && { text: `${waitingCount} xe đang trong danh sách chờ`, icon: <WarningIcon className="w-5 h-5 text-orange-500"/>}, 
+            { text: 'Thông báo cắt điện chưa gửi', icon: <WarningIcon className="w-5 h-5 text-blue-500"/> },
+        ].filter(Boolean);
+
         return { residentStats: { totalUnits, occupancyRate, breakdown: residentBreakdown }, financeStats: { totalRevenue: totalPaid, totalDebt, collectionRate }, vehicleStats: { carSlotsUsed, motoCount, ebikeCount, bicycleCount, waiting: waitingCount }, waterStats: { recorded: recordedCount, total: totalUnits, consumption: totalConsumption, trend: waterTrend }, feedbackStats: { new: newFeedbackCount, processing: processingFeedbackCount }, revenueChartData, alertItems, };
-    }, [allUnits, allOwners, allVehicles, allWaterReadings, charges, activityLogs, feedback]);
+    }, [allUnits, allOwners, allVehicles, allWaterReadings, charges, activityLogs, feedback, monthlyStats]);
 
     return (
         <div className="space-y-6 pb-16">

@@ -5,9 +5,10 @@ import { db } from '../firebaseConfig';
 import { isProduction } from '../utils/env';
 import { 
     Unit, Owner, Vehicle, WaterReading, ChargeRaw, 
-    TariffCollection, UserPermission, InvoiceSettings, Adjustment, ActivityLog 
+    TariffCollection, UserPermission, InvoiceSettings, Adjustment, ActivityLog, MonthlyStat 
 } from '../types';
 import { MOCK_TARIFFS_SERVICE, MOCK_TARIFFS_PARKING, MOCK_TARIFFS_WATER, MOCK_USER_PERMISSIONS } from '../constants';
+import { loadAllData } from '../services'; // Import service orchestrator
 
 const CACHE_DURATION = 24 * 60 * 60 * 1000; // 24 Hours
 const CACHE_PREFIX = 'qhome_smart_cache_v1_';
@@ -21,6 +22,7 @@ interface CachePacket<T> {
 /**
  * Core function to fetch data with Local-First strategy.
  * STRICTLY READ-ONLY. No auto-seeding or write operations.
+ * ONLY USED IN PRODUCTION.
  */
 async function fetchWithCache<T>(
     collectionName: string, 
@@ -47,26 +49,14 @@ async function fetchWithCache<T>(
     }
 
     // 2. Fetch from Network (Firestore)
-    // SAFETY CHECK: Only fetch from Firestore in Production.
-    // In Development, we return fallbackData (Mocks) to prevent reading/writing to the live DB unnecessarily.
-    // This ensures no "seeding" happens against the production DB from a dev environment.
-    if (!isProduction()) {
-        // console.log(`[SmartCache] Dev Mode - Returning fallback for ${collectionName}`);
-        return fallbackData as T;
-    }
-
-    // console.log(`[SmartCache] Network Fetch: ${collectionName}`);
-    
+    // SAFETY CHECK: Ensure this is only called when connected to DB
     try {
-        // PURE READ OPERATION. NO WRITES.
         const colRef = collection(db, collectionName);
         const snapshot = await getDocs(colRef);
         
-        // If snapshot is empty, we simply return empty array/fallback. 
-        // WE DO NOT CREATE DATA HERE.
         const data = snapshot.docs.map(doc => doc.data()) as unknown as T; 
 
-        // 3. Save to Cache (Read-Through Cache pattern)
+        // 3. Save to Cache
         const packet: CachePacket<T> = {
             data,
             timestamp: now,
@@ -81,14 +71,12 @@ async function fetchWithCache<T>(
         return data;
     } catch (error) {
         console.error(`[SmartCache] Error fetching ${collectionName}:`, error);
-        // On error, return fallback (safe default) rather than crashing or attempting to repair
         return fallbackData as T;
     }
 }
 
 /**
  * Orchestrator Hook: Loads ALL static system data efficiently.
- * Does NOT write to database.
  */
 export const useSmartSystemData = () => {
     const [data, setData] = useState<{
@@ -101,10 +89,11 @@ export const useSmartSystemData = () => {
         adjustments: Adjustment[];
         waterReadings: WaterReading[];
         activityLogs: ActivityLog[];
+        monthlyStats: MonthlyStat[]; // Added
         hasLoaded: boolean;
     }>({
         units: [], owners: [], vehicles: [], tariffs: { service: [], parking: [], water: [] },
-        users: [], invoiceSettings: null, adjustments: [], waterReadings: [], activityLogs: [],
+        users: [], invoiceSettings: null, adjustments: [], waterReadings: [], activityLogs: [], monthlyStats: [],
         hasLoaded: false
     });
 
@@ -115,11 +104,41 @@ export const useSmartSystemData = () => {
         setLoading(true);
         setError(null);
         
+        // --- DEV MODE STRATEGY ---
+        // In Dev/Studio, we bypass the caching layer and talk directly to the Mock Service.
+        // This ensures that when we "Import" or "Save" in Mock, the state updates immediately.
+        if (!isProduction()) {
+            try {
+                // This calls services/index.ts -> services/mockAPI.ts
+                const devData = await loadAllData();
+                setData({
+                    units: devData.units,
+                    owners: devData.owners,
+                    vehicles: devData.vehicles,
+                    tariffs: devData.tariffs,
+                    users: devData.users,
+                    invoiceSettings: devData.invoiceSettings,
+                    adjustments: devData.adjustments,
+                    waterReadings: devData.waterReadings,
+                    activityLogs: devData.activityLogs,
+                    monthlyStats: devData.monthlyStats,
+                    hasLoaded: true
+                });
+            } catch (err: any) {
+                console.error("Mock Load Error:", err);
+                setError(err.message);
+            } finally {
+                setLoading(false);
+            }
+            return;
+        }
+
+        // --- PROD MODE STRATEGY (Local-First Cache) ---
         try {
             // Parallel Fetching - READ ONLY
             const [
                 units, owners, vehicles, users, 
-                adjustments, waterReadings, activityLogs,
+                adjustments, waterReadings, activityLogs, monthlyStats
             ] = await Promise.all([
                 fetchWithCache<Unit[]>('units', [], force),
                 fetchWithCache<Owner[]>('owners', [], force),
@@ -128,34 +147,27 @@ export const useSmartSystemData = () => {
                 fetchWithCache<Adjustment[]>('adjustments', [], force),
                 fetchWithCache<WaterReading[]>('waterReadings', [], force),
                 fetchWithCache<ActivityLog[]>('activityLogs', [], force),
+                // Optimization: Load light-weight stats instead of heavy charges history
+                fetchWithCache<MonthlyStat[]>('monthly_stats', [], force),
             ]);
 
             // Fetch Settings manually as they are single docs usually
             let invoiceSettings: InvoiceSettings | null = null;
             let tariffs: TariffCollection = { service: MOCK_TARIFFS_SERVICE, parking: MOCK_TARIFFS_PARKING, water: MOCK_TARIFFS_WATER };
 
-            if (isProduction()) {
-                // Fetch Settings directly (low volume, usually safe to fetch fresh)
-                try {
-                    const invoiceSnap = await getDoc(doc(db, 'settings', 'invoice'));
-                    if (invoiceSnap.exists()) invoiceSettings = invoiceSnap.data() as InvoiceSettings;
+            try {
+                const invoiceSnap = await getDoc(doc(db, 'settings', 'invoice'));
+                if (invoiceSnap.exists()) invoiceSettings = invoiceSnap.data() as InvoiceSettings;
 
-                    const tariffsSnap = await getDoc(doc(db, 'settings', 'tariffs'));
-                    if (tariffsSnap.exists()) tariffs = tariffsSnap.data() as TariffCollection;
-                } catch (e) {
-                    console.error("Error fetching settings:", e);
-                }
-            } else {
-                // Mock Data for Dev
-                invoiceSettings = {
-                    logoUrl: '', accountName: 'Mock', accountNumber: '123', bankName: 'MockBank',
-                    senderEmail: 'test', buildingName: 'Mock Building'
-                };
+                const tariffsSnap = await getDoc(doc(db, 'settings', 'tariffs'));
+                if (tariffsSnap.exists()) tariffs = tariffsSnap.data() as TariffCollection;
+            } catch (e) {
+                console.error("Error fetching settings:", e);
             }
 
             setData({
                 units, owners, vehicles, users, adjustments, waterReadings, activityLogs,
-                invoiceSettings, tariffs, hasLoaded: true
+                invoiceSettings, tariffs, monthlyStats, hasLoaded: true
             });
 
         } catch (err: any) {
@@ -169,8 +181,6 @@ export const useSmartSystemData = () => {
     // Initial Load - Strictly ONCE on mount
     useEffect(() => {
         refreshSystemData(false);
-        // NOTE: No dependencies here that trigger updates based on data length. 
-        // This ensures the hook only runs once on mount.
     }, [refreshSystemData]);
 
     return { ...data, loading, error, refreshSystemData };

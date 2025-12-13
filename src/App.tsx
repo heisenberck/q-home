@@ -1,10 +1,10 @@
-
 import React, { useState, useEffect, useCallback, createContext, useMemo } from 'react';
-import type { Role, UserPermission, Unit, Owner, Vehicle, WaterReading, ChargeRaw, TariffService, TariffParking, TariffWater, Adjustment, InvoiceSettings, ActivityLog, VehicleTier, TariffCollection, AllData, NewsItem, FeedbackItem, FeedbackReply } from './types';
-import { patchKiosAreas, MOCK_NEWS_ITEMS, MOCK_FEEDBACK_ITEMS } from './constants';
+import type { Role, UserPermission, Unit, Owner, Vehicle, WaterReading, ChargeRaw, TariffService, TariffParking, TariffWater, Adjustment, InvoiceSettings, ActivityLog, VehicleTier, TariffCollection, AllData, NewsItem, FeedbackItem, FeedbackReply, MonthlyStat } from './types';
+import { patchKiosAreas, MOCK_NEWS_ITEMS, MOCK_FEEDBACK_ITEMS, MOCK_USER_PERMISSIONS } from './constants';
 import { updateFeeSettings, updateResidentData, saveChargesBatch, saveVehicles, saveWaterReadings, saveTariffs, saveUsers, saveAdjustments, importResidentsBatch, wipeAllBusinessData, resetUserPassword } from './services';
 import { requestForToken, onMessageListener, db } from './firebaseConfig';
 import { collection, query, where, onSnapshot, orderBy, limit, getDocs } from 'firebase/firestore';
+import { useSmartSystemData } from './hooks/useSmartData';
 
 import Header from './components/layout/Header';
 import Sidebar from './components/layout/Sidebar';
@@ -15,7 +15,6 @@ import Spinner from './components/ui/Spinner';
 import ChangePasswordModal from './components/pages/ChangePasswordModal';
 import { isProduction } from './utils/env';
 import NotificationListener from './components/common/NotificationListener';
-import { useSmartSystemData } from '../hooks/useSmartData'; // NEW IMPORT
 
 // --- STATIC IMPORTS (NO LAZY LOADING) ---
 import OverviewPage from './components/pages/OverviewPage';
@@ -75,7 +74,7 @@ interface AppContextType {
     logout: () => void;
     updateUser: (updatedUser: UserPermission) => void;
     invoiceSettings: InvoiceSettings;
-    refreshData: () => void; // Added refreshData to context
+    refreshData: () => void;
 }
 
 const AppContext = createContext<AppContextType | null>(null);
@@ -100,7 +99,6 @@ export const useSettings = () => {
     if (!context) throw new Error('useSettings must be used within an AppProvider');
     return { invoiceSettings: context.invoiceSettings };
 };
-// Export hook for manual refresh
 export const useDataRefresh = () => {
     const context = React.useContext(AppContext);
     if (!context) throw new Error('useDataRefresh must be used within an AppProvider');
@@ -108,7 +106,6 @@ export const useDataRefresh = () => {
 }
 
 const App: React.FC = () => {
-    // 1. Core State
     const [currentUser, setCurrentUser] = useState<UserPermission | null>(null);
     const [currentOwner, setCurrentOwner] = useState<Owner | null>(null);
     const [activePage, setActivePage] = useState<Page>('overview');
@@ -116,21 +113,21 @@ const App: React.FC = () => {
     const [isPasswordModalOpen, setIsPasswordModalOpen] = useState(false);
     const [resetInfo, setResetInfo] = useState<{ email: string; pass: string } | null>(null);
     
-    // 2. Data State (Using Smart Cache Hook)
+    // --- Smart Data Hook Integration ---
     const { 
         units, owners, vehicles, tariffs, users: smartUsers, 
         invoiceSettings: smartInvoiceSettings, adjustments, waterReadings, activityLogs,
+        monthlyStats: loadedMonthlyStats, // NEW
         loading: smartLoading, hasLoaded: smartHasLoaded, refreshSystemData 
     } = useSmartSystemData();
 
-    // Local state for data that might change frequently or isn't fully handled by the smart hook yet
+    // Local state
     const [charges, setCharges] = useState<ChargeRaw[]>([]);
     const [news, setNews] = useState<NewsItem[]>(MOCK_NEWS_ITEMS);
     const [feedback, setFeedback] = useState<FeedbackItem[]>(MOCK_FEEDBACK_ITEMS);
-    
-    // Derived state for local override (e.g. immediate UI updates before sync)
     const [users, setUsers] = useState<UserPermission[]>([]);
     const [invoiceSettings, setInvoiceSettings] = useState<InvoiceSettings>(initialInvoiceSettings);
+    const [monthlyStats, setMonthlyStats] = useState<MonthlyStat[]>([]); // NEW
 
     const [notifications, setNotifications] = useState({
         unreadNews: 0,
@@ -140,45 +137,43 @@ const App: React.FC = () => {
 
     const IS_PROD = isProduction();
 
-    // 3. Sync Smart Data to Local State (for compatibility with existing logic)
+    // 3. Sync Smart Data to Local State
     useEffect(() => {
         if (smartHasLoaded) {
-            setUsers(smartUsers);
+            setUsers(smartUsers.length > 0 ? smartUsers : MOCK_USER_PERMISSIONS); // Safe fallback
             if (smartInvoiceSettings) setInvoiceSettings(smartInvoiceSettings);
-            // Apply KIOS patch if needed
+            if (loadedMonthlyStats) setMonthlyStats(loadedMonthlyStats);
             patchKiosAreas(units);
         }
-    }, [smartHasLoaded, smartUsers, smartInvoiceSettings, units]);
+    }, [smartHasLoaded, smartUsers, smartInvoiceSettings, units, loadedMonthlyStats]);
 
-    // 4. Charges Data Strategy (Hybrid: Cache + Realtime Current Month)
+    // 4. Charges Data Strategy (Hybrid)
     useEffect(() => {
         if (!currentUser) return;
 
         const loadCharges = async () => {
             let initialCharges: ChargeRaw[] = [];
-            
-            // A. Load Cached/Historical Charges (Not Realtime)
-            // Ideally this would also use fetchWithCache, but for now we'll do a simple getDocs 
-            // if we are in PROD, or use mock in dev.
             if (IS_PROD) {
-                // Optimization: Load all charges once on mount (heavy), 
-                // OR load only this year. For now, let's load all to maintain feature parity
-                // but we should eventually paginate this.
-                // Using a simple check to avoid refetching if we already have data
                 if (charges.length === 0) {
                     try {
-                        const snap = await getDocs(collection(db, 'charges'));
+                        // Only fetch very recent charges for billing checks
+                        // Historical charts now use 'monthlyStats', so we don't need all charges here!
+                        // Just fetching last 1-2 months is enough for billing status check.
+                        const today = new Date();
+                        today.setMonth(today.getMonth() - 2); 
+                        const recent = today.toISOString().slice(0, 7);
+
+                        const q = query(collection(db, 'charges'), where('Period', '>=', recent));
+                        const snap = await getDocs(q);
+                        
                         initialCharges = snap.docs.map(d => d.data() as ChargeRaw);
                         setCharges(initialCharges);
                     } catch (e) {
-                        console.error("Error loading charges history", e);
+                        console.error("Error loading charges", e);
                     }
-                } else {
-                    initialCharges = charges;
                 }
 
-                // B. Realtime Listener for CURRENT MONTH ONLY
-                // This saves 95% of reads by only listening to changes in the active billing period
+                // Realtime Listener for CURRENT MONTH ONLY
                 const currentPeriod = new Date().toISOString().slice(0, 7);
                 const q = query(
                     collection(db, 'charges'),
@@ -187,23 +182,17 @@ const App: React.FC = () => {
 
                 const unsubscribe = onSnapshot(q, (snapshot) => {
                     const currentMonthCharges = snapshot.docs.map(d => d.data() as ChargeRaw);
-                    
                     setCharges(prev => {
-                        // Merge: Filter out old versions of current month, append new ones
                         const others = prev.filter(c => c.Period !== currentPeriod);
                         return [...others, ...currentMonthCharges];
                     });
                 });
 
                 return () => unsubscribe();
-            } else {
-                // Dev mode mock charges
-                // ... (Logic handled by mockAPI usually, but explicit here if needed)
             }
         };
 
         loadCharges();
-        // eslint-disable-next-line react-hooks/exhaustive-deps
     }, [currentUser, IS_PROD]); 
 
     // --- Toast Logic ---
@@ -247,19 +236,9 @@ const App: React.FC = () => {
         const hasNewNotifications = latestNewsTime > lastViewedBellTime || notifications.hasNewNotifications;
 
         setNotifications(prev => ({ unreadNews: unreadNewsCount, hasUnpaidBill, hasNewNotifications }));
-    }, [currentUser, charges, news]);
-
-    const handleMarkNewsAsRead = () => { localStorage.setItem('lastViewedNews', Date.now().toString()); setNotifications(prev => ({ ...prev, unreadNews: 0 })); };
-    const handleMarkBellAsRead = () => { localStorage.setItem('lastViewedNotifications', Date.now().toString()); setNotifications(prev => ({ ...prev, hasNewNotifications: false })); };
-
-    useEffect(() => {
-        document.documentElement.classList.remove('dark');
-        document.documentElement.classList.add('light');
-    }, []);
+    }, [currentUser, charges, news, notifications.hasNewNotifications]);
 
     // --- User Management Logic ---
-    const handleResetPassword = useCallback(async (email: string) => { /* ... existing code ... */ }, [users, showToast]);
-
     // Handle Owner Linking
     useEffect(() => {
         if (currentUser?.Role === 'Resident' && smartHasLoaded) {
@@ -297,6 +276,16 @@ const App: React.FC = () => {
         setCurrentOwner(null);
         showToast('Đã đăng xuất.', 'info'); 
     }, [showToast]);
+
+    const handleMarkNewsAsRead = useCallback(() => { 
+        localStorage.setItem('lastViewedNews', Date.now().toString()); 
+        setNotifications(prev => ({ ...prev, unreadNews: 0 })); 
+    }, []);
+
+    const handleMarkBellAsRead = useCallback(() => { 
+        localStorage.setItem('lastViewedNotifications', Date.now().toString()); 
+        setNotifications(prev => ({ ...prev, hasNewNotifications: false })); 
+    }, []);
     
     const handleUpdateUser = useCallback((updatedUser: UserPermission) => {
         setUsers(prev => prev.map(u => (u.Email === updatedUser.Email) ? updatedUser : u));
@@ -319,7 +308,27 @@ const App: React.FC = () => {
 
     const handleSetUsers = createDataHandler(setUsers, saveUsers);
     const handleSetCharges = createDataHandler(setCharges, saveChargesBatch);
-    const handleSetVehicles = createDataHandler(() => {}, saveVehicles); // Placeholder, vehicle page handles its own state mostly
+    
+    // Updated: Handle vehicles manually to integrate with smart hook refresh
+    const handleSetVehicles = useCallback(async (updater: React.SetStateAction<Vehicle[]>, logPayload?: LogPayload) => {
+        let newVehicles: Vehicle[];
+        if (typeof updater === 'function') {
+            newVehicles = (updater as (prevState: Vehicle[]) => Vehicle[])(vehicles);
+        } else {
+            newVehicles = updater;
+        }
+
+        try {
+            await saveVehicles(newVehicles);
+            if (logPayload) logAction(logPayload);
+            showToast('Dữ liệu đã được lưu.', 'success');
+            refreshSystemData(true);
+        } catch (error) {
+            console.error(error);
+            showToast('Lưu dữ liệu thất bại.', 'error');
+        }
+    }, [vehicles, saveVehicles, logAction, showToast, refreshSystemData]);
+
     const handleSetWaterReadings = createDataHandler(() => {}, saveWaterReadings);
     const handleSetTariffs = createDataHandler(() => {}, saveTariffs);
     const handleSetAdjustments = createDataHandler(() => {}, saveAdjustments);
@@ -332,14 +341,12 @@ const App: React.FC = () => {
 
     const handleUpdateOwner = (updatedOwner: Owner) => {
         setCurrentOwner(updatedOwner);
-        // Implement save logic here or use a handler
-        showToast('Cập nhật hồ sơ thành công (UI Only - Implement Save).', 'success');
+        showToast('Cập nhật hồ sơ thành công (UI Only).', 'success');
     };
 
     const handleSaveResident = useCallback(async (updatedData: { unit: Unit; owner: Owner; vehicles: Vehicle[] }, reason: string) => {
         try {
             await updateResidentData(units, owners, vehicles, updatedData);
-            // Refresh data from cache/server after update
             refreshSystemData(true); 
             showToast('Cập nhật thông tin cư dân thành công!', 'success');
         } catch (e: any) {
@@ -360,12 +367,13 @@ const App: React.FC = () => {
     }
 
     const renderAdminPage = () => {
-        const allDataForBilling: AllData = { units, owners, vehicles, waterReadings, tariffs, adjustments, activityLogs };
+        const allDataForBilling: AllData = { units, owners, vehicles, waterReadings, tariffs, adjustments, activityLogs, monthlyStats };
         switch (activePage as AdminPage) {
-            case 'overview': return <OverviewPage allUnits={units} allOwners={owners} allVehicles={vehicles} allWaterReadings={waterReadings} charges={charges} activityLogs={activityLogs} feedback={feedback} onNavigate={setActivePage as (p: AdminPage) => void} />;
+            // Pass monthlyStats to OverviewPage via props or if it uses context
+            case 'overview': return <OverviewPage allUnits={units} allOwners={owners} allVehicles={vehicles} allWaterReadings={waterReadings} charges={charges} activityLogs={activityLogs} feedback={feedback} onNavigate={setActivePage as (p: AdminPage) => void} monthlyStats={monthlyStats} />;
             case 'billing': return <BillingPage charges={charges} setCharges={handleSetCharges} allData={allDataForBilling} onUpdateAdjustments={handleSetAdjustments} role={currentUser!.Role} invoiceSettings={invoiceSettings} />;
             case 'residents': return <ResidentsPage units={units} owners={owners} vehicles={vehicles} activityLogs={activityLogs} onSaveResident={handleSaveResident} onImportData={handleImportResidents} onDeleteResidents={()=>{}} role={currentUser!.Role} currentUser={currentUser!} />;
-            case 'vehicles': return <VehiclesPage vehicles={vehicles} units={units} owners={owners} activityLogs={activityLogs} onSetVehicles={refreshSystemData} role={currentUser!.Role} />;
+            case 'vehicles': return <VehiclesPage vehicles={vehicles} units={units} owners={owners} activityLogs={activityLogs} onSetVehicles={handleSetVehicles} role={currentUser!.Role} />;
             case 'water': return <WaterPage waterReadings={waterReadings} setWaterReadings={handleSetWaterReadings} allUnits={units} role={currentUser!.Role} tariffs={tariffs} />;
             case 'pricing': return <PricingPage tariffs={tariffs} setTariffs={handleSetTariffs} role={currentUser!.Role} />;
             case 'users': return <UsersPage users={users} setUsers={handleSetUsers} units={units} role={currentUser!.Role} />;
@@ -374,7 +382,7 @@ const App: React.FC = () => {
             case 'activityLog': return <ActivityLogPage logs={activityLogs} onUndo={() => {}} role={currentUser!.Role} />;
             case 'newsManagement': return <NewsManagementPage news={news} setNews={handleSetNews} role={currentUser!.Role} users={users} />;
             case 'feedbackManagement': return <FeedbackManagementPage feedback={feedback} setFeedback={handleSetFeedback} role={currentUser!.Role} />;
-            default: return <OverviewPage allUnits={units} allOwners={owners} allVehicles={vehicles} allWaterReadings={waterReadings} charges={charges} activityLogs={activityLogs} feedback={feedback} onNavigate={setActivePage as (p: AdminPage) => void} />;
+            default: return <OverviewPage allUnits={units} allOwners={owners} allVehicles={vehicles} allWaterReadings={waterReadings} charges={charges} activityLogs={activityLogs} feedback={feedback} onNavigate={setActivePage as (p: AdminPage) => void} monthlyStats={monthlyStats} />;
         }
     };
     
@@ -389,19 +397,14 @@ const App: React.FC = () => {
         }
     };
 
-    // Context Value Construction
     const contextValue = useMemo(() => ({ 
         currentUser, role: currentUser?.Role || null, 
         showToast, logAction, logout: handleLogout, 
         updateUser: handleUpdateUser, invoiceSettings,
-        refreshData: () => refreshSystemData(true) // Expose Manual Refresh
+        refreshData: () => refreshSystemData(true)
     }), [currentUser, showToast, logAction, handleLogout, handleUpdateUser, invoiceSettings, refreshSystemData]);
     
-    // Initial Load State
     if (!smartHasLoaded && !currentUser) {
-        // If we are waiting for smart data but haven't logged in, we might show login immediately if we want
-        // But for this architecture, we load data first or in parallel.
-        // Let's assume we need users list for login.
         return <div className="flex h-screen w-screen items-center justify-center"><Spinner /></div>;
     }
 
@@ -409,14 +412,10 @@ const App: React.FC = () => {
         return <AppContext.Provider value={contextValue}><LoginPage users={users} onLogin={handleInitialLogin} allOwners={owners} allUnits={units} resetInfo={resetInfo} /><FooterToast toasts={toasts} onClose={handleCloseToast} onClearAll={handleClearAllToasts} /></AppContext.Provider>;
     }
     
-    if (smartLoading && !smartHasLoaded) return <div className="flex h-screen w-screen items-center justify-center"><Spinner /></div>;
-
     return (
         <AppContext.Provider value={contextValue}>
             {isPasswordModalOpen && <ChangePasswordModal onClose={() => setIsPasswordModalOpen(false)} onSave={handlePasswordChanged} />}
-            
             {currentUser && <NotificationListener userId={currentUser.Username || currentUser.residentId || ''} />}
-
             {currentUser.Role === 'Resident' ? (
                 <ResidentLayout 
                     activePage={activePage as PortalPage} 

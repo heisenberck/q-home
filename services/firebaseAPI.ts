@@ -2,7 +2,7 @@
 // services/firebaseAPI.ts
 import { doc, getDoc, setDoc, collection, getDocs, writeBatch, query, deleteDoc, updateDoc } from 'firebase/firestore';
 import { db } from '../firebaseConfig';
-import type { InvoiceSettings, Unit, Owner, Vehicle, WaterReading, ChargeRaw, Adjustment, UserPermission, ActivityLog, AllData, PaymentStatus } from '../types';
+import type { InvoiceSettings, Unit, Owner, Vehicle, WaterReading, ChargeRaw, Adjustment, UserPermission, ActivityLog, AllData, PaymentStatus, MonthlyStat } from '../types';
 import { VehicleTier } from '../types';
 import { MOCK_TARIFFS_SERVICE, MOCK_TARIFFS_PARKING, MOCK_TARIFFS_WATER, MOCK_USER_PERMISSIONS } from '../constants';
 
@@ -11,14 +11,16 @@ type AppDataForService = {
     charges: ChargeRaw[]; adjustments: Adjustment[]; users: UserPermission[];
     activityLogs: ActivityLog[]; invoiceSettings: InvoiceSettings | null;
     tariffs: AllData['tariffs']; hasData: boolean;
+    monthlyStats: MonthlyStat[]; // Added
 };
 
 export const loadAllData = async (): Promise<AppDataForService> => {
-    const collectionsToFetch = ['units', 'owners', 'vehicles', 'waterReadings', 'charges', 'adjustments', 'users', 'activityLogs'];
+    // Added 'monthly_stats' to fetch list
+    const collectionsToFetch = ['units', 'owners', 'vehicles', 'waterReadings', 'charges', 'adjustments', 'users', 'activityLogs', 'monthly_stats'];
     const promises = collectionsToFetch.map(c => getDocs(collection(db, c)));
     
     const snapshots = await Promise.all(promises);
-    const [unitsSnap, ownersSnap, vehiclesSnap, waterReadingsSnap, chargesSnap, adjustmentsSnap, usersSnap, activityLogsSnap] = snapshots;
+    const [unitsSnap, ownersSnap, vehiclesSnap, waterReadingsSnap, chargesSnap, adjustmentsSnap, usersSnap, activityLogsSnap, statsSnap] = snapshots;
     
     const [invoiceSettingsSnap, tariffsSnap] = await Promise.all([
         getDoc(doc(db, 'settings', 'invoice')),
@@ -39,6 +41,7 @@ export const loadAllData = async (): Promise<AppDataForService> => {
         adjustments: adjustmentsSnap.docs.map(d => d.data() as Adjustment),
         users: loadedUsers.length > 0 ? loadedUsers : MOCK_USER_PERMISSIONS,
         activityLogs: activityLogsSnap.docs.map(d => d.data() as ActivityLog).sort((a,b) => b.ts.localeCompare(a.ts)),
+        monthlyStats: statsSnap.docs.map(d => d.data() as MonthlyStat), // Load Stats
         invoiceSettings: loadedInvoiceSettings,
         tariffs: loadedTariffs,
         hasData: unitsSnap.docs.length > 0,
@@ -47,10 +50,19 @@ export const loadAllData = async (): Promise<AppDataForService> => {
 
 export const updateFeeSettings = (settings: InvoiceSettings) => setDoc(doc(db, 'settings', 'invoice'), settings, { merge: true });
 
-export const saveChargesBatch = (charges: ChargeRaw[]) => {
-    if (charges.length === 0) return Promise.resolve();
+// UPDATED: Save charges AND monthly aggregated stats in one batch
+export const saveChargesBatch = (charges: ChargeRaw[], periodStat?: MonthlyStat) => {
+    if (charges.length === 0 && !periodStat) return Promise.resolve();
     const batch = writeBatch(db);
+    
+    // 1. Save individual charges
     charges.forEach(charge => batch.set(doc(db, 'charges', `${charge.Period}_${charge.UnitID}`), charge));
+
+    // 2. Save Aggregated Stats for the period if provided
+    if (periodStat) {
+        batch.set(doc(db, 'monthly_stats', periodStat.period), periodStat);
+    }
+
     return batch.commit();
 };
 
@@ -137,7 +149,7 @@ export const updateResidentData = async (
 };
 
 export const wipeAllBusinessData = async (progress: (msg: string) => void) => {
-    const collections = ['charges', 'waterReadings', 'vehicles', 'adjustments', 'owners', 'units', 'activityLogs'];
+    const collections = ['charges', 'waterReadings', 'vehicles', 'adjustments', 'owners', 'units', 'activityLogs', 'monthly_stats', 'billing_locks'];
     for (const name of collections) {
         progress(`Querying ${name}...`);
         const snapshot = await getDocs(collection(db, name));
@@ -275,6 +287,7 @@ export const importResidentsBatch = async (
     return { units, owners, vehicles, createdCount: created, updatedCount: updated, vehicleCount };
 };
 
+// Water Lock
 export const getLockStatus = async (month: string): Promise<boolean> => {
     const docRef = doc(db, 'water_locks', month);
     const docSnap = await getDoc(docRef);
@@ -284,6 +297,18 @@ export const getLockStatus = async (month: string): Promise<boolean> => {
 export const setLockStatus = async (month: string, status: boolean): Promise<void> => {
     const docRef = doc(db, 'water_locks', month);
     await setDoc(docRef, { isLocked: status });
+};
+
+// Billing Lock (New)
+export const getBillingLockStatus = async (period: string): Promise<boolean> => {
+    const docRef = doc(db, 'billing_locks', period);
+    const docSnap = await getDoc(docRef);
+    return docSnap.exists() ? docSnap.data().isLocked : false;
+};
+
+export const setBillingLockStatus = async (period: string, status: boolean): Promise<void> => {
+    const docRef = doc(db, 'billing_locks', period);
+    await setDoc(docRef, { isLocked: status, updatedAt: new Date().toISOString() });
 };
 
 export const resetUserPassword = async (email: string): Promise<void> => {

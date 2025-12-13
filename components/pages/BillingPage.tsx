@@ -1,13 +1,17 @@
 
 import React, { useState, useCallback, useMemo, useRef, useEffect } from 'react';
-import type { ChargeRaw, Adjustment, AllData, Role, PaymentStatus, InvoiceSettings, Owner } from '../../types';
+import type { ChargeRaw, Adjustment, AllData, Role, PaymentStatus, InvoiceSettings, Owner, MonthlyStat } from '../../types';
 import { UnitType } from '../../types';
 import { LogPayload } from '../../App';
 import { useNotification } from '../../App';
 import { 
     confirmSinglePayment,
-    loadAllData,
-    updateChargePayments
+    updateChargePayments,
+    saveChargesBatch, 
+    updateChargeStatuses,
+    updatePaymentStatusBatch,
+    getBillingLockStatus, // NEW
+    setBillingLockStatus  // NEW
 } from '../../services';
 import { calculateChargesBatch } from '../../services/feeService';
 import NoticePreviewModal from '../NoticePreviewModal';
@@ -17,7 +21,7 @@ import {
     CheckCircleIcon, CalculatorIcon2, LockClosedIcon,
     ArrowDownTrayIcon, BanknotesIcon, ArrowUpTrayIcon,
     PaperAirplaneIcon, TrashIcon, PrinterIcon, EnvelopeIcon, ArrowUturnLeftIcon,
-    ActionViewIcon, ChevronDownIcon, ChevronUpIcon
+    ActionViewIcon, ChevronDownIcon, ChevronUpIcon, SaveIcon
 } from '../ui/Icons';
 import { loadScript } from '../../utils/scriptLoader';
 import { formatCurrency, parseUnitCode, renderInvoiceHTMLForPdf, formatNumber } from '../../utils/helpers';
@@ -181,10 +185,11 @@ const BillingPage: React.FC<BillingPageProps> = ({ charges, setCharges, allData,
 
     // State
     const [period, setPeriod] = useState(new Date().toISOString().slice(0, 7));
-    const [lockedPeriods, setLockedPeriods] = useState<Set<string>>(() => {
-        const saved = localStorage.getItem('lockedBillingPeriods');
-        return saved ? new Set(JSON.parse(saved)) : new Set();
-    });
+    const [isBillingLocked, setIsBillingLocked] = useState(false); // New Billing Lock State
+    
+    // Legacy local state logic replaced by centralized lock
+    // const [lockedPeriods, setLockedPeriods] = useState<Set<string>>...
+
     const [isLoading, setIsLoading] = useState(false);
     const [selectedUnits, setSelectedUnits] = useState<Set<string>>(new Set());
     const [searchTerm, setSearchTerm] = useState('');
@@ -199,19 +204,24 @@ const BillingPage: React.FC<BillingPageProps> = ({ charges, setCharges, allData,
     
     // Refs
     const fileInputRef = useRef<HTMLInputElement>(null);
-    const primaryActionTimeout = useRef<number | null>(null);
     const lastClickTime = useRef(0);
 
-    const isPeriodLocked = lockedPeriods.has(period);
+    // Fetch Lock Status on Period Change
+    useEffect(() => {
+        const fetchLock = async () => {
+            try {
+                const status = await getBillingLockStatus(period);
+                setIsBillingLocked(status);
+            } catch (e) {
+                console.error("Error fetching lock status", e);
+            }
+        };
+        fetchLock();
+    }, [period]);
     
     // Logic: Disable calculation for future periods
     const currentMonthStr = new Date().toISOString().slice(0, 7);
     const isFuturePeriod = period > currentMonthStr;
-
-    // Persist Lock
-    useEffect(() => {
-        localStorage.setItem('lockedBillingPeriods', JSON.stringify(Array.from(lockedPeriods)));
-    }, [lockedPeriods]);
 
     // Data Filtering
     const floors = useMemo(() => {
@@ -225,7 +235,6 @@ const BillingPage: React.FC<BillingPageProps> = ({ charges, setCharges, allData,
             
             if (statusFilter !== 'all') {
                 if (statusFilter === 'paid') {
-                    // Include both payment methods in generic "paid" filter
                     if (!['paid', 'paid_tm', 'paid_ck'].includes(c.paymentStatus)) return false;
                 } else if (statusFilter === 'debt') {
                     if (['paid', 'paid_tm', 'paid_ck'].includes(c.paymentStatus)) return false;
@@ -234,7 +243,6 @@ const BillingPage: React.FC<BillingPageProps> = ({ charges, setCharges, allData,
                 } else if (statusFilter === 'unpaid') {
                     if (c.paymentStatus !== 'unpaid') return false;
                 } else {
-                    // Specific status matches (paid_tm, paid_ck)
                     if (c.paymentStatus !== statusFilter) return false;
                 }
             }
@@ -273,11 +281,11 @@ const BillingPage: React.FC<BillingPageProps> = ({ charges, setCharges, allData,
         };
     }, [charges, period]);
 
-    // --- Logic: Calculation & Lock ---
+    // --- Logic: Calculation ---
 
     const handleCalculate = async () => {
-        if (isPeriodLocked) {
-            showToast('Kỳ này đã khóa. Nhấn đúp để mở.', 'error');
+        if (isBillingLocked) {
+            showToast('Kỳ này đã chốt sổ. Không thể tính toán lại.', 'error');
             return;
         }
         if (isFuturePeriod) {
@@ -289,8 +297,7 @@ const BillingPage: React.FC<BillingPageProps> = ({ charges, setCharges, allData,
         showToast('Đang tính toán lại phí...', 'info');
 
         try {
-            // 1. Fetch fresh data
-            const freshData = await loadAllData();
+            const freshData = allData;
             
             // 2. Separate existing PAID charges (Preserve them)
             const existingPaid = charges.filter(c => c.Period === period && ['paid', 'paid_tm', 'paid_ck', 'reconciling'].includes(c.paymentStatus));
@@ -309,7 +316,7 @@ const BillingPage: React.FC<BillingPageProps> = ({ charges, setCharges, allData,
             // 4. Calculate
             const newCharges = await calculateChargesBatch(period, inputs, freshData);
             
-            // 5. Enhance with Meta & Auto-fill TotalPaid for convenience
+            // 5. Enhance with Meta
             const finalNewCharges = newCharges.map(c => ({
                 ...c,
                 CreatedAt: new Date().toISOString(),
@@ -319,22 +326,30 @@ const BillingPage: React.FC<BillingPageProps> = ({ charges, setCharges, allData,
                 TotalPaid: c.TotalDue, // Auto-fill Input
                 isPrinted: false,
                 isSent: false,
-                sentCount: 0 // New field
+                sentCount: 0 
             }));
 
-            // 6. Update State
+            // 6. AGGREGATE STATS (NEW OPTIMIZATION)
+            const allChargesForPeriod = [...existingPaid, ...finalNewCharges];
+            const monthlyStat: MonthlyStat = {
+                period: period,
+                totalService: allChargesForPeriod.reduce((sum, c) => sum + c.ServiceFee_Total, 0),
+                totalParking: allChargesForPeriod.reduce((sum, c) => sum + c.ParkingFee_Total, 0),
+                totalWater: allChargesForPeriod.reduce((sum, c) => sum + c.WaterFee_Total, 0),
+                totalDue: allChargesForPeriod.reduce((sum, c) => sum + c.TotalDue, 0),
+                updatedAt: new Date().toISOString()
+            };
+
+            // 7. Save Charges AND Stats using updated API
+            await saveChargesBatch(finalNewCharges, monthlyStat);
+
+            // 8. Update State
             setCharges(prev => {
                 const otherPeriodCharges = prev.filter(c => c.Period !== period);
-                return [...otherPeriodCharges, ...existingPaid, ...finalNewCharges];
-            }, {
-                module: 'Billing', action: 'CALCULATE',
-                summary: `Tính phí kỳ ${period} cho ${finalNewCharges.length} căn`,
-                before_snapshot: charges
+                return [...otherPeriodCharges, ...allChargesForPeriod];
             });
 
-            // 7. Auto-Lock
-            setLockedPeriods(prev => new Set(prev).add(period));
-            showToast(`Đã tính xong và khóa kỳ ${period}.`, 'success');
+            showToast(`Đã tính xong phí kỳ ${period}. Thống kê đã được cập nhật.`, 'success');
 
         } catch (e: any) {
             showToast(`Lỗi: ${e.message}`, 'error');
@@ -343,23 +358,37 @@ const BillingPage: React.FC<BillingPageProps> = ({ charges, setCharges, allData,
         }
     };
 
-    const handleLockToggle = () => {
-        const now = Date.now();
-        if ((now - lastClickTime.current) < 350) { // Double click
-            setLockedPeriods(prev => {
-                const next = new Set(prev);
-                if (next.has(period)) next.delete(period);
-                else next.add(period);
-                return next;
-            });
-            showToast(isPeriodLocked ? 'Đã mở khóa tính toán.' : 'Đã khóa kỳ thu.', 'success');
-        } else { // Single Click
-            primaryActionTimeout.current = window.setTimeout(() => {
-                if (isPeriodLocked) showToast('Nhấn đúp để mở khóa.', 'info');
-                else handleCalculate();
-            }, 250);
+    // --- Logic: Billing Lock (Hard Lock) ---
+    const handleToggleLock = async () => {
+        if (!canCalculate) return;
+
+        if (isBillingLocked) {
+            // Unlock logic (Double click required)
+            const now = Date.now();
+            if (now - lastClickTime.current < 350) {
+                try {
+                    await setBillingLockStatus(period, false);
+                    setIsBillingLocked(false);
+                    showToast('Đã mở khóa sổ. Có thể chỉnh sửa dữ liệu.', 'success');
+                } catch (e) {
+                    showToast('Lỗi khi mở khóa.', 'error');
+                }
+            } else {
+                showToast('Nhấn đúp để mở khóa sổ.', 'info');
+            }
+            lastClickTime.current = now;
+        } else {
+            // Lock logic (Save/Finalize)
+            if (window.confirm(`Xác nhận chốt sổ kỳ ${period}? Sau khi chốt, dữ liệu sẽ không thể chỉnh sửa.`)) {
+                try {
+                    await setBillingLockStatus(period, true);
+                    setIsBillingLocked(true);
+                    showToast('Đã chốt sổ kỳ này.', 'success');
+                } catch (e) {
+                    showToast('Lỗi khi chốt sổ.', 'error');
+                }
+            }
         }
-        lastClickTime.current = now;
     };
 
     // --- Logic: Bank Import ---
@@ -371,7 +400,6 @@ const BillingPage: React.FC<BillingPageProps> = ({ charges, setCharges, allData,
         reader.onload = async (e) => {
             try {
                 const data = new Uint8Array(e.target?.result as ArrayBuffer);
-                // Fix: Cast workbook to any to allow loose typing on SheetNames
                 const workbook: any = XLSX.read(data, { type: 'array' });
                 const firstSheetName = workbook.SheetNames[0];
                 const sheet = workbook.Sheets[firstSheetName];
@@ -399,7 +427,6 @@ const BillingPage: React.FC<BillingPageProps> = ({ charges, setCharges, allData,
                 const validUnits = new Set(allData.units.map(u => u.UnitID));
 
                 for (let i = headerIndex + 1; i < json.length; i++) {
-                    // Removed unused 'row' variable to avoid type confusion and warnings
                     const rawAmt = json[i][colCredit];
                     const amtStr = typeof rawAmt === 'string' ? rawAmt : String(rawAmt ?? '0'); 
                     const amount = Math.round(parseFloat(amtStr.replace(/[^0-9.-]+/g,"")));
@@ -411,7 +438,7 @@ const BillingPage: React.FC<BillingPageProps> = ({ charges, setCharges, allData,
                         while ((match = unitRegex.exec(desc)) !== null) {
                             if (validUnits.has(match[1])) {
                                 updates.set(match[1], (updates.get(match[1]) || 0) + amount);
-                                break; // Found unit, stop matching
+                                break; 
                             }
                         }
                     }
@@ -450,36 +477,29 @@ const BillingPage: React.FC<BillingPageProps> = ({ charges, setCharges, allData,
             const { jsPDF } = jspdf;
             const JSZip = (window as any).JSZip;
             
-            // Temporary Container
             const container = document.createElement('div');
             container.style.position = 'absolute';
             container.style.left = '-9999px';
             container.style.top = '0';
             document.body.appendChild(container);
 
-            // A5 Landscape Configuration
-            const pdfConfig = { orientation: 'landscape', unit: 'mm', format: 'a5' };
-
             if (targets.length === 1) {
-                // SINGLE FILE MODE
                 const charge = targets[0];
                 container.innerHTML = renderInvoiceHTMLForPdf(charge, allData, invoiceSettings);
                 const element = container.firstElementChild as HTMLElement;
                 const canvas = await html2canvas(element, { scale: 2, useCORS: true, logging: false });
-                const pdf = new jsPDF('l', 'mm', 'a5'); // Landscape
+                const pdf = new jsPDF('l', 'mm', 'a5'); 
                 const imgData = canvas.toDataURL('image/jpeg', 0.95);
-                // A5 Landscape: 210mm x 148mm
                 pdf.addImage(imgData, 'JPEG', 0, 0, 210, 148);
                 pdf.save(`PhieuThu_${charge.UnitID}_${period}.pdf`);
                 showToast('Đã tải xuống PDF.', 'success');
             } else {
-                // ZIP MODE
                 const zip = new JSZip();
                 for (const charge of targets) {
                     container.innerHTML = renderInvoiceHTMLForPdf(charge, allData, invoiceSettings);
                     const element = container.firstElementChild as HTMLElement;
                     const canvas = await html2canvas(element, { scale: 2, useCORS: true, logging: false });
-                    const pdf = new jsPDF('l', 'mm', 'a5'); // Landscape
+                    const pdf = new jsPDF('l', 'mm', 'a5');
                     const imgData = canvas.toDataURL('image/jpeg', 0.95);
                     pdf.addImage(imgData, 'JPEG', 0, 0, 210, 148);
                     zip.file(`PhieuThu_${charge.UnitID}_${period}.pdf`, pdf.output('blob'));
@@ -519,7 +539,6 @@ const BillingPage: React.FC<BillingPageProps> = ({ charges, setCharges, allData,
 
         try {
             if (IS_PROD) {
-                // Chunking logic (max 500 ops per batch, using 400 for safety)
                 const chunkSize = 400;
                 for (let i = 0; i < targets.length; i += chunkSize) {
                     const chunk = targets.slice(i, i + chunkSize);
@@ -527,21 +546,17 @@ const BillingPage: React.FC<BillingPageProps> = ({ charges, setCharges, allData,
                     
                     chunk.forEach(c => {
                         const chargeId = `${c.Period}_${c.UnitID}`;
-                        
-                        // 1. Create Notification
                         const notifRef = doc(collection(db, 'notifications'));
                         batch.set(notifRef, {
                             type: 'bill',
                             title: `Thông báo phí T${c.Period.split('-')[1]}`,
                             body: `Tổng: ${formatCurrency(c.TotalDue)}. Vui lòng thanh toán.`,
-                            userId: c.UnitID, // Targeting UnitID string e.g. "202"
+                            userId: c.UnitID, 
                             isRead: false,
                             createdAt: serverTimestamp(),
                             link: 'portalBilling',
                             chargeId: chargeId
                         });
-
-                        // 2. Update Charge Status
                         const chargeRef = doc(db, 'charges', chargeId);
                         batch.update(chargeRef, {
                             isSent: true,
@@ -553,7 +568,6 @@ const BillingPage: React.FC<BillingPageProps> = ({ charges, setCharges, allData,
                 }
             }
 
-            // Optimistic UI Update
             const targetedUnitIds = new Set(targets.map(t => t.UnitID));
             setCharges(prev => prev.map(c => {
                 if (c.Period === period && targetedUnitIds.has(c.UnitID)) {
@@ -603,15 +617,13 @@ const BillingPage: React.FC<BillingPageProps> = ({ charges, setCharges, allData,
             for (const charge of targets) {
                 if (!charge.Email) continue;
 
-                // 1. Generate PDF Blob
                 container.innerHTML = renderInvoiceHTMLForPdf(charge, allData, invoiceSettings);
                 const element = container.firstElementChild as HTMLElement;
                 const canvas = await html2canvas(element, { scale: 2, useCORS: true });
-                const pdf = new jsPDF('l', 'mm', 'a5'); // Landscape A5
+                const pdf = new jsPDF('l', 'mm', 'a5');
                 pdf.addImage(canvas.toDataURL('image/jpeg', 0.95), 'JPEG', 0, 0, 210, 148);
                 const pdfBlob = pdf.output('blob');
 
-                // 2. Convert Blob to Base64
                 const reader = new FileReader();
                 const base64Promise = new Promise<string>((resolve) => {
                     reader.onloadend = () => resolve((reader.result as string).split(',')[1]);
@@ -619,7 +631,6 @@ const BillingPage: React.FC<BillingPageProps> = ({ charges, setCharges, allData,
                 });
                 const base64 = await base64Promise;
 
-                // 3. Send
                 const subject = (invoiceSettings.emailSubject || 'THONG BAO PHI').replace('{{period}}', period).replace('{{unit_id}}', charge.UnitID);
                 const body = (invoiceSettings.emailBody || '').replace('{{owner_name}}', charge.OwnerName).replace('{{unit_id}}', charge.UnitID).replace('{{period}}', period).replace('{{total_due}}', formatCurrency(charge.TotalDue));
                 
@@ -628,7 +639,6 @@ const BillingPage: React.FC<BillingPageProps> = ({ charges, setCharges, allData,
             }
             document.body.removeChild(container);
             
-            // Mark as sent
             if (IS_PROD) {
                 const batch = writeBatch(db);
                 targets.forEach(c => {
@@ -656,7 +666,6 @@ const BillingPage: React.FC<BillingPageProps> = ({ charges, setCharges, allData,
             return;
         }
         
-        // Define Columns
         const header = "Kỳ,Căn hộ,Chủ hộ,Diện tích,Phí DV,SL Ô tô,SL Xe máy,Phí Gửi xe,Tiêu thụ nước,Tiền nước,Điều chỉnh,Tổng phải thu,Đã nộp,Còn nợ,Trạng thái\n";
         
         const rows = targets.map(c => {
@@ -664,7 +673,6 @@ const BillingPage: React.FC<BillingPageProps> = ({ charges, setCharges, allData,
             const carCount = c['#CAR'] + c['#CAR_A'];
             const motoCount = c['#MOTORBIKE'];
             
-            // Handle CSV injection/escaping
             const escape = (val: string | number) => `"${String(val).replace(/"/g, '""')}"`;
 
             return [
@@ -698,6 +706,7 @@ const BillingPage: React.FC<BillingPageProps> = ({ charges, setCharges, allData,
 
     // --- Actions ---
     const handleDeleteBulk = async () => {
+        if (isBillingLocked) return;
         if (!window.confirm("Bạn có chắc muốn xóa các dòng phí đã chọn?")) return;
         const targetIds = Array.from(selectedUnits);
         if (IS_PROD) {
@@ -711,6 +720,7 @@ const BillingPage: React.FC<BillingPageProps> = ({ charges, setCharges, allData,
     };
 
     const handleMarkPaid = async (method: 'paid_tm' | 'paid_ck' | 'pending') => {
+        if (isBillingLocked) return;
         const targets = charges.filter(c => c.Period === period && selectedUnits.has(c.UnitID));
         if (targets.length === 0) return;
         
@@ -748,6 +758,7 @@ const BillingPage: React.FC<BillingPageProps> = ({ charges, setCharges, allData,
     };
 
     const handleSinglePayment = async (charge: ChargeRaw, method: 'paid_tm' | 'paid_ck') => {
+        if (isBillingLocked) return;
         const amount = editedPayments[charge.UnitID] ?? charge.TotalPaid;
         await confirmSinglePayment(charge, amount, method);
         setCharges(prev => prev.map(c => c.UnitID === charge.UnitID && c.Period === period ? { ...c, paymentStatus: method, PaymentConfirmed: true, TotalPaid: amount } : c));
@@ -775,7 +786,6 @@ const BillingPage: React.FC<BillingPageProps> = ({ charges, setCharges, allData,
                         <MinimalStatCard label="Thực thu" value={formatCurrency(stats.totalPaid)} colorClass="border-emerald-500" onClick={() => setStatusFilter('paid')} />
                         <MinimalStatCard label="Công nợ" value={formatCurrency(stats.debt)} colorClass="border-red-500" onClick={() => setStatusFilter('debt')} />
                         
-                        {/* Custom Progress Card */}
                         <div className="bg-white rounded-xl shadow-sm border-l-4 border-purple-500 p-4 hover:shadow-md transition-shadow">
                             <p className="text-xs font-bold text-gray-400 uppercase tracking-wider">Tiến độ thu</p>
                             <div className="flex justify-between items-end mt-1">
@@ -817,12 +827,11 @@ const BillingPage: React.FC<BillingPageProps> = ({ charges, setCharges, allData,
                     <input type="text" placeholder="Tìm căn hộ..." value={searchTerm} onChange={e => setSearchTerm(e.target.value)} className="w-full h-9 pl-9 pr-3 text-sm border border-gray-300 rounded-lg focus:ring-2 focus:ring-primary outline-none bg-white text-gray-900" />
                 </div>
 
-                {/* Filter Floors */}
+                {/* Filters */}
                 <select value={floorFilter} onChange={e => setFloorFilter(e.target.value)} className="h-9 px-2 text-sm border border-gray-300 rounded-lg bg-white text-gray-900 outline-none">
                     {floors.map(f => <option key={f.value} value={f.value}>{f.label}</option>)}
                 </select>
 
-                {/* Filter Status */}
                 <select value={statusFilter} onChange={e => setStatusFilter(e.target.value)} className="h-9 px-2 text-sm border border-gray-300 rounded-lg bg-white text-gray-900 outline-none">
                     <option value="all">Tất cả trạng thái</option>
                     <option value="pending">Đang chờ</option>
@@ -835,32 +844,52 @@ const BillingPage: React.FC<BillingPageProps> = ({ charges, setCharges, allData,
                 {/* Action Buttons */}
                 <div className="flex items-center gap-2 border-l pl-3">
                     <button 
-                        onClick={handleLockToggle}
-                        disabled={isLoading || !canCalculate || (isFuturePeriod && !isPeriodLocked)}
-                        title={isPeriodLocked ? "Bấm đúp để mở khoá" : "Bấm để tính phí cho kỳ hiện tại"}
+                        onClick={handleCalculate}
+                        disabled={isLoading || !canCalculate || (isFuturePeriod && !isBillingLocked) || isBillingLocked}
+                        title={isBillingLocked ? "Đã khóa sổ" : "Tính lại phí"}
                         className={`h-9 px-4 rounded-lg font-bold text-sm flex items-center gap-2 text-white shadow-sm transition-colors ${
-                            isPeriodLocked ? 'bg-gray-500 hover:bg-gray-600' : 
+                            isBillingLocked ? 'bg-gray-400 cursor-not-allowed' : 
                             isFuturePeriod ? 'bg-gray-300 cursor-not-allowed' :
                             'bg-[#006f3a] hover:bg-[#005a2f]'
                         }`}
                     >
-                        {isLoading ? <Spinner /> : isPeriodLocked ? <LockClosedIcon className="w-4 h-4"/> : <CalculatorIcon2 className="w-4 h-4"/>}
-                        {isPeriodLocked ? "Đã khóa" : "Tính phí"}
+                        {isLoading ? <Spinner /> : <CalculatorIcon2 className="w-4 h-4"/>}
+                        {isBillingLocked ? "Đã tính" : "Tính phí"}
                     </button>
+                    
                     <button 
                         onClick={() => fileInputRef.current?.click()} 
+                        disabled={isBillingLocked}
                         title="Nhập sao kê để đối soát"
-                        className="h-9 px-3 bg-white border border-gray-300 text-gray-700 font-semibold rounded-lg hover:bg-gray-50 flex items-center gap-1 text-sm"
+                        className={`h-9 px-3 border border-gray-300 font-semibold rounded-lg flex items-center gap-1 text-sm ${isBillingLocked ? 'bg-gray-100 text-gray-400 cursor-not-allowed' : 'bg-white text-gray-700 hover:bg-gray-50'}`}
                     >
                         <ArrowUpTrayIcon className="w-4 h-4"/> Import
                     </button>
+
                     <button 
                         onClick={handleExportReport} 
-                        title="Xuất báo cáo"
-                        className="h-9 px-3 bg-white border border-gray-300 text-gray-700 font-semibold rounded-lg hover:bg-gray-50 flex items-center gap-1 text-sm"
+                        className="h-9 px-3 border border-gray-300 font-semibold rounded-lg flex items-center gap-1 text-sm bg-white text-gray-700 hover:bg-gray-50"
+                        title="Xuất báo cáo chi tiết (CSV)"
                     >
                         <ArrowDownTrayIcon className="w-4 h-4"/> Export
                     </button>
+                    
+                    {/* NEW LOCK/SAVE BUTTON */}
+                    <div className="ml-2 border-l pl-3">
+                        <button
+                            onClick={handleToggleLock}
+                            disabled={!canCalculate}
+                            className={`h-9 px-4 rounded-lg font-bold text-sm flex items-center gap-2 shadow-sm transition-colors ${
+                                isBillingLocked 
+                                ? 'bg-gray-600 text-white hover:bg-gray-700 border-gray-600' 
+                                : 'bg-blue-600 text-white hover:bg-blue-700 border-blue-600'
+                            }`}
+                            title={isBillingLocked ? "Đã chốt sổ. Nhấn đúp để mở khóa" : "Chốt sổ (Khóa dữ liệu)"}
+                        >
+                            {isBillingLocked ? <LockClosedIcon className="w-4 h-4" /> : <SaveIcon className="w-4 h-4" />}
+                            {isBillingLocked ? "Đã chốt" : "Chốt sổ"}
+                        </button>
+                    </div>
                 </div>
             </div>
 
@@ -889,7 +918,6 @@ const BillingPage: React.FC<BillingPageProps> = ({ charges, setCharges, allData,
                                     const diff = finalPaid - charge.TotalDue;
                                     const isPaid = ['paid', 'paid_tm', 'paid_ck'].includes(charge.paymentStatus);
                                     
-                                    // Status Badge Logic
                                     let statusBadge;
                                     if (charge.paymentStatus === 'paid_tm') {
                                         statusBadge = <span className="px-2 py-0.5 text-xs font-bold rounded-full bg-green-100 text-green-800 border border-green-200">Đã thu (TM)</span>;
@@ -904,7 +932,6 @@ const BillingPage: React.FC<BillingPageProps> = ({ charges, setCharges, allData,
                                         statusBadge = <span className="px-2 py-0.5 text-xs font-bold rounded-full bg-orange-100 text-orange-800 border border-orange-200">Đang chờ</span>;
                                     }
 
-                                    // Input Styling Logic
                                     const inputClass = isPaid
                                         ? "w-full text-right p-1.5 text-sm border border-green-200 rounded-md bg-green-50 text-green-700 font-bold focus:outline-none"
                                         : "w-full text-right p-1.5 text-sm border border-gray-300 rounded-md bg-white text-gray-900 focus:ring-2 focus:ring-[#006f3a] focus:border-transparent outline-none";
@@ -920,12 +947,12 @@ const BillingPage: React.FC<BillingPageProps> = ({ charges, setCharges, allData,
                                                     type="text" 
                                                     value={formatNumber(finalPaid)} 
                                                     onChange={e => { 
-                                                        if (!isPaid) {
+                                                        if (!isPaid && !isBillingLocked) {
                                                             const val = parseInt(e.target.value.replace(/\D/g, '') || '0', 10); 
                                                             setEditedPayments(prev => ({ ...prev, [charge.UnitID]: val })); 
                                                         }
                                                     }}
-                                                    readOnly={isPaid}
+                                                    readOnly={isPaid || isBillingLocked}
                                                     className={inputClass}
                                                 />
                                             </td>
@@ -936,12 +963,12 @@ const BillingPage: React.FC<BillingPageProps> = ({ charges, setCharges, allData,
                                             <td className="px-4 py-3 text-center">
                                                 <div className="flex justify-center gap-1">
                                                     <button onClick={() => setPreviewCharge(charge)} title="Xem chi tiết" className="p-1.5 rounded hover:bg-gray-200 text-gray-500 hover:text-gray-700"><ActionViewIcon className="w-4 h-4"/></button>
-                                                    <button onClick={() => handleBroadcastNotification(charge)} title="Gửi App Notification" className="p-1.5 rounded hover:bg-blue-50 text-blue-500 hover:text-blue-700"><PaperAirplaneIcon className="w-4 h-4"/></button>
+                                                    <button onClick={() => handleBroadcastNotification(charge)} disabled={isBillingLocked} title="Gửi App Notification" className={`p-1.5 rounded hover:bg-blue-50 text-blue-500 hover:text-blue-700 ${isBillingLocked ? 'opacity-50 cursor-not-allowed' : ''}`}><PaperAirplaneIcon className="w-4 h-4"/></button>
                                                     <QuickActionMenu 
                                                         onSelect={(m) => handleSinglePayment(charge, m)} 
-                                                        disabled={role === 'Operator'} 
+                                                        disabled={role === 'Operator' || isBillingLocked} 
                                                         trigger={
-                                                            <button title="Xác nhận thu" className="p-1.5 rounded hover:bg-green-50 text-green-500 hover:text-green-700">
+                                                            <button title="Xác nhận thu" className={`p-1.5 rounded hover:bg-green-50 text-green-500 hover:text-green-700 ${isBillingLocked ? 'opacity-50 cursor-not-allowed' : ''}`}>
                                                                 <CheckCircleIcon className="w-4 h-4"/>
                                                             </button>
                                                         }
@@ -965,17 +992,17 @@ const BillingPage: React.FC<BillingPageProps> = ({ charges, setCharges, allData,
                         <button onClick={() => setSelectedUnits(new Set())} className="text-xs text-red-500 hover:underline">Bỏ chọn</button>
                     </div>
                     <div className="flex items-center gap-2">
-                        <button onClick={() => handleMarkPaid('paid_tm')} disabled={isLoading} className="flex items-center gap-1 px-3 py-1.5 rounded-full bg-green-50 text-green-700 hover:bg-green-100 text-xs font-bold"><BanknotesIcon className="w-4 h-4"/> Thu TM</button>
-                        <button onClick={() => handleMarkPaid('paid_ck')} disabled={isLoading} className="flex items-center gap-1 px-3 py-1.5 rounded-full bg-blue-50 text-blue-700 hover:bg-blue-100 text-xs font-bold"><CreditCardIcon className="w-4 h-4"/> Thu CK</button>
-                        <button onClick={() => handleMarkPaid('pending')} disabled={isLoading} className="flex items-center gap-1 px-3 py-1.5 rounded-full bg-orange-50 text-orange-700 hover:bg-orange-100 text-xs font-bold"><ArrowUturnLeftIcon className="w-4 h-4"/> Hủy thu</button>
+                        <button onClick={() => handleMarkPaid('paid_tm')} disabled={isLoading || isBillingLocked} className={`flex items-center gap-1 px-3 py-1.5 rounded-full bg-green-50 text-green-700 hover:bg-green-100 text-xs font-bold ${isBillingLocked ? 'opacity-50 cursor-not-allowed' : ''}`}><BanknotesIcon className="w-4 h-4"/> Thu TM</button>
+                        <button onClick={() => handleMarkPaid('paid_ck')} disabled={isLoading || isBillingLocked} className={`flex items-center gap-1 px-3 py-1.5 rounded-full bg-blue-50 text-blue-700 hover:bg-blue-100 text-xs font-bold ${isBillingLocked ? 'opacity-50 cursor-not-allowed' : ''}`}><CreditCardIcon className="w-4 h-4"/> Thu CK</button>
+                        <button onClick={() => handleMarkPaid('pending')} disabled={isLoading || isBillingLocked} className={`flex items-center gap-1 px-3 py-1.5 rounded-full bg-orange-50 text-orange-700 hover:bg-orange-100 text-xs font-bold ${isBillingLocked ? 'opacity-50 cursor-not-allowed' : ''}`}><ArrowUturnLeftIcon className="w-4 h-4"/> Hủy thu</button>
                     </div>
                     <div className="flex items-center gap-2 border-l pl-3 border-gray-200">
-                        <button onClick={() => handleBroadcastNotification()} disabled={isLoading} className="p-2 rounded-full hover:bg-cyan-50 text-cyan-600" title="Gửi App"><PaperAirplaneIcon className="w-5 h-5"/></button>
-                        <button onClick={() => handleBulkSendEmail()} disabled={isLoading} className="p-2 rounded-full hover:bg-indigo-50 text-indigo-600" title="Gửi Email"><EnvelopeIcon className="w-5 h-5"/></button>
+                        <button onClick={() => handleBroadcastNotification()} disabled={isLoading || isBillingLocked} className={`p-2 rounded-full hover:bg-cyan-50 text-cyan-600 ${isBillingLocked ? 'opacity-50 cursor-not-allowed' : ''}`} title="Gửi App"><PaperAirplaneIcon className="w-5 h-5"/></button>
+                        <button onClick={() => handleBulkSendEmail()} disabled={isLoading || isBillingLocked} className={`p-2 rounded-full hover:bg-indigo-50 text-indigo-600 ${isBillingLocked ? 'opacity-50 cursor-not-allowed' : ''}`} title="Gửi Email"><EnvelopeIcon className="w-5 h-5"/></button>
                         <button onClick={handleDownloadPDFs} disabled={isLoading} className="p-2 rounded-full hover:bg-gray-100 text-gray-700" title="Tải PDF"><PrinterIcon className="w-5 h-5"/></button>
                     </div>
                     <div className="pl-2 border-l border-gray-200 pr-2">
-                        <button onClick={handleDeleteBulk} disabled={isLoading} className="p-2 rounded-full hover:bg-red-50 text-red-600" title="Xóa"><TrashIcon className="w-5 h-5"/></button>
+                        <button onClick={handleDeleteBulk} disabled={isLoading || isBillingLocked} className={`p-2 rounded-full hover:bg-red-50 text-red-600 ${isBillingLocked ? 'opacity-50 cursor-not-allowed' : ''}`} title="Xóa"><TrashIcon className="w-5 h-5"/></button>
                     </div>
                 </div>
             )}

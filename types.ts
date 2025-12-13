@@ -1,3 +1,4 @@
+
 // types.ts
 
 export type Role = 'Admin' | 'Accountant' | 'Operator' | 'Viewer' | 'Resident';
@@ -177,6 +178,16 @@ export interface ChargeRaw {
     isSent?: boolean;
 }
 
+// NEW: Aggregated Statistics for Charts (Optimization)
+export interface MonthlyStat {
+    period: string; // YYYY-MM
+    totalService: number;
+    totalParking: number;
+    totalWater: number;
+    totalDue: number;
+    updatedAt: string;
+}
+
 export interface AllData {
     units: Unit[];
     owners: Owner[];
@@ -184,7 +195,8 @@ export interface AllData {
     waterReadings: WaterReading[];
     tariffs: TariffCollection;
     adjustments: Adjustment[];
-    activityLogs: ActivityLog[]; // Added activity logs to AllData
+    activityLogs: ActivityLog[];
+    monthlyStats: MonthlyStat[]; // ADDED
 }
 
 export interface InvoiceSettings {

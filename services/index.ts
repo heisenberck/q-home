@@ -1,3 +1,4 @@
+
 // services/index.ts
 import * as firebaseAPI from './firebaseAPI';
 import * as mockAPI from './mockAPI';
@@ -25,5 +26,7 @@ export const {
     importResidentsBatch,
     getLockStatus,
     setLockStatus,
-    resetUserPassword, // ADDED: Export the new password reset function
+    getBillingLockStatus, // ADDED
+    setBillingLockStatus, // ADDED
+    resetUserPassword,
 } = api;
