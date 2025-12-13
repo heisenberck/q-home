@@ -1,11 +1,11 @@
 
-import React, { useState, useMemo, useEffect } from 'react';
+import React, { useState, useMemo, useEffect, useRef } from 'react';
 import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, Legend } from 'recharts';
 import type { Unit, Vehicle, WaterReading, ChargeRaw, ActivityLog, Owner, FeedbackItem, MonthlyStat } from '../../types';
 import { VehicleTier } from '../../types';
 import {
     BuildingIcon, BanknotesIcon, CarIcon, DropletsIcon, ChatBubbleLeftEllipsisIcon,
-    WarningIcon,
+    WarningIcon, ClockIcon, UserCircleIcon
 } from '../ui/Icons';
 import { getPreviousPeriod, timeAgo } from '../../utils/helpers';
 import type { AdminPage } from '../../App';
@@ -66,39 +66,112 @@ const DashboardFooter: React.FC<{
     feedback: FeedbackItem[];
     onNavigate: (page: AdminPage) => void;
 }> = ({ activityLogs, feedback, onNavigate }) => {
-    const IS_PROD = isProduction();
     const [tickerKey, setTickerKey] = useState(0);
-    const latestLogs = useMemo(() => activityLogs.slice(0, 3), [activityLogs]);
+    const [showActivityPopup, setShowActivityPopup] = useState(false);
+    const [showMsgPopup, setShowMsgPopup] = useState(false);
+    
+    // Logic: Activity Log (Latest 5 for popup, 1 for ticker)
+    const latestLogs = useMemo(() => activityLogs.slice(0, 5), [activityLogs]);
+    const currentLog = latestLogs.length > 0 ? latestLogs[tickerKey % Math.min(latestLogs.length, 3)] : null;
+
+    // Logic: Unread Messages (Pending)
+    const unreadMessages = useMemo(() => feedback.filter(f => f.status === 'Pending').slice(0, 5), [feedback]);
+    const pendingFeedbackCount = feedback.filter(f => f.status === 'Pending').length;
 
     useEffect(() => {
         if (latestLogs.length === 0) return;
-        const interval = setInterval(() => { setTickerKey(prev => prev + 1); }, 4000);
+        const interval = setInterval(() => { setTickerKey(prev => prev + 1); }, 5000); // Slower ticker
         return () => clearInterval(interval);
     }, [latestLogs.length]);
 
-    const currentLog = latestLogs.length > 0 ? latestLogs[tickerKey % latestLogs.length] : null;
-    const pendingFeedbackCount = useMemo(() => feedback.filter(f => f.status === 'Pending').length, [feedback]);
+    // Close popups when clicking outside (Simple implementation using state toggle backdrop)
+    useEffect(() => {
+        const close = () => { setShowActivityPopup(false); setShowMsgPopup(false); };
+        if(showActivityPopup || showMsgPopup) document.addEventListener('click', close);
+        return () => document.removeEventListener('click', close);
+    }, [showActivityPopup, showMsgPopup]);
 
     return (
-        <div className="fixed bottom-0 left-64 right-0 bg-white/80 backdrop-blur-sm border-t border-gray-200 h-12 flex items-center justify-between px-6 text-gray-600 z-30">
-            <div className="flex items-center gap-2">
-                <div className={`w-2.5 h-2.5 rounded-full ${IS_PROD ? 'bg-green-500 animate-pulse' : 'bg-red-500'}`}></div>
-                <span className="text-xs font-semibold">{IS_PROD ? 'System Online' : 'Development Mode'}</span>
-            </div>
-            <div className="flex-1 text-center">
-                {currentLog ? (
-                    <div key={tickerKey} className="animate-fade-in-down text-xs text-gray-500">
-                        <span className="font-semibold text-gray-700">{currentLog.actor_email}</span><span className="mx-1">&bull;</span>
-                        <span className="truncate">{currentLog.summary}</span><span className="mx-1 text-gray-400">&bull;</span>
-                        <span className="italic text-gray-400">{timeAgo(currentLog.ts)}</span>
+        <div className="fixed bottom-0 left-64 right-0 bg-white/95 backdrop-blur-md border-t border-gray-200 h-12 flex items-center justify-between px-6 text-gray-600 z-30 shadow-[0_-4px_6px_-1px_rgba(0,0,0,0.05)]">
+            
+            {/* LEFT: Activity Log Area */}
+            <div className="flex-1 flex items-center relative max-w-2xl" onClick={(e) => { e.stopPropagation(); setShowActivityPopup(!showActivityPopup); setShowMsgPopup(false); }}>
+                <div className="flex items-center gap-3 cursor-pointer hover:bg-gray-100 py-1.5 px-3 rounded-lg transition-colors w-full">
+                    {currentLog ? (
+                        <>
+                            <div className="relative flex h-2.5 w-2.5">
+                                <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-red-400 opacity-75"></span>
+                                <span className="relative inline-flex rounded-full h-2.5 w-2.5 bg-red-500"></span>
+                            </div>
+                            <div key={tickerKey} className="flex items-center text-xs text-gray-600 truncate animate-fade-in-down w-full">
+                                <span className="font-bold text-gray-800 mr-2">{currentLog.actor_email.split('@')[0]}</span>
+                                <span className="truncate mr-2">{currentLog.summary}</span>
+                                <span className="text-gray-400 text-[10px] whitespace-nowrap bg-gray-50 px-1.5 rounded border border-gray-200">{timeAgo(currentLog.ts)}</span>
+                            </div>
+                        </>
+                    ) : (
+                        <span className="text-xs text-gray-400 italic pl-1">Không có hoạt động gần đây.</span>
+                    )}
+                </div>
+
+                {/* Activity Popup */}
+                {showActivityPopup && latestLogs.length > 0 && (
+                    <div className="absolute bottom-14 left-0 w-96 bg-white rounded-xl shadow-2xl border border-gray-200 p-1 animate-slide-up z-40" onClick={(e) => e.stopPropagation()}>
+                        <div className="bg-gray-50 px-3 py-2 border-b border-gray-100 rounded-t-lg flex justify-between items-center">
+                            <span className="text-xs font-bold text-gray-700 uppercase tracking-wider">Hoạt động gần nhất</span>
+                            <span className="text-[10px] text-gray-400">Tự động cập nhật</span>
+                        </div>
+                        <ul className="max-h-64 overflow-y-auto py-1">
+                            {latestLogs.map(log => (
+                                <li key={log.id} className="px-3 py-2.5 hover:bg-gray-50 border-b border-gray-50 last:border-0">
+                                    <div className="flex justify-between items-start mb-0.5">
+                                        <span className="text-xs font-bold text-gray-800">{log.actor_email}</span>
+                                        <span className="text-[10px] text-gray-400">{timeAgo(log.ts)}</span>
+                                    </div>
+                                    <p className="text-xs text-gray-600 leading-snug">{log.summary}</p>
+                                </li>
+                            ))}
+                        </ul>
                     </div>
-                ) : ( <p className="text-xs text-gray-400">Không có hoạt động gần đây.</p> )}
+                )}
             </div>
-            <div className="flex items-center">
-                <button onClick={() => onNavigate('feedbackManagement')} className="relative flex items-center gap-2 px-3 py-1.5 rounded-lg text-sm font-semibold hover:bg-gray-100 transition-colors">
-                    <ChatBubbleLeftRightIcon className="w-5 h-5" /><span>Tin nhắn</span>
-                    {pendingFeedbackCount > 0 && (<span className="absolute -top-1 -right-1 flex h-4 w-4 items-center justify-center rounded-full bg-red-500 text-white text-[10px] font-bold ring-2 ring-white">{pendingFeedbackCount}</span>)}
+
+            {/* RIGHT: Messages Area */}
+            <div className="flex items-center relative" onClick={(e) => { e.stopPropagation(); setShowMsgPopup(!showMsgPopup); setShowActivityPopup(false); }}>
+                <button className={`relative flex items-center gap-2 px-3 py-1.5 rounded-lg text-sm font-semibold transition-colors ${showMsgPopup ? 'bg-blue-50 text-blue-600' : 'hover:bg-gray-100 text-gray-600'}`}>
+                    <ChatBubbleLeftRightIcon className="w-5 h-5" />
+                    <span>Tin nhắn</span>
+                    {pendingFeedbackCount > 0 && (<span className="absolute -top-1 -right-1 flex h-4 w-4 items-center justify-center rounded-full bg-red-500 text-white text-[10px] font-bold ring-2 ring-white shadow-sm">{pendingFeedbackCount}</span>)}
                 </button>
+
+                {/* Messages Popup */}
+                {showMsgPopup && (
+                    <div className="absolute bottom-14 right-0 w-80 bg-white rounded-xl shadow-2xl border border-gray-200 p-1 animate-slide-up z-40" onClick={(e) => e.stopPropagation()}>
+                        <div className="bg-gray-50 px-3 py-2 border-b border-gray-100 rounded-t-lg flex justify-between items-center">
+                            <span className="text-xs font-bold text-gray-700 uppercase tracking-wider">Tin nhắn chưa đọc</span>
+                            <button onClick={() => onNavigate('feedbackManagement')} className="text-[10px] text-blue-600 hover:underline">Xem tất cả</button>
+                        </div>
+                        {unreadMessages.length > 0 ? (
+                            <ul className="max-h-64 overflow-y-auto py-1">
+                                {unreadMessages.map(msg => (
+                                    <li key={msg.id} onClick={() => onNavigate('feedbackManagement')} className="px-3 py-2.5 hover:bg-blue-50 border-b border-gray-50 last:border-0 cursor-pointer group">
+                                        <div className="flex justify-between items-start mb-0.5">
+                                            <span className="text-xs font-bold text-gray-800 group-hover:text-blue-700">{msg.residentId}</span>
+                                            <span className="text-[10px] text-gray-400">{timeAgo(msg.date)}</span>
+                                        </div>
+                                        <p className="text-xs font-semibold text-gray-700 truncate">{msg.subject}</p>
+                                        <p className="text-[10px] text-gray-500 truncate mt-0.5">{msg.content}</p>
+                                    </li>
+                                ))}
+                            </ul>
+                        ) : (
+                            <div className="p-6 text-center text-gray-400">
+                                <ChatBubbleLeftRightIcon className="w-8 h-8 mx-auto mb-2 opacity-20"/>
+                                <p className="text-xs">Không có tin nhắn mới</p>
+                            </div>
+                        )}
+                    </div>
+                )}
             </div>
         </div>
     );
