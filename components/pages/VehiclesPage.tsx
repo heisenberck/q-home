@@ -1,6 +1,6 @@
 
 import React, { useState, useMemo, useEffect } from 'react';
-import type { Vehicle, Unit, Owner, Role, ActivityLog, VehicleTier } from '../../types';
+import type { Vehicle, Unit, Owner, Role, ActivityLog, VehicleTier, VehicleDocument } from '../../types';
 import { useNotification } from '../../App';
 import Modal from '../ui/Modal';
 import { 
@@ -9,7 +9,7 @@ import {
     ShieldCheckIcon, DocumentArrowDownIcon,
     XMarkIcon, UserIcon, PhoneArrowUpRightIcon,
     CurrencyDollarIcon, ClockIcon, CheckCircleIcon,
-    SparklesIcon, PaperclipIcon, ArrowUturnLeftIcon
+    SparklesIcon, PaperclipIcon, ArrowUturnLeftIcon, EyeIcon
 } from '../ui/Icons';
 import { translateVehicleType, vehicleTypeLabels, compressImageToWebP, timeAgo, getPastelColorForName, parseUnitCode } from '../../utils/helpers';
 import { isProduction } from '../../utils/env';
@@ -42,6 +42,33 @@ interface VehiclesPageProps {
 }
 
 // --- Helper Components ---
+
+const DocumentPreviewModal: React.FC<{
+    doc: VehicleDocument;
+    onClose: () => void;
+}> = ({ doc, onClose }) => {
+    const isImage = doc.type.startsWith('image/');
+    const isPdf = doc.type === 'application/pdf' || doc.url.startsWith('data:application/pdf');
+
+    return (
+        <Modal title={`Xem tài liệu: ${doc.name}`} onClose={onClose} size="4xl">
+            <div className="flex justify-center items-center p-4 bg-gray-100 min-h-[70vh]">
+                {isImage ? (
+                    <img src={doc.url} alt={doc.name} className="max-w-full max-h-[70vh] object-contain shadow-lg" />
+                ) : isPdf ? (
+                    <iframe src={doc.url} className="w-full h-[70vh] border-0" title={doc.name}></iframe>
+                ) : (
+                    <div className="text-center">
+                        <p className="text-lg mb-4">Định dạng file này không hỗ trợ xem trước.</p>
+                        <a href={doc.url} download={doc.name} className="inline-flex items-center gap-2 px-4 py-2 bg-primary text-white font-semibold rounded-md shadow-sm hover:bg-primary-focus">
+                            <DocumentArrowDownIcon /> Tải xuống
+                        </a>
+                    </div>
+                )}
+            </div>
+        </Modal>
+    );
+};
 
 const StatusBadge: React.FC<{ status: Vehicle['parkingStatus'], priority?: number }> = ({ status, priority }) => {
     if (!status) return <span className="text-gray-400 text-xs italic">Chưa gán</span>;
@@ -476,8 +503,9 @@ const VehicleDetailPanel: React.FC<{
     activityLogs: ActivityLog[],
     onEdit: (v: Vehicle) => void,
     onDelete: (v: Vehicle) => void,
-    onClose: () => void
-}> = ({ vehicle, activityLogs, onEdit, onDelete, onClose }) => {
+    onClose: () => void,
+    onOpenDoc: (doc: VehicleDocument) => void
+}> = ({ vehicle, activityLogs, onEdit, onDelete, onClose, onOpenDoc }) => {
     const theme = getPastelColorForName(vehicle.ownerName);
 
     const relevantLogs = useMemo(() => {
@@ -549,9 +577,15 @@ const VehicleDetailPanel: React.FC<{
                         <div>
                             <p className="text-xs font-medium text-gray-500 mb-1.5">Đăng ký xe</p>
                             {vehicle.documents?.registration?.url ? (
-                                <a href={vehicle.documents.registration.url} target="_blank" rel="noopener noreferrer" className="block h-24 w-full rounded-lg overflow-hidden border border-gray-200 relative group cursor-zoom-in">
+                                <div 
+                                    onClick={() => vehicle.documents?.registration && onOpenDoc(vehicle.documents.registration)} 
+                                    className="block h-24 w-full rounded-lg overflow-hidden border border-gray-200 relative group cursor-pointer"
+                                >
                                     <img src={vehicle.documents.registration.url} alt="Registration" className="w-full h-full object-cover transition-transform duration-500 group-hover:scale-110" />
-                                </a>
+                                    <div className="absolute inset-0 bg-black/0 group-hover:bg-black/10 transition-colors flex items-center justify-center">
+                                        <EyeIcon className="w-6 h-6 text-white opacity-0 group-hover:opacity-100 drop-shadow-md" />
+                                    </div>
+                                </div>
                             ) : (
                                 <div className="h-24 w-full rounded-lg border-2 border-dashed border-gray-200 bg-gray-50 flex items-center justify-center text-gray-400 text-xs">
                                     Chưa có ảnh
@@ -561,9 +595,15 @@ const VehicleDetailPanel: React.FC<{
                         <div>
                             <p className="text-xs font-medium text-gray-500 mb-1.5">Ảnh xe</p>
                             {vehicle.documents?.vehiclePhoto?.url ? (
-                                <a href={vehicle.documents.vehiclePhoto.url} target="_blank" rel="noopener noreferrer" className="block h-24 w-full rounded-lg overflow-hidden border border-gray-200 relative group cursor-zoom-in">
+                                <div 
+                                    onClick={() => vehicle.documents?.vehiclePhoto && onOpenDoc(vehicle.documents.vehiclePhoto)} 
+                                    className="block h-24 w-full rounded-lg overflow-hidden border border-gray-200 relative group cursor-pointer"
+                                >
                                     <img src={vehicle.documents.vehiclePhoto.url} alt="Vehicle" className="w-full h-full object-cover transition-transform duration-500 group-hover:scale-110" />
-                                </a>
+                                    <div className="absolute inset-0 bg-black/0 group-hover:bg-black/10 transition-colors flex items-center justify-center">
+                                        <EyeIcon className="w-6 h-6 text-white opacity-0 group-hover:opacity-100 drop-shadow-md" />
+                                    </div>
+                                </div>
                             ) : (
                                 <div className="h-24 w-full rounded-lg border-2 border-dashed border-gray-200 bg-gray-50 flex items-center justify-center text-gray-400 text-xs">
                                     Chưa có ảnh
@@ -612,6 +652,7 @@ const VehiclesPage: React.FC<VehiclesPageProps> = ({ vehicles, units, owners, ac
     const [selectedVehicle, setSelectedVehicle] = useState<EnhancedVehicle | null>(null);
     const [editingVehicle, setEditingVehicle] = useState<Vehicle | null>(null);
     const [isDuplicateMode, setIsDuplicateMode] = useState(false);
+    const [previewDoc, setPreviewDoc] = useState<VehicleDocument | null>(null);
 
     // --- 1. Data Processing ---
     const ownersMap = useMemo(() => new Map(owners.map(o => [o.OwnerID, o])), [owners]);
@@ -756,6 +797,7 @@ const VehiclesPage: React.FC<VehiclesPageProps> = ({ vehicles, units, owners, ac
     return (
         <div className="flex gap-6 h-full overflow-hidden">
             {editingVehicle && <VehicleEditModal vehicle={editingVehicle} onSave={handleSave} onClose={() => setEditingVehicle(null)} />}
+            {previewDoc && <DocumentPreviewModal doc={previewDoc} onClose={() => setPreviewDoc(null)} />}
 
             {/* DUPLICATE MODE vs NORMAL MODE */}
             {isDuplicateMode ? (
@@ -886,6 +928,7 @@ const VehiclesPage: React.FC<VehiclesPageProps> = ({ vehicles, units, owners, ac
                                 onEdit={(v) => setEditingVehicle(v)}
                                 onDelete={() => handleDelete(selectedVehicle)}
                                 onClose={() => setSelectedVehicle(null)}
+                                onOpenDoc={setPreviewDoc}
                             />
                         </div>
                     )}
