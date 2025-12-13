@@ -9,11 +9,9 @@ import {
     ShieldCheckIcon, DocumentArrowDownIcon,
     XMarkIcon, UserIcon, PhoneArrowUpRightIcon,
     CurrencyDollarIcon, ClockIcon, CheckCircleIcon,
-    SparklesIcon, PaperclipIcon
+    SparklesIcon, PaperclipIcon, ArrowUturnLeftIcon
 } from '../ui/Icons';
-import { formatLicensePlate, translateVehicleType, vehicleTypeLabels, compressImageToWebP, timeAgo, getPastelColorForName, parseUnitCode } from '../../utils/helpers';
-import { collection, getDocs, writeBatch, doc } from 'firebase/firestore';
-import { db } from '../../firebaseConfig';
+import { translateVehicleType, vehicleTypeLabels, compressImageToWebP, timeAgo, getPastelColorForName, parseUnitCode } from '../../utils/helpers';
 import { isProduction } from '../../utils/env';
 
 declare const XLSX: any;
@@ -22,7 +20,7 @@ declare const XLSX: any;
 
 const PARKING_STATUS_LABELS: Record<string, string> = {
     'Lốt chính': 'Lốt chính',
-    'Lốt tạm': 'Lốt phụ', // Renamed per requirement
+    'Lốt tạm': 'Lốt phụ', 
     'Xếp lốt': 'Đang chờ lốt',
     'None': 'Không có'
 };
@@ -30,7 +28,7 @@ const PARKING_STATUS_LABELS: Record<string, string> = {
 type EnhancedVehicle = Vehicle & { 
     ownerName: string; 
     ownerPhone: string;
-    waitingPriority?: number; // Calculated dynamic index
+    waitingPriority?: number;
     isBillable: boolean;
 };
 
@@ -38,7 +36,7 @@ interface VehiclesPageProps {
     vehicles: Vehicle[];
     units: Unit[];
     owners: Owner[];
-    activityLogs: ActivityLog[]; // Added prop
+    activityLogs: ActivityLog[];
     onSetVehicles: (updater: React.SetStateAction<Vehicle[]>, logPayload?: any) => void;
     role: Role;
 }
@@ -84,7 +82,173 @@ const VehicleTypeBadge: React.FC<{ type: string }> = ({ type }) => {
     );
 };
 
-// --- Edit Modal (Refactored) ---
+// --- Duplicate Manager Component ---
+
+interface DuplicateGroup {
+    plate: string;
+    normalizedPlate: string;
+    items: EnhancedVehicle[];
+}
+
+const DuplicateManager: React.FC<{
+    vehicles: EnhancedVehicle[];
+    onClose: () => void;
+    onDeleteBatch: (idsToDelete: string[]) => void;
+}> = ({ vehicles, onClose, onDeleteBatch }) => {
+    const [groups, setGroups] = useState<DuplicateGroup[]>([]);
+    const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
+
+    useEffect(() => {
+        // 1. Group Logic
+        const map = new Map<string, EnhancedVehicle[]>();
+        
+        vehicles.forEach(v => {
+            if (!v.PlateNumber) return;
+            // Normalize: Remove non-alphanumeric, Uppercase
+            const normalized = v.PlateNumber.replace(/[^a-zA-Z0-9]/g, '').toUpperCase();
+            if (!map.has(normalized)) map.set(normalized, []);
+            map.get(normalized)!.push(v);
+        });
+
+        // 2. Filter only duplicates
+        const dupGroups: DuplicateGroup[] = [];
+        const initialSelected = new Set<string>();
+
+        map.forEach((items, key) => {
+            if (items.length > 1) {
+                // Sort by Created Date (Oldest first)
+                // If StartDate is same, fallback to VehicleId
+                items.sort((a, b) => new Date(a.StartDate).getTime() - new Date(b.StartDate).getTime() || a.VehicleId.localeCompare(b.VehicleId));
+                
+                // Logic: Keep the FIRST one (Index 0), Select the rest for deletion
+                for (let i = 1; i < items.length; i++) {
+                    initialSelected.add(items[i].VehicleId);
+                }
+
+                dupGroups.push({
+                    plate: key, // Using normalized key as group ID
+                    normalizedPlate: key,
+                    items
+                });
+            }
+        });
+
+        setGroups(dupGroups);
+        setSelectedIds(initialSelected);
+    }, [vehicles]);
+
+    const toggleSelection = (id: string) => {
+        const newSet = new Set(selectedIds);
+        if (newSet.has(id)) newSet.delete(id);
+        else newSet.add(id);
+        setSelectedIds(newSet);
+    };
+
+    const handleExecute = () => {
+        if (selectedIds.size === 0) return;
+        if (window.confirm(`Xác nhận xóa vĩnh viễn ${selectedIds.size} xe đã chọn?`)) {
+            onDeleteBatch(Array.from(selectedIds));
+        }
+    };
+
+    return (
+        <div className="flex flex-col h-full bg-gray-50 -m-6 p-6 animate-fade-in-down">
+            {/* Header */}
+            <div className="flex items-center justify-between mb-6 bg-white p-4 rounded-xl shadow-sm border border-gray-200">
+                <div>
+                    <h2 className="text-xl font-bold text-gray-800 flex items-center gap-2">
+                        <SparklesIcon className="w-6 h-6 text-purple-600"/> Quét trùng lặp biển số
+                    </h2>
+                    <p className="text-sm text-gray-500 mt-1">
+                        Tìm thấy <strong className="text-red-600">{groups.length}</strong> nhóm biển số trùng nhau (cả chữ và số).
+                    </p>
+                </div>
+                <div className="flex gap-3">
+                    <button onClick={onClose} className="px-4 py-2 bg-white border border-gray-300 text-gray-700 rounded-lg hover:bg-gray-50 font-medium text-sm flex items-center gap-2">
+                        <ArrowUturnLeftIcon className="w-4 h-4"/> Quay lại
+                    </button>
+                    <button 
+                        onClick={handleExecute} 
+                        disabled={selectedIds.size === 0}
+                        className="px-4 py-2 bg-red-600 text-white rounded-lg hover:bg-red-700 font-bold text-sm shadow-md disabled:bg-gray-400 disabled:cursor-not-allowed flex items-center gap-2"
+                    >
+                        <TrashIcon className="w-4 h-4"/> Xóa {selectedIds.size} xe đã chọn
+                    </button>
+                </div>
+            </div>
+
+            {/* List */}
+            <div className="flex-1 overflow-y-auto space-y-4">
+                {groups.length === 0 ? (
+                    <div className="flex flex-col items-center justify-center h-64 text-gray-500">
+                        <CheckCircleIcon className="w-16 h-16 text-green-500 mb-4"/>
+                        <p className="text-lg font-medium">Tuyệt vời! Không tìm thấy xe nào trùng lặp.</p>
+                    </div>
+                ) : (
+                    groups.map(group => (
+                        <div key={group.normalizedPlate} className="bg-white rounded-xl shadow-sm border border-gray-200 overflow-hidden">
+                            <div className="bg-gray-100 px-4 py-2 border-b border-gray-200 flex justify-between items-center">
+                                <span className="font-mono font-bold text-lg text-gray-800 tracking-wider">
+                                    {group.items[0].PlateNumber} 
+                                    <span className="text-xs text-gray-500 font-sans ml-2 font-normal">(Normalized: {group.normalizedPlate})</span>
+                                </span>
+                                <span className="text-xs bg-red-100 text-red-700 px-2 py-1 rounded font-bold">{group.items.length} bản ghi</span>
+                            </div>
+                            <table className="w-full text-sm">
+                                <thead>
+                                    <tr className="text-gray-500 text-left bg-gray-50 border-b border-gray-100">
+                                        <th className="p-3 w-10 text-center">Xóa</th>
+                                        <th className="p-3">Căn hộ</th>
+                                        <th className="p-3">Chủ xe</th>
+                                        <th className="p-3">Loại xe</th>
+                                        <th className="p-3">Ngày ĐK</th>
+                                        <th className="p-3">Trạng thái</th>
+                                        <th className="p-3">Ghi chú</th>
+                                    </tr>
+                                </thead>
+                                <tbody>
+                                    {group.items.map((v, idx) => {
+                                        const isSelected = selectedIds.has(v.VehicleId);
+                                        // Highlight logic: Selected rows get yellow background
+                                        const rowClass = isSelected ? "bg-yellow-50" : "bg-white";
+                                        
+                                        return (
+                                            <tr key={v.VehicleId} className={`${rowClass} border-b border-gray-100 last:border-0 hover:bg-gray-50 transition-colors`}>
+                                                <td className="p-3 text-center">
+                                                    <input 
+                                                        type="checkbox" 
+                                                        checked={isSelected} 
+                                                        onChange={() => toggleSelection(v.VehicleId)}
+                                                        className="w-5 h-5 text-red-600 rounded border-gray-300 focus:ring-red-500 cursor-pointer"
+                                                        title="Tick để xóa xe này"
+                                                    />
+                                                </td>
+                                                <td className="p-3 font-bold text-gray-800">{v.UnitID}</td>
+                                                <td className="p-3 text-gray-700">{v.ownerName}</td>
+                                                <td className="p-3"><VehicleTypeBadge type={v.Type}/></td>
+                                                <td className="p-3 text-gray-600 font-mono">{new Date(v.StartDate).toLocaleDateString('vi-VN')}</td>
+                                                <td className="p-3"><StatusBadge status={v.parkingStatus}/></td>
+                                                <td className="p-3">
+                                                    {idx === 0 && !isSelected ? (
+                                                        <span className="text-xs font-bold text-green-600 border border-green-200 bg-green-50 px-2 py-1 rounded">Giữ lại (Cũ nhất)</span>
+                                                    ) : (
+                                                        <span className="text-xs font-bold text-red-500">Trùng lặp</span>
+                                                    )}
+                                                </td>
+                                            </tr>
+                                        );
+                                    })}
+                                </tbody>
+                            </table>
+                        </div>
+                    ))
+                )}
+            </div>
+        </div>
+    );
+};
+
+// --- Edit Modal ---
 
 const VehicleEditModal: React.FC<{
     vehicle: Vehicle;
@@ -94,7 +258,6 @@ const VehicleEditModal: React.FC<{
     const { showToast } = useNotification();
     const [activeTab, setActiveTab] = useState<'info' | 'parking' | 'docs'>('info');
     
-    // REFACTOR: Use checkboxes for reason + optional text input
     const [selectedReasons, setSelectedReasons] = useState<string[]>([]);
     const [otherReason, setOtherReason] = useState('');
 
@@ -104,7 +267,6 @@ const VehicleEditModal: React.FC<{
         );
     };
 
-    // Initialize state safely to avoid undefined document structure
     const [vehicle, setVehicle] = useState<Vehicle>({ 
         ...initialVehicle,
         documents: initialVehicle.documents || {}
@@ -129,7 +291,7 @@ const VehicleEditModal: React.FC<{
             setVehicle(prev => ({
                 ...prev,
                 documents: {
-                    ...(prev.documents || {}), // Ensure safe spread
+                    ...(prev.documents || {}),
                     [docType]: {
                         fileId: `DOC_${Date.now()}`,
                         name: file.name,
@@ -147,9 +309,7 @@ const VehicleEditModal: React.FC<{
     const handleSubmit = (e: React.FormEvent) => {
         e.preventDefault();
         
-        // Construct final reason string
         const checkboxPart = selectedReasons.join(', ');
-        // Append detail text if exists. Join parts with ". " for readability.
         const finalReason = [checkboxPart, otherReason.trim()].filter(Boolean).join('. ');
 
         if (!finalReason) {
@@ -157,9 +317,6 @@ const VehicleEditModal: React.FC<{
             return;
         }
 
-        // CRITICAL FIX: Sanitize the object before saving.
-        // 1. Remove calculated fields (ownerName, ownerPhone, etc) from EnhancedVehicle type.
-        // 2. Ensure no field is undefined (Firestore throws error on undefined).
         const cleanVehicle: Vehicle = {
             VehicleId: vehicle.VehicleId,
             UnitID: vehicle.UnitID,
@@ -168,7 +325,7 @@ const VehicleEditModal: React.FC<{
             PlateNumber: vehicle.PlateNumber || '',
             StartDate: vehicle.StartDate,
             isActive: vehicle.isActive,
-            parkingStatus: vehicle.parkingStatus || null, // Convert "" or undefined to null
+            parkingStatus: vehicle.parkingStatus || null,
             documents: vehicle.documents || {},
             log: vehicle.log || null,
             updatedAt: new Date().toISOString()
@@ -321,7 +478,7 @@ const VehicleDetailPanel: React.FC<{
     onDelete: (v: Vehicle) => void,
     onClose: () => void
 }> = ({ vehicle, activityLogs, onEdit, onDelete, onClose }) => {
-    const theme = getPastelColorForName(vehicle.ownerName); // Reuse resident color helper
+    const theme = getPastelColorForName(vehicle.ownerName);
 
     const relevantLogs = useMemo(() => {
         return activityLogs.filter(log => 
@@ -454,6 +611,7 @@ const VehiclesPage: React.FC<VehiclesPageProps> = ({ vehicles, units, owners, ac
     // Selection & Modals
     const [selectedVehicle, setSelectedVehicle] = useState<EnhancedVehicle | null>(null);
     const [editingVehicle, setEditingVehicle] = useState<Vehicle | null>(null);
+    const [isDuplicateMode, setIsDuplicateMode] = useState(false);
 
     // --- 1. Data Processing ---
     const ownersMap = useMemo(() => new Map(owners.map(o => [o.OwnerID, o])), [owners]);
@@ -473,8 +631,6 @@ const VehiclesPage: React.FC<VehiclesPageProps> = ({ vehicles, units, owners, ac
         return vehicles.map(v => {
             const unit = units.find(u => u.UnitID === v.UnitID);
             const owner = unit ? ownersMap.get(unit.OwnerID) : undefined;
-            
-            // Business Logic: Billable if Main or Extra Slot
             const isBillable = v.isActive && (v.parkingStatus === 'Lốt chính' || v.parkingStatus === 'Lốt tạm');
             
             return {
@@ -492,7 +648,6 @@ const VehiclesPage: React.FC<VehiclesPageProps> = ({ vehicles, units, owners, ac
         return enhancedVehicles.filter(v => {
             if (!v.isActive) return false;
 
-            // Search
             const s = searchTerm.toLowerCase();
             if (s && !(
                 v.PlateNumber.toLowerCase().includes(s) || 
@@ -500,14 +655,12 @@ const VehiclesPage: React.FC<VehiclesPageProps> = ({ vehicles, units, owners, ac
                 v.ownerName.toLowerCase().includes(s)
             )) return false;
 
-            // Toolbar Filters
             if (typeFilter !== 'all' && v.Type !== typeFilter) return false;
             if (statusFilter !== 'all') {
                 if (statusFilter === 'assigned' && !['Lốt chính', 'Lốt tạm'].includes(v.parkingStatus || '')) return false;
                 if (statusFilter === 'waiting' && v.parkingStatus !== 'Xếp lốt') return false;
             }
 
-            // Dashboard KPI Filter
             if (kpiFilter === 'cars' && !(v.Type === 'car' || v.Type === 'car_a')) return false;
             if (kpiFilter === 'motos' && !(v.Type === 'motorbike' || v.Type === 'ebike')) return false;
             if (kpiFilter === 'assigned' && !['Lốt chính', 'Lốt tạm'].includes(v.parkingStatus || '')) return false;
@@ -519,18 +672,11 @@ const VehiclesPage: React.FC<VehiclesPageProps> = ({ vehicles, units, owners, ac
             const pb = parseUnitCode(b.UnitID);
             let unitCompare = 0;
             if (pa && pb) {
-                if (pa.floor !== pb.floor) {
-                    unitCompare = pa.floor - pb.floor;
-                } else {
-                    unitCompare = pa.apt - pb.apt;
-                }
+                unitCompare = pa.floor !== pb.floor ? pa.floor - pb.floor : pa.apt - pb.apt;
             } else {
                 unitCompare = a.UnitID.localeCompare(b.UnitID);
             }
-
             if (unitCompare !== 0) return unitCompare;
-
-            // Secondary sort by plate number
             return a.PlateNumber.localeCompare(b.PlateNumber);
         });
     }, [enhancedVehicles, searchTerm, typeFilter, statusFilter, kpiFilter]);
@@ -556,11 +702,9 @@ const VehiclesPage: React.FC<VehiclesPageProps> = ({ vehicles, units, owners, ac
         });
         showToast('Cập nhật thành công.', 'success');
         setEditingVehicle(null);
-        
-        // Refresh selection
         if (selectedVehicle?.VehicleId === updatedVehicle.VehicleId) {
             const refreshed = enhancedVehicles.find(v => v.VehicleId === updatedVehicle.VehicleId);
-            if (refreshed) setSelectedVehicle({ ...refreshed, ...updatedVehicle }); // Merge updates
+            if (refreshed) setSelectedVehicle({ ...refreshed, ...updatedVehicle });
         }
     };
 
@@ -596,213 +740,156 @@ const VehiclesPage: React.FC<VehiclesPageProps> = ({ vehicles, units, owners, ac
         XLSX.writeFile(wb, `DanhSachXe_${new Date().toISOString().slice(0,10)}.xlsx`);
     };
 
-    const handleCleanupDuplicates = async () => {
-        if (!window.confirm("BẠN CHẮC CHẮN MUỐN CHẠY CÔNG CỤ QUÉT TRÙNG?\n\nHành động này sẽ quét toàn bộ dữ liệu xe trên hệ thống (Firestore), tìm các biển số bị trùng lặp và XOÁ các bản ghi thừa (giữ lại bản ghi cũ nhất).\n\nHãy sao lưu dữ liệu trước khi thực hiện!")) return;
-    
-        showToast('Đang quét dữ liệu xe từ máy chủ...', 'info', 10000);
-    
-        try {
-            const vehiclesRef = collection(db, 'vehicles');
-            const snapshot = await getDocs(vehiclesRef);
-            
-            if (snapshot.empty) {
-                showToast('Không tìm thấy dữ liệu xe nào.', 'info');
-                return;
-            }
-    
-            const plateMap = new Map<string, { id: string, createdAt: string }[]>();
-            const allDuplicates: string[] = [];
-    
-            snapshot.docs.forEach(docSnap => {
-                const data = docSnap.data();
-                const rawPlate = data.PlateNumber;
-                // Normalize: remove spaces, dots, dashes, uppercase
-                if (!rawPlate) return;
-                const normalizedPlate = String(rawPlate).trim().toUpperCase().replace(/[\s.-]/g, '');
-                
-                if (!plateMap.has(normalizedPlate)) {
-                    plateMap.set(normalizedPlate, []);
-                }
-                
-                // Try to find a creation date. StartDate is date string YYYY-MM-DD usually. updatedAt is ISO.
-                // If neither, we rely on the order or random.
-                const sortKey = data.updatedAt || data.StartDate || '0000-00-00';
-                plateMap.get(normalizedPlate)!.push({ 
-                    id: docSnap.id, 
-                    createdAt: sortKey 
-                });
-            });
-    
-            let duplicateCount = 0;
-            plateMap.forEach((records, plate) => {
-                if (records.length > 1) {
-                    // Sort ascending by createdAt (oldest first)
-                    records.sort((a, b) => a.createdAt.localeCompare(b.createdAt));
-                    
-                    // Keep the first (oldest), mark others for deletion
-                    const [keep, ...remove] = records;
-                    remove.forEach(r => allDuplicates.push(r.id));
-                    duplicateCount += remove.length;
-                    console.log(`[Duplicate] Plate ${plate}: Keeping ${keep.id}, Removing ${remove.map(r=>r.id).join(', ')}`);
-                }
-            });
-    
-            if (allDuplicates.length === 0) {
-                showToast('Tuyệt vời! Không tìm thấy dữ liệu trùng lặp nào.', 'success');
-                return;
-            }
-    
-            if (!window.confirm(`Tìm thấy ${allDuplicates.length} bản ghi xe bị trùng lặp (dựa trên biển số).\n\nBạn có muốn XOÁ VĨNH VIỄN các bản ghi thừa này không?`)) {
-                showToast('Đã huỷ thao tác.', 'info');
-                return;
-            }
-    
-            showToast(`Đang xoá ${allDuplicates.length} bản ghi...`, 'info', 5000);
-    
-            // Batch delete (max 500 per batch)
-            const BATCH_SIZE = 450;
-            for (let i = 0; i < allDuplicates.length; i += BATCH_SIZE) {
-                const batch = writeBatch(db);
-                const chunk = allDuplicates.slice(i, i + BATCH_SIZE);
-                chunk.forEach(id => {
-                    batch.delete(doc(db, 'vehicles', id));
-                });
-                await batch.commit();
-            }
-    
-            showToast(`Đã xoá thành công ${allDuplicates.length} xe trùng. Đang tải lại trang...`, 'success', 3000);
-            setTimeout(() => window.location.reload(), 2000);
-    
-        } catch (e: any) {
-            console.error("Cleanup Error:", e);
-            showToast(`Lỗi: ${e.message}`, 'error');
-        }
+    // Bulk Delete from Duplicate Manager
+    const handleBatchDelete = (idsToDelete: string[]) => {
+        onSetVehicles(prev => prev.map(v => idsToDelete.includes(v.VehicleId) ? { ...v, isActive: false } : v), {
+            module: 'Vehicles',
+            action: 'BATCH_DELETE_DUPLICATES',
+            summary: `Xóa ${idsToDelete.length} xe trùng lặp biển số`,
+            count: idsToDelete.length,
+            ids: idsToDelete
+        });
+        showToast(`Đã xóa ${idsToDelete.length} xe trùng lặp.`, 'success');
+        setIsDuplicateMode(false);
     };
 
     return (
         <div className="flex gap-6 h-full overflow-hidden">
             {editingVehicle && <VehicleEditModal vehicle={editingVehicle} onSave={handleSave} onClose={() => setEditingVehicle(null)} />}
 
-            {/* MASTER VIEW (Left) */}
-            <div className={`flex flex-col gap-6 min-w-0 transition-all duration-300 ${selectedVehicle ? 'w-2/3' : 'w-full'}`}>
-                
-                {/* 1. Dashboard Stat Cards */}
-                <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
-                    <div onClick={() => setKpiFilter(kpiFilter === 'cars' ? 'all' : 'cars')} className={`bg-white p-4 rounded-xl shadow-sm border-l-4 border-blue-500 cursor-pointer hover:bg-gray-50 transition-colors ${kpiFilter === 'cars' ? 'ring-2 ring-blue-500' : ''}`}>
-                        <div className="flex items-center gap-4">
-                            <div className="p-3 bg-blue-50 rounded-full text-blue-600"><CarIcon className="w-6 h-6"/></div>
-                            <div><p className="text-sm text-gray-500">Ô tô / A</p><p className="text-2xl font-bold text-gray-800">{stats.cars}</p></div>
-                        </div>
-                    </div>
-                    <div onClick={() => setKpiFilter(kpiFilter === 'motos' ? 'all' : 'motos')} className={`bg-white p-4 rounded-xl shadow-sm border-l-4 border-orange-500 cursor-pointer hover:bg-gray-50 transition-colors ${kpiFilter === 'motos' ? 'ring-2 ring-orange-500' : ''}`}>
-                        <div className="flex items-center gap-4">
-                            <div className="p-3 bg-orange-50 rounded-full text-orange-600"><MotorbikeIcon className="w-6 h-6"/></div>
-                            <div><p className="text-sm text-gray-500">Xe máy / Điện</p><p className="text-2xl font-bold text-gray-800">{stats.motos}</p></div>
-                        </div>
-                    </div>
-                    <div onClick={() => setKpiFilter(kpiFilter === 'assigned' ? 'all' : 'assigned')} className={`bg-white p-4 rounded-xl shadow-sm border-l-4 border-green-500 cursor-pointer hover:bg-gray-50 transition-colors ${kpiFilter === 'assigned' ? 'ring-2 ring-green-500' : ''}`}>
-                        <div className="flex items-center gap-4">
-                            <div className="p-3 bg-green-50 rounded-full text-green-600"><ShieldCheckIcon className="w-6 h-6"/></div>
-                            <div><p className="text-sm text-gray-500">Đã cấp lốt</p><p className="text-2xl font-bold text-gray-800">{stats.assigned}</p></div>
-                        </div>
-                    </div>
-                    <div onClick={() => setKpiFilter(kpiFilter === 'waiting' ? 'all' : 'waiting')} className={`bg-white p-4 rounded-xl shadow-sm border-l-4 border-red-500 cursor-pointer hover:bg-gray-50 transition-colors ${kpiFilter === 'waiting' ? 'ring-2 ring-red-500' : ''}`}>
-                        <div className="flex items-center gap-4">
-                            <div className="p-3 bg-red-50 rounded-full text-red-600"><ClockIcon className="w-6 h-6"/></div>
-                            <div><p className="text-sm text-gray-500">Đang chờ lốt</p><p className="text-2xl font-bold text-gray-800">{stats.waiting}</p></div>
-                        </div>
-                    </div>
-                </div>
-
-                {/* 2. Toolbar */}
-                <div className="bg-white p-4 rounded-xl shadow-sm flex items-center gap-4">
-                    <div className="relative flex-grow">
-                        <SearchIcon className="absolute left-3 top-1/2 -translate-y-1/2 h-5 w-5 text-gray-400" />
-                        <input type="text" placeholder="Tìm biển số, căn hộ, chủ hộ..." value={searchTerm} onChange={e => setSearchTerm(e.target.value)} className="w-full h-10 pl-10 pr-4 border rounded-lg bg-gray-50 border-gray-200 focus:bg-white focus:ring-2 focus:ring-primary focus:border-transparent outline-none transition-all"/>
-                    </div>
-                    <select value={statusFilter} onChange={e => setStatusFilter(e.target.value)} className="h-10 px-4 bg-gray-50 border border-gray-200 rounded-lg text-sm font-medium focus:ring-2 focus:ring-primary outline-none">
-                        <option value="all">Tất cả trạng thái</option>
-                        <option value="assigned">Đã cấp lốt</option>
-                        <option value="waiting">Đang chờ</option>
-                    </select>
-                    <select value={typeFilter} onChange={e => setTypeFilter(e.target.value)} className="h-10 px-4 bg-gray-50 border border-gray-200 rounded-lg text-sm font-medium focus:ring-2 focus:ring-primary outline-none">
-                        <option value="all">Tất cả loại xe</option>
-                        <option value="car">{vehicleTypeLabels['car']}</option>
-                        <option value="car_a">{vehicleTypeLabels['car_a']}</option>
-                        <option value="motorbike">{vehicleTypeLabels['motorbike']}</option>
-                        <option value="ebike">{vehicleTypeLabels['ebike']}</option>
-                        <option value="bicycle">{vehicleTypeLabels['bicycle']}</option>
-                    </select>
-                    {(role === 'Admin') && (
-                        <button onClick={handleCleanupDuplicates} className="h-10 px-4 bg-white border border-red-200 text-red-600 font-semibold rounded-lg hover:bg-red-50 flex items-center gap-2 transition-colors whitespace-nowrap">
-                            <SparklesIcon className="w-5 h-5"/> Quét xe trùng
-                        </button>
-                    )}
-                    <button onClick={handleExport} className="h-10 px-4 bg-white border border-gray-200 text-gray-700 font-semibold rounded-lg hover:bg-gray-50 flex items-center gap-2 transition-colors">
-                        <DocumentArrowDownIcon className="w-5 h-5 text-gray-500"/> Export
-                    </button>
-                </div>
-
-                {/* 3. Table */}
-                <div className="bg-white rounded-xl shadow-sm flex-1 flex flex-col overflow-hidden border border-gray-100">
-                    <div className="overflow-y-auto">
-                        <table className="min-w-full">
-                            <thead className="bg-gray-50 sticky top-0 z-10">
-                                <tr>
-                                    <th className="px-6 py-4 text-left text-xs font-bold text-gray-500 uppercase tracking-wider">Căn hộ</th>
-                                    <th className="px-6 py-4 text-left text-xs font-bold text-gray-500 uppercase tracking-wider">Chủ hộ</th>
-                                    <th className="px-6 py-4 text-left text-xs font-bold text-gray-500 uppercase tracking-wider">Biển số</th>
-                                    <th className="px-6 py-4 text-center text-xs font-bold text-gray-500 uppercase tracking-wider">Loại xe</th>
-                                    <th className="px-6 py-4 text-center text-xs font-bold text-gray-500 uppercase tracking-wider">Trạng thái đỗ</th>
-                                    <th className="px-6 py-4 text-center text-xs font-bold text-gray-500 uppercase tracking-wider">Thao tác</th>
-                                </tr>
-                            </thead>
-                            <tbody className="divide-y divide-gray-100">
-                                {filteredVehicles.map(v => (
-                                    <tr key={v.VehicleId} onClick={() => setSelectedVehicle(v)} className={`cursor-pointer transition-colors ${selectedVehicle?.VehicleId === v.VehicleId ? 'bg-blue-50' : 'hover:bg-gray-50'}`}>
-                                        <td className="px-6 py-4 text-sm font-bold text-gray-900">{v.UnitID}</td>
-                                        <td className="px-6 py-4 text-sm text-gray-700">{v.ownerName}</td>
-                                        <td className="px-6 py-4">
-                                            <span className="font-mono font-bold text-gray-800 text-base bg-gray-100 px-2 py-0.5 rounded border border-gray-200">{v.PlateNumber}</span>
-                                        </td>
-                                        <td className="px-6 py-4 text-center">
-                                            <div className="flex justify-center"><VehicleTypeBadge type={v.Type} /></div>
-                                        </td>
-                                        <td className="px-6 py-4 text-center flex justify-center">
-                                            {v.Type.includes('car') ? (
-                                                <StatusBadge status={v.parkingStatus} priority={v.waitingPriority} />
-                                            ) : (
-                                                <span className="text-gray-400 text-xs italic">N/A</span>
-                                            )}
-                                        </td>
-                                        <td className="px-6 py-4 text-center">
-                                            <button 
-                                                onClick={(e) => { e.stopPropagation(); setEditingVehicle(v); }} 
-                                                disabled={!canEdit}
-                                                className="p-2 rounded-full text-gray-400 hover:text-blue-600 hover:bg-blue-50 transition-colors disabled:opacity-30"
-                                            >
-                                                <PencilSquareIcon className="w-5 h-5" />
-                                            </button>
-                                        </td>
-                                    </tr>
-                                ))}
-                            </tbody>
-                        </table>
-                    </div>
-                </div>
-            </div>
-
-            {/* DETAIL PANEL (Right) */}
-            {selectedVehicle && (
-                <div className="w-1/3 flex flex-col h-full animate-slide-up shadow-2xl rounded-l-xl overflow-hidden z-20">
-                    <VehicleDetailPanel 
-                        vehicle={selectedVehicle} 
-                        activityLogs={activityLogs}
-                        onEdit={(v) => setEditingVehicle(v)}
-                        onDelete={() => handleDelete(selectedVehicle)}
-                        onClose={() => setSelectedVehicle(null)}
+            {/* DUPLICATE MODE vs NORMAL MODE */}
+            {isDuplicateMode ? (
+                <div className="w-full h-full">
+                    <DuplicateManager 
+                        vehicles={enhancedVehicles.filter(v => v.isActive)}
+                        onClose={() => setIsDuplicateMode(false)}
+                        onDeleteBatch={handleBatchDelete}
                     />
                 </div>
+            ) : (
+                <>
+                    {/* MASTER VIEW (Left) */}
+                    <div className={`flex flex-col gap-6 min-w-0 transition-all duration-300 ${selectedVehicle ? 'w-2/3' : 'w-full'}`}>
+                        
+                        {/* 1. Dashboard Stat Cards */}
+                        <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
+                            <div onClick={() => setKpiFilter(kpiFilter === 'cars' ? 'all' : 'cars')} className={`bg-white p-4 rounded-xl shadow-sm border-l-4 border-blue-500 cursor-pointer hover:bg-gray-50 transition-colors ${kpiFilter === 'cars' ? 'ring-2 ring-blue-500' : ''}`}>
+                                <div className="flex items-center gap-4">
+                                    <div className="p-3 bg-blue-50 rounded-full text-blue-600"><CarIcon className="w-6 h-6"/></div>
+                                    <div><p className="text-sm text-gray-500">Ô tô / A</p><p className="text-2xl font-bold text-gray-800">{stats.cars}</p></div>
+                                </div>
+                            </div>
+                            <div onClick={() => setKpiFilter(kpiFilter === 'motos' ? 'all' : 'motos')} className={`bg-white p-4 rounded-xl shadow-sm border-l-4 border-orange-500 cursor-pointer hover:bg-gray-50 transition-colors ${kpiFilter === 'motos' ? 'ring-2 ring-orange-500' : ''}`}>
+                                <div className="flex items-center gap-4">
+                                    <div className="p-3 bg-orange-50 rounded-full text-orange-600"><MotorbikeIcon className="w-6 h-6"/></div>
+                                    <div><p className="text-sm text-gray-500">Xe máy / Điện</p><p className="text-2xl font-bold text-gray-800">{stats.motos}</p></div>
+                                </div>
+                            </div>
+                            <div onClick={() => setKpiFilter(kpiFilter === 'assigned' ? 'all' : 'assigned')} className={`bg-white p-4 rounded-xl shadow-sm border-l-4 border-green-500 cursor-pointer hover:bg-gray-50 transition-colors ${kpiFilter === 'assigned' ? 'ring-2 ring-green-500' : ''}`}>
+                                <div className="flex items-center gap-4">
+                                    <div className="p-3 bg-green-50 rounded-full text-green-600"><ShieldCheckIcon className="w-6 h-6"/></div>
+                                    <div><p className="text-sm text-gray-500">Đã cấp lốt</p><p className="text-2xl font-bold text-gray-800">{stats.assigned}</p></div>
+                                </div>
+                            </div>
+                            <div onClick={() => setKpiFilter(kpiFilter === 'waiting' ? 'all' : 'waiting')} className={`bg-white p-4 rounded-xl shadow-sm border-l-4 border-red-500 cursor-pointer hover:bg-gray-50 transition-colors ${kpiFilter === 'waiting' ? 'ring-2 ring-red-500' : ''}`}>
+                                <div className="flex items-center gap-4">
+                                    <div className="p-3 bg-red-50 rounded-full text-red-600"><ClockIcon className="w-6 h-6"/></div>
+                                    <div><p className="text-sm text-gray-500">Đang chờ lốt</p><p className="text-2xl font-bold text-gray-800">{stats.waiting}</p></div>
+                                </div>
+                            </div>
+                        </div>
+
+                        {/* 2. Toolbar */}
+                        <div className="bg-white p-4 rounded-xl shadow-sm flex items-center gap-4">
+                            <div className="relative flex-grow">
+                                <SearchIcon className="absolute left-3 top-1/2 -translate-y-1/2 h-5 w-5 text-gray-400" />
+                                <input type="text" placeholder="Tìm biển số, căn hộ, chủ hộ..." value={searchTerm} onChange={e => setSearchTerm(e.target.value)} className="w-full h-10 pl-10 pr-4 border rounded-lg bg-gray-50 border-gray-200 focus:bg-white focus:ring-2 focus:ring-primary focus:border-transparent outline-none transition-all"/>
+                            </div>
+                            <select value={statusFilter} onChange={e => setStatusFilter(e.target.value)} className="h-10 px-4 bg-gray-50 border border-gray-200 rounded-lg text-sm font-medium focus:ring-2 focus:ring-primary outline-none">
+                                <option value="all">Tất cả trạng thái</option>
+                                <option value="assigned">Đã cấp lốt</option>
+                                <option value="waiting">Đang chờ</option>
+                            </select>
+                            <select value={typeFilter} onChange={e => setTypeFilter(e.target.value)} className="h-10 px-4 bg-gray-50 border border-gray-200 rounded-lg text-sm font-medium focus:ring-2 focus:ring-primary outline-none">
+                                <option value="all">Tất cả loại xe</option>
+                                <option value="car">{vehicleTypeLabels['car']}</option>
+                                <option value="car_a">{vehicleTypeLabels['car_a']}</option>
+                                <option value="motorbike">{vehicleTypeLabels['motorbike']}</option>
+                                <option value="ebike">{vehicleTypeLabels['ebike']}</option>
+                                <option value="bicycle">{vehicleTypeLabels['bicycle']}</option>
+                            </select>
+                            {(role === 'Admin') && (
+                                <button onClick={() => setIsDuplicateMode(true)} className="h-10 px-4 bg-white border border-red-200 text-red-600 font-semibold rounded-lg hover:bg-red-50 flex items-center gap-2 transition-colors whitespace-nowrap">
+                                    <SparklesIcon className="w-5 h-5"/> Quét xe trùng
+                                </button>
+                            )}
+                            <button onClick={handleExport} className="h-10 px-4 bg-white border border-gray-200 text-gray-700 font-semibold rounded-lg hover:bg-gray-50 flex items-center gap-2 transition-colors">
+                                <DocumentArrowDownIcon className="w-5 h-5 text-gray-500"/> Export
+                            </button>
+                        </div>
+
+                        {/* 3. Table */}
+                        <div className="bg-white rounded-xl shadow-sm flex-1 flex flex-col overflow-hidden border border-gray-100">
+                            <div className="overflow-y-auto">
+                                <table className="min-w-full">
+                                    <thead className="bg-gray-50 sticky top-0 z-10">
+                                        <tr>
+                                            <th className="px-6 py-4 text-left text-xs font-bold text-gray-500 uppercase tracking-wider">Căn hộ</th>
+                                            <th className="px-6 py-4 text-left text-xs font-bold text-gray-500 uppercase tracking-wider">Chủ hộ</th>
+                                            <th className="px-6 py-4 text-left text-xs font-bold text-gray-500 uppercase tracking-wider">Biển số</th>
+                                            <th className="px-6 py-4 text-center text-xs font-bold text-gray-500 uppercase tracking-wider">Loại xe</th>
+                                            <th className="px-6 py-4 text-center text-xs font-bold text-gray-500 uppercase tracking-wider">Trạng thái đỗ</th>
+                                            <th className="px-6 py-4 text-center text-xs font-bold text-gray-500 uppercase tracking-wider">Thao tác</th>
+                                        </tr>
+                                    </thead>
+                                    <tbody className="divide-y divide-gray-100">
+                                        {filteredVehicles.map(v => (
+                                            <tr key={v.VehicleId} onClick={() => setSelectedVehicle(v)} className={`cursor-pointer transition-colors ${selectedVehicle?.VehicleId === v.VehicleId ? 'bg-blue-50' : 'hover:bg-gray-50'}`}>
+                                                <td className="px-6 py-4 text-sm font-bold text-gray-900">{v.UnitID}</td>
+                                                <td className="px-6 py-4 text-sm text-gray-700">{v.ownerName}</td>
+                                                <td className="px-6 py-4">
+                                                    <span className="font-mono font-bold text-gray-800 text-base bg-gray-100 px-2 py-0.5 rounded border border-gray-200">{v.PlateNumber}</span>
+                                                </td>
+                                                <td className="px-6 py-4 text-center">
+                                                    <div className="flex justify-center"><VehicleTypeBadge type={v.Type} /></div>
+                                                </td>
+                                                <td className="px-6 py-4 text-center flex justify-center">
+                                                    {v.Type.includes('car') ? (
+                                                        <StatusBadge status={v.parkingStatus} priority={v.waitingPriority} />
+                                                    ) : (
+                                                        <span className="text-gray-400 text-xs italic">N/A</span>
+                                                    )}
+                                                </td>
+                                                <td className="px-6 py-4 text-center">
+                                                    <button 
+                                                        onClick={(e) => { e.stopPropagation(); setEditingVehicle(v); }} 
+                                                        disabled={!canEdit}
+                                                        className="p-2 rounded-full text-gray-400 hover:text-blue-600 hover:bg-blue-50 transition-colors disabled:opacity-30"
+                                                    >
+                                                        <PencilSquareIcon className="w-5 h-5" />
+                                                    </button>
+                                                </td>
+                                            </tr>
+                                        ))}
+                                    </tbody>
+                                </table>
+                            </div>
+                        </div>
+                    </div>
+
+                    {/* DETAIL PANEL (Right) */}
+                    {selectedVehicle && (
+                        <div className="w-1/3 flex flex-col h-full animate-slide-up shadow-2xl rounded-l-xl overflow-hidden z-20">
+                            <VehicleDetailPanel 
+                                vehicle={selectedVehicle} 
+                                activityLogs={activityLogs}
+                                onEdit={(v) => setEditingVehicle(v)}
+                                onDelete={() => handleDelete(selectedVehicle)}
+                                onClose={() => setSelectedVehicle(null)}
+                            />
+                        </div>
+                    )}
+                </>
             )}
         </div>
     );

@@ -1,6 +1,6 @@
 
 import { useState, useEffect, useCallback } from 'react';
-import { collection, getDocs, doc, getDoc } from 'firebase/firestore';
+import { collection, getDocs, doc, getDoc } from 'firebase/firestore'; // STRICTLY READ-ONLY IMPORTS
 import { db } from '../firebaseConfig';
 import { isProduction } from '../utils/env';
 import { 
@@ -47,20 +47,24 @@ async function fetchWithCache<T>(
     }
 
     // 2. Fetch from Network (Firestore)
-    // SAFETY CHECK: Only fetch from Firestore in Production to prevent Dev/Test pollution issues
-    // or unexpected quota usage. Dev mode uses Mock Data (fallbackData).
+    // SAFETY CHECK: Only fetch from Firestore in Production.
+    // In Development, we return fallbackData (Mocks) to prevent reading/writing to the live DB unnecessarily.
+    // This ensures no "seeding" happens against the production DB from a dev environment.
     if (!isProduction()) {
-        console.log(`[SmartCache] Dev Mode - Returning fallback for ${collectionName}`);
+        // console.log(`[SmartCache] Dev Mode - Returning fallback for ${collectionName}`);
         return fallbackData as T;
     }
 
-    console.log(`[SmartCache] Network Fetch: ${collectionName}`);
+    // console.log(`[SmartCache] Network Fetch: ${collectionName}`);
     
     try {
-        // PURE READ OPERATION
+        // PURE READ OPERATION. NO WRITES.
         const colRef = collection(db, collectionName);
         const snapshot = await getDocs(colRef);
-        const data = snapshot.docs.map(doc => doc.data()) as unknown as T; // Generic cast
+        
+        // If snapshot is empty, we simply return empty array/fallback. 
+        // WE DO NOT CREATE DATA HERE.
+        const data = snapshot.docs.map(doc => doc.data()) as unknown as T; 
 
         // 3. Save to Cache (Read-Through Cache pattern)
         const packet: CachePacket<T> = {
@@ -77,7 +81,7 @@ async function fetchWithCache<T>(
         return data;
     } catch (error) {
         console.error(`[SmartCache] Error fetching ${collectionName}:`, error);
-        // On error, try to return fallback rather than crashing
+        // On error, return fallback (safe default) rather than crashing or attempting to repair
         return fallbackData as T;
     }
 }
@@ -131,7 +135,7 @@ export const useSmartSystemData = () => {
             let tariffs: TariffCollection = { service: MOCK_TARIFFS_SERVICE, parking: MOCK_TARIFFS_PARKING, water: MOCK_TARIFFS_WATER };
 
             if (isProduction()) {
-                // Fetch Settings directly (low volume, usually safe to fetch fresh or implement simpler caching)
+                // Fetch Settings directly (low volume, usually safe to fetch fresh)
                 try {
                     const invoiceSnap = await getDoc(doc(db, 'settings', 'invoice'));
                     if (invoiceSnap.exists()) invoiceSettings = invoiceSnap.data() as InvoiceSettings;
@@ -165,6 +169,8 @@ export const useSmartSystemData = () => {
     // Initial Load - Strictly ONCE on mount
     useEffect(() => {
         refreshSystemData(false);
+        // NOTE: No dependencies here that trigger updates based on data length. 
+        // This ensures the hook only runs once on mount.
     }, [refreshSystemData]);
 
     return { ...data, loading, error, refreshSystemData };
