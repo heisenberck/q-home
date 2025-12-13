@@ -43,13 +43,25 @@ export const fetchCollection = async <T>(colName: string): Promise<T[]> => {
     return snap.docs.map(d => d.data() as T);
 };
 
-export const fetchLatestLogs = async (limitCount: number = 50): Promise<ActivityLog[]> => {
-    const q = query(collection(db, 'activityLogs'), orderBy('ts', 'desc'), limit(limitCount));
-    const snap = await getDocs(q);
-    return snap.docs.map(d => d.data() as ActivityLog);
+// OPTIMIZATION: Only fetch the latest 20 logs to save bandwidth and read quota
+// This is sufficient for the dashboard footer and initial view.
+export const fetchLatestLogs = async (limitCount: number = 20): Promise<ActivityLog[]> => {
+    try {
+        const q = query(collection(db, 'activityLogs'), orderBy('ts', 'desc'), limit(limitCount));
+        const snap = await getDocs(q);
+        return snap.docs.map(d => d.data() as ActivityLog);
+    } catch (e) {
+        console.warn("Failed to fetch logs (possibly missing index). Returning empty.", e);
+        return [];
+    }
 };
 
 // --- WRITE OPERATIONS ---
+
+export const logActivity = async (log: ActivityLog) => {
+    // Direct write, no batch needed for single log
+    await setDoc(doc(db, 'activityLogs', log.id), log);
+};
 
 export const updateFeeSettings = (settings: InvoiceSettings) => setDoc(doc(db, 'settings', 'invoice'), settings, { merge: true });
 
@@ -187,8 +199,6 @@ export const saveTariffs = async (d: AllData['tariffs']) => {
 };
 
 export const saveVehicles = async (d: Vehicle[]) => {
-    // This is mainly used for single updates or small batches not covered by updateResidentData
-    // We iterate and save, then bump version
     if (d.length === 0) return;
     const batch = writeBatch(db);
     d.forEach(v => batch.set(doc(db, 'vehicles', v.VehicleId), v));
@@ -214,7 +224,6 @@ export const importResidentsBatch = async (
     });
 
     unitIdsToUpdate.forEach(unitId => {
-        // ... (Counter logic same as before) ...
         const existingBicycles = currentVehicles.filter(v => v.UnitID === unitId && v.PlateNumber.startsWith(`${unitId}-XD`));
         const maxXd = existingBicycles.reduce((max, v) => {
             const match = v.PlateNumber.match(/-XD(\d+)$/);
@@ -229,7 +238,6 @@ export const importResidentsBatch = async (
     });
 
     updates.forEach(up => {
-        // ... (Processing logic same as before) ...
         const unitId = String(up.unitId).trim();
         const existingUnit = currentUnits.find(u => u.UnitID === unitId);
 
@@ -246,7 +254,6 @@ export const importResidentsBatch = async (
         
         if (up.vehicles && Array.isArray(up.vehicles)) {
             up.vehicles.forEach((v: any) => {
-                // ... (Vehicle creation logic) ...
                 const plate = String(v.PlateNumber || '').trim();
                 const isBicycle = v.Type === VehicleTier.BICYCLE;
                 const isEBike = v.Type === VehicleTier.EBIKE;
@@ -287,7 +294,6 @@ export const importResidentsBatch = async (
     bumpVersion(batch, 'vehicles_version');
 
     await batch.commit();
-    // Return empty here, caller should refreshSystemData
     return { units: [], owners: [], vehicles: [], createdCount: created, updatedCount: updated, vehicleCount };
 };
 

@@ -2,7 +2,7 @@
 import React, { useState, useEffect, useCallback, createContext, useMemo } from 'react';
 import type { Role, UserPermission, Unit, Owner, Vehicle, WaterReading, ChargeRaw, TariffService, TariffParking, TariffWater, Adjustment, InvoiceSettings, ActivityLog, VehicleTier, TariffCollection, AllData, NewsItem, FeedbackItem, FeedbackReply, MonthlyStat } from './types';
 import { patchKiosAreas, MOCK_NEWS_ITEMS, MOCK_FEEDBACK_ITEMS, MOCK_USER_PERMISSIONS } from './constants';
-import { updateFeeSettings, updateResidentData, saveChargesBatch, saveVehicles, saveWaterReadings, saveTariffs, saveUsers, saveAdjustments, importResidentsBatch, wipeAllBusinessData, resetUserPassword } from './services';
+import { updateFeeSettings, updateResidentData, saveChargesBatch, saveVehicles, saveWaterReadings, saveTariffs, saveUsers, saveAdjustments, importResidentsBatch, wipeAllBusinessData, resetUserPassword, logActivity } from './services';
 import { requestForToken, onMessageListener, db } from './firebaseConfig';
 import { collection, query, where, onSnapshot, orderBy, limit, getDocs } from 'firebase/firestore';
 import { useSmartSystemData } from './hooks/useSmartData';
@@ -117,7 +117,8 @@ const App: React.FC = () => {
     // --- Smart Data Hook Integration ---
     const { 
         units, owners, vehicles, tariffs, users: smartUsers, 
-        invoiceSettings: smartInvoiceSettings, adjustments, waterReadings, activityLogs,
+        invoiceSettings: smartInvoiceSettings, adjustments, waterReadings, 
+        activityLogs: loadedLogs, // Hook now returns activityLogs
         monthlyStats: loadedMonthlyStats, 
         lockedWaterPeriods, 
         loading: smartLoading, hasLoaded: smartHasLoaded, refreshSystemData 
@@ -130,6 +131,7 @@ const App: React.FC = () => {
     const [users, setUsers] = useState<UserPermission[]>([]);
     const [invoiceSettings, setInvoiceSettings] = useState<InvoiceSettings>(initialInvoiceSettings);
     const [monthlyStats, setMonthlyStats] = useState<MonthlyStat[]>([]);
+    const [activityLogs, setActivityLogs] = useState<ActivityLog[]>([]); // LOCAL State for Logs
 
     const [notifications, setNotifications] = useState({
         unreadNews: 0,
@@ -142,27 +144,27 @@ const App: React.FC = () => {
     // 3. Sync Smart Data to Local State
     useEffect(() => {
         if (smartHasLoaded) {
-            setUsers(smartUsers.length > 0 ? smartUsers : MOCK_USER_PERMISSIONS); // Safe fallback
+            setUsers(smartUsers.length > 0 ? smartUsers : MOCK_USER_PERMISSIONS); 
             if (smartInvoiceSettings) setInvoiceSettings(smartInvoiceSettings);
             if (loadedMonthlyStats) setMonthlyStats(loadedMonthlyStats);
+            
+            // Sync Activity Logs (Initial Load)
+            if (loadedLogs && loadedLogs.length > 0) {
+                setActivityLogs(loadedLogs);
+            }
+            
             patchKiosAreas(units);
         }
-    }, [smartHasLoaded, smartUsers, smartInvoiceSettings, units, loadedMonthlyStats]);
+    }, [smartHasLoaded, smartUsers, smartInvoiceSettings, units, loadedMonthlyStats, loadedLogs]);
 
-    // 4. SMART CHARGES DATA STRATEGY
-    // Instead of listening to the huge 'charges' collection, we:
-    // a) Fetch recent charges once on load.
-    // b) Listen to 'monthly_stats'. If it changes, we re-fetch the specific month's data.
-    
+    // 4. SMART CHARGES DATA STRATEGY ... (No change)
     const fetchChargesForMonth = useCallback(async (monthStr: string) => {
         if (!IS_PROD) return;
         try {
             const q = query(collection(db, 'charges'), where('Period', '==', monthStr));
             const snap = await getDocs(q);
             const freshCharges = snap.docs.map(d => d.data() as ChargeRaw);
-            
             setCharges(prev => {
-                // Replace charges for this month, keep others
                 const others = prev.filter(c => c.Period !== monthStr);
                 return [...others, ...freshCharges];
             });
@@ -173,18 +175,14 @@ const App: React.FC = () => {
 
     useEffect(() => {
         if (!currentUser) return;
-
         const loadInitialCharges = async () => {
             if (IS_PROD && charges.length === 0) {
                 try {
-                    // Fetch last 2 months initially
                     const today = new Date();
                     today.setMonth(today.getMonth() - 2); 
                     const recent = today.toISOString().slice(0, 7);
-
                     const q = query(collection(db, 'charges'), where('Period', '>=', recent));
                     const snap = await getDocs(q);
-                    
                     const initialCharges = snap.docs.map(d => d.data() as ChargeRaw);
                     setCharges(initialCharges);
                 } catch (e) {
@@ -192,38 +190,23 @@ const App: React.FC = () => {
                 }
             }
         };
-
         loadInitialCharges();
-
-        // SIGNAL LISTENER: Listen to monthly_stats changes
         if (IS_PROD) {
-            // Subscribe to the whole monthly_stats collection (it's small, 1 doc per month)
-            // Or just the current year/month if we want to be super strict, but collection is fine for now (max 12-24 docs usually)
             const q = query(collection(db, 'monthly_stats'), limit(12)); 
-            
             const unsubscribe = onSnapshot(q, (snapshot) => {
                 snapshot.docChanges().forEach((change) => {
                     if (change.type === 'modified' || change.type === 'added') {
                         const stat = change.doc.data() as MonthlyStat;
-                        // 1. Update stats in local state for Dashboard
                         setMonthlyStats(prev => {
                             const others = prev.filter(s => s.period !== stat.period);
                             return [...others, stat].sort((a,b) => b.period.localeCompare(a.period));
                         });
-
-                        // 2. Trigger re-fetch of charges for this specific period
-                        // This keeps the table in Billing Page updated without downloading everything constantly
-                        console.log(`Signal received: Data changed for ${stat.period}. Refreshing...`);
                         fetchChargesForMonth(stat.period);
-                        
-                        // 3. Optional: Trigger a lighter refresh of metadata if needed
-                        // refreshSystemData(true); 
                     }
                 });
             });
             return () => unsubscribe();
         }
-
     }, [currentUser, IS_PROD, fetchChargesForMonth]); 
 
     // --- Toast Logic ---
@@ -247,10 +230,9 @@ const App: React.FC = () => {
         }
     }, [currentUser, showToast]);
 
-    // Check notifications logic
+    // Check notifications logic ... (No change)
     useEffect(() => {
         if (!currentUser) return;
-
         let hasUnpaidBill = false;
         if (currentUser.Role === 'Resident' && currentUser.residentId) {
             hasUnpaidBill = charges.some(c => 
@@ -259,18 +241,15 @@ const App: React.FC = () => {
                 c.TotalDue > c.TotalPaid
             );
         }
-
         const lastViewedNewsTime = parseInt(localStorage.getItem('lastViewedNews') || '0', 10);
         const lastViewedBellTime = parseInt(localStorage.getItem('lastViewedNotifications') || '0', 10);
         const unreadNewsCount = news.filter(n => new Date(n.date).getTime() > lastViewedNewsTime).length;
         const latestNewsTime = news.length > 0 ? Math.max(...news.map(n => new Date(n.date).getTime())) : 0;
         const hasNewNotifications = latestNewsTime > lastViewedBellTime || notifications.hasNewNotifications;
-
         setNotifications(prev => ({ unreadNews: unreadNewsCount, hasUnpaidBill, hasNewNotifications }));
     }, [currentUser, charges, news, notifications.hasNewNotifications]);
 
     // --- User Management Logic ---
-    // Handle Owner Linking
     useEffect(() => {
         if (currentUser?.Role === 'Resident' && smartHasLoaded) {
             const unit = units.find(u => u.UnitID === currentUser.residentId);
@@ -284,7 +263,6 @@ const App: React.FC = () => {
     const handleInitialLogin = (user: UserPermission, rememberMe: boolean) => {
         if (rememberMe) localStorage.setItem('rememberedUser', user.Username || user.Email);
         else localStorage.removeItem('rememberedUser');
-
         setCurrentUser(user);
         setActivePage(user.Role === 'Resident' ? 'portalHome' : 'overview');
         if (user.mustChangePassword) setTimeout(() => setIsPasswordModalOpen(true), 500);
@@ -295,7 +273,6 @@ const App: React.FC = () => {
         if (currentUser) {
             const updatedUser = { ...currentUser, password: newPassword, mustChangePassword: false };
             setCurrentUser(updatedUser);
-            // Optimistic update
             handleSetUsers(prev => prev.map(u => u.Email === updatedUser.Email ? updatedUser : u), { module: 'System', action: 'CHANGE_PASSWORD', summary: 'Đổi mật khẩu', before_snapshot: users });
             setIsPasswordModalOpen(false);
             showToast('Mật khẩu đã được thay đổi thành công.', 'success');
@@ -323,37 +300,60 @@ const App: React.FC = () => {
         if (currentUser && (currentUser.Email === updatedUser.Email)) setCurrentUser(updatedUser);
     }, [currentUser]);
 
-    const logAction = useCallback((payload: LogPayload) => {
+    // --- ACTIVITY LOG LOGIC ---
+    const logAction = useCallback(async (payload: LogPayload) => {
         if (!currentUser) return;
-        // In a real app, this would write to Firestore.
-        console.log("Action Logged:", payload);
+        
+        // 1. Create complete Log Object
+        const newLog: ActivityLog = {
+            id: `log_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`,
+            ts: new Date().toISOString(),
+            actor_email: currentUser.Email,
+            actor_role: currentUser.Role,
+            undone: false,
+            undo_token: null,
+            undo_until: null,
+            ...payload
+        };
+
+        // 2. Update Local State Immediately (Optimistic UI)
+        setActivityLogs(prev => [newLog, ...prev]);
+
+        // 3. Persist to DB (Background - Fire and Forget)
+        try {
+            await logActivity(newLog);
+        } catch (err) {
+            console.error("Failed to save log", err);
+        }
+        
+        // NOTE: We do NOT call refreshSystemData() here. 
+        // This keeps the action "light" and respects read quota.
     }, [currentUser]);
 
     const createDataHandler = <T,>(stateSetter: React.Dispatch<React.SetStateAction<T>>, saveFunction: (data: T) => Promise<any>) => useCallback(async (updater: React.SetStateAction<T>, logPayload?: LogPayload) => {
         stateSetter(prevState => {
             const newState = typeof updater === 'function' ? (updater as (prevState: T) => T)(prevState) : updater;
-            saveFunction(newState).then(() => { if (logPayload) logAction(logPayload); showToast('Dữ liệu đã được lưu.', 'success'); }).catch(error => { showToast('Lưu dữ liệu thất bại.', 'error'); stateSetter(prevState); });
+            saveFunction(newState).then(() => { 
+                if (logPayload) logAction(logPayload); // Use real logger
+                showToast('Dữ liệu đã được lưu.', 'success'); 
+            }).catch(error => { showToast('Lưu dữ liệu thất bại.', 'error'); stateSetter(prevState); });
             return newState;
         });
     }, [logAction, showToast]);
 
     const handleSetUsers = createDataHandler(setUsers, saveUsers);
     
-    // Wrapped handler for Charges to allow manual refresh call if needed
+    // Wrapped handler for Charges
     const handleSetCharges = useCallback(async (updater: React.SetStateAction<ChargeRaw[]>, logPayload?: LogPayload) => {
         let newCharges: ChargeRaw[];
-        // Determine new state
         if (typeof updater === 'function') {
             newCharges = (updater as (prevState: ChargeRaw[]) => ChargeRaw[])(charges);
         } else {
             newCharges = updater;
         }
-        
         try {
-            // Identify the period being updated to update statistics correctly
             const period = newCharges[0]?.Period;
             let periodStat: MonthlyStat | undefined;
-            
             if (period) {
                 const chargesForPeriod = newCharges.filter(c => c.Period === period);
                 periodStat = {
@@ -365,11 +365,7 @@ const App: React.FC = () => {
                     updatedAt: new Date().toISOString()
                 };
             }
-
-            // Save to DB
             await saveChargesBatch(newCharges, periodStat);
-            
-            // Update Local State
             setCharges(newCharges);
             if (periodStat) {
                 setMonthlyStats(prev => {
@@ -377,16 +373,14 @@ const App: React.FC = () => {
                     return [...others, periodStat!];
                 });
             }
-
             if (logPayload) logAction(logPayload);
             showToast('Dữ liệu đã được lưu.', 'success');
         } catch (error) {
             console.error(error);
             showToast('Lưu dữ liệu thất bại.', 'error');
         }
-    }, [charges, saveChargesBatch, logAction, showToast]);
+    }, [charges, logAction, showToast]);
 
-    // Updated: Handle vehicles manually to integrate with smart hook refresh
     const handleSetVehicles = useCallback(async (updater: React.SetStateAction<Vehicle[]>, logPayload?: LogPayload) => {
         let newVehicles: Vehicle[];
         if (typeof updater === 'function') {
@@ -394,7 +388,6 @@ const App: React.FC = () => {
         } else {
             newVehicles = updater;
         }
-
         try {
             await saveVehicles(newVehicles);
             if (logPayload) logAction(logPayload);
@@ -404,7 +397,7 @@ const App: React.FC = () => {
             console.error(error);
             showToast('Lưu dữ liệu thất bại.', 'error');
         }
-    }, [vehicles, saveVehicles, logAction, showToast, refreshSystemData]);
+    }, [vehicles, logAction, showToast, refreshSystemData]);
 
     const handleSetWaterReadings = createDataHandler(() => {}, saveWaterReadings);
     const handleSetTariffs = createDataHandler(() => {}, saveTariffs);
@@ -424,18 +417,41 @@ const App: React.FC = () => {
     const handleSaveResident = useCallback(async (updatedData: { unit: Unit; owner: Owner; vehicles: Vehicle[] }, reason: string) => {
         try {
             await updateResidentData(units, owners, vehicles, updatedData);
+            
+            // Explicitly Log Here since updateResidentData is complex
+            if (currentUser) {
+                logAction({
+                    module: 'Residents',
+                    action: 'UPDATE_RESIDENT',
+                    summary: `Cập nhật căn ${updatedData.unit.UnitID}: ${reason}`,
+                    ids: [updatedData.unit.UnitID],
+                    before_snapshot: null
+                });
+            }
+
             refreshSystemData(true); 
             showToast('Cập nhật thông tin cư dân thành công!', 'success');
         } catch (e: any) {
             showToast(`Lỗi khi cập nhật: ${e.message}`, 'error');
         }
-    }, [units, owners, vehicles, showToast, refreshSystemData]);
+    }, [units, owners, vehicles, showToast, refreshSystemData, logAction, currentUser]);
 
     const handleRestoreAllData = useCallback(async (data: AppData) => { /* ... */ }, [showToast]);
 
     const handleImportResidents = async (updates: any[]) => {
         try {
             const result = await importResidentsBatch(units, owners, vehicles, updates);
+            
+            if (currentUser) {
+                logAction({
+                    module: 'Residents',
+                    action: 'IMPORT_BATCH',
+                    summary: `Import ${updates.length} dòng dữ liệu cư dân`,
+                    count: updates.length,
+                    before_snapshot: null
+                });
+            }
+
             refreshSystemData(true);
             showToast('Nhập dữ liệu thành công!', 'success');
         } catch (e: any) {

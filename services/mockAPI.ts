@@ -55,6 +55,20 @@ export const loadAllData = async () => {
     });
 };
 
+export const fetchLatestLogs = async (limitCount: number = 20): Promise<ActivityLog[]> => {
+    // Return sorted descending
+    return Promise.resolve(
+        [...activityLogs]
+        .sort((a,b) => new Date(b.ts).getTime() - new Date(a.ts).getTime())
+        .slice(0, limitCount)
+    );
+};
+
+export const logActivity = async (log: ActivityLog) => {
+    activityLogs = [log, ...activityLogs];
+    return Promise.resolve();
+};
+
 export const updateFeeSettings = async (settings: InvoiceSettings) => {
     invoiceSettings = settings;
     return Promise.resolve();

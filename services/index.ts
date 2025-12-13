@@ -26,7 +26,9 @@ export const {
     importResidentsBatch,
     getLockStatus,
     setLockStatus,
-    getBillingLockStatus, // ADDED
-    setBillingLockStatus, // ADDED
+    getBillingLockStatus,
+    setBillingLockStatus,
     resetUserPassword,
+    logActivity, // Exported
+    fetchLatestLogs, // Exported
 } = api;

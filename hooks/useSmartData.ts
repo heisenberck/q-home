@@ -91,7 +91,10 @@ export const useSmartSystemData = () => {
             // Cold/Append-Only Data (Always fetch fresh but limited)
             promises.push(firebaseAPI.fetchCollection<Adjustment>('adjustments')); 
             promises.push(firebaseAPI.fetchCollection<WaterReading>('waterReadings')); 
-            promises.push(firebaseAPI.fetchLatestLogs(50)); 
+            
+            // UPDATED: Use fetchLatestLogs with limit 20 (reduced from 50) to respect quota and fit user request
+            promises.push(firebaseAPI.fetchLatestLogs(20)); 
+            
             promises.push(firebaseAPI.fetchCollection<MonthlyStat>('monthly_stats'));
             promises.push(firebaseAPI.fetchCollection('water_locks').then(docs => docs.filter((d:any) => d.isLocked).map((d:any) => d.id))); 
             promises.push(getDoc(doc(db, 'settings', 'invoice')).then(s => s.exists() ? s.data() : null));
