@@ -1,68 +1,65 @@
 
 // services/firebaseAPI.ts
-import { doc, getDoc, setDoc, collection, getDocs, writeBatch, query, deleteDoc, updateDoc } from 'firebase/firestore';
+import { doc, getDoc, setDoc, collection, getDocs, writeBatch, query, deleteDoc, updateDoc, limit, orderBy } from 'firebase/firestore';
 import { db } from '../firebaseConfig';
-import type { InvoiceSettings, Unit, Owner, Vehicle, WaterReading, ChargeRaw, Adjustment, UserPermission, ActivityLog, AllData, PaymentStatus, MonthlyStat } from '../types';
+import type { InvoiceSettings, Unit, Owner, Vehicle, WaterReading, ChargeRaw, Adjustment, UserPermission, ActivityLog, AllData, PaymentStatus, MonthlyStat, SystemMetadata } from '../types';
 import { VehicleTier } from '../types';
 import { MOCK_TARIFFS_SERVICE, MOCK_TARIFFS_PARKING, MOCK_TARIFFS_WATER, MOCK_USER_PERMISSIONS } from '../constants';
 
-type AppDataForService = {
-    units: Unit[]; owners: Owner[]; vehicles: Vehicle[]; waterReadings: WaterReading[];
-    charges: ChargeRaw[]; adjustments: Adjustment[]; users: UserPermission[];
-    activityLogs: ActivityLog[]; invoiceSettings: InvoiceSettings | null;
-    tariffs: AllData['tariffs']; hasData: boolean;
-    monthlyStats: MonthlyStat[]; // Added
+// --- METADATA HELPERS ---
+const METADATA_DOC_ID = 'metadata';
+const SETTINGS_COLLECTION = 'settings';
+
+export const getSystemMetadata = async (): Promise<SystemMetadata> => {
+    const snap = await getDoc(doc(db, SETTINGS_COLLECTION, METADATA_DOC_ID));
+    if (snap.exists()) {
+        return snap.data() as SystemMetadata;
+    }
+    // Return default if not exists (forces initial load)
+    return { units_version: 0, owners_version: 0, vehicles_version: 0, tariffs_version: 0, users_version: 0 };
 };
 
-export const loadAllData = async (): Promise<AppDataForService> => {
-    // Added 'monthly_stats' to fetch list
-    const collectionsToFetch = ['units', 'owners', 'vehicles', 'waterReadings', 'charges', 'adjustments', 'users', 'activityLogs', 'monthly_stats'];
-    const promises = collectionsToFetch.map(c => getDocs(collection(db, c)));
-    
-    const snapshots = await Promise.all(promises);
-    const [unitsSnap, ownersSnap, vehiclesSnap, waterReadingsSnap, chargesSnap, adjustmentsSnap, usersSnap, activityLogsSnap, statsSnap] = snapshots;
-    
-    const [invoiceSettingsSnap, tariffsSnap] = await Promise.all([
-        getDoc(doc(db, 'settings', 'invoice')),
-        getDoc(doc(db, 'settings', 'tariffs'))
-    ]);
+// Helper to atomically bump a version number
+const bumpVersion = (batch: any, field: keyof SystemMetadata) => {
+    const metaRef = doc(db, SETTINGS_COLLECTION, METADATA_DOC_ID);
+    batch.set(metaRef, { [field]: Date.now() }, { merge: true });
+};
 
-    const loadedInvoiceSettings = invoiceSettingsSnap.exists() ? invoiceSettingsSnap.data() as InvoiceSettings : null;
-    const loadedTariffs = tariffsSnap.exists() ? tariffsSnap.data() as AllData['tariffs'] : { service: MOCK_TARIFFS_SERVICE, parking: MOCK_TARIFFS_PARKING, water: MOCK_TARIFFS_WATER };
+// --- READ OPERATIONS ---
 
-    const loadedUsers = usersSnap.docs.map(d => d.data() as UserPermission);
-
+// Used only for initial migration or DEV mode
+export const loadAllData = async (): Promise<any> => {
+    // Return safe empty structure
     return {
-        units: unitsSnap.docs.map(d => d.data() as Unit),
-        owners: ownersSnap.docs.map(d => d.data() as Owner),
-        vehicles: vehiclesSnap.docs.map(d => d.data() as Vehicle),
-        waterReadings: waterReadingsSnap.docs.map(d => d.data() as WaterReading),
-        charges: chargesSnap.docs.map(d => d.data() as ChargeRaw),
-        adjustments: adjustmentsSnap.docs.map(d => d.data() as Adjustment),
-        users: loadedUsers.length > 0 ? loadedUsers : MOCK_USER_PERMISSIONS,
-        activityLogs: activityLogsSnap.docs.map(d => d.data() as ActivityLog).sort((a,b) => b.ts.localeCompare(a.ts)),
-        monthlyStats: statsSnap.docs.map(d => d.data() as MonthlyStat), // Load Stats
-        invoiceSettings: loadedInvoiceSettings,
-        tariffs: loadedTariffs,
-        hasData: unitsSnap.docs.length > 0,
+        units: [], owners: [], vehicles: [], tariffs: { service: [], parking: [], water: [] },
+        users: [], invoiceSettings: null, adjustments: [], waterReadings: [], activityLogs: [], monthlyStats: [], lockedWaterPeriods: [],
+        hasData: false
     };
 };
 
+// NEW: Granular Fetchers for useSmartData
+export const fetchCollection = async <T>(colName: string): Promise<T[]> => {
+    const snap = await getDocs(collection(db, colName));
+    return snap.docs.map(d => d.data() as T);
+};
+
+export const fetchLatestLogs = async (limitCount: number = 50): Promise<ActivityLog[]> => {
+    const q = query(collection(db, 'activityLogs'), orderBy('ts', 'desc'), limit(limitCount));
+    const snap = await getDocs(q);
+    return snap.docs.map(d => d.data() as ActivityLog);
+};
+
+// --- WRITE OPERATIONS ---
+
 export const updateFeeSettings = (settings: InvoiceSettings) => setDoc(doc(db, 'settings', 'invoice'), settings, { merge: true });
 
-// UPDATED: Save charges AND monthly aggregated stats in one batch
 export const saveChargesBatch = (charges: ChargeRaw[], periodStat?: MonthlyStat) => {
     if (charges.length === 0 && !periodStat) return Promise.resolve();
     const batch = writeBatch(db);
-    
-    // 1. Save individual charges
     charges.forEach(charge => batch.set(doc(db, 'charges', `${charge.Period}_${charge.UnitID}`), charge));
-
-    // 2. Save Aggregated Stats for the period if provided
     if (periodStat) {
         batch.set(doc(db, 'monthly_stats', periodStat.period), periodStat);
     }
-
     return batch.commit();
 };
 
@@ -114,7 +111,6 @@ export const updateResidentData = async (
     batch.set(doc(db, 'owners', data.owner.OwnerID), data.owner);
 
     const activeIds = new Set<string>();
-
     let maxIndex = currentVehicles
         .filter(v => v.UnitID === data.unit.UnitID && v.PlateNumber.startsWith(`${data.unit.UnitID}-XD`))
         .reduce((max, veh) => {
@@ -125,12 +121,10 @@ export const updateResidentData = async (
     data.vehicles.forEach(v => {
         let id = v.VehicleId;
         let vehicleToSave = { ...v };
-
         if (vehicleToSave.Type === VehicleTier.BICYCLE && id.startsWith('VEH_NEW_') && !vehicleToSave.PlateNumber) {
             maxIndex++;
             vehicleToSave.PlateNumber = `${data.unit.UnitID}-XD${maxIndex}`;
         }
-
         if (id.startsWith('VEH_NEW_')) {
             const newRef = doc(collection(db, 'vehicles'));
             id = newRef.id;
@@ -144,12 +138,18 @@ export const updateResidentData = async (
     currentVehicles.filter(v => v.UnitID === data.unit.UnitID && !activeIds.has(v.VehicleId)).forEach(v => {
         batch.update(doc(db, 'vehicles', v.VehicleId), { isActive: false, updatedAt: new Date().toISOString() });
     });
+
+    // BUMP METADATA VERSIONS
+    bumpVersion(batch, 'units_version');
+    bumpVersion(batch, 'owners_version');
+    bumpVersion(batch, 'vehicles_version');
+
     await batch.commit();
-    return loadAllData().then(d => ({ units: d.units, owners: d.owners, vehicles: d.vehicles }));
+    return true; 
 };
 
 export const wipeAllBusinessData = async (progress: (msg: string) => void) => {
-    const collections = ['charges', 'waterReadings', 'vehicles', 'adjustments', 'owners', 'units', 'activityLogs', 'monthly_stats', 'billing_locks'];
+    const collections = ['charges', 'waterReadings', 'vehicles', 'adjustments', 'owners', 'units', 'activityLogs', 'monthly_stats', 'billing_locks', 'water_locks'];
     for (const name of collections) {
         progress(`Querying ${name}...`);
         const snapshot = await getDocs(collection(db, name));
@@ -171,49 +171,65 @@ const saveBatch = (name: string, data: any[]) => {
     return batch.commit();
 };
 
-export const saveUsers = (d: UserPermission[]) => saveBatch('users', d);
-export const saveTariffs = (d: AllData['tariffs']) => setDoc(doc(db, 'settings', 'tariffs'), d);
+// Wrappers that bump versions
+export const saveUsers = async (d: UserPermission[]) => {
+    const batch = writeBatch(db);
+    d.forEach(u => batch.set(doc(db, 'users', u.Email), u));
+    bumpVersion(batch, 'users_version');
+    return batch.commit();
+};
+
+export const saveTariffs = async (d: AllData['tariffs']) => {
+    const batch = writeBatch(db);
+    batch.set(doc(db, 'settings', 'tariffs'), d);
+    bumpVersion(batch, 'tariffs_version');
+    return batch.commit();
+};
+
+export const saveVehicles = async (d: Vehicle[]) => {
+    // This is mainly used for single updates or small batches not covered by updateResidentData
+    // We iterate and save, then bump version
+    if (d.length === 0) return;
+    const batch = writeBatch(db);
+    d.forEach(v => batch.set(doc(db, 'vehicles', v.VehicleId), v));
+    bumpVersion(batch, 'vehicles_version');
+    return batch.commit();
+};
+
 export const saveAdjustments = (d: Adjustment[]) => saveBatch('adjustments', d);
 export const saveWaterReadings = (d: WaterReading[]) => saveBatch('waterReadings', d);
-export const saveVehicles = (d: Vehicle[]) => saveBatch('vehicles', d);
 
 export const importResidentsBatch = async (
     currentUnits: Unit[], currentOwners: Owner[], currentVehicles: Vehicle[], updates: any[]
 ) => {
     const batch = writeBatch(db);
     let created = 0, updated = 0, vehicleCount = 0;
-    
-    // Tracks the NEXT available index for each unit and type within this batch
     const plateCounters = new Map<string, { xd: number, eb: number }>();
-
     const unitIdsToUpdate = new Set(updates.map(up => String(up.unitId).trim()));
 
-    // Deactivate all existing vehicles for the units being updated
     currentVehicles.forEach(v => {
         if (unitIdsToUpdate.has(v.UnitID)) {
             batch.update(doc(db, "vehicles", v.VehicleId), { isActive: false, log: `Deactivated on import ${new Date().toISOString()}` });
         }
     });
 
-    // Pre-calculate the starting sequence index for all units in the batch
     unitIdsToUpdate.forEach(unitId => {
+        // ... (Counter logic same as before) ...
         const existingBicycles = currentVehicles.filter(v => v.UnitID === unitId && v.PlateNumber.startsWith(`${unitId}-XD`));
         const maxXd = existingBicycles.reduce((max, v) => {
             const match = v.PlateNumber.match(/-XD(\d+)$/);
             return match ? Math.max(max, parseInt(match[1], 10)) : max;
         }, 0);
-
         const existingEBikes = currentVehicles.filter(v => v.UnitID === unitId && v.PlateNumber.startsWith(`${unitId}-EB`));
         const maxEb = existingEBikes.reduce((max, v) => {
             const match = v.PlateNumber.match(/-EB(\d+)$/);
             return match ? Math.max(max, parseInt(match[1], 10)) : max;
         }, 0);
-
         plateCounters.set(unitId, { xd: maxXd, eb: maxEb });
     });
 
-    // Process updates
     updates.forEach(up => {
+        // ... (Processing logic same as before) ...
         const unitId = String(up.unitId).trim();
         const existingUnit = currentUnits.find(u => u.UnitID === unitId);
 
@@ -230,11 +246,10 @@ export const importResidentsBatch = async (
         
         if (up.vehicles && Array.isArray(up.vehicles)) {
             up.vehicles.forEach((v: any) => {
+                // ... (Vehicle creation logic) ...
                 const plate = String(v.PlateNumber || '').trim();
                 const isBicycle = v.Type === VehicleTier.BICYCLE;
                 const isEBike = v.Type === VehicleTier.EBIKE;
-
-                // Check if plate is a plain number string, representing quantity
                 const isNumericQuantity = /^\d+$/.test(plate);
                 const quantity = isNumericQuantity ? parseInt(plate, 10) : 0;
 
@@ -248,33 +263,17 @@ export const importResidentsBatch = async (
                     for (let i = 0; i < count; i++) {
                         counters[typeKey]++;
                         const newPlate = `${unitId}-${prefix}${counters[typeKey]}`;
-                        
                         const newVehicleRef = doc(collection(db, "vehicles"));
                         batch.set(newVehicleRef, {
-                            VehicleId: newVehicleRef.id,
-                            UnitID: unitId,
-                            Type: type,
-                            VehicleName: v.VehicleName || (isBicycle ? 'Xe đạp' : 'Xe điện'),
-                            PlateNumber: newPlate,
-                            StartDate: new Date().toISOString().split('T')[0],
-                            isActive: true,
-                            parkingStatus: up.parkingStatus || null,
+                            VehicleId: newVehicleRef.id, UnitID: unitId, Type: type, VehicleName: v.VehicleName || (isBicycle ? 'Xe đạp' : 'Xe điện'), PlateNumber: newPlate, StartDate: new Date().toISOString().split('T')[0], isActive: true, parkingStatus: up.parkingStatus || null,
                         });
                         vehicleCount++;
                     }
-                    plateCounters.set(unitId, counters); // Update map with new counters
+                    plateCounters.set(unitId, counters);
                 } else {
-                    // This is a vehicle with a specific plate number
                     const newVehicleRef = doc(collection(db, "vehicles"));
                     batch.set(newVehicleRef, {
-                        VehicleId: newVehicleRef.id,
-                        UnitID: unitId,
-                        Type: v.Type,
-                        VehicleName: v.VehicleName || '',
-                        PlateNumber: plate,
-                        StartDate: new Date().toISOString().split('T')[0],
-                        isActive: true,
-                        parkingStatus: up.parkingStatus || null,
+                        VehicleId: newVehicleRef.id, UnitID: unitId, Type: v.Type, VehicleName: v.VehicleName || '', PlateNumber: plate, StartDate: new Date().toISOString().split('T')[0], isActive: true, parkingStatus: up.parkingStatus || null,
                     });
                     vehicleCount++;
                 }
@@ -282,9 +281,14 @@ export const importResidentsBatch = async (
         }
     });
 
+    // BUMP METADATA
+    bumpVersion(batch, 'units_version');
+    bumpVersion(batch, 'owners_version');
+    bumpVersion(batch, 'vehicles_version');
+
     await batch.commit();
-    const { units, owners, vehicles } = await loadAllData();
-    return { units, owners, vehicles, createdCount: created, updatedCount: updated, vehicleCount };
+    // Return empty here, caller should refreshSystemData
+    return { units: [], owners: [], vehicles: [], createdCount: created, updatedCount: updated, vehicleCount };
 };
 
 // Water Lock
@@ -296,10 +300,10 @@ export const getLockStatus = async (month: string): Promise<boolean> => {
 
 export const setLockStatus = async (month: string, status: boolean): Promise<void> => {
     const docRef = doc(db, 'water_locks', month);
-    await setDoc(docRef, { isLocked: status });
+    await setDoc(docRef, { isLocked: status, updatedAt: new Date().toISOString() });
 };
 
-// Billing Lock (New)
+// Billing Lock
 export const getBillingLockStatus = async (period: string): Promise<boolean> => {
     const docRef = doc(db, 'billing_locks', period);
     const docSnap = await getDoc(docRef);
@@ -313,8 +317,5 @@ export const setBillingLockStatus = async (period: string, status: boolean): Pro
 
 export const resetUserPassword = async (email: string): Promise<void> => {
     const userRef = doc(db, 'users', email);
-    await updateDoc(userRef, {
-        password: '123456',
-        mustChangePassword: true,
-    });
+    await updateDoc(userRef, { password: '123456', mustChangePassword: true });
 };

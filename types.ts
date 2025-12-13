@@ -17,9 +17,26 @@ export interface UserPermission {
     residentId?: string; // Link to UnitID for residents
 }
 
+// ... (Keep existing Enums UnitType, VehicleTier, ParkingTariffTier)
 export enum UnitType {
     APARTMENT = 'Apartment',
     KIOS = 'KIOS',
+}
+
+export enum VehicleTier {
+    CAR = 'car',
+    CAR_A = 'car_a',
+    MOTORBIKE = 'motorbike',
+    EBIKE = 'ebike', // Note: For billing, this is grouped with MOTORBIKE
+    BICYCLE = 'bicycle',
+}
+
+export enum ParkingTariffTier {
+    CAR = 'Car',
+    CAR_A = 'Car-A',
+    MOTO12 = 'Moto12',
+    MOTO34 = 'Moto34',
+    BICYCLE = 'Bicycle',
 }
 
 export interface Unit {
@@ -48,24 +65,6 @@ export interface Owner {
         title?: VehicleDocument;      // Sổ đỏ / Hợp đồng
         others?: VehicleDocument[];   // Other documents
     };
-}
-
-// Represents the type of vehicle a resident registers. Clean and user-facing.
-export enum VehicleTier {
-    CAR = 'car',
-    CAR_A = 'car_a',
-    MOTORBIKE = 'motorbike',
-    EBIKE = 'ebike', // Note: For billing, this is grouped with MOTORBIKE
-    BICYCLE = 'bicycle',
-}
-
-// Represents the pricing tiers in the parking tariff table. Used for calculations.
-export enum ParkingTariffTier {
-    CAR = 'Car',
-    CAR_A = 'Car-A',
-    MOTO12 = 'Moto12',
-    MOTO34 = 'Moto34',
-    BICYCLE = 'Bicycle',
 }
 
 // NEW: Vehicle Document Interface
@@ -188,6 +187,16 @@ export interface MonthlyStat {
     updatedAt: string;
 }
 
+// NEW: System Metadata for Version Checking
+export interface SystemMetadata {
+    units_version: number;
+    owners_version: number;
+    vehicles_version: number;
+    tariffs_version: number;
+    users_version: number;
+    // Cold data like charges/logs don't need strict versioning as they are time-based or appended
+}
+
 export interface AllData {
     units: Unit[];
     owners: Owner[];
@@ -196,7 +205,8 @@ export interface AllData {
     tariffs: TariffCollection;
     adjustments: Adjustment[];
     activityLogs: ActivityLog[];
-    monthlyStats: MonthlyStat[]; // ADDED
+    monthlyStats: MonthlyStat[];
+    lockedWaterPeriods: string[]; // NEW: Cached list of locked months
 }
 
 export interface InvoiceSettings {

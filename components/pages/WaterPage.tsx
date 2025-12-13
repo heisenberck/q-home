@@ -14,7 +14,7 @@ import {
 } from '../ui/Icons';
 import { parseUnitCode, getPreviousPeriod, sortUnitsComparator, formatCurrency } from '../../utils/helpers';
 import { processImportFile } from '../../utils/importHelpers';
-import { getLockStatus, setLockStatus } from '../../services';
+import { setLockStatus } from '../../services';
 
 declare const XLSX: any;
 
@@ -170,9 +170,11 @@ interface WaterPageProps {
     allUnits: Unit[];
     role: Role;
     tariffs: TariffCollection;
+    lockedPeriods?: string[];
+    refreshData?: (force?: boolean) => void;
 }
 
-const WaterPage: React.FC<WaterPageProps> = ({ waterReadings, setWaterReadings, allUnits, role, tariffs }) => {
+const WaterPage: React.FC<WaterPageProps> = ({ waterReadings, setWaterReadings, allUnits, role, tariffs, lockedPeriods = [], refreshData }) => {
     const { showToast } = useNotification();
     const canEdit = ['Admin', 'Operator', 'Accountant'].includes(role);
     const [period, setPeriod] = useState(new Date().toISOString().slice(0, 7));
@@ -185,7 +187,6 @@ const WaterPage: React.FC<WaterPageProps> = ({ waterReadings, setWaterReadings, 
     const inputRefs = useRef<Record<string, HTMLInputElement>>({});
     const [isMonthPickerOpen, setIsMonthPickerOpen] = useState(false);
     
-    const [isLocked, setIsLocked] = useState(false);
     const [isLocking, setIsLocking] = useState(false);
     const [isImportModalOpen, setIsImportModalOpen] = useState(false);
     const fileInputRef = useRef<HTMLInputElement>(null);
@@ -193,16 +194,8 @@ const WaterPage: React.FC<WaterPageProps> = ({ waterReadings, setWaterReadings, 
     const [selectedUnitId, setSelectedUnitId] = useState<string | null>(null);
     const [fullListModalData, setFullListModalData] = useState<{title: string; data: any[]; type: 'highest' | 'increase'} | null>(null);
 
-
-    useEffect(() => {
-        const fetchLockStatus = async () => {
-            try {
-                const status = await getLockStatus(period);
-                setIsLocked(status);
-            } catch (e) { showToast('Không thể tải trạng thái khoá.', 'error'); }
-        };
-        fetchLockStatus();
-    }, [period]);
+    // Optimized Lock check (Client-side cache from App.tsx)
+    const isLocked = useMemo(() => lockedPeriods.includes(period), [period, lockedPeriods]);
 
     const waterReadingsMap = useMemo(() => {
         const map = new Map<string, WaterReading[]>();
@@ -371,7 +364,7 @@ const WaterPage: React.FC<WaterPageProps> = ({ waterReadings, setWaterReadings, 
         setIsLocking(true);
         try {
             await setLockStatus(period, true);
-            setIsLocked(true);
+            if (refreshData) refreshData(true); // Trigger refresh to update locked status locally
             showToast(`Đã chốt sổ kỳ ${period}. Dữ liệu sẽ không thể chỉnh sửa.`, 'success');
         } catch (e) { showToast('Lỗi khi chốt sổ.', 'error'); } 
         finally { setIsLocking(false); }
@@ -382,7 +375,7 @@ const WaterPage: React.FC<WaterPageProps> = ({ waterReadings, setWaterReadings, 
         setIsLocking(true);
         try {
             await setLockStatus(period, false);
-            setIsLocked(false);
+            if (refreshData) refreshData(true); // Trigger refresh to update locked status locally
             showToast(`Đã mở lại sổ kỳ ${period}.`, 'success');
         } catch (e) { showToast('Lỗi khi mở sổ.', 'error'); } 
         finally { setIsLocking(false); }
@@ -411,7 +404,7 @@ const WaterPage: React.FC<WaterPageProps> = ({ waterReadings, setWaterReadings, 
                          <div className="relative flex-grow min-w-[150px]"><SearchIcon className="absolute left-3 top-1/2 -translate-y-1/2 h-5 w-5 text-gray-400" /><input type="text" placeholder="Tìm căn hộ..." value={searchTerm} onChange={e => setSearchTerm(e.target.value)} className="w-full h-10 pl-10 pr-3 border rounded-lg bg-gray-50 border-gray-200 focus:bg-white focus:ring-2 focus:ring-primary"/></div>
                          <select value={floorFilter} onChange={e => setFloorFilter(e.target.value)} className="h-10 px-3 border rounded-lg bg-gray-50 border-gray-200 focus:ring-2 focus:ring-primary">{floors.map(f => <option key={f.value} value={f.value}>{f.label}</option>)}</select>
                          <div className="flex items-center gap-2">
-                            {isLocked ? (<button onDoubleClick={handleUnlock} disabled={!canEdit || isLocking} data-tooltip="Dữ liệu đã chốt. Nhấn đúp để mở khóa chỉnh sửa" className="h-10 px-4 font-semibold rounded-lg flex items-center gap-2 bg-gray-100 text-gray-700 border border-gray-300 disabled:opacity-50"><LockClosedIcon /> Saved</button>) : (<button onClick={handleLock} disabled={!canEdit || isLocking} className="h-10 px-4 font-semibold rounded-lg flex items-center gap-2 bg-primary text-white hover:bg-primary-focus shadow-sm disabled:opacity-50"><SaveIcon /> Save</button>)}
+                            {isLocked ? (<button onDoubleClick={handleUnlock} disabled={!canEdit || isLocking} data-tooltip="Dữ liệu đã chốt. Nhấn đúp để mở khóa chỉnh sửa" className="h-10 px-4 font-semibold rounded-lg flex items-center gap-2 bg-gray-100 text-gray-700 border border-gray-300 disabled:opacity-50"><LockClosedIcon /> Locked</button>) : (<button onClick={handleLock} disabled={!canEdit || isLocking} className="h-10 px-4 font-semibold rounded-lg flex items-center gap-2 bg-primary text-white hover:bg-primary-focus shadow-sm disabled:opacity-50"><SaveIcon /> Save</button>)}
                             <button onClick={() => setIsImportModalOpen(true)} disabled={!canEdit || isLocked} className="h-10 px-4 font-semibold rounded-lg flex items-center gap-2 border border-primary text-primary hover:bg-primary/10 bg-white disabled:opacity-50"><UploadIcon /> Import</button>
                         </div>
                     </div>

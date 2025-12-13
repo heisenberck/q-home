@@ -1,6 +1,6 @@
 
 // services/mockAPI.ts
-import type { InvoiceSettings, Unit, Owner, Vehicle, WaterReading, ChargeRaw, Adjustment, UserPermission, ActivityLog, AllData, TariffCollection, PaymentStatus, MonthlyStat } from '../types';
+import type { InvoiceSettings, Unit, Owner, Vehicle, WaterReading, ChargeRaw, Adjustment, UserPermission, ActivityLog, AllData, TariffCollection, PaymentStatus, MonthlyStat, SystemMetadata } from '../types';
 import { MOCK_UNITS, MOCK_OWNERS, MOCK_VEHICLES, MOCK_WATER_READINGS, MOCK_TARIFFS_SERVICE, MOCK_TARIFFS_PARKING, MOCK_TARIFFS_WATER, MOCK_ADJUSTMENTS, MOCK_USER_PERMISSIONS, patchKiosAreas } from '../constants';
 import { UnitType, VehicleTier } from '../types';
 
@@ -43,8 +43,15 @@ let billingLocks = new Map<string, boolean>();
 patchKiosAreas(units);
 
 export const loadAllData = async () => {
+    // Extract locked water periods for initial load
+    const lockedWaterPeriods = Array.from(waterLocks.entries())
+        .filter(([_, isLocked]) => isLocked)
+        .map(([period]) => period);
+
     return Promise.resolve({
-        units, owners, vehicles, waterReadings, charges, adjustments, users, activityLogs, invoiceSettings, tariffs, monthlyStats, hasData: units.length > 0
+        units, owners, vehicles, waterReadings, charges, adjustments, users, activityLogs, invoiceSettings, tariffs, monthlyStats, 
+        lockedWaterPeriods, // Return locked periods
+        hasData: units.length > 0
     });
 };
 

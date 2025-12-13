@@ -1,3 +1,4 @@
+
 import React, { useState, useEffect, useCallback, createContext, useMemo } from 'react';
 import type { Role, UserPermission, Unit, Owner, Vehicle, WaterReading, ChargeRaw, TariffService, TariffParking, TariffWater, Adjustment, InvoiceSettings, ActivityLog, VehicleTier, TariffCollection, AllData, NewsItem, FeedbackItem, FeedbackReply, MonthlyStat } from './types';
 import { patchKiosAreas, MOCK_NEWS_ITEMS, MOCK_FEEDBACK_ITEMS, MOCK_USER_PERMISSIONS } from './constants';
@@ -117,7 +118,8 @@ const App: React.FC = () => {
     const { 
         units, owners, vehicles, tariffs, users: smartUsers, 
         invoiceSettings: smartInvoiceSettings, adjustments, waterReadings, activityLogs,
-        monthlyStats: loadedMonthlyStats, // NEW
+        monthlyStats: loadedMonthlyStats, 
+        lockedWaterPeriods, 
         loading: smartLoading, hasLoaded: smartHasLoaded, refreshSystemData 
     } = useSmartSystemData();
 
@@ -127,7 +129,7 @@ const App: React.FC = () => {
     const [feedback, setFeedback] = useState<FeedbackItem[]>(MOCK_FEEDBACK_ITEMS);
     const [users, setUsers] = useState<UserPermission[]>([]);
     const [invoiceSettings, setInvoiceSettings] = useState<InvoiceSettings>(initialInvoiceSettings);
-    const [monthlyStats, setMonthlyStats] = useState<MonthlyStat[]>([]); // NEW
+    const [monthlyStats, setMonthlyStats] = useState<MonthlyStat[]>([]);
 
     const [notifications, setNotifications] = useState({
         unreadNews: 0,
@@ -147,53 +149,82 @@ const App: React.FC = () => {
         }
     }, [smartHasLoaded, smartUsers, smartInvoiceSettings, units, loadedMonthlyStats]);
 
-    // 4. Charges Data Strategy (Hybrid)
+    // 4. SMART CHARGES DATA STRATEGY
+    // Instead of listening to the huge 'charges' collection, we:
+    // a) Fetch recent charges once on load.
+    // b) Listen to 'monthly_stats'. If it changes, we re-fetch the specific month's data.
+    
+    const fetchChargesForMonth = useCallback(async (monthStr: string) => {
+        if (!IS_PROD) return;
+        try {
+            const q = query(collection(db, 'charges'), where('Period', '==', monthStr));
+            const snap = await getDocs(q);
+            const freshCharges = snap.docs.map(d => d.data() as ChargeRaw);
+            
+            setCharges(prev => {
+                // Replace charges for this month, keep others
+                const others = prev.filter(c => c.Period !== monthStr);
+                return [...others, ...freshCharges];
+            });
+        } catch (e) {
+            console.error("Error fetching charges for month:", monthStr, e);
+        }
+    }, [IS_PROD]);
+
     useEffect(() => {
         if (!currentUser) return;
 
-        const loadCharges = async () => {
-            let initialCharges: ChargeRaw[] = [];
-            if (IS_PROD) {
-                if (charges.length === 0) {
-                    try {
-                        // Only fetch very recent charges for billing checks
-                        // Historical charts now use 'monthlyStats', so we don't need all charges here!
-                        // Just fetching last 1-2 months is enough for billing status check.
-                        const today = new Date();
-                        today.setMonth(today.getMonth() - 2); 
-                        const recent = today.toISOString().slice(0, 7);
+        const loadInitialCharges = async () => {
+            if (IS_PROD && charges.length === 0) {
+                try {
+                    // Fetch last 2 months initially
+                    const today = new Date();
+                    today.setMonth(today.getMonth() - 2); 
+                    const recent = today.toISOString().slice(0, 7);
 
-                        const q = query(collection(db, 'charges'), where('Period', '>=', recent));
-                        const snap = await getDocs(q);
-                        
-                        initialCharges = snap.docs.map(d => d.data() as ChargeRaw);
-                        setCharges(initialCharges);
-                    } catch (e) {
-                        console.error("Error loading charges", e);
-                    }
+                    const q = query(collection(db, 'charges'), where('Period', '>=', recent));
+                    const snap = await getDocs(q);
+                    
+                    const initialCharges = snap.docs.map(d => d.data() as ChargeRaw);
+                    setCharges(initialCharges);
+                } catch (e) {
+                    console.error("Error loading initial charges", e);
                 }
-
-                // Realtime Listener for CURRENT MONTH ONLY
-                const currentPeriod = new Date().toISOString().slice(0, 7);
-                const q = query(
-                    collection(db, 'charges'),
-                    where('Period', '==', currentPeriod)
-                );
-
-                const unsubscribe = onSnapshot(q, (snapshot) => {
-                    const currentMonthCharges = snapshot.docs.map(d => d.data() as ChargeRaw);
-                    setCharges(prev => {
-                        const others = prev.filter(c => c.Period !== currentPeriod);
-                        return [...others, ...currentMonthCharges];
-                    });
-                });
-
-                return () => unsubscribe();
             }
         };
 
-        loadCharges();
-    }, [currentUser, IS_PROD]); 
+        loadInitialCharges();
+
+        // SIGNAL LISTENER: Listen to monthly_stats changes
+        if (IS_PROD) {
+            // Subscribe to the whole monthly_stats collection (it's small, 1 doc per month)
+            // Or just the current year/month if we want to be super strict, but collection is fine for now (max 12-24 docs usually)
+            const q = query(collection(db, 'monthly_stats'), limit(12)); 
+            
+            const unsubscribe = onSnapshot(q, (snapshot) => {
+                snapshot.docChanges().forEach((change) => {
+                    if (change.type === 'modified' || change.type === 'added') {
+                        const stat = change.doc.data() as MonthlyStat;
+                        // 1. Update stats in local state for Dashboard
+                        setMonthlyStats(prev => {
+                            const others = prev.filter(s => s.period !== stat.period);
+                            return [...others, stat].sort((a,b) => b.period.localeCompare(a.period));
+                        });
+
+                        // 2. Trigger re-fetch of charges for this specific period
+                        // This keeps the table in Billing Page updated without downloading everything constantly
+                        console.log(`Signal received: Data changed for ${stat.period}. Refreshing...`);
+                        fetchChargesForMonth(stat.period);
+                        
+                        // 3. Optional: Trigger a lighter refresh of metadata if needed
+                        // refreshSystemData(true); 
+                    }
+                });
+            });
+            return () => unsubscribe();
+        }
+
+    }, [currentUser, IS_PROD, fetchChargesForMonth]); 
 
     // --- Toast Logic ---
     const showToast = useCallback((message: string, type: ToastType = 'info', duration?: number) => {
@@ -307,8 +338,54 @@ const App: React.FC = () => {
     }, [logAction, showToast]);
 
     const handleSetUsers = createDataHandler(setUsers, saveUsers);
-    const handleSetCharges = createDataHandler(setCharges, saveChargesBatch);
     
+    // Wrapped handler for Charges to allow manual refresh call if needed
+    const handleSetCharges = useCallback(async (updater: React.SetStateAction<ChargeRaw[]>, logPayload?: LogPayload) => {
+        let newCharges: ChargeRaw[];
+        // Determine new state
+        if (typeof updater === 'function') {
+            newCharges = (updater as (prevState: ChargeRaw[]) => ChargeRaw[])(charges);
+        } else {
+            newCharges = updater;
+        }
+        
+        try {
+            // Identify the period being updated to update statistics correctly
+            const period = newCharges[0]?.Period;
+            let periodStat: MonthlyStat | undefined;
+            
+            if (period) {
+                const chargesForPeriod = newCharges.filter(c => c.Period === period);
+                periodStat = {
+                    period: period,
+                    totalService: chargesForPeriod.reduce((sum, c) => sum + c.ServiceFee_Total, 0),
+                    totalParking: chargesForPeriod.reduce((sum, c) => sum + c.ParkingFee_Total, 0),
+                    totalWater: chargesForPeriod.reduce((sum, c) => sum + c.WaterFee_Total, 0),
+                    totalDue: chargesForPeriod.reduce((sum, c) => sum + c.TotalDue, 0),
+                    updatedAt: new Date().toISOString()
+                };
+            }
+
+            // Save to DB
+            await saveChargesBatch(newCharges, periodStat);
+            
+            // Update Local State
+            setCharges(newCharges);
+            if (periodStat) {
+                setMonthlyStats(prev => {
+                    const others = prev.filter(s => s.period !== period);
+                    return [...others, periodStat!];
+                });
+            }
+
+            if (logPayload) logAction(logPayload);
+            showToast('Dữ liệu đã được lưu.', 'success');
+        } catch (error) {
+            console.error(error);
+            showToast('Lưu dữ liệu thất bại.', 'error');
+        }
+    }, [charges, saveChargesBatch, logAction, showToast]);
+
     // Updated: Handle vehicles manually to integrate with smart hook refresh
     const handleSetVehicles = useCallback(async (updater: React.SetStateAction<Vehicle[]>, logPayload?: LogPayload) => {
         let newVehicles: Vehicle[];
@@ -367,14 +444,13 @@ const App: React.FC = () => {
     }
 
     const renderAdminPage = () => {
-        const allDataForBilling: AllData = { units, owners, vehicles, waterReadings, tariffs, adjustments, activityLogs, monthlyStats };
+        const allDataForBilling: AllData = { units, owners, vehicles, waterReadings, tariffs, adjustments, activityLogs, monthlyStats, lockedWaterPeriods };
         switch (activePage as AdminPage) {
-            // Pass monthlyStats to OverviewPage via props or if it uses context
             case 'overview': return <OverviewPage allUnits={units} allOwners={owners} allVehicles={vehicles} allWaterReadings={waterReadings} charges={charges} activityLogs={activityLogs} feedback={feedback} onNavigate={setActivePage as (p: AdminPage) => void} monthlyStats={monthlyStats} />;
             case 'billing': return <BillingPage charges={charges} setCharges={handleSetCharges} allData={allDataForBilling} onUpdateAdjustments={handleSetAdjustments} role={currentUser!.Role} invoiceSettings={invoiceSettings} />;
             case 'residents': return <ResidentsPage units={units} owners={owners} vehicles={vehicles} activityLogs={activityLogs} onSaveResident={handleSaveResident} onImportData={handleImportResidents} onDeleteResidents={()=>{}} role={currentUser!.Role} currentUser={currentUser!} />;
             case 'vehicles': return <VehiclesPage vehicles={vehicles} units={units} owners={owners} activityLogs={activityLogs} onSetVehicles={handleSetVehicles} role={currentUser!.Role} />;
-            case 'water': return <WaterPage waterReadings={waterReadings} setWaterReadings={handleSetWaterReadings} allUnits={units} role={currentUser!.Role} tariffs={tariffs} />;
+            case 'water': return <WaterPage waterReadings={waterReadings} setWaterReadings={handleSetWaterReadings} allUnits={units} role={currentUser!.Role} tariffs={tariffs} lockedPeriods={lockedWaterPeriods} refreshData={refreshSystemData} />;
             case 'pricing': return <PricingPage tariffs={tariffs} setTariffs={handleSetTariffs} role={currentUser!.Role} />;
             case 'users': return <UsersPage users={users} setUsers={handleSetUsers} units={units} role={currentUser!.Role} />;
             case 'settings': return <SettingsPage invoiceSettings={invoiceSettings} setInvoiceSettings={updateFeeSettings} role={currentUser!.Role} />;
