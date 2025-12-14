@@ -1,9 +1,10 @@
 
 // services/firebaseAPI.ts
-import { doc, getDoc, setDoc, collection, getDocs, writeBatch, query, deleteDoc, updateDoc, limit, orderBy, where, startAfter, documentId, addDoc } from 'firebase/firestore';
+import { doc, getDoc, setDoc, collection, getDocs, writeBatch, query, deleteDoc, updateDoc, limit, orderBy, where } from 'firebase/firestore';
 import { db } from '../firebaseConfig';
 import type { InvoiceSettings, Unit, Owner, Vehicle, WaterReading, ChargeRaw, Adjustment, UserPermission, ActivityLog, AllData, PaymentStatus, MonthlyStat, SystemMetadata, ProfileRequest } from '../types';
 import { VehicleTier } from '../types';
+import { MOCK_TARIFFS_SERVICE, MOCK_TARIFFS_PARKING, MOCK_TARIFFS_WATER, MOCK_USER_PERMISSIONS } from '../constants';
 
 // --- METADATA HELPERS ---
 const METADATA_DOC_ID = 'metadata';
@@ -14,9 +15,11 @@ export const getSystemMetadata = async (): Promise<SystemMetadata> => {
     if (snap.exists()) {
         return snap.data() as SystemMetadata;
     }
+    // Return default if not exists (forces initial load)
     return { units_version: 0, owners_version: 0, vehicles_version: 0, tariffs_version: 0, users_version: 0 };
 };
 
+// Helper to atomically bump a version number
 const bumpVersion = (batch: any, field: keyof SystemMetadata) => {
     const metaRef = doc(db, SETTINGS_COLLECTION, METADATA_DOC_ID);
     batch.set(metaRef, { [field]: Date.now() }, { merge: true });
@@ -24,7 +27,9 @@ const bumpVersion = (batch: any, field: keyof SystemMetadata) => {
 
 // --- READ OPERATIONS ---
 
+// Used only for initial migration or DEV mode
 export const loadAllData = async (): Promise<any> => {
+    // Return safe empty structure
     return {
         units: [], owners: [], vehicles: [], tariffs: { service: [], parking: [], water: [] },
         users: [], invoiceSettings: null, adjustments: [], waterReadings: [], activityLogs: [], monthlyStats: [], lockedWaterPeriods: [],
@@ -32,11 +37,14 @@ export const loadAllData = async (): Promise<any> => {
     };
 };
 
+// NEW: Granular Fetchers for useSmartData
 export const fetchCollection = async <T>(colName: string): Promise<T[]> => {
     const snap = await getDocs(collection(db, colName));
     return snap.docs.map(d => d.data() as T);
 };
 
+// OPTIMIZATION: Only fetch the latest 20 logs to save bandwidth and read quota
+// This is sufficient for the dashboard footer and initial view.
 export const fetchLatestLogs = async (limitCount: number = 20): Promise<ActivityLog[]> => {
     try {
         const q = query(collection(db, 'activityLogs'), orderBy('ts', 'desc'), limit(limitCount));
@@ -48,132 +56,35 @@ export const fetchLatestLogs = async (limitCount: number = 20): Promise<Activity
     }
 };
 
-// --- PAGINATION & SEARCH OPTIMIZATION ---
+// --- PROFILE REQUEST OPERATIONS (APPROVAL WORKFLOW) ---
 
-export interface ResidentPageResult {
-    data: any[]; 
-    lastDoc: any; 
-}
-
-export const getResidentsPaged = async (
-    pageSize: number = 20, 
-    lastDoc: any = null, 
-    searchQuery: string = ''
-): Promise<ResidentPageResult> => {
-    let q;
-    const unitsRef = collection(db, 'units');
-
-    if (searchQuery) {
-        if (searchQuery.length <= 4 && /^[A-Z0-9]+$/i.test(searchQuery)) {
-             q = query(unitsRef, where('UnitID', '==', searchQuery.toUpperCase()));
-        } else {
-             q = query(unitsRef, 
-                where('UnitID', '>=', searchQuery.toUpperCase()),
-                where('UnitID', '<=', searchQuery.toUpperCase() + '\uf8ff'),
-                limit(pageSize)
-             );
-        }
-    } else {
-        if (lastDoc) {
-            q = query(unitsRef, orderBy('UnitID'), startAfter(lastDoc), limit(pageSize));
-        } else {
-            q = query(unitsRef, orderBy('UnitID'), limit(pageSize));
-        }
-    }
-
-    const snapshot = await getDocs(q);
-    const units = snapshot.docs.map(d => d.data() as Unit);
-    
-    if (units.length === 0) {
-        return { data: [], lastDoc: null };
-    }
-
-    const ownerIds = Array.from(new Set(units.map(u => u.OwnerID).filter(Boolean)));
-    const ownersMap = new Map<string, Owner>();
-
-    if (ownerIds.length > 0) {
-        const chunkedIds = [];
-        for (let i = 0; i < ownerIds.length; i += 10) {
-            chunkedIds.push(ownerIds.slice(i, i + 10));
-        }
-
-        const ownerPromises = chunkedIds.map(ids => 
-            getDocs(query(collection(db, 'owners'), where('OwnerID', 'in', ids)))
-        );
-        
-        const ownerSnaps = await Promise.all(ownerPromises);
-        ownerSnaps.forEach(snap => {
-            snap.docs.forEach(d => {
-                const o = d.data() as Owner;
-                ownersMap.set(o.OwnerID, o);
-            });
-        });
-    }
-    
-    const combinedData = units.map(unit => ({
-        unit,
-        owner: ownersMap.get(unit.OwnerID) || { OwnerID: unit.OwnerID, OwnerName: 'Unknown', Phone: '', Email: '' } as Owner,
-        vehicles: [], 
-        pendingRequest: null 
-    }));
-
-    const unitIds = units.map(u => u.UnitID);
-    if (unitIds.length > 0) {
-        const chunkedUnitIds = [];
-        for (let i = 0; i < unitIds.length; i += 10) {
-            chunkedUnitIds.push(unitIds.slice(i, i + 10));
-        }
-        const reqPromises = chunkedUnitIds.map(ids => 
-            getDocs(query(collection(db, 'profileRequests'), where('residentId', 'in', ids), where('status', '==', 'PENDING')))
-        );
-        const reqSnaps = await Promise.all(reqPromises);
-        
-        const requestsMap = new Map();
-        reqSnaps.forEach(snap => snap.docs.forEach(d => {
-            const req = d.data();
-            requestsMap.set(req.residentId, req);
-        }));
-
-        combinedData.forEach(item => {
-            item.pendingRequest = requestsMap.get(item.unit.UnitID) || null;
-        });
-    }
-
-    return {
-        data: combinedData,
-        lastDoc: snapshot.docs[snapshot.docs.length - 1]
-    };
-};
-
-// --- PROFILE OPERATIONS ---
-
-// TASK B: DIRECT AVATAR UPDATE (Bypass Request, Sync via UnitID)
+// 1. INSTANT AVATAR UPDATE (Bypass Request)
 export const updateResidentAvatar = async (ownerId: string, avatarUrl: string): Promise<void> => {
     const batch = writeBatch(db);
     
-    // 1. Update Owner Record (Source of Truth for Resident Info)
+    // 1. Update Owner Record
     const ownerRef = doc(db, 'owners', ownerId);
-    batch.update(ownerRef, { avatarUrl: avatarUrl, updatedAt: new Date().toISOString() });
-    bumpVersion(batch, 'owners_version');
+    // We need to fetch owner first to get the Email to update the User record
+    const ownerSnap = await getDoc(ownerRef);
+    
+    if (ownerSnap.exists()) {
+        const ownerData = ownerSnap.data() as Owner;
+        
+        // Update Owner Table
+        batch.update(ownerRef, { avatarUrl: avatarUrl, updatedAt: new Date().toISOString() });
+        bumpVersion(batch, 'owners_version');
 
-    // 2. Sync to User Record (Auth)
-    // STRATEGY: Link Owner -> Unit -> User(Username=UnitID)
-    // We do NOT use email lookup. We look up the UnitID associated with this Owner.
-    const unitsQ = query(collection(db, 'units'), where('OwnerID', '==', ownerId));
-    const unitsSnap = await getDocs(unitsQ);
-
-    unitsSnap.forEach(uDoc => {
-        const unitId = uDoc.data().UnitID;
-        if (unitId) {
-            // The User Document ID IS the UnitID (Username)
-            const userRef = doc(db, 'users', unitId);
-            
-            // We use { merge: true } to handle cases where the user doc might be missing specific fields 
-            // but we don't want to overwrite existing permissions/password.
-            batch.set(userRef, { avatarUrl: avatarUrl }, { merge: true });
-            bumpVersion(batch, 'users_version');
+        // 2. Update User Record (if exists)
+        if (ownerData.Email) {
+            const userRef = doc(db, 'users', ownerData.Email);
+            // Check if user exists before update to avoid crashes
+            const userSnap = await getDoc(userRef);
+            if (userSnap.exists()) {
+                batch.update(userRef, { avatarUrl: avatarUrl });
+                bumpVersion(batch, 'users_version');
+            }
         }
-    });
+    }
 
     await batch.commit();
 };
@@ -192,16 +103,22 @@ export const getPendingProfileRequest = async (residentId: string): Promise<Prof
         }
         return null;
     } catch (e) {
+        console.error("Error checking pending requests", e);
         return null;
     }
 };
 
+// NEW: Fetch all pending requests for Admin View
 export const getAllPendingProfileRequests = async (): Promise<ProfileRequest[]> => {
     try {
-        const q = query(collection(db, 'profileRequests'), where('status', '==', 'PENDING'));
+        const q = query(
+            collection(db, 'profileRequests'),
+            where('status', '==', 'PENDING')
+        );
         const snap = await getDocs(q);
         return snap.docs.map(d => d.data() as ProfileRequest);
     } catch (e) {
+        console.error("Error fetching all pending requests", e);
         return [];
     }
 };
@@ -210,41 +127,41 @@ export const createProfileRequest = async (request: ProfileRequest) => {
     await setDoc(doc(db, 'profileRequests', request.id), request);
 };
 
-// TASK A: RESOLVE REQUEST (Sync Logic using Immutable Username)
+// FIXED: Resolve Request with Transactional Data Sync
 export const resolveProfileRequest = async (
     request: ProfileRequest, 
     action: 'approve' | 'reject', 
     adminEmail: string,
     approvedChanges?: Partial<ProfileRequest['changes']>
-): Promise<any> => {
+) => {
     const batch = writeBatch(db);
     const reqRef = doc(db, 'profileRequests', request.id);
 
-    // 1. Mark Request Status
+    // 1. Update Request Status
     batch.update(reqRef, { 
         status: action === 'approve' ? 'APPROVED' : 'REJECTED',
         updatedAt: new Date().toISOString()
     });
 
-    let updatedOwnerData: any = null;
-    let updatedUnitData: any = null;
-
+    // 2. If Approved, Apply Changes to Actual Tables
     if (action === 'approve') {
         const changesToApply = approvedChanges || request.changes;
-        
-        // 2. Update Resident/Owner Document
         const ownerRef = doc(db, 'owners', request.ownerId);
+        
+        // Fetch current owner data to handle Email changes correctly
         const ownerSnap = await getDoc(ownerRef);
         const currentOwnerData = ownerSnap.exists() ? ownerSnap.data() as Owner : null;
 
         if (currentOwnerData) {
+            // A. Update Owner Data
             const ownerUpdates: any = {};
             if (changesToApply.OwnerName) ownerUpdates.OwnerName = changesToApply.OwnerName;
             if (changesToApply.Phone) ownerUpdates.Phone = changesToApply.Phone;
-            if (changesToApply.Email) ownerUpdates.Email = changesToApply.Email; // Mutable email update
+            if (changesToApply.Email) ownerUpdates.Email = changesToApply.Email;
             if (changesToApply.title) ownerUpdates.title = changesToApply.title;
             if (changesToApply.secondOwnerName) ownerUpdates.secondOwnerName = changesToApply.secondOwnerName;
             if (changesToApply.secondOwnerPhone) ownerUpdates.secondOwnerPhone = changesToApply.secondOwnerPhone;
+            // Avatar is handled by separate endpoint, but if it's here, update it too
             if (changesToApply.avatarUrl) ownerUpdates.avatarUrl = changesToApply.avatarUrl;
             
             ownerUpdates.updatedAt = new Date().toISOString();
@@ -252,36 +169,45 @@ export const resolveProfileRequest = async (
             if (Object.keys(ownerUpdates).length > 0) {
                 batch.update(ownerRef, ownerUpdates);
                 bumpVersion(batch, 'owners_version');
-                updatedOwnerData = { ...currentOwnerData, ...ownerUpdates };
             }
-        }
 
-        // 3. Sync to User Auth Document
-        // CRITICAL: We use request.residentId (which is the UnitID/Username) as the Key.
-        // We DO NOT lookup by Email.
-        if (changesToApply.Email || changesToApply.OwnerName || changesToApply.avatarUrl) {
-            const userRef = doc(db, 'users', request.residentId); 
-            const userUpdates: any = {};
-            
-            if (changesToApply.Email) userUpdates.Email = changesToApply.Email; // Update the email field in User doc
-            if (changesToApply.OwnerName) userUpdates.DisplayName = changesToApply.OwnerName;
-            if (changesToApply.avatarUrl) userUpdates.avatarUrl = changesToApply.avatarUrl;
-
-            if (Object.keys(userUpdates).length > 0) {
-                // Merge ensures we don't wipe password or role
-                batch.set(userRef, userUpdates, { merge: true });
+            // B. Sync User Table (Critical for Auth)
+            // Case 1: Email Changed -> We must Create New User Doc & Delete Old One (Since ID is Email)
+            if (changesToApply.Email && currentOwnerData.Email && changesToApply.Email !== currentOwnerData.Email) {
+                const oldUserRef = doc(db, 'users', currentOwnerData.Email);
+                const oldUserSnap = await getDoc(oldUserRef);
+                
+                if (oldUserSnap.exists()) {
+                    const oldUserData = oldUserSnap.data() as UserPermission;
+                    const newUserRef = doc(db, 'users', changesToApply.Email);
+                    
+                    batch.set(newUserRef, {
+                        ...oldUserData,
+                        Email: changesToApply.Email,
+                        Username: changesToApply.Email.split('@')[0], // Optional: Update username
+                        DisplayName: changesToApply.OwnerName || oldUserData.DisplayName // Sync name
+                    });
+                    
+                    batch.delete(oldUserRef);
+                    bumpVersion(batch, 'users_version');
+                }
+            } 
+            // Case 2: Just Name or Phone changed -> Update existing User Doc
+            else if (changesToApply.OwnerName && currentOwnerData.Email) {
+                const userRef = doc(db, 'users', currentOwnerData.Email);
+                // We use set with merge to be safe if user doc is missing
+                batch.set(userRef, { DisplayName: changesToApply.OwnerName }, { merge: true });
                 bumpVersion(batch, 'users_version');
             }
         }
 
-        // 4. Update Unit Status (if applicable)
+        // C. Update Unit Status (if changed)
         if (changesToApply.UnitStatus) {
             batch.update(doc(db, 'units', request.residentId), { Status: changesToApply.UnitStatus });
             bumpVersion(batch, 'units_version');
-            updatedUnitData = { UnitID: request.residentId, Status: changesToApply.UnitStatus };
         }
 
-        // 5. Audit Log
+        // D. Log Activity
         const logId = `log_${Date.now()}`;
         batch.set(doc(db, 'activityLogs', logId), {
             id: logId,
@@ -296,18 +222,18 @@ export const resolveProfileRequest = async (
             before_snapshot: null
         } as ActivityLog);
         
-        // 6. Notification
+        // E. Send Notification
         const notifRef = doc(collection(db, 'notifications'));
         batch.set(notifRef, {
             type: 'system',
             title: 'Hồ sơ đã cập nhật',
             body: 'BQL đã duyệt yêu cầu thay đổi thông tin của bạn.',
-            userId: request.residentId, // Notification targeted by Username/UnitID
+            userId: request.residentId,
             isRead: false,
             createdAt: new Date().toISOString()
         });
     } else {
-        // Rejection Logic
+        // Rejection Notification
         const notifRef = doc(collection(db, 'notifications'));
         batch.set(notifRef, {
             type: 'system',
@@ -320,18 +246,12 @@ export const resolveProfileRequest = async (
     }
 
     await batch.commit();
-
-    return {
-        unitId: request.residentId,
-        ownerId: request.ownerId,
-        updatedOwner: updatedOwnerData,
-        updatedUnit: updatedUnitData
-    };
 };
 
 // --- WRITE OPERATIONS ---
 
 export const logActivity = async (log: ActivityLog) => {
+    // Direct write, no batch needed for single log
     await setDoc(doc(db, 'activityLogs', log.id), log);
 };
 
@@ -423,6 +343,7 @@ export const updateResidentData = async (
         batch.update(doc(db, 'vehicles', v.VehicleId), { isActive: false, updatedAt: new Date().toISOString() });
     });
 
+    // BUMP METADATA VERSIONS
     bumpVersion(batch, 'units_version');
     bumpVersion(batch, 'owners_version');
     bumpVersion(batch, 'vehicles_version');
@@ -448,30 +369,24 @@ const saveBatch = (name: string, data: any[]) => {
     if (data.length === 0) return Promise.resolve();
     const batch = writeBatch(db);
     data.forEach(item => {
-        let id = item.id;
-        if (!id) {
-             // CRITICAL: For users, we explicitly use Username (UnitID) as key
-             if (name === 'users') id = item.Username; 
-             else id = item.Email ?? item.UnitID ?? item.OwnerID ?? item.VehicleId ?? `${item.Period}_${item.UnitID}`;
-        }
+        const id = item.id ?? item.Email ?? item.UnitID ?? item.OwnerID ?? item.VehicleId ?? `${item.Period}_${item.UnitID}`;
         batch.set(doc(db, name, id), item);
     });
     return batch.commit();
 };
 
+// Wrappers that bump versions
 export const saveUsers = async (d: UserPermission[]) => {
     const batch = writeBatch(db);
-    // Explicitly using Username as key
-    d.forEach(u => batch.set(doc(db, 'users', u.Username), u));
+    d.forEach(u => batch.set(doc(db, 'users', u.Email), u));
     bumpVersion(batch, 'users_version');
     return batch.commit();
 };
 
-export const deleteUsers = async (usernames: string[]) => {
-    if (usernames.length === 0) return Promise.resolve();
+export const deleteUsers = async (emails: string[]) => {
+    if (emails.length === 0) return Promise.resolve();
     const batch = writeBatch(db);
-    // Deleting by Username key
-    usernames.forEach(username => batch.delete(doc(db, 'users', username)));
+    emails.forEach(email => batch.delete(doc(db, 'users', email)));
     bumpVersion(batch, 'users_version');
     return batch.commit();
 };
@@ -573,6 +488,7 @@ export const importResidentsBatch = async (
         }
     });
 
+    // BUMP METADATA
     bumpVersion(batch, 'units_version');
     bumpVersion(batch, 'owners_version');
     bumpVersion(batch, 'vehicles_version');
@@ -581,6 +497,7 @@ export const importResidentsBatch = async (
     return { units: [], owners: [], vehicles: [], createdCount: created, updatedCount: updated, vehicleCount };
 };
 
+// Water Lock
 export const getLockStatus = async (month: string): Promise<boolean> => {
     const docRef = doc(db, 'water_locks', month);
     const docSnap = await getDoc(docRef);
@@ -592,6 +509,7 @@ export const setLockStatus = async (month: string, status: boolean): Promise<voi
     await setDoc(docRef, { isLocked: status, updatedAt: new Date().toISOString() });
 };
 
+// Billing Lock
 export const getBillingLockStatus = async (period: string): Promise<boolean> => {
     const docRef = doc(db, 'billing_locks', period);
     const docSnap = await getDoc(docRef);
@@ -604,11 +522,6 @@ export const setBillingLockStatus = async (period: string, status: boolean): Pro
 };
 
 export const resetUserPassword = async (email: string): Promise<void> => {
-    // Note: If using username as key, this logic needs adjustment if 'email' passed here is actually email address
-    // We lookup by email first
-    const q = query(collection(db, 'users'), where('Email', '==', email), limit(1));
-    const snap = await getDocs(q);
-    if (!snap.empty) {
-        await updateDoc(snap.docs[0].ref, { password: '123456', mustChangePassword: true });
-    }
+    const userRef = doc(db, 'users', email);
+    await updateDoc(userRef, { password: '123456', mustChangePassword: true });
 };

@@ -44,18 +44,20 @@ let billingLocks = new Map<string, boolean>();
 patchKiosAreas(units);
 
 export const loadAllData = async () => {
+    // Extract locked water periods for initial load
     const lockedWaterPeriods = Array.from(waterLocks.entries())
         .filter(([_, isLocked]) => isLocked)
         .map(([period]) => period);
 
     return Promise.resolve({
         units, owners, vehicles, waterReadings, charges, adjustments, users, activityLogs, invoiceSettings, tariffs, monthlyStats, 
-        lockedWaterPeriods, 
+        lockedWaterPeriods, // Return locked periods
         hasData: units.length > 0
     });
 };
 
 export const fetchLatestLogs = async (limitCount: number = 20): Promise<ActivityLog[]> => {
+    // Return sorted descending
     return Promise.resolve(
         [...activityLogs]
         .sort((a,b) => new Date(b.ts).getTime() - new Date(a.ts).getTime())
@@ -78,6 +80,7 @@ export const saveChargesBatch = async (newCharges: ChargeRaw[], periodStat?: Mon
     if (period) {
         charges = [...charges.filter(c => c.Period !== period), ...newCharges];
     }
+    // Update local stats store for mock charts
     if (periodStat) {
         monthlyStats = [...monthlyStats.filter(s => s.period !== periodStat.period), periodStat];
     }
@@ -171,20 +174,12 @@ export const wipeAllBusinessData = async (progressCallback: (message: string) =>
 };
 
 export const saveUsers = async (newUsers: UserPermission[]) => {
-    // Merge new users with existing, matching by Username
-    newUsers.forEach(newUser => {
-        const idx = users.findIndex(u => u.Username === newUser.Username);
-        if (idx > -1) {
-            users[idx] = newUser;
-        } else {
-            users.push(newUser);
-        }
-    });
+    users = newUsers;
     return Promise.resolve();
 };
 
-export const deleteUsers = async (usernames: string[]) => {
-    users = users.filter(u => !usernames.includes(u.Username));
+export const deleteUsers = async (emails: string[]) => {
+    users = users.filter(u => !emails.includes(u.Email));
     return Promise.resolve();
 };
 
@@ -213,7 +208,103 @@ export const saveVehicles = async (newVehicles: Vehicle[]) => {
 export const importResidentsBatch = async (
     currentUnits: Unit[], currentOwners: Owner[], currentVehicles: Vehicle[], updates: any[]
 ) => {
-    return Promise.resolve({ units, owners, vehicles, createdCount: 0, updatedCount: 0, vehicleCount: 0 });
+    let createdCount = 0, updatedCount = 0, vehicleCount = 0;
+    const unitIdsToUpdate = new Set(updates.map(up => String(up.unitId).trim()));
+    const plateCounters = new Map<string, { xd: number, eb: number }>();
+
+    // Deactivate existing vehicles
+    vehicles = vehicles.map(v => {
+        if (unitIdsToUpdate.has(v.UnitID)) {
+            return { ...v, isActive: false, log: `Deactivated on import ${new Date().toISOString()}` };
+        }
+        return v;
+    });
+
+    // Pre-calculate starting sequence indexes
+    unitIdsToUpdate.forEach(unitId => {
+        const existingBicycles = currentVehicles.filter(v => v.UnitID === unitId && v.PlateNumber.startsWith(`${unitId}-XD`));
+        const maxXd = existingBicycles.reduce((max, v) => {
+            const match = v.PlateNumber.match(/-XD(\d+)$/);
+            return match ? Math.max(max, parseInt(match[1], 10)) : max;
+        }, 0);
+
+        const existingEBikes = currentVehicles.filter(v => v.UnitID === unitId && v.PlateNumber.startsWith(`${unitId}-EB`));
+        const maxEb = existingEBikes.reduce((max, v) => {
+            const match = v.PlateNumber.match(/-EB(\d+)$/);
+            return match ? Math.max(max, parseInt(match[1], 10)) : max;
+        }, 0);
+
+        plateCounters.set(unitId, { xd: maxXd, eb: maxEb });
+    });
+
+    // Process updates
+    updates.forEach(update => {
+        const unitId = String(update.unitId).trim();
+        let unit = units.find(u => u.UnitID === unitId);
+
+        if (unit) {
+            units = units.map(u => u.UnitID === unitId ? { ...u, Status: update.status, Area_m2: update.area, UnitType: update.unitType } : u);
+            owners = owners.map(o => o.OwnerID === unit!.OwnerID ? { ...o, OwnerName: update.ownerName, Phone: update.phone, Email: update.email } : o);
+            updatedCount++;
+        } else {
+            const newOwnerId = `OWN_MOCK_${Date.now()}_${Math.random()}`;
+            owners.push({ OwnerID: newOwnerId, OwnerName: update.ownerName, Phone: update.phone, Email: update.email });
+            units.push({ UnitID: unitId, OwnerID: newOwnerId, UnitType: update.unitType, Area_m2: update.area, Status: update.status });
+            createdCount++;
+        }
+        
+        if (update.vehicles && Array.isArray(update.vehicles)) {
+            update.vehicles.forEach((v: any) => {
+                const plate = String(v.PlateNumber || '').trim();
+                const isBicycle = v.Type === VehicleTier.BICYCLE;
+                const isEBike = v.Type === VehicleTier.EBIKE;
+                const isNumericQuantity = /^\d+$/.test(plate);
+                const quantity = isNumericQuantity ? parseInt(plate, 10) : 0;
+
+                if ((isBicycle || isEBike) && (quantity > 0 || plate === '')) {
+                    const count = plate === '' ? 1 : quantity;
+                    const counters = plateCounters.get(unitId)!;
+                    const prefix = isBicycle ? 'XD' : 'EB';
+                    const typeKey = isBicycle ? 'xd' : 'eb';
+                    const type = isBicycle ? VehicleTier.BICYCLE : VehicleTier.EBIKE;
+
+                    for (let i = 0; i < count; i++) {
+                        counters[typeKey]++;
+                        const newPlate = `${unitId}-${prefix}${counters[typeKey]}`;
+                        
+                        const newVehicle: Vehicle = {
+                            VehicleId: `VEH_MOCK_${Date.now()}_${Math.random()}_${i}`,
+                            UnitID: unitId,
+                            Type: type,
+                            VehicleName: v.VehicleName || (isBicycle ? 'Xe đạp' : 'Xe điện'),
+                            PlateNumber: newPlate,
+                            StartDate: new Date().toISOString().split('T')[0],
+                            isActive: true,
+                            parkingStatus: update.parkingStatus || null,
+                        };
+                        vehicles.push(newVehicle);
+                        vehicleCount++;
+                    }
+                    plateCounters.set(unitId, counters);
+                } else {
+                    const newVehicle: Vehicle = {
+                        VehicleId: `VEH_MOCK_${Date.now()}_${Math.random()}`,
+                        UnitID: unitId,
+                        Type: v.Type,
+                        VehicleName: v.VehicleName || '',
+                        PlateNumber: plate,
+                        StartDate: new Date().toISOString().split('T')[0],
+                        isActive: true,
+                        parkingStatus: update.parkingStatus || null,
+                    };
+                    vehicles.push(newVehicle);
+                    vehicleCount++;
+                }
+            });
+        }
+    });
+    
+    return Promise.resolve({ units, owners, vehicles, createdCount, updatedCount, vehicleCount });
 };
 
 export const getLockStatus = async (month: string): Promise<boolean> => {
@@ -263,11 +354,8 @@ export const updateResidentAvatar = async (ownerId: string, avatarUrl: string): 
     if (owner) {
         owner.avatarUrl = avatarUrl;
         owner.updatedAt = new Date().toISOString();
-        
-        // Mock Logic: Find related unit to find related User
-        const unit = units.find(u => u.OwnerID === ownerId);
-        if (unit) {
-            const user = users.find(u => u.Username === unit.UnitID);
+        if (owner.Email) {
+            const user = users.find(u => u.Email === owner.Email);
             if (user) {
                 user.avatarUrl = avatarUrl;
             }
@@ -281,11 +369,8 @@ export const resolveProfileRequest = async (
     action: 'approve' | 'reject', 
     adminEmail: string,
     approvedChanges?: Partial<ProfileRequest['changes']>
-): Promise<any> => {
+) => {
     const idx = profileRequests.findIndex(r => r.id === request.id);
-    let updatedOwnerData = null;
-    let updatedUnitData = null;
-
     if (idx > -1) {
         profileRequests[idx].status = action === 'approve' ? 'APPROVED' : 'REJECTED';
         profileRequests[idx].updatedAt = new Date().toISOString();
@@ -295,14 +380,16 @@ export const resolveProfileRequest = async (
             const unit = units.find(u => u.UnitID === request.residentId);
             const owner = owners.find(o => o.OwnerID === request.ownerId);
             
-            // Sync User Table (Mock)
-            // Resident ID == Username. Update that user.
-            const userIdx = users.findIndex(u => u.Username === request.residentId);
-            if (userIdx > -1) {
-                const user = users[userIdx];
-                if (changes.Email) user.Email = changes.Email;
-                if (changes.OwnerName) user.DisplayName = changes.OwnerName;
-                if (changes.avatarUrl) user.avatarUrl = changes.avatarUrl;
+            // Email Sync Logic Mock
+            if (changes.Email && owner) {
+                const oldEmail = owner.Email;
+                if (oldEmail && oldEmail !== changes.Email) {
+                    const userIdx = users.findIndex(u => u.Email === oldEmail);
+                    if (userIdx > -1) {
+                        // Rename User (Simulate Create/Delete)
+                        users[userIdx] = { ...users[userIdx], Email: changes.Email!, Username: changes.Email!.split('@')[0] };
+                    }
+                }
             }
 
             if (unit && owner) {
@@ -314,19 +401,11 @@ export const resolveProfileRequest = async (
                 if (changes.secondOwnerPhone) owner.secondOwnerPhone = changes.secondOwnerPhone;
                 if (changes.avatarUrl) owner.avatarUrl = changes.avatarUrl;
 
-                updatedOwnerData = { ...owner };
-
                 if (changes.UnitStatus) {
                     unit.Status = changes.UnitStatus as any;
-                    updatedUnitData = { UnitID: unit.UnitID, Status: unit.Status };
                 }
             }
         }
     }
-    return Promise.resolve({
-        unitId: request.residentId,
-        ownerId: request.ownerId,
-        updatedOwner: updatedOwnerData,
-        updatedUnit: updatedUnitData
-    });
+    return Promise.resolve();
 };

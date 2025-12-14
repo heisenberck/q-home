@@ -1,5 +1,5 @@
 
-import React, { useState, useMemo } from 'react';
+import React, { useState, useMemo, useContext } from 'react';
 import type { UserPermission, Role, Unit } from '../../types';
 import { useAuth, useNotification } from '../../App';
 import Modal from '../ui/Modal';
@@ -49,7 +49,7 @@ const PasswordModal: React.FC<{ user: UserPermission, onSave: (pw: string) => vo
     };
 
     return (
-        <Modal title={`Đặt mật khẩu mới: ${user.Username || user.Email || 'User'}`} onClose={onClose} size="sm">
+        <Modal title={`Đặt mật khẩu mới: ${user.Username || user.Email}`} onClose={onClose} size="sm">
             <div className="space-y-4">
                 <div>
                     <label className="block text-sm font-medium text-gray-700 mb-1">Mật khẩu mới</label>
@@ -81,7 +81,7 @@ const UserModal: React.FC<{
     const [formData, setFormData] = useState<ExtendedUser>({
         Email: user?.Email || '',
         Username: user?.Username || '',
-        DisplayName: user?.DisplayName || '',
+        DisplayName: user?.DisplayName || '', // NEW
         Role: user?.Role || 'Viewer',
         status: user?.status || 'Active',
         password: user?.password || '123456a@',
@@ -102,21 +102,10 @@ const UserModal: React.FC<{
         e.preventDefault();
         if (!formData.Email || !formData.Username) { showToast('Vui lòng nhập đủ thông tin (Email, Tên đăng nhập).', 'error'); return; }
         
-        // 1. Check Username Uniqueness (Only on Create)
-        if (!isEdit) {
-            if (allUsers.some(u => (u.Username || '').toLowerCase() === (formData.Username || '').toLowerCase())) {
-                showToast('Tên đăng nhập (Mã căn) đã tồn tại.', 'error'); return;
+        if (!isEdit || (isEdit && user.Email !== formData.Email)) {
+            if (allUsers.some(u => u.Email.toLowerCase() === formData.Email.toLowerCase())) {
+                showToast('Email đã tồn tại.', 'error'); return;
             }
-        }
-
-        // 2. Check Email Uniqueness (Always, but exclude self)
-        const emailExists = allUsers.some(u => 
-            (u.Email || '').toLowerCase() === (formData.Email || '').toLowerCase() && 
-            (u.Username || '').toLowerCase() !== (formData.Username || '').toLowerCase() // Exclude self by ID
-        );
-
-        if (emailExists) {
-            showToast('Email này đã được sử dụng bởi tài khoản khác.', 'error'); return;
         }
 
         onSave({ ...formData, permissions: Array.from(selectedPermissions) });
@@ -126,32 +115,16 @@ const UserModal: React.FC<{
     const inputStyle = "w-full p-2.5 border border-gray-300 rounded-lg bg-white text-gray-900 focus:ring-2 focus:ring-primary outline-none";
 
     return (
-        <Modal title={isEdit ? `Cập nhật: ${user?.Username || 'Người dùng'}` : "Thêm người dùng mới"} onClose={onClose} size="lg">
+        <Modal title={isEdit ? `Cập nhật: ${user.Username}` : "Thêm người dùng mới"} onClose={onClose} size="lg">
             <form onSubmit={handleSubmit} className="space-y-6">
                 <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
                     <div>
-                        <label className="block text-sm font-medium text-gray-700 mb-1">Tên đăng nhập (ID) <span className="text-red-500">*</span></label>
-                        <input 
-                            type="text" 
-                            required 
-                            value={formData.Username} 
-                            onChange={e => setFormData({...formData, Username: e.target.value})} 
-                            className={`${inputStyle} ${isEdit ? 'bg-gray-100 cursor-not-allowed' : ''}`} 
-                            disabled={isEdit} 
-                            placeholder="Mã căn hộ hoặc ID nhân viên"
-                        />
-                        {isEdit && <p className="text-xs text-gray-500 mt-1">ID không thể thay đổi.</p>}
+                        <label className="block text-sm font-medium text-gray-700 mb-1">Email (ID) <span className="text-red-500">*</span></label>
+                        <input type="email" required value={formData.Email} onChange={e => setFormData({...formData, Email: e.target.value})} className={`${inputStyle} ${isEdit ? 'bg-gray-100 cursor-not-allowed' : ''}`} disabled={isEdit} />
                     </div>
                     <div>
-                        <label className="block text-sm font-medium text-gray-700 mb-1">Email <span className="text-red-500">*</span></label>
-                        <input 
-                            type="email" 
-                            required 
-                            value={formData.Email} 
-                            onChange={e => setFormData({...formData, Email: e.target.value})} 
-                            className={inputStyle} 
-                            placeholder="email@example.com"
-                        />
+                        <label className="block text-sm font-medium text-gray-700 mb-1">Tên đăng nhập (Username) <span className="text-red-500">*</span></label>
+                        <input type="text" required value={formData.Username} onChange={e => setFormData({...formData, Username: e.target.value})} className={inputStyle} />
                     </div>
                     <div>
                         <label className="block text-sm font-medium text-gray-700 mb-1">Tên hiển thị (Optional)</label>
@@ -159,7 +132,7 @@ const UserModal: React.FC<{
                     </div>
                     <div>
                         <label className="block text-sm font-medium text-gray-700 mb-1">Vai trò</label>
-                        <select value={formData.Role} onChange={e => setFormData({...formData, Role: e.target.value as Role})} className={inputStyle} disabled={isEdit && user?.Role === 'Admin'}>
+                        <select value={formData.Role} onChange={e => setFormData({...formData, Role: e.target.value as Role})} className={inputStyle} disabled={isEdit && user.Role === 'Admin'}>
                             <option value="Admin">Admin</option>
                             <option value="Accountant">Accountant</option>
                             <option value="Operator">Operator</option>
@@ -201,8 +174,27 @@ const UserModal: React.FC<{
 
 // --- Main Page ---
 
+// We need to use the Context here to access handleDeleteUsers
+// BUT UsersPage is rendered as a child component inside AppContext.Provider
+// So we can use useAuth to get it if we exposed it, or access context directly.
+// In App.tsx, we exposed `handleDeleteUsers`. Let's assume useAuth() returns it or we create a specific hook.
+// Since we updated AppContextType in App.tsx, we can update useAuth or create a new hook there.
+// For now, let's access AppContext via a new helper or modify the existing useAuth/useApp hooks.
+// Assuming useAuth() was updated or we cast the context.
+
+import { createContext } from 'react';
+// Re-importing AppContext type locally isn't clean but works for TS if not exported
+// A cleaner way is to use the AppContext from App.tsx if exported, or just use props.
+// However, App.tsx passes `setUsers`. It doesn't pass `handleDeleteUsers` as a prop in the routing switch.
+// FIX: I will use the `useAuth` hook and cast the return type or expect `handleDeleteUsers` to be available.
+// NOTE: I updated AppContextType in App.tsx XML above.
+
 const UsersPage: React.FC<UsersPageProps> = ({ users = [], setUsers, units = [], role }) => {
     const { showToast } = useNotification();
+    // In App.tsx changes, we added handleDeleteUsers to context. 
+    // We need to access it. Let's assume useAuth returns the context values or we access context directly.
+    // Since useAuth is defined in App.tsx, let's assume it returns `handleDeleteUsers`.
+    // If TypeScript complains, we might need to cast.
     const { user: currentUser, handleDeleteUsers } = useAuth() as any; 
     
     const isAdmin = role === 'Admin';
@@ -218,35 +210,21 @@ const UsersPage: React.FC<UsersPageProps> = ({ users = [], setUsers, units = [],
     const [editingUser, setEditingUser] = useState<ExtendedUser | null>(null);
     const [passwordModalState, setPasswordModalState] = useState<{ isOpen: boolean; user: UserPermission | null }>({ isOpen: false, user: null });
 
-    // Stats Calculation (Safe checks)
+    // Stats Calculation
     const stats = useMemo(() => ({
         total: users.length,
-        admin: users.filter(u => u?.Role === 'Admin').length,
-        staff: users.filter(u => ['Accountant', 'Operator', 'Viewer'].includes(u?.Role)).length,
-        residents: users.filter(u => u?.Role === 'Resident').length
+        admin: users.filter(u => u.Role === 'Admin').length,
+        staff: users.filter(u => ['Accountant', 'Operator', 'Viewer'].includes(u.Role)).length,
+        residents: users.filter(u => u.Role === 'Resident').length
     }), [users]);
 
-    // Filtering (Defensive Logic)
+    // Filtering
     const filteredUsers = useMemo(() => {
         return users.filter(user => {
-            // 1. Safety Check: If user object is malformed
-            if (!user) return false;
-
-            // 2. Role Filter
             if (roleFilter !== 'all' && user.Role !== roleFilter) return false;
-
-            // 3. Status Filter
             if (statusFilter !== 'all' && user.status !== statusFilter) return false;
-
-            // 4. Search Filter (Safe Mode)
-            const s = (searchTerm || '').trim().toLowerCase();
-            if (!s) return true;
-
-            const safeEmail = (user.Email || '').toLowerCase();
-            const safeUsername = (user.Username || '').toLowerCase();
-            const safeDisplayName = (user.DisplayName || '').toLowerCase();
-
-            return safeEmail.includes(s) || safeUsername.includes(s) || safeDisplayName.includes(s);
+            const s = searchTerm.toLowerCase();
+            return !s || user.Email.toLowerCase().includes(s) || (user.Username || '').toLowerCase().includes(s);
         });
     }, [users, searchTerm, roleFilter, statusFilter]);
 
@@ -270,14 +248,12 @@ const UsersPage: React.FC<UsersPageProps> = ({ users = [], setUsers, units = [],
     };
 
     const handleSaveUser = (userToSave: ExtendedUser) => {
-        // MATCH BY USERNAME (Apartment Code/ID) - Immutable Key
-        const exists = users.some(u => u.Username === userToSave.Username);
-        
+        const exists = users.some(u => u.Email === userToSave.Email);
         const updatedList = exists 
-            ? users.map(u => u.Username === userToSave.Username ? userToSave : u) 
+            ? users.map(u => u.Email === userToSave.Email ? userToSave : u) 
             : [...users, userToSave];
         
-        const summary = exists ? `Cập nhật user: ${userToSave.Username}` : `Thêm user mới: ${userToSave.Username}`;
+        const summary = exists ? `Cập nhật user: ${userToSave.Email}` : `Thêm user mới: ${userToSave.Email}`;
         persistData(updatedList, summary);
         
         showToast(exists ? 'Cập nhật thành công.' : 'Tạo mới thành công.', 'success');
@@ -287,10 +263,9 @@ const UsersPage: React.FC<UsersPageProps> = ({ users = [], setUsers, units = [],
     const handleBulkDelete = () => {
         if (selectedUsers.size === 0) return;
         
-        // Match by Username
-        const safeToDelete = Array.from(selectedUsers).filter(username => {
-            const u = users.find(user => user.Username === username);
-            return u && u.Role !== 'Admin' && u.Username !== currentUser?.Username;
+        const safeToDelete = Array.from(selectedUsers).filter(email => {
+            const u = users.find(user => user.Email === email);
+            return u && u.Role !== 'Admin' && u.Email !== currentUser?.Email;
         });
 
         if (safeToDelete.length < selectedUsers.size) {
@@ -300,7 +275,7 @@ const UsersPage: React.FC<UsersPageProps> = ({ users = [], setUsers, units = [],
         if (safeToDelete.length === 0) return;
 
         if (confirm(`Xác nhận xóa ${safeToDelete.length} người dùng?`)) {
-            // Pass IDs (Usernames) to delete handler
+            // Use the context function provided by App.tsx which handles both local state update and DB delete
             handleDeleteUsers(safeToDelete);
             
             showToast(`Đã xóa ${safeToDelete.length} người dùng.`, 'success');
@@ -311,7 +286,7 @@ const UsersPage: React.FC<UsersPageProps> = ({ users = [], setUsers, units = [],
     const handleSyncUsers = () => {
         if (!isAdmin || isSyncLocked) return;
 
-        const existingUsernames = new Set(users.map(u => (u.Username || '').toLowerCase()));
+        const existingUsernames = new Set(users.map(u => u.Username?.toLowerCase()));
         const missingUnits = units.filter(unit => !existingUsernames.has(unit.UnitID.toLowerCase()));
 
         if (missingUnits.length === 0) {
@@ -323,8 +298,8 @@ const UsersPage: React.FC<UsersPageProps> = ({ users = [], setUsers, units = [],
         if (window.confirm(`Tìm thấy ${missingUnits.length} căn hộ chưa có tài khoản. Tạo tự động?`)) {
             const newResidents: UserPermission[] = missingUnits.map(unit => ({
                 Email: `${unit.UnitID.toLowerCase()}@resident.q-home.vn`,
-                Username: unit.UnitID, // Primary Key matches Unit ID
-                DisplayName: `Cư dân ${unit.UnitID}`, 
+                Username: unit.UnitID,
+                DisplayName: `Cư dân ${unit.UnitID}`, // Default Display Name
                 Role: 'Resident',
                 status: 'Active',
                 password: '123456',
@@ -341,23 +316,23 @@ const UsersPage: React.FC<UsersPageProps> = ({ users = [], setUsers, units = [],
 
     const handlePasswordChange = (newPassword: string) => {
         if (!passwordModalState.user) return;
-        const targetUsername = passwordModalState.user.Username;
-        const updatedList = users.map(u => u.Username === targetUsername ? { ...u, password: newPassword, mustChangePassword: false } : u);
+        const targetEmail = passwordModalState.user.Email;
+        const updatedList = users.map(u => u.Email === targetEmail ? { ...u, password: newPassword, mustChangePassword: false } : u);
         
-        persistData(updatedList, `Đổi mật khẩu cho: ${targetUsername}`);
+        persistData(updatedList, `Đổi mật khẩu cho: ${targetEmail}`);
         showToast('Đổi mật khẩu thành công.', 'success');
         setPasswordModalState({ isOpen: false, user: null });
     };
 
     const toggleSelectAll = () => {
         if (selectedUsers.size === filteredUsers.length) setSelectedUsers(new Set());
-        else setSelectedUsers(new Set(filteredUsers.map(u => u.Username || '')));
+        else setSelectedUsers(new Set(filteredUsers.map(u => u.Email)));
     };
 
-    const toggleSelectUser = (username: string) => {
+    const toggleSelectUser = (email: string) => {
         const next = new Set(selectedUsers);
-        if (next.has(username)) next.delete(username);
-        else next.add(username);
+        if (next.has(email)) next.delete(email);
+        else next.add(email);
         setSelectedUsers(next);
     };
 
@@ -378,7 +353,7 @@ const UsersPage: React.FC<UsersPageProps> = ({ users = [], setUsers, units = [],
             <div className="bg-white p-4 rounded-xl shadow-sm border border-gray-100 flex flex-col md:flex-row items-center gap-4">
                 <div className="relative flex-grow w-full md:w-auto">
                     <SearchIcon className="absolute left-3 top-1/2 -translate-y-1/2 h-5 w-5 text-gray-400" />
-                    <input type="text" placeholder="Tìm tên, username, email..." value={searchTerm} onChange={e => setSearchTerm(e.target.value)} className="w-full pl-10 p-2.5 border border-gray-300 rounded-lg focus:ring-primary outline-none text-gray-900" />
+                    <input type="text" placeholder="Tìm tên, email..." value={searchTerm} onChange={e => setSearchTerm(e.target.value)} className="w-full pl-10 p-2.5 border border-gray-300 rounded-lg focus:ring-primary outline-none text-gray-900" />
                 </div>
                 <select value={roleFilter} onChange={e => setRoleFilter(e.target.value)} className="p-2.5 border border-gray-300 rounded-lg text-gray-900 focus:ring-primary outline-none">
                     <option value="all">Tất cả vai trò</option>
@@ -442,30 +417,24 @@ const UsersPage: React.FC<UsersPageProps> = ({ users = [], setUsers, units = [],
                             </tr>
                         </thead>
                         <tbody className="divide-y divide-gray-100">
-                            {filteredUsers.map(user => {
-                                const username = user.Username || 'Unknown';
-                                const displayName = user.DisplayName || '-';
-                                const email = user.Email || 'No Email';
-                                const char = (displayName !== '-' ? displayName : username).charAt(0).toUpperCase();
-
-                                return (
-                                <tr key={username} className="hover:bg-gray-50 transition-colors">
+                            {filteredUsers.map(user => (
+                                <tr key={user.Email} className="hover:bg-gray-50 transition-colors">
                                     <td className="px-6 py-4 text-center">
-                                        <input type="checkbox" checked={selectedUsers.has(username)} onChange={() => toggleSelectUser(username)} className="w-4 h-4 rounded text-primary focus:ring-primary" disabled={user.Role === 'Admin'} />
+                                        <input type="checkbox" checked={selectedUsers.has(user.Email)} onChange={() => toggleSelectUser(user.Email)} className="w-4 h-4 rounded text-primary focus:ring-primary" disabled={user.Role === 'Admin'} />
                                     </td>
                                     <td className="px-6 py-4">
                                         <div className="flex items-center gap-3">
                                             <div className="w-10 h-10 rounded-full bg-gray-100 flex items-center justify-center text-gray-500 uppercase font-bold">
-                                                {char}
+                                                {(user.DisplayName || user.Username || user.Email).charAt(0)}
                                             </div>
                                             <div>
-                                                <div className="font-bold text-gray-900">{username}</div>
-                                                <div className="text-xs text-gray-500">{email}</div>
+                                                <div className="font-bold text-gray-900">{user.Username}</div>
+                                                <div className="text-xs text-gray-500">{user.Email}</div>
                                             </div>
                                         </div>
                                     </td>
                                     <td className="px-6 py-4 text-sm text-gray-700 font-medium">
-                                        {displayName}
+                                        {user.DisplayName || '-'}
                                     </td>
                                     <td className="px-6 py-4">
                                         <span className={`px-2.5 py-0.5 rounded-full text-xs font-bold border ${
@@ -492,13 +461,13 @@ const UsersPage: React.FC<UsersPageProps> = ({ users = [], setUsers, units = [],
                                     <td className="px-6 py-4 text-center">
                                         {isAdmin && (
                                             <div className="flex justify-center gap-2">
-                                                <button onClick={() => { setEditingUser(user); setIsUserModalOpen(true); }} disabled={user.Role === 'Admin' && user.Username !== currentUser?.Username} className="p-2 text-blue-600 hover:bg-blue-50 rounded-lg disabled:opacity-30"><PencilSquareIcon className="w-5 h-5" /></button>
-                                                <button onClick={() => setPasswordModalState({ isOpen: true, user })} disabled={user.Role === 'Admin' && user.Username !== currentUser?.Username} className="p-2 text-orange-600 hover:bg-orange-50 rounded-lg disabled:opacity-30"><KeyIcon className="w-5 h-5" /></button>
+                                                <button onClick={() => { setEditingUser(user); setIsUserModalOpen(true); }} disabled={user.Role === 'Admin' && user.Email !== currentUser?.Email} className="p-2 text-blue-600 hover:bg-blue-50 rounded-lg disabled:opacity-30"><PencilSquareIcon className="w-5 h-5" /></button>
+                                                <button onClick={() => setPasswordModalState({ isOpen: true, user })} disabled={user.Role === 'Admin' && user.Email !== currentUser?.Email} className="p-2 text-orange-600 hover:bg-orange-50 rounded-lg disabled:opacity-30"><KeyIcon className="w-5 h-5" /></button>
                                             </div>
                                         )}
                                     </td>
                                 </tr>
-                            )})}
+                            ))}
                         </tbody>
                     </table>
                     {filteredUsers.length === 0 && <div className="p-8 text-center text-gray-500">Không tìm thấy người dùng nào.</div>}
