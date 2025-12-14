@@ -1,5 +1,5 @@
 
-import React, { useState, useEffect, useCallback, createContext, useMemo } from 'react';
+import React, { useState, useEffect, useCallback, createContext, useMemo, useRef } from 'react';
 import type { Role, UserPermission, Unit, Owner, Vehicle, WaterReading, ChargeRaw, TariffService, TariffParking, TariffWater, Adjustment, InvoiceSettings, ActivityLog, VehicleTier, TariffCollection, AllData, NewsItem, FeedbackItem, FeedbackReply, MonthlyStat } from './types';
 import { patchKiosAreas, MOCK_NEWS_ITEMS, MOCK_FEEDBACK_ITEMS, MOCK_USER_PERMISSIONS } from './constants';
 import { updateFeeSettings, updateResidentData, saveChargesBatch, saveVehicles, saveWaterReadings, saveTariffs, saveUsers, saveAdjustments, importResidentsBatch, wipeAllBusinessData, resetUserPassword, logActivity } from './services';
@@ -132,6 +132,9 @@ const App: React.FC = () => {
     const [invoiceSettings, setInvoiceSettings] = useState<InvoiceSettings>(initialInvoiceSettings);
     const [monthlyStats, setMonthlyStats] = useState<MonthlyStat[]>([]);
     const [activityLogs, setActivityLogs] = useState<ActivityLog[]>([]); // LOCAL State for Logs
+    
+    // Ref to track if logs have been synced initially
+    const isFirstLogSync = useRef(true);
 
     const [notifications, setNotifications] = useState({
         unreadNews: 0,
@@ -148,9 +151,13 @@ const App: React.FC = () => {
             if (smartInvoiceSettings) setInvoiceSettings(smartInvoiceSettings);
             if (loadedMonthlyStats) setMonthlyStats(loadedMonthlyStats);
             
-            // Sync Activity Logs (Initial Load)
-            if (loadedLogs && loadedLogs.length > 0) {
+            // Sync Activity Logs (Initial Load Only)
+            // This prevents race conditions where a refreshSystemData() call (triggering a fetch)
+            // returns stale logs from the server (before a recent write is indexed), 
+            // overwriting our optimistic local state.
+            if (loadedLogs && loadedLogs.length > 0 && isFirstLogSync.current) {
                 setActivityLogs(loadedLogs);
+                isFirstLogSync.current = false;
             }
             
             patchKiosAreas(units);
