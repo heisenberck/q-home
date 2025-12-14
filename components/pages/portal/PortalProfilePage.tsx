@@ -3,7 +3,7 @@ import React, { useState, useEffect, useMemo } from 'react';
 import type { Owner, UserPermission, ProfileRequest, Unit } from '../../../types';
 import { useAuth, useNotification } from '../../../App';
 import { ArrowRightOnRectangleIcon, UserCircleIcon, UploadIcon, WarningIcon, CheckCircleIcon } from '../../ui/Icons';
-import { createProfileRequest, getPendingProfileRequest } from '../../../services';
+import { createProfileRequest, getPendingProfileRequest, updateResidentAvatar } from '../../../services';
 import { useSmartSystemData } from '../../../hooks/useSmartData';
 import { isProduction } from '../../../utils/env';
 
@@ -17,7 +17,7 @@ interface PortalProfilePageProps {
 const PortalProfilePage: React.FC<PortalProfilePageProps> = ({ user, owner, onUpdateOwner, onChangePassword }) => {
     const { logout } = useAuth();
     const { showToast } = useNotification();
-    const { units } = useSmartSystemData(); // Need this to access Unit Status
+    const { units, refreshSystemData } = useSmartSystemData(); // Need refresh to show avatar immediately
     const IS_PROD = isProduction();
 
     // Find current unit status
@@ -36,7 +36,7 @@ const PortalProfilePage: React.FC<PortalProfilePageProps> = ({ user, owner, onUp
         secondOwnerName: owner.secondOwnerName || '',
         secondOwnerPhone: owner.secondOwnerPhone || '',
         UnitStatus: currentUnit?.Status || 'Owner',
-        avatarUrl: owner.avatarUrl || ''
+        // Avatar is handled separately now
     });
 
     // Check for pending requests on load
@@ -57,15 +57,42 @@ const PortalProfilePage: React.FC<PortalProfilePageProps> = ({ user, owner, onUp
         setFormData(prev => ({ ...prev, [e.target.name]: e.target.value }));
     };
     
-    const handleAvatarChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    // NEW: Handle Instant Avatar Upload
+    const handleAvatarChange = async (e: React.ChangeEvent<HTMLInputElement>) => {
         const file = e.target.files?.[0];
-        if (file) {
-            const reader = new FileReader();
-            reader.onload = (event) => {
-                setFormData(prev => ({ ...prev, avatarUrl: event.target?.result as string }));
-            };
-            reader.readAsDataURL(file);
+        if (!file) return;
+
+        // Validations
+        if (file.size > 5 * 1024 * 1024) {
+            showToast('Kích thước ảnh phải nhỏ hơn 5MB', 'error');
+            return;
         }
+
+        const reader = new FileReader();
+        reader.onload = async (event) => {
+            const base64 = event.target?.result as string;
+            
+            // 1. Optimistic Update (UI Only)
+            onUpdateOwner({ ...owner, avatarUrl: base64 });
+            showToast('Đang cập nhật ảnh đại diện...', 'info');
+
+            if (!IS_PROD) {
+                showToast('Đã cập nhật (Mock Mode)', 'success');
+                return;
+            }
+
+            // 2. Real Update
+            try {
+                await updateResidentAvatar(owner.OwnerID, base64);
+                showToast('Cập nhật ảnh đại diện thành công!', 'success');
+                // Trigger refresh to ensure sidebars and headers update if they pull from smart data
+                refreshSystemData(true);
+            } catch (error) {
+                console.error(error);
+                showToast('Lỗi khi cập nhật ảnh.', 'error');
+            }
+        };
+        reader.readAsDataURL(file);
     };
 
     const handleSave = async (e: React.FormEvent) => {
@@ -86,7 +113,6 @@ const PortalProfilePage: React.FC<PortalProfilePageProps> = ({ user, owner, onUp
         if (formData.title !== owner.title) changes.title = formData.title;
         if (formData.secondOwnerName !== owner.secondOwnerName) changes.secondOwnerName = formData.secondOwnerName;
         if (formData.secondOwnerPhone !== owner.secondOwnerPhone) changes.secondOwnerPhone = formData.secondOwnerPhone;
-        if (formData.avatarUrl !== owner.avatarUrl) changes.avatarUrl = formData.avatarUrl;
         
         // Handle Unit Status Change (lives on Unit table but edited here)
         if (currentUnit && formData.UnitStatus !== currentUnit.Status) {
@@ -145,20 +171,17 @@ const PortalProfilePage: React.FC<PortalProfilePageProps> = ({ user, owner, onUp
                 <div className="flex flex-col items-center text-center space-y-2">
                     <div className="relative">
                         <div className="w-24 h-24 rounded-full bg-gray-100 border-2 border-gray-200 overflow-hidden">
-                           {formData.avatarUrl ? (
-                                <img src={formData.avatarUrl} alt="Avatar" className="w-full h-full object-cover"/>
+                           {owner.avatarUrl ? (
+                                <img src={owner.avatarUrl} alt="Avatar" className="w-full h-full object-cover"/>
                            ) : (
                                 <UserCircleIcon className="w-full h-full text-gray-400"/>
                            )}
                         </div>
-                        {!isLocked && (
-                            <>
-                                <label htmlFor="avatar-upload" className="absolute bottom-0 right-0 bg-primary p-2 rounded-full cursor-pointer hover:bg-primary-focus">
-                                    <UploadIcon className="w-4 h-4 text-white" />
-                                </label>
-                                <input id="avatar-upload" type="file" accept="image/*" className="hidden" onChange={handleAvatarChange} />
-                            </>
-                        )}
+                        {/* Always show Avatar upload, decoupled from request lock */}
+                        <label htmlFor="avatar-upload" className="absolute bottom-0 right-0 bg-primary p-2 rounded-full cursor-pointer hover:bg-primary-focus shadow-md transition-transform hover:scale-105" title="Đổi ảnh đại diện">
+                            <UploadIcon className="w-4 h-4 text-white" />
+                        </label>
+                        <input id="avatar-upload" type="file" accept="image/*" className="hidden" onChange={handleAvatarChange} />
                     </div>
                     <h2 className="text-xl font-bold">{owner.OwnerName}</h2>
                     <p className="text-sm text-gray-500">Căn hộ {user.residentId}</p>

@@ -348,6 +348,22 @@ export const createProfileRequest = async (request: ProfileRequest) => {
     return Promise.resolve();
 };
 
+// MOCK: Update Resident Avatar
+export const updateResidentAvatar = async (ownerId: string, avatarUrl: string): Promise<void> => {
+    const owner = owners.find(o => o.OwnerID === ownerId);
+    if (owner) {
+        owner.avatarUrl = avatarUrl;
+        owner.updatedAt = new Date().toISOString();
+        if (owner.Email) {
+            const user = users.find(u => u.Email === owner.Email);
+            if (user) {
+                user.avatarUrl = avatarUrl;
+            }
+        }
+    }
+    return Promise.resolve();
+};
+
 export const resolveProfileRequest = async (
     request: ProfileRequest, 
     action: 'approve' | 'reject', 
@@ -362,31 +378,28 @@ export const resolveProfileRequest = async (
         if (action === 'approve') {
             const changes = approvedChanges || request.changes;
             const unit = units.find(u => u.UnitID === request.residentId);
+            const owner = owners.find(o => o.OwnerID === request.ownerId);
             
             // Email Sync Logic Mock
-            if (changes.Email) {
-                const owner = owners.find(o => o.OwnerID === request.ownerId);
-                const oldEmail = owner?.Email;
+            if (changes.Email && owner) {
+                const oldEmail = owner.Email;
                 if (oldEmail && oldEmail !== changes.Email) {
                     const userIdx = users.findIndex(u => u.Email === oldEmail);
                     if (userIdx > -1) {
                         // Rename User (Simulate Create/Delete)
-                        users[userIdx] = { ...users[userIdx], Email: changes.Email! };
+                        users[userIdx] = { ...users[userIdx], Email: changes.Email!, Username: changes.Email!.split('@')[0] };
                     }
                 }
             }
 
-            if (unit) {
-                const owner = owners.find(o => o.OwnerID === request.ownerId);
-                if (owner) {
-                    if (changes.OwnerName) owner.OwnerName = changes.OwnerName;
-                    if (changes.Phone) owner.Phone = changes.Phone;
-                    if (changes.Email) owner.Email = changes.Email;
-                    if (changes.title) owner.title = changes.title as any;
-                    if (changes.secondOwnerName) owner.secondOwnerName = changes.secondOwnerName;
-                    if (changes.secondOwnerPhone) owner.secondOwnerPhone = changes.secondOwnerPhone;
-                    if (changes.avatarUrl) owner.avatarUrl = changes.avatarUrl;
-                }
+            if (unit && owner) {
+                if (changes.OwnerName) owner.OwnerName = changes.OwnerName;
+                if (changes.Phone) owner.Phone = changes.Phone;
+                if (changes.Email) owner.Email = changes.Email;
+                if (changes.title) owner.title = changes.title as any;
+                if (changes.secondOwnerName) owner.secondOwnerName = changes.secondOwnerName;
+                if (changes.secondOwnerPhone) owner.secondOwnerPhone = changes.secondOwnerPhone;
+                if (changes.avatarUrl) owner.avatarUrl = changes.avatarUrl;
 
                 if (changes.UnitStatus) {
                     unit.Status = changes.UnitStatus as any;
