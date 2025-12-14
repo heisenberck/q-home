@@ -19,6 +19,7 @@ export const {
     updateResidentData,
     wipeAllBusinessData,
     saveUsers,
+    deleteUsers, // Exported
     saveTariffs,
     saveAdjustments,
     saveWaterReadings,

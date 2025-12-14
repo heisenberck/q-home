@@ -2,7 +2,7 @@
 import React, { useState, useRef, useEffect } from 'react';
 import { 
     UserCircleIcon, ArrowRightOnRectangleIcon, UserIcon, UploadIcon, TrashIcon,
-    SettingsIcon, KeyIcon, ArchiveBoxIcon, ClipboardDocumentListIcon
+    SettingsIcon, KeyIcon, ArchiveBoxIcon, ClipboardDocumentListIcon, LockClosedIcon
 } from '../ui/Icons';
 import type { UserPermission } from '../../types';
 import { useAuth, useNotification } from '../../App';
@@ -41,8 +41,15 @@ const Header: React.FC<HeaderProps> = ({ pageTitle, onNavigate }) => {
   const ProfileModal = () => {
     const [formData, setFormData] = useState({ 
         Username: currentUser.Username || '',
+        DisplayName: currentUser.DisplayName || '', // New Display Name
+        Email: currentUser.Email || '',
         avatarUrl: currentUser.avatarUrl || ''
     });
+    
+    // Password state
+    const [changePassword, setChangePassword] = useState(false);
+    const [newPassword, setNewPassword] = useState('');
+    const [confirmPassword, setConfirmPassword] = useState('');
 
     const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
         const file = e.target.files?.[0];
@@ -91,24 +98,55 @@ const Header: React.FC<HeaderProps> = ({ pageTitle, onNavigate }) => {
 
     const handleSave = (e: React.FormEvent) => {
         e.preventDefault();
-        updateUser({ ...currentUser, ...formData });
-        showToast('Cập nhật thông tin thành công.', 'success');
+        
+        // Basic Validation
+        if (!formData.Email.trim()) {
+            showToast('Vui lòng nhập Email.', 'error');
+            return;
+        }
+
+        // Password Validation
+        let passwordToUpdate = currentUser.password;
+        if (changePassword) {
+            if (newPassword.length < 6) {
+                showToast('Mật khẩu mới phải có ít nhất 6 ký tự.', 'error');
+                return;
+            }
+            if (newPassword !== confirmPassword) {
+                showToast('Mật khẩu xác nhận không khớp.', 'error');
+                return;
+            }
+            passwordToUpdate = newPassword;
+        }
+
+        const updatedUser: UserPermission = {
+            ...currentUser,
+            DisplayName: formData.DisplayName, // Save Display Name
+            Email: formData.Email, // Save (potentially new) Email
+            avatarUrl: formData.avatarUrl,
+            password: passwordToUpdate,
+            mustChangePassword: false 
+        };
+
+        // Pass old email to handle key changes if necessary
+        updateUser(updatedUser, currentUser.Email);
         setIsProfileModalOpen(false);
     };
 
-    const inputClasses = "w-full p-2 border rounded-md bg-white text-gray-900 border-gray-300 focus:ring-2 focus:ring-primary focus:border-transparent shadow-sm transition-colors";
-    const labelClasses = "block text-sm font-medium text-gray-700 mb-1";
+    const inputClasses = "w-full p-2.5 border rounded-lg bg-white text-gray-900 border-gray-300 focus:ring-2 focus:ring-primary focus:border-transparent shadow-sm transition-colors text-sm";
+    const disabledInputClasses = "w-full p-2.5 border rounded-lg bg-gray-100 text-gray-500 border-gray-300 cursor-not-allowed shadow-sm text-sm";
+    const labelClasses = "block text-sm font-semibold text-gray-700 mb-1.5";
 
     return (
         <Modal title="Hồ sơ cá nhân" onClose={() => setIsProfileModalOpen(false)} size="md">
-            <form onSubmit={handleSave} className="space-y-6">
-                <div className="flex flex-col items-center gap-3">
+            <form onSubmit={handleSave} className="space-y-5">
+                <div className="flex flex-col items-center gap-3 pb-2 border-b border-gray-100">
                     <div className="relative group">
-                        <div className="w-24 h-24 rounded-full overflow-hidden border-2 border-gray-200 shadow-inner bg-gray-100 flex items-center justify-center">
+                        <div className="w-24 h-24 rounded-full overflow-hidden border-2 border-gray-200 shadow-inner bg-gray-50 flex items-center justify-center">
                             {formData.avatarUrl ? (
                                 <img src={formData.avatarUrl} alt="Avatar" className="w-full h-full object-cover" />
                             ) : (
-                                <UserCircleIcon className="w-24 h-24 text-gray-400" />
+                                <UserCircleIcon className="w-24 h-24 text-gray-300" />
                             )}
                         </div>
                         <label 
@@ -124,24 +162,97 @@ const Header: React.FC<HeaderProps> = ({ pageTitle, onNavigate }) => {
                         <button 
                             type="button" 
                             onClick={handleRemoveAvatar}
-                            className="text-xs text-red-500 hover:text-red-700 flex items-center gap-1"
+                            className="text-xs text-red-500 hover:text-red-700 flex items-center gap-1 font-medium"
                         >
                             <TrashIcon className="w-3 h-3" /> Xoá ảnh
                         </button>
                     )}
                 </div>
 
-                <div>
-                    <label className={labelClasses}>Email</label>
-                    <input type="email" value={currentUser.Email} disabled required className={`${inputClasses} bg-gray-100 cursor-not-allowed`}/>
+                <div className="grid grid-cols-1 gap-4">
+                    {/* Fixed Username */}
+                    <div>
+                        <label className={labelClasses}>Tên đăng nhập (Hệ thống)</label>
+                        <div className="relative">
+                            <input 
+                                type="text" 
+                                value={formData.Username} 
+                                readOnly
+                                disabled
+                                className={disabledInputClasses}
+                            />
+                            <LockClosedIcon className="w-4 h-4 text-gray-400 absolute right-3 top-3" />
+                        </div>
+                    </div>
+
+                    {/* Editable Display Name */}
+                    <div>
+                        <label className={labelClasses}>Tên hiển thị (Người dùng)</label>
+                        <input 
+                            type="text" 
+                            value={formData.DisplayName} 
+                            onChange={e => setFormData({...formData, DisplayName: e.target.value})} 
+                            className={inputClasses} 
+                            placeholder="VD: Nguyễn Văn A"
+                        />
+                    </div>
+                    
+                    {/* Editable Email */}
+                    <div>
+                        <label className={labelClasses}>Email (Dùng để khôi phục MK)</label>
+                        <input 
+                            type="email" 
+                            value={formData.Email} 
+                            onChange={e => setFormData({...formData, Email: e.target.value})} 
+                            className={inputClasses}
+                            required
+                        />
+                    </div>
                 </div>
-                <div>
-                    <label className={labelClasses}>Tên đăng nhập</label>
-                    <input type="text" value={formData.Username} onChange={e => setFormData({...formData, Username: e.target.value})} className={inputClasses} placeholder="Đặt tên đăng nhập"/>
+
+                <div className="pt-2">
+                    <div className="flex items-center gap-2 mb-3">
+                        <input 
+                            type="checkbox" 
+                            id="changePassword" 
+                            checked={changePassword} 
+                            onChange={e => setChangePassword(e.target.checked)}
+                            className="w-4 h-4 text-primary rounded border-gray-300 focus:ring-primary cursor-pointer"
+                        />
+                        <label htmlFor="changePassword" className="text-sm font-semibold text-gray-700 cursor-pointer select-none flex items-center gap-2">
+                            <KeyIcon className="w-4 h-4 text-gray-500"/> Đổi mật khẩu
+                        </label>
+                    </div>
+
+                    {changePassword && (
+                        <div className="grid grid-cols-1 gap-4 bg-gray-50 p-4 rounded-lg border border-gray-200 animate-fade-in-down">
+                            <div>
+                                <label className={labelClasses}>Mật khẩu mới</label>
+                                <input 
+                                    type="password" 
+                                    value={newPassword} 
+                                    onChange={e => setNewPassword(e.target.value)} 
+                                    className={inputClasses}
+                                    placeholder="Ít nhất 6 ký tự"
+                                />
+                            </div>
+                            <div>
+                                <label className={labelClasses}>Xác nhận mật khẩu</label>
+                                <input 
+                                    type="password" 
+                                    value={confirmPassword} 
+                                    onChange={e => setConfirmPassword(e.target.value)} 
+                                    className={inputClasses}
+                                    placeholder="Nhập lại mật khẩu mới"
+                                />
+                            </div>
+                        </div>
+                    )}
                 </div>
-                <div className="flex justify-end gap-2 pt-4 border-t">
-                    <button type="button" onClick={() => setIsProfileModalOpen(false)} className="px-4 py-2 bg-gray-200 text-gray-800 rounded-md hover:bg-gray-300">Hủy</button>
-                    <button type="submit" className="px-4 py-2 bg-primary text-white rounded-md hover:bg-primary-focus">Lưu thay đổi</button>
+
+                <div className="flex justify-end gap-3 pt-4 border-t border-gray-100">
+                    <button type="button" onClick={() => setIsProfileModalOpen(false)} className="px-4 py-2 bg-white border border-gray-300 text-gray-700 rounded-lg hover:bg-gray-50 text-sm font-medium transition-colors">Hủy</button>
+                    <button type="submit" className="px-6 py-2 bg-primary text-white rounded-lg hover:bg-primary-focus shadow-sm text-sm font-bold transition-colors">Lưu thay đổi</button>
                 </div>
             </form>
         </Modal>
@@ -171,7 +282,8 @@ const Header: React.FC<HeaderProps> = ({ pageTitle, onNavigate }) => {
                     <UserCircleIcon className="w-10 h-10 text-gray-500" />
                 )}
                 <div className="text-left hidden md:block">
-                    <p className="text-sm font-semibold">{getUsername(currentUser)}</p>
+                    {/* Display Name takes priority, then Username, then Email part */}
+                    <p className="text-sm font-semibold">{currentUser.DisplayName || currentUser.Username || currentUser.Email.split('@')[0]}</p>
                     <p className="text-xs text-gray-500">{currentUser.Role}</p>
                 </div>
             </button>

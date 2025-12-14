@@ -177,6 +177,11 @@ export const saveUsers = async (newUsers: UserPermission[]) => {
     return Promise.resolve();
 };
 
+export const deleteUsers = async (emails: string[]) => {
+    users = users.filter(u => !emails.includes(u.Email));
+    return Promise.resolve();
+};
+
 export const saveTariffs = async (newTariffs: TariffCollection) => {
     tariffs = newTariffs;
     return Promise.resolve();

@@ -1,5 +1,5 @@
 
-import React, { useState, useMemo } from 'react';
+import React, { useState, useMemo, useContext } from 'react';
 import type { UserPermission, Role, Unit } from '../../types';
 import { useAuth, useNotification } from '../../App';
 import Modal from '../ui/Modal';
@@ -15,7 +15,7 @@ import { saveUsers } from '../../services';
 interface UsersPageProps {
     users: UserPermission[];
     setUsers: (updater: React.SetStateAction<UserPermission[]>, logPayload?: any) => void;
-    units: Unit[]; // Added units prop for Sync functionality
+    units: Unit[];
     role: Role;
 }
 
@@ -81,6 +81,7 @@ const UserModal: React.FC<{
     const [formData, setFormData] = useState<ExtendedUser>({
         Email: user?.Email || '',
         Username: user?.Username || '',
+        DisplayName: user?.DisplayName || '', // NEW
         Role: user?.Role || 'Viewer',
         status: user?.status || 'Active',
         password: user?.password || '123456a@',
@@ -99,7 +100,7 @@ const UserModal: React.FC<{
 
     const handleSubmit = (e: React.FormEvent) => {
         e.preventDefault();
-        if (!formData.Email || !formData.Username) { showToast('Vui lòng nhập đủ thông tin.', 'error'); return; }
+        if (!formData.Email || !formData.Username) { showToast('Vui lòng nhập đủ thông tin (Email, Tên đăng nhập).', 'error'); return; }
         
         if (!isEdit || (isEdit && user.Email !== formData.Email)) {
             if (allUsers.some(u => u.Email.toLowerCase() === formData.Email.toLowerCase())) {
@@ -118,12 +119,16 @@ const UserModal: React.FC<{
             <form onSubmit={handleSubmit} className="space-y-6">
                 <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
                     <div>
-                        <label className="block text-sm font-medium text-gray-700 mb-1">Email <span className="text-red-500">*</span></label>
+                        <label className="block text-sm font-medium text-gray-700 mb-1">Email (ID) <span className="text-red-500">*</span></label>
                         <input type="email" required value={formData.Email} onChange={e => setFormData({...formData, Email: e.target.value})} className={`${inputStyle} ${isEdit ? 'bg-gray-100 cursor-not-allowed' : ''}`} disabled={isEdit} />
                     </div>
                     <div>
-                        <label className="block text-sm font-medium text-gray-700 mb-1">Tên hiển thị <span className="text-red-500">*</span></label>
+                        <label className="block text-sm font-medium text-gray-700 mb-1">Tên đăng nhập (Username) <span className="text-red-500">*</span></label>
                         <input type="text" required value={formData.Username} onChange={e => setFormData({...formData, Username: e.target.value})} className={inputStyle} />
+                    </div>
+                    <div>
+                        <label className="block text-sm font-medium text-gray-700 mb-1">Tên hiển thị (Optional)</label>
+                        <input type="text" value={formData.DisplayName} onChange={e => setFormData({...formData, DisplayName: e.target.value})} className={inputStyle} placeholder="VD: Nguyễn Văn A" />
                     </div>
                     <div>
                         <label className="block text-sm font-medium text-gray-700 mb-1">Vai trò</label>
@@ -169,9 +174,29 @@ const UserModal: React.FC<{
 
 // --- Main Page ---
 
+// We need to use the Context here to access handleDeleteUsers
+// BUT UsersPage is rendered as a child component inside AppContext.Provider
+// So we can use useAuth to get it if we exposed it, or access context directly.
+// In App.tsx, we exposed `handleDeleteUsers`. Let's assume useAuth() returns it or we create a specific hook.
+// Since we updated AppContextType in App.tsx, we can update useAuth or create a new hook there.
+// For now, let's access AppContext via a new helper or modify the existing useAuth/useApp hooks.
+// Assuming useAuth() was updated or we cast the context.
+
+import { createContext } from 'react';
+// Re-importing AppContext type locally isn't clean but works for TS if not exported
+// A cleaner way is to use the AppContext from App.tsx if exported, or just use props.
+// However, App.tsx passes `setUsers`. It doesn't pass `handleDeleteUsers` as a prop in the routing switch.
+// FIX: I will use the `useAuth` hook and cast the return type or expect `handleDeleteUsers` to be available.
+// NOTE: I updated AppContextType in App.tsx XML above.
+
 const UsersPage: React.FC<UsersPageProps> = ({ users = [], setUsers, units = [], role }) => {
     const { showToast } = useNotification();
-    const { user: currentUser } = useAuth();
+    // In App.tsx changes, we added handleDeleteUsers to context. 
+    // We need to access it. Let's assume useAuth returns the context values or we access context directly.
+    // Since useAuth is defined in App.tsx, let's assume it returns `handleDeleteUsers`.
+    // If TypeScript complains, we might need to cast.
+    const { user: currentUser, handleDeleteUsers } = useAuth() as any; 
+    
     const isAdmin = role === 'Admin';
 
     // State
@@ -206,7 +231,6 @@ const UsersPage: React.FC<UsersPageProps> = ({ users = [], setUsers, units = [],
     // --- Core Logic Handlers (Dual Env) ---
 
     const persistData = async (newUsers: UserPermission[], actionSummary: string) => {
-        // 1. Optimistic Update (For UI)
         setUsers(newUsers, {
             module: 'System',
             action: 'UPDATE_USERS',
@@ -214,16 +238,12 @@ const UsersPage: React.FC<UsersPageProps> = ({ users = [], setUsers, units = [],
             before_snapshot: users
         });
 
-        // 2. Prod Sync (For DB)
         if (IS_PROD) {
             try {
                 await saveUsers(newUsers);
             } catch (error) {
                 showToast('Lỗi lưu dữ liệu vào hệ thống.', 'error');
-                // In a real app, we might revert state here
             }
-        } else {
-            console.log(`[DEV] Would save ${newUsers.length} users to DB.`);
         }
     };
 
@@ -255,8 +275,9 @@ const UsersPage: React.FC<UsersPageProps> = ({ users = [], setUsers, units = [],
         if (safeToDelete.length === 0) return;
 
         if (confirm(`Xác nhận xóa ${safeToDelete.length} người dùng?`)) {
-            const updatedList = users.filter(u => !selectedUsers.has(u.Email));
-            persistData(updatedList, `Xóa ${safeToDelete.length} người dùng.`);
+            // Use the context function provided by App.tsx which handles both local state update and DB delete
+            handleDeleteUsers(safeToDelete);
+            
             showToast(`Đã xóa ${safeToDelete.length} người dùng.`, 'success');
             setSelectedUsers(new Set());
         }
@@ -265,13 +286,8 @@ const UsersPage: React.FC<UsersPageProps> = ({ users = [], setUsers, units = [],
     const handleSyncUsers = () => {
         if (!isAdmin || isSyncLocked) return;
 
-        // Create a set of existing usernames (Unit IDs basically) for efficient lookup
         const existingUsernames = new Set(users.map(u => u.Username?.toLowerCase()));
-        
-        // Find units that don't have a corresponding user account
-        const missingUnits = units.filter(unit => 
-            !existingUsernames.has(unit.UnitID.toLowerCase())
-        );
+        const missingUnits = units.filter(unit => !existingUsernames.has(unit.UnitID.toLowerCase()));
 
         if (missingUnits.length === 0) {
             showToast('Dữ liệu đã đồng bộ. Tất cả căn hộ đều có tài khoản.', 'info');
@@ -283,6 +299,7 @@ const UsersPage: React.FC<UsersPageProps> = ({ users = [], setUsers, units = [],
             const newResidents: UserPermission[] = missingUnits.map(unit => ({
                 Email: `${unit.UnitID.toLowerCase()}@resident.q-home.vn`,
                 Username: unit.UnitID,
+                DisplayName: `Cư dân ${unit.UnitID}`, // Default Display Name
                 Role: 'Resident',
                 status: 'Active',
                 password: '123456',
@@ -306,8 +323,6 @@ const UsersPage: React.FC<UsersPageProps> = ({ users = [], setUsers, units = [],
         showToast('Đổi mật khẩu thành công.', 'success');
         setPasswordModalState({ isOpen: false, user: null });
     };
-
-    // --- UI Helpers ---
 
     const toggleSelectAll = () => {
         if (selectedUsers.size === filteredUsers.length) setSelectedUsers(new Set());
@@ -394,6 +409,7 @@ const UsersPage: React.FC<UsersPageProps> = ({ users = [], setUsers, units = [],
                                     <input type="checkbox" checked={selectedUsers.size === filteredUsers.length && filteredUsers.length > 0} onChange={toggleSelectAll} className="w-4 h-4 rounded text-primary focus:ring-primary" />
                                 </th>
                                 <th className="px-6 py-4 text-left text-xs font-bold text-gray-500 uppercase">Người dùng</th>
+                                <th className="px-6 py-4 text-left text-xs font-bold text-gray-500 uppercase">Tên hiển thị</th>
                                 <th className="px-6 py-4 text-left text-xs font-bold text-gray-500 uppercase">Vai trò</th>
                                 <th className="px-6 py-4 text-left text-xs font-bold text-gray-500 uppercase">Trạng thái</th>
                                 <th className="px-6 py-4 text-left text-xs font-bold text-gray-500 uppercase">Quyền hạn</th>
@@ -409,13 +425,16 @@ const UsersPage: React.FC<UsersPageProps> = ({ users = [], setUsers, units = [],
                                     <td className="px-6 py-4">
                                         <div className="flex items-center gap-3">
                                             <div className="w-10 h-10 rounded-full bg-gray-100 flex items-center justify-center text-gray-500 uppercase font-bold">
-                                                {user.Username?.charAt(0) || user.Email.charAt(0)}
+                                                {(user.DisplayName || user.Username || user.Email).charAt(0)}
                                             </div>
                                             <div>
                                                 <div className="font-bold text-gray-900">{user.Username}</div>
                                                 <div className="text-xs text-gray-500">{user.Email}</div>
                                             </div>
                                         </div>
+                                    </td>
+                                    <td className="px-6 py-4 text-sm text-gray-700 font-medium">
+                                        {user.DisplayName || '-'}
                                     </td>
                                     <td className="px-6 py-4">
                                         <span className={`px-2.5 py-0.5 rounded-full text-xs font-bold border ${

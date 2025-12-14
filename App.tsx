@@ -2,7 +2,7 @@
 import React, { useState, useEffect, useCallback, createContext, useMemo, useRef } from 'react';
 import type { Role, UserPermission, Unit, Owner, Vehicle, WaterReading, ChargeRaw, TariffService, TariffParking, TariffWater, Adjustment, InvoiceSettings, ActivityLog, VehicleTier, TariffCollection, AllData, NewsItem, FeedbackItem, FeedbackReply, MonthlyStat } from './types';
 import { patchKiosAreas, MOCK_NEWS_ITEMS, MOCK_FEEDBACK_ITEMS, MOCK_USER_PERMISSIONS } from './constants';
-import { updateFeeSettings, updateResidentData, saveChargesBatch, saveVehicles, saveWaterReadings, saveTariffs, saveUsers, saveAdjustments, importResidentsBatch, wipeAllBusinessData, resetUserPassword, logActivity } from './services';
+import { updateFeeSettings, updateResidentData, saveChargesBatch, saveVehicles, saveWaterReadings, saveTariffs, saveUsers, deleteUsers, saveAdjustments, importResidentsBatch, wipeAllBusinessData, resetUserPassword, logActivity } from './services';
 import { requestForToken, onMessageListener, db } from './firebaseConfig';
 import { collection, query, where, onSnapshot, orderBy, limit, getDocs } from 'firebase/firestore';
 import { useSmartSystemData } from './hooks/useSmartData';
@@ -73,7 +73,8 @@ interface AppContextType {
     showToast: (message: string, type: ToastType, duration?: number) => void;
     logAction: (payload: LogPayload) => void;
     logout: () => void;
-    updateUser: (updatedUser: UserPermission) => void;
+    updateUser: (updatedUser: UserPermission, oldEmail?: string) => void;
+    handleDeleteUsers: (emails: string[]) => void;
     invoiceSettings: InvoiceSettings;
     refreshData: () => void;
 }
@@ -152,9 +153,6 @@ const App: React.FC = () => {
             if (loadedMonthlyStats) setMonthlyStats(loadedMonthlyStats);
             
             // Sync Activity Logs (Initial Load Only)
-            // This prevents race conditions where a refreshSystemData() call (triggering a fetch)
-            // returns stale logs from the server (before a recent write is indexed), 
-            // overwriting our optimistic local state.
             if (loadedLogs && loadedLogs.length > 0 && isFirstLogSync.current) {
                 setActivityLogs(loadedLogs);
                 isFirstLogSync.current = false;
@@ -237,7 +235,6 @@ const App: React.FC = () => {
         }
     }, [currentUser, showToast]);
 
-    // Check notifications logic ... (No change)
     useEffect(() => {
         if (!currentUser) return;
         let hasUnpaidBill = false;
@@ -256,7 +253,6 @@ const App: React.FC = () => {
         setNotifications(prev => ({ unreadNews: unreadNewsCount, hasUnpaidBill, hasNewNotifications }));
     }, [currentUser, charges, news, notifications.hasNewNotifications]);
 
-    // --- User Management Logic ---
     useEffect(() => {
         if (currentUser?.Role === 'Resident' && smartHasLoaded) {
             const unit = units.find(u => u.UnitID === currentUser.residentId);
@@ -280,7 +276,8 @@ const App: React.FC = () => {
         if (currentUser) {
             const updatedUser = { ...currentUser, password: newPassword, mustChangePassword: false };
             setCurrentUser(updatedUser);
-            handleSetUsers(prev => prev.map(u => u.Email === updatedUser.Email ? updatedUser : u), { module: 'System', action: 'CHANGE_PASSWORD', summary: 'Đổi mật khẩu', before_snapshot: users });
+            // Self-update password uses handleUpdateUser
+            handleUpdateUser(updatedUser);
             setIsPasswordModalOpen(false);
             showToast('Mật khẩu đã được thay đổi thành công.', 'success');
         }
@@ -302,16 +299,57 @@ const App: React.FC = () => {
         setNotifications(prev => ({ ...prev, hasNewNotifications: false })); 
     }, []);
     
-    const handleUpdateUser = useCallback((updatedUser: UserPermission) => {
-        setUsers(prev => prev.map(u => (u.Email === updatedUser.Email) ? updatedUser : u));
-        if (currentUser && (currentUser.Email === updatedUser.Email)) setCurrentUser(updatedUser);
-    }, [currentUser]);
+    // --- UPDATED: User Management with Delete Support ---
+    
+    const handleDeleteUsers = useCallback(async (emails: string[]) => {
+        // Update Local State immediately
+        setUsers(prev => prev.filter(u => !emails.includes(u.Email)));
+        
+        try {
+            await deleteUsers(emails);
+            logAction({ module: 'System', action: 'DELETE_USERS', summary: `Deleted ${emails.length} users`, ids: emails, before_snapshot: null });
+            // showToast('Đã xóa người dùng thành công.', 'success'); // Toast handled in UsersPage usually
+        } catch(e) {
+            showToast('Lỗi xóa người dùng trên hệ thống.', 'error');
+        }
+    }, [showToast]);
+
+    const handleUpdateUser = useCallback(async (updatedUser: UserPermission, oldEmail?: string) => {
+        // Update Local State (Optimistic)
+        setUsers(prev => {
+            // Case 1: Email changed (renaming user ID)
+            if (oldEmail && oldEmail !== updatedUser.Email) {
+                // Remove old, add new (simulates renaming)
+                return prev.map(u => u.Email === oldEmail ? updatedUser : u);
+            }
+            // Case 2: Standard update
+            return prev.map(u => (u.Email === updatedUser.Email) ? updatedUser : u);
+        });
+
+        // Update Current User if applicable
+        if (currentUser && (currentUser.Email === (oldEmail || updatedUser.Email))) {
+            setCurrentUser(updatedUser);
+        }
+
+        // Persist to DB
+        try {
+            await saveUsers([updatedUser]);
+            
+            // If email changed, delete the old document
+            if (oldEmail && oldEmail !== updatedUser.Email) {
+                await deleteUsers([oldEmail]);
+            }
+            
+            showToast('Cập nhật hồ sơ thành công.', 'success');
+        } catch(e) {
+            showToast('Lỗi lưu thay đổi vào hệ thống.', 'error');
+        }
+    }, [currentUser, showToast]);
 
     // --- ACTIVITY LOG LOGIC ---
     const logAction = useCallback(async (payload: LogPayload) => {
         if (!currentUser) return;
         
-        // 1. Create complete Log Object
         const newLog: ActivityLog = {
             id: `log_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`,
             ts: new Date().toISOString(),
@@ -323,25 +361,20 @@ const App: React.FC = () => {
             ...payload
         };
 
-        // 2. Update Local State Immediately (Optimistic UI)
         setActivityLogs(prev => [newLog, ...prev]);
 
-        // 3. Persist to DB (Background - Fire and Forget)
         try {
             await logActivity(newLog);
         } catch (err) {
             console.error("Failed to save log", err);
         }
-        
-        // NOTE: We do NOT call refreshSystemData() here. 
-        // This keeps the action "light" and respects read quota.
     }, [currentUser]);
 
     const createDataHandler = <T,>(stateSetter: React.Dispatch<React.SetStateAction<T>>, saveFunction: (data: T) => Promise<any>) => useCallback(async (updater: React.SetStateAction<T>, logPayload?: LogPayload) => {
         stateSetter(prevState => {
             const newState = typeof updater === 'function' ? (updater as (prevState: T) => T)(prevState) : updater;
             saveFunction(newState).then(() => { 
-                if (logPayload) logAction(logPayload); // Use real logger
+                if (logPayload) logAction(logPayload);
                 showToast('Dữ liệu đã được lưu.', 'success'); 
             }).catch(error => { showToast('Lưu dữ liệu thất bại.', 'error'); stateSetter(prevState); });
             return newState;
@@ -424,8 +457,6 @@ const App: React.FC = () => {
     const handleSaveResident = useCallback(async (updatedData: { unit: Unit; owner: Owner; vehicles: Vehicle[] }, reason: string) => {
         try {
             await updateResidentData(units, owners, vehicles, updatedData);
-            
-            // Explicitly Log Here since updateResidentData is complex
             if (currentUser) {
                 logAction({
                     module: 'Residents',
@@ -435,7 +466,6 @@ const App: React.FC = () => {
                     before_snapshot: null
                 });
             }
-
             refreshSystemData(true); 
             showToast('Cập nhật thông tin cư dân thành công!', 'success');
         } catch (e: any) {
@@ -448,7 +478,6 @@ const App: React.FC = () => {
     const handleImportResidents = async (updates: any[]) => {
         try {
             const result = await importResidentsBatch(units, owners, vehicles, updates);
-            
             if (currentUser) {
                 logAction({
                     module: 'Residents',
@@ -458,7 +487,6 @@ const App: React.FC = () => {
                     before_snapshot: null
                 });
             }
-
             refreshSystemData(true);
             showToast('Nhập dữ liệu thành công!', 'success');
         } catch (e: any) {
@@ -499,9 +527,10 @@ const App: React.FC = () => {
     const contextValue = useMemo(() => ({ 
         currentUser, role: currentUser?.Role || null, 
         showToast, logAction, logout: handleLogout, 
-        updateUser: handleUpdateUser, invoiceSettings,
+        updateUser: handleUpdateUser, handleDeleteUsers, // Export handle Delete
+        invoiceSettings,
         refreshData: () => refreshSystemData(true)
-    }), [currentUser, showToast, logAction, handleLogout, handleUpdateUser, invoiceSettings, refreshSystemData]);
+    }), [currentUser, showToast, logAction, handleLogout, handleUpdateUser, handleDeleteUsers, invoiceSettings, refreshSystemData]);
     
     if (!smartHasLoaded && !currentUser) {
         return <div className="flex h-screen w-screen items-center justify-center"><Spinner /></div>;

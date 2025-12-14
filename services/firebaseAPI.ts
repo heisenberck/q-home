@@ -191,6 +191,14 @@ export const saveUsers = async (d: UserPermission[]) => {
     return batch.commit();
 };
 
+export const deleteUsers = async (emails: string[]) => {
+    if (emails.length === 0) return Promise.resolve();
+    const batch = writeBatch(db);
+    emails.forEach(email => batch.delete(doc(db, 'users', email)));
+    bumpVersion(batch, 'users_version');
+    return batch.commit();
+};
+
 export const saveTariffs = async (d: AllData['tariffs']) => {
     const batch = writeBatch(db);
     batch.set(doc(db, 'settings', 'tariffs'), d);
