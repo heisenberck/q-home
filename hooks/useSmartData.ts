@@ -46,11 +46,7 @@ export const useSmartSystemData = () => {
             // Mock Data Flow
             try {
                 const devData = await loadMockData();
-                setData(prev => ({ 
-                    ...prev, // Merge with defaults to prevent undefined keys
-                    ...devData, 
-                    hasLoaded: true 
-                }));
+                setData({ ...devData, hasLoaded: true });
             } catch (err: any) { setError(err.message); } finally { setLoading(false); }
             return;
         }
@@ -96,7 +92,7 @@ export const useSmartSystemData = () => {
             promises.push(firebaseAPI.fetchCollection<Adjustment>('adjustments')); 
             promises.push(firebaseAPI.fetchCollection<WaterReading>('waterReadings')); 
             
-            // UPDATED: Use fetchLatestLogs with limit 20
+            // UPDATED: Use fetchLatestLogs with limit 20 (reduced from 50) to respect quota and fit user request
             promises.push(firebaseAPI.fetchLatestLogs(20)); 
             
             promises.push(firebaseAPI.fetchCollection<MonthlyStat>('monthly_stats'));

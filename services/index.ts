@@ -10,7 +10,6 @@ const api = IS_PROD ? firebaseAPI : mockAPI;
 
 export const {
     loadAllData,
-    getResidentsPaged, // NEW
     updateFeeSettings,
     saveChargesBatch,
     updateChargeStatuses,
@@ -33,9 +32,9 @@ export const {
     resetUserPassword,
     logActivity,
     fetchLatestLogs,
-    createProfileRequest,
-    getPendingProfileRequest,
-    getAllPendingProfileRequests,
-    resolveProfileRequest,
-    updateResidentAvatar, 
+    createProfileRequest, // Exported
+    getPendingProfileRequest, // Exported
+    getAllPendingProfileRequests, // Exported
+    resolveProfileRequest, // Exported
+    updateResidentAvatar, // Exported
 } = api;
