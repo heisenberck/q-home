@@ -36,5 +36,4 @@ export const {
     getPendingProfileRequest, // Exported
     getAllPendingProfileRequests, // Exported
     resolveProfileRequest, // Exported
-    updateResidentAvatar, // Exported
 } = api;
