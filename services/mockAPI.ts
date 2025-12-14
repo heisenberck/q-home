@@ -1,6 +1,6 @@
 
 // services/mockAPI.ts
-import type { InvoiceSettings, Unit, Owner, Vehicle, WaterReading, ChargeRaw, Adjustment, UserPermission, ActivityLog, AllData, TariffCollection, PaymentStatus, MonthlyStat, SystemMetadata } from '../types';
+import type { InvoiceSettings, Unit, Owner, Vehicle, WaterReading, ChargeRaw, Adjustment, UserPermission, ActivityLog, AllData, TariffCollection, PaymentStatus, MonthlyStat, SystemMetadata, ProfileRequest } from '../types';
 import { MOCK_UNITS, MOCK_OWNERS, MOCK_VEHICLES, MOCK_WATER_READINGS, MOCK_TARIFFS_SERVICE, MOCK_TARIFFS_PARKING, MOCK_TARIFFS_WATER, MOCK_ADJUSTMENTS, MOCK_USER_PERMISSIONS, patchKiosAreas } from '../constants';
 import { UnitType, VehicleTier } from '../types';
 
@@ -12,6 +12,7 @@ let charges: ChargeRaw[] = [];
 let adjustments: Adjustment[] = JSON.parse(JSON.stringify(MOCK_ADJUSTMENTS));
 let users: UserPermission[] = JSON.parse(JSON.stringify(MOCK_USER_PERMISSIONS));
 let activityLogs: ActivityLog[] = [];
+let profileRequests: ProfileRequest[] = [];
 
 // Initialize some mock historical stats so the Dashboard chart looks good immediately
 let monthlyStats: MonthlyStat[] = [
@@ -330,5 +331,49 @@ export const resetUserPassword = async (email: string): Promise<void> => {
         ? { ...u, password: '123456', mustChangePassword: true } 
         : u
     );
+    return Promise.resolve();
+};
+
+export const getPendingProfileRequest = async (residentId: string): Promise<ProfileRequest | null> => {
+    const req = profileRequests.find(r => r.residentId === residentId && r.status === 'PENDING');
+    return Promise.resolve(req || null);
+};
+
+export const createProfileRequest = async (request: ProfileRequest) => {
+    profileRequests.push(request);
+    return Promise.resolve();
+};
+
+export const resolveProfileRequest = async (
+    request: ProfileRequest, 
+    action: 'approve' | 'reject', 
+    adminEmail: string
+) => {
+    const idx = profileRequests.findIndex(r => r.id === request.id);
+    if (idx > -1) {
+        profileRequests[idx].status = action === 'approve' ? 'APPROVED' : 'REJECTED';
+        profileRequests[idx].updatedAt = new Date().toISOString();
+        
+        if (action === 'approve') {
+            const changes = request.changes;
+            const unit = units.find(u => u.UnitID === request.residentId);
+            if (unit) {
+                const owner = owners.find(o => o.OwnerID === request.ownerId);
+                if (owner) {
+                    if (changes.OwnerName) owner.OwnerName = changes.OwnerName;
+                    if (changes.Phone) owner.Phone = changes.Phone;
+                    if (changes.Email) owner.Email = changes.Email;
+                    if (changes.title) owner.title = changes.title as any;
+                    if (changes.secondOwnerName) owner.secondOwnerName = changes.secondOwnerName;
+                    if (changes.secondOwnerPhone) owner.secondOwnerPhone = changes.secondOwnerPhone;
+                    if (changes.avatarUrl) owner.avatarUrl = changes.avatarUrl;
+                }
+
+                if (changes.UnitStatus) {
+                    unit.Status = changes.UnitStatus as any;
+                }
+            }
+        }
+    }
     return Promise.resolve();
 };

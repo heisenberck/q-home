@@ -68,6 +68,27 @@ export interface Owner {
     };
 }
 
+// NEW: Profile Request for Approval Workflow
+export interface ProfileRequest {
+    id: string;
+    residentId: string; // UnitID
+    ownerId: string;
+    status: 'PENDING' | 'APPROVED' | 'REJECTED';
+    changes: {
+        title?: string;
+        OwnerName?: string;
+        Phone?: string;
+        Email?: string;
+        secondOwnerName?: string;
+        secondOwnerPhone?: string;
+        // Apartment Status is special as it lives on Unit table
+        UnitStatus?: 'Owner' | 'Rent' | 'Business';
+        avatarUrl?: string;
+    };
+    createdAt: string; // ISO String
+    updatedAt: string; // ISO String
+}
+
 // NEW: Vehicle Document Interface
 export interface VehicleDocument {
     fileId: string;

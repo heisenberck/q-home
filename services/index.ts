@@ -19,7 +19,7 @@ export const {
     updateResidentData,
     wipeAllBusinessData,
     saveUsers,
-    deleteUsers, // Exported
+    deleteUsers,
     saveTariffs,
     saveAdjustments,
     saveWaterReadings,
@@ -30,6 +30,9 @@ export const {
     getBillingLockStatus,
     setBillingLockStatus,
     resetUserPassword,
-    logActivity, // Exported
-    fetchLatestLogs, // Exported
+    logActivity,
+    fetchLatestLogs,
+    createProfileRequest, // Exported
+    getPendingProfileRequest, // Exported
+    resolveProfileRequest, // Exported
 } = api;

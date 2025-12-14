@@ -1,8 +1,8 @@
 
 // services/firebaseAPI.ts
-import { doc, getDoc, setDoc, collection, getDocs, writeBatch, query, deleteDoc, updateDoc, limit, orderBy } from 'firebase/firestore';
+import { doc, getDoc, setDoc, collection, getDocs, writeBatch, query, deleteDoc, updateDoc, limit, orderBy, where } from 'firebase/firestore';
 import { db } from '../firebaseConfig';
-import type { InvoiceSettings, Unit, Owner, Vehicle, WaterReading, ChargeRaw, Adjustment, UserPermission, ActivityLog, AllData, PaymentStatus, MonthlyStat, SystemMetadata } from '../types';
+import type { InvoiceSettings, Unit, Owner, Vehicle, WaterReading, ChargeRaw, Adjustment, UserPermission, ActivityLog, AllData, PaymentStatus, MonthlyStat, SystemMetadata, ProfileRequest } from '../types';
 import { VehicleTier } from '../types';
 import { MOCK_TARIFFS_SERVICE, MOCK_TARIFFS_PARKING, MOCK_TARIFFS_WATER, MOCK_USER_PERMISSIONS } from '../constants';
 
@@ -54,6 +54,89 @@ export const fetchLatestLogs = async (limitCount: number = 20): Promise<Activity
         console.warn("Failed to fetch logs (possibly missing index). Returning empty.", e);
         return [];
     }
+};
+
+// --- PROFILE REQUEST OPERATIONS (APPROVAL WORKFLOW) ---
+
+export const getPendingProfileRequest = async (residentId: string): Promise<ProfileRequest | null> => {
+    try {
+        const q = query(
+            collection(db, 'profileRequests'),
+            where('residentId', '==', residentId),
+            where('status', '==', 'PENDING'),
+            limit(1)
+        );
+        const snap = await getDocs(q);
+        if (!snap.empty) {
+            return snap.docs[0].data() as ProfileRequest;
+        }
+        return null;
+    } catch (e) {
+        console.error("Error checking pending requests", e);
+        return null;
+    }
+};
+
+export const createProfileRequest = async (request: ProfileRequest) => {
+    await setDoc(doc(db, 'profileRequests', request.id), request);
+};
+
+export const resolveProfileRequest = async (
+    request: ProfileRequest, 
+    action: 'approve' | 'reject', 
+    adminEmail: string
+) => {
+    const batch = writeBatch(db);
+    const reqRef = doc(db, 'profileRequests', request.id);
+
+    // 1. Update Request Status
+    batch.update(reqRef, { 
+        status: action === 'approve' ? 'APPROVED' : 'REJECTED',
+        updatedAt: new Date().toISOString()
+    });
+
+    // 2. If Approved, Apply Changes
+    if (action === 'approve') {
+        const changes = request.changes;
+        
+        // Update Owner Data
+        const ownerUpdates: any = {};
+        if (changes.OwnerName) ownerUpdates.OwnerName = changes.OwnerName;
+        if (changes.Phone) ownerUpdates.Phone = changes.Phone;
+        if (changes.Email) ownerUpdates.Email = changes.Email;
+        if (changes.title) ownerUpdates.title = changes.title;
+        if (changes.secondOwnerName) ownerUpdates.secondOwnerName = changes.secondOwnerName;
+        if (changes.secondOwnerPhone) ownerUpdates.secondOwnerPhone = changes.secondOwnerPhone;
+        if (changes.avatarUrl) ownerUpdates.avatarUrl = changes.avatarUrl;
+
+        if (Object.keys(ownerUpdates).length > 0) {
+            batch.update(doc(db, 'owners', request.ownerId), ownerUpdates);
+            bumpVersion(batch, 'owners_version');
+        }
+
+        // Update Unit Status (if changed)
+        if (changes.UnitStatus) {
+            batch.update(doc(db, 'units', request.residentId), { Status: changes.UnitStatus });
+            bumpVersion(batch, 'units_version');
+        }
+
+        // Log Activity
+        const logId = `log_${Date.now()}`;
+        batch.set(doc(db, 'activityLogs', logId), {
+            id: logId,
+            ts: new Date().toISOString(),
+            actor_email: adminEmail,
+            actor_role: 'Admin',
+            module: 'Residents',
+            action: 'APPROVE_PROFILE_UPDATE',
+            summary: `Duyệt yêu cầu cập nhật cho căn ${request.residentId}`,
+            undone: false,
+            ids: [request.residentId],
+            before_snapshot: null
+        } as ActivityLog);
+    }
+
+    await batch.commit();
 };
 
 // --- WRITE OPERATIONS ---
@@ -161,7 +244,7 @@ export const updateResidentData = async (
 };
 
 export const wipeAllBusinessData = async (progress: (msg: string) => void) => {
-    const collections = ['charges', 'waterReadings', 'vehicles', 'adjustments', 'owners', 'units', 'activityLogs', 'monthly_stats', 'billing_locks', 'water_locks'];
+    const collections = ['charges', 'waterReadings', 'vehicles', 'adjustments', 'owners', 'units', 'activityLogs', 'monthly_stats', 'billing_locks', 'water_locks', 'profileRequests'];
     for (const name of collections) {
         progress(`Querying ${name}...`);
         const snapshot = await getDocs(collection(db, name));
