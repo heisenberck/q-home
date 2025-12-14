@@ -1,6 +1,6 @@
 
 import React, { useState, useMemo, useRef, useCallback, useEffect } from 'react';
-import type { Unit, Owner, Vehicle, Role, UserPermission, VehicleDocument, ActivityLog } from '../../types';
+import type { Unit, Owner, Vehicle, Role, UserPermission, VehicleDocument, ActivityLog, ProfileRequest } from '../../types';
 import { UnitType, VehicleTier } from '../../types';
 import { useNotification } from '../../App';
 import Modal from '../ui/Modal';
@@ -12,11 +12,14 @@ import {
     MotorbikeIcon, BikeIcon, PhoneArrowUpRightIcon, EnvelopeIcon, UserCircleIcon, ClipboardIcon,
     PrinterIcon, HomeIcon, WarningIcon, ClipboardDocumentListIcon, ChevronUpIcon, ChevronLeftIcon, ChevronRightIcon, EBikeIcon, EyeIcon, DocumentPlusIcon,
     PaperclipIcon, XMarkIcon, ClockIcon,
-    DocumentArrowDownIcon
+    DocumentArrowDownIcon,
+    CheckCircleIcon
 } from '../ui/Icons';
 import { normalizePhoneNumber, formatLicensePlate, vehicleTypeLabels, translateVehicleType, sortUnitsComparator, compressImageToWebP, parseUnitCode, getPastelColorForName, timeAgo } from '../../utils/helpers';
 import { mapExcelHeaders } from '../../utils/importHelpers';
 import { loadScript } from '../../utils/scriptLoader';
+import { getAllPendingProfileRequests, resolveProfileRequest } from '../../services/index'; // Import backend services
+import { isProduction } from '../../utils/env';
 
 // Declare external libraries
 declare const jspdf: any;
@@ -116,6 +119,7 @@ type ResidentData = {
     unit: Unit;
     owner: Owner;
     vehicles: Vehicle[];
+    pendingRequest?: ProfileRequest; // Added Pending Request field
 };
 
 interface ResidentsPageProps {
@@ -132,6 +136,122 @@ interface ResidentsPageProps {
 
 type VehicleErrors = {
     plateNumber?: string;
+};
+
+// --- NEW COMPONENT: Profile Change Review ---
+const ProfileChangeReview: React.FC<{
+    currentData: ResidentData;
+    request: ProfileRequest;
+    onApprove: (selectedChanges: Partial<ProfileRequest['changes']>) => void;
+    onReject: () => void;
+}> = ({ currentData, request, onApprove, onReject }) => {
+    // Map changes to displayable fields
+    const displayMap: Record<keyof ProfileRequest['changes'], string> = {
+        title: 'Danh xưng',
+        OwnerName: 'Tên chủ hộ',
+        Phone: 'Số điện thoại',
+        Email: 'Email',
+        secondOwnerName: 'Vợ/Chồng',
+        secondOwnerPhone: 'SĐT Vợ/Chồng',
+        UnitStatus: 'Trạng thái căn hộ',
+        avatarUrl: 'Ảnh đại diện'
+    };
+
+    // State for checked items
+    const [selectedFields, setSelectedFields] = useState<Set<string>>(new Set(Object.keys(request.changes)));
+
+    const handleToggle = (key: string) => {
+        const next = new Set(selectedFields);
+        if (next.has(key)) next.delete(key);
+        else next.add(key);
+        setSelectedFields(next);
+    };
+
+    const handleSelectAll = (e: React.ChangeEvent<HTMLInputElement>) => {
+        if (e.target.checked) setSelectedFields(new Set(Object.keys(request.changes)));
+        else setSelectedFields(new Set());
+    };
+
+    const handleApprove = () => {
+        if (selectedFields.size === 0) return;
+        const changesToApprove: Partial<ProfileRequest['changes']> = {};
+        Object.keys(request.changes).forEach(key => {
+            if (selectedFields.has(key)) {
+                // @ts-ignore
+                changesToApprove[key] = request.changes[key];
+            }
+        });
+        onApprove(changesToApprove);
+    };
+
+    // Helper to get current value
+    const getCurrentValue = (key: string) => {
+        if (key === 'UnitStatus') return currentData.unit.Status;
+        if (key === 'avatarUrl') return currentData.owner.avatarUrl ? 'Có ảnh cũ' : 'Không có';
+        // @ts-ignore
+        return currentData.owner[key] || '(Trống)';
+    };
+
+    return (
+        <div className="bg-orange-50 border border-orange-200 rounded-lg p-4 mb-6">
+            <div className="flex justify-between items-center mb-3">
+                <h3 className="font-bold text-orange-800 flex items-center gap-2">
+                    <WarningIcon className="w-5 h-5"/> Yêu cầu cập nhật từ Cư dân
+                </h3>
+                <span className="text-xs text-orange-600 italic">Gửi lúc: {new Date(request.createdAt).toLocaleString()}</span>
+            </div>
+
+            <table className="w-full text-sm bg-white border border-gray-200 rounded-lg overflow-hidden">
+                <thead className="bg-gray-100 border-b border-gray-200">
+                    <tr>
+                        <th className="p-2 w-10 text-center"><input type="checkbox" checked={selectedFields.size === Object.keys(request.changes).length} onChange={handleSelectAll} className="w-4 h-4 rounded text-orange-600 focus:ring-orange-500" /></th>
+                        <th className="p-2 text-left font-semibold text-gray-700">Trường thông tin</th>
+                        <th className="p-2 text-left font-semibold text-gray-500">Giá trị hiện tại</th>
+                        <th className="p-2 text-left font-semibold text-gray-700">Giá trị mới (Yêu cầu)</th>
+                    </tr>
+                </thead>
+                <tbody className="divide-y divide-gray-100">
+                    {Object.entries(request.changes).map(([key, newValue]) => {
+                        const label = displayMap[key as keyof ProfileRequest['changes']] || key;
+                        return (
+                            <tr key={key} className={selectedFields.has(key) ? 'bg-orange-50/50' : ''}>
+                                <td className="p-2 text-center">
+                                    <input 
+                                        type="checkbox" 
+                                        checked={selectedFields.has(key)} 
+                                        onChange={() => handleToggle(key)} 
+                                        className="w-4 h-4 rounded text-orange-600 focus:ring-orange-500"
+                                    />
+                                </td>
+                                <td className="p-2 font-medium text-gray-700">{label}</td>
+                                <td className="p-2 text-gray-500 line-through">{getCurrentValue(key)}</td>
+                                <td className="p-2 text-green-700 font-bold break-all select-all selection:bg-orange-200">
+                                    {key === 'avatarUrl' ? <img src={newValue as string} alt="New Avatar" className="w-8 h-8 rounded-full object-cover border"/> : String(newValue)}
+                                </td>
+                            </tr>
+                        );
+                    })}
+                </tbody>
+            </table>
+
+            <div className="flex justify-end gap-3 mt-4">
+                <button 
+                    onClick={onReject}
+                    className="px-4 py-2 bg-white border border-red-300 text-red-600 font-semibold rounded-lg hover:bg-red-50 text-sm shadow-sm"
+                >
+                    Từ chối yêu cầu
+                </button>
+                <button 
+                    onClick={handleApprove}
+                    disabled={selectedFields.size === 0}
+                    className="px-4 py-2 bg-green-600 text-white font-semibold rounded-lg hover:bg-green-700 text-sm shadow-sm disabled:opacity-50 flex items-center gap-2"
+                >
+                    <CheckCircleIcon className="w-4 h-4" />
+                    Phê duyệt {selectedFields.size} mục đã chọn
+                </button>
+            </div>
+        </div>
+    );
 };
 
 const DocumentPreviewModal: React.FC<{
@@ -165,7 +285,8 @@ const ResidentDetailModal: React.FC<{
     resident: ResidentData;
     onClose: () => void;
     onSave: (updatedData: { unit: Unit, owner: Owner, vehicles: Vehicle[] }, reason: string) => Promise<void>;
-}> = ({ resident, onClose, onSave }) => {
+    onResolveRequest: (req: ProfileRequest, action: 'approve' | 'reject', changes?: any) => void;
+}> = ({ resident, onClose, onSave, onResolveRequest }) => {
     const { showToast } = useNotification();
     
     // Form Data State
@@ -372,6 +493,16 @@ const ResidentDetailModal: React.FC<{
             {isUploadModalOpen && <UploadFileModal onConfirm={handleConfirmUploadOtherFile} onCancel={() => setIsUploadModalOpen(false)} />}
 
             <form onSubmit={handleSubmit} className="flex flex-col h-[70vh]">
+                {/* INJECT PROFILE REVIEW HERE */}
+                {resident.pendingRequest && (
+                    <ProfileChangeReview 
+                        currentData={resident} 
+                        request={resident.pendingRequest} 
+                        onApprove={(changes) => onResolveRequest(resident.pendingRequest!, 'approve', changes)}
+                        onReject={() => onResolveRequest(resident.pendingRequest!, 'reject')}
+                    />
+                )}
+
                 {/* Sticky Header Tabs */}
                 <div className="flex border-b mb-4 sticky top-0 bg-white z-10 pt-1">
                     <TabButton tabId="info" label="Thông tin chung" icon={<UserIcon className="w-4 h-4" />} />
@@ -671,9 +802,10 @@ const ResidentDetailPanel: React.FC<{
     );
 };
 
-const ResidentsPage: React.FC<ResidentsPageProps> = ({ units = [], owners = [], vehicles = [], activityLogs = [], onSaveResident, onImportData, onDeleteResidents, role }) => {
+const ResidentsPage: React.FC<ResidentsPageProps> = ({ units = [], owners = [], vehicles = [], activityLogs = [], onSaveResident, onImportData, onDeleteResidents, role, currentUser }) => {
     const { showToast } = useNotification();
     const canManage = ['Admin', 'Accountant', 'Operator'].includes(role);
+    const IS_PROD = isProduction();
     
     const [searchTerm, setSearchTerm] = useState('');
     const [statusFilter, setStatusFilter] = useState<'all' | 'Owner' | 'Rent' | 'Business'>('all');
@@ -683,14 +815,43 @@ const ResidentsPage: React.FC<ResidentsPageProps> = ({ units = [], owners = [], 
     const [selectedResident, setSelectedResident] = useState<ResidentData | null>(null);
     const [previewDoc, setPreviewDoc] = useState<VehicleDocument | null>(null);
 
+    // State for Pending Requests (Red Dot Logic)
+    const [pendingRequests, setPendingRequests] = useState<ProfileRequest[]>([]);
+
     useEffect(() => { setSelectedResident(null); }, [searchTerm, statusFilter, floorFilter]);
     
+    // Fetch pending requests on load (for Admin List View)
+    const fetchPendingRequests = useCallback(async () => {
+        if (!IS_PROD) return;
+        const reqs = await getAllPendingProfileRequests();
+        setPendingRequests(reqs);
+    }, [IS_PROD]);
+
+    useEffect(() => {
+        fetchPendingRequests();
+    }, [fetchPendingRequests]);
+
     const residentsData = useMemo(() => {
         const ownersMap = new Map(owners.map(o => [o.OwnerID, o]));
         const vehiclesMap = new Map<string, Vehicle[]>();
         vehicles.forEach(v => { if (!vehiclesMap.has(v.UnitID)) vehiclesMap.set(v.UnitID, []); vehiclesMap.get(v.UnitID)!.push(v); });
-        return units.map(unit => ({ unit, owner: ownersMap.get(unit.OwnerID)!, vehicles: vehiclesMap.get(unit.UnitID) || [], })).sort((a,b) => sortUnitsComparator(a.unit, b.unit));
-    }, [units, owners, vehicles]);
+        
+        // Map Pending Requests to Residents
+        const requestsMap = new Map<string, ProfileRequest>();
+        pendingRequests.forEach(req => requestsMap.set(req.residentId, req));
+
+        return units.map(unit => ({ 
+            unit, 
+            owner: ownersMap.get(unit.OwnerID)!, 
+            vehicles: vehiclesMap.get(unit.UnitID) || [], 
+            pendingRequest: requestsMap.get(unit.UnitID) // Add Pending Request if exists
+        })).sort((a,b) => {
+            // Sort by Pending Request first
+            if (a.pendingRequest && !b.pendingRequest) return -1;
+            if (!a.pendingRequest && b.pendingRequest) return 1;
+            return sortUnitsComparator(a.unit, b.unit);
+        });
+    }, [units, owners, vehicles, pendingRequests]);
 
     const filteredResidents = useMemo(() => {
         return residentsData.filter(r => {
@@ -720,9 +881,38 @@ const ResidentsPage: React.FC<ResidentsPageProps> = ({ units = [], owners = [], 
         navigator.clipboard.writeText(content).then(()=>showToast(`Đã sao chép ${label}`,'success')).catch((e: any)=>showToast(`Lỗi sao chép: ${e?.message || 'Unknown error'}`,'error'))
     };
 
+    // --- NEW: Approval Logic Handler ---
+    const handleResolveRequest = async (req: ProfileRequest, action: 'approve' | 'reject', changes?: any) => {
+        try {
+            await resolveProfileRequest(req, action, currentUser.Email, changes);
+            showToast(action === 'approve' ? 'Đã phê duyệt yêu cầu.' : 'Đã từ chối yêu cầu.', 'success');
+            
+            // Refresh Pending Requests List
+            fetchPendingRequests();
+            
+            // Close Modal
+            handleCloseModal();
+            
+            // Note: Data Refresh (Residents) might happen automatically if using useSmartData hook or needs manual trigger
+            // Assuming onSaveResident triggers a refresh or we can call a refresh function passed via props if available.
+            // For now, the user might need to reload or wait for next sync if not tied to `onSaveResident`.
+            // Ideally, pass `refreshSystemData` to this page.
+        } catch (error) {
+            console.error(error);
+            showToast('Lỗi xử lý yêu cầu.', 'error');
+        }
+    };
+
     return (
         <div className="flex gap-6 h-full overflow-hidden">
-            {modalState.type === 'edit' && modalState.data && <ResidentDetailModal resident={modalState.data} onClose={handleCloseModal} onSave={handleSaveResident} />}
+            {modalState.type === 'edit' && modalState.data && (
+                <ResidentDetailModal 
+                    resident={modalState.data} 
+                    onClose={handleCloseModal} 
+                    onSave={handleSaveResident} 
+                    onResolveRequest={handleResolveRequest}
+                />
+            )}
             {modalState.type === 'import' && <DataImportModal onClose={handleCloseModal} onImport={onImportData} />}
             {previewDoc && <DocumentPreviewModal doc={previewDoc} onClose={() => setPreviewDoc(null)} />}
             
@@ -753,11 +943,17 @@ const ResidentsPage: React.FC<ResidentsPageProps> = ({ units = [], owners = [], 
                             <tbody className="divide-y divide-gray-100">
                                 {filteredResidents.map(r => {
                                     const activeVehicles=r.vehicles.filter(v=>v.isActive); const carCount=activeVehicles.filter(v=>v.Type==='car'||v.Type==='car_a').length; const motorbikeCount=activeVehicles.filter(v=>v.Type==='motorbike'||v.Type==='ebike').length; const bicycleCount=activeVehicles.filter(v=>v.Type==='bicycle').length;
+                                    const hasPending = !!r.pendingRequest;
+
                                     return (
                                         <tr key={r.unit.UnitID} onClick={()=>handleSelectResident(r)} className={`cursor-pointer transition-colors ${selectedResident?.unit.UnitID===r.unit.UnitID?'bg-blue-50':'hover:bg-gray-50'}`}>
                                             <td className="font-bold px-4 py-3 text-sm text-gray-900">{r.unit.UnitID}</td>
                                             <td className="px-4 py-3 text-sm text-gray-600 font-mono">{r.unit.Area_m2} m²</td>
-                                            <td className="px-4 py-3 text-sm font-medium text-gray-800">{r.owner.OwnerName}</td>
+                                            <td className="px-4 py-3 text-sm font-medium text-gray-800 flex items-center gap-2">
+                                                {/* RED DOT LOGIC */}
+                                                {hasPending && <span className="w-2.5 h-2.5 bg-red-600 rounded-full animate-pulse" title="Có yêu cầu cập nhật hồ sơ"></span>}
+                                                {r.owner.OwnerName}
+                                            </td>
                                             <td className="px-4 py-3 text-sm text-gray-600 font-mono">{r.owner.Phone}</td>
                                             <td className="text-center px-4 py-3"><StatusBadge status={r.unit.Status} /></td>
                                             <td className="px-4 py-3 text-sm text-center">
@@ -769,7 +965,14 @@ const ResidentsPage: React.FC<ResidentsPageProps> = ({ units = [], owners = [], 
                                             </td>
                                             <td className="px-4 py-3">
                                                 <div className="flex justify-center items-center gap-2">
-                                                    <button onClick={(e)=>handleOpenEditModal(e,r)} className="p-2 rounded-full text-gray-400 hover:text-blue-600 hover:bg-blue-50 disabled:opacity-30" disabled={!canManage} data-tooltip="Sửa"><PencilSquareIcon className="w-5 h-5"/></button>
+                                                    <button 
+                                                        onClick={(e)=>handleOpenEditModal(e,r)} 
+                                                        className={`p-2 rounded-full hover:bg-blue-50 disabled:opacity-30 ${hasPending ? 'text-orange-500 hover:text-orange-600 bg-orange-50' : 'text-gray-400 hover:text-blue-600'}`} 
+                                                        disabled={!canManage} 
+                                                        data-tooltip={hasPending ? "Duyệt yêu cầu cập nhật" : "Sửa hồ sơ"}
+                                                    >
+                                                        <PencilSquareIcon className="w-5 h-5"/>
+                                                    </button>
                                                 </div>
                                             </td>
                                         </tr>

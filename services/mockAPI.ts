@@ -339,6 +339,10 @@ export const getPendingProfileRequest = async (residentId: string): Promise<Prof
     return Promise.resolve(req || null);
 };
 
+export const getAllPendingProfileRequests = async (): Promise<ProfileRequest[]> => {
+    return Promise.resolve(profileRequests.filter(r => r.status === 'PENDING'));
+};
+
 export const createProfileRequest = async (request: ProfileRequest) => {
     profileRequests.push(request);
     return Promise.resolve();
@@ -347,7 +351,8 @@ export const createProfileRequest = async (request: ProfileRequest) => {
 export const resolveProfileRequest = async (
     request: ProfileRequest, 
     action: 'approve' | 'reject', 
-    adminEmail: string
+    adminEmail: string,
+    approvedChanges?: Partial<ProfileRequest['changes']>
 ) => {
     const idx = profileRequests.findIndex(r => r.id === request.id);
     if (idx > -1) {
@@ -355,8 +360,22 @@ export const resolveProfileRequest = async (
         profileRequests[idx].updatedAt = new Date().toISOString();
         
         if (action === 'approve') {
-            const changes = request.changes;
+            const changes = approvedChanges || request.changes;
             const unit = units.find(u => u.UnitID === request.residentId);
+            
+            // Email Sync Logic Mock
+            if (changes.Email) {
+                const owner = owners.find(o => o.OwnerID === request.ownerId);
+                const oldEmail = owner?.Email;
+                if (oldEmail && oldEmail !== changes.Email) {
+                    const userIdx = users.findIndex(u => u.Email === oldEmail);
+                    if (userIdx > -1) {
+                        // Rename User (Simulate Create/Delete)
+                        users[userIdx] = { ...users[userIdx], Email: changes.Email! };
+                    }
+                }
+            }
+
             if (unit) {
                 const owner = owners.find(o => o.OwnerID === request.ownerId);
                 if (owner) {

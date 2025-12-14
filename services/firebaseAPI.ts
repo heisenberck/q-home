@@ -77,6 +77,21 @@ export const getPendingProfileRequest = async (residentId: string): Promise<Prof
     }
 };
 
+// NEW: Fetch all pending requests for Admin View
+export const getAllPendingProfileRequests = async (): Promise<ProfileRequest[]> => {
+    try {
+        const q = query(
+            collection(db, 'profileRequests'),
+            where('status', '==', 'PENDING')
+        );
+        const snap = await getDocs(q);
+        return snap.docs.map(d => d.data() as ProfileRequest);
+    } catch (e) {
+        console.error("Error fetching all pending requests", e);
+        return [];
+    }
+};
+
 export const createProfileRequest = async (request: ProfileRequest) => {
     await setDoc(doc(db, 'profileRequests', request.id), request);
 };
@@ -84,7 +99,8 @@ export const createProfileRequest = async (request: ProfileRequest) => {
 export const resolveProfileRequest = async (
     request: ProfileRequest, 
     action: 'approve' | 'reject', 
-    adminEmail: string
+    adminEmail: string,
+    approvedChanges?: Partial<ProfileRequest['changes']> // NEW: Allow selective approval
 ) => {
     const batch = writeBatch(db);
     const reqRef = doc(db, 'profileRequests', request.id);
@@ -97,17 +113,18 @@ export const resolveProfileRequest = async (
 
     // 2. If Approved, Apply Changes
     if (action === 'approve') {
-        const changes = request.changes;
+        // Use approvedChanges if provided (partial approval), otherwise use all request changes
+        const changesToApply = approvedChanges || request.changes;
         
         // Update Owner Data
         const ownerUpdates: any = {};
-        if (changes.OwnerName) ownerUpdates.OwnerName = changes.OwnerName;
-        if (changes.Phone) ownerUpdates.Phone = changes.Phone;
-        if (changes.Email) ownerUpdates.Email = changes.Email;
-        if (changes.title) ownerUpdates.title = changes.title;
-        if (changes.secondOwnerName) ownerUpdates.secondOwnerName = changes.secondOwnerName;
-        if (changes.secondOwnerPhone) ownerUpdates.secondOwnerPhone = changes.secondOwnerPhone;
-        if (changes.avatarUrl) ownerUpdates.avatarUrl = changes.avatarUrl;
+        if (changesToApply.OwnerName) ownerUpdates.OwnerName = changesToApply.OwnerName;
+        if (changesToApply.Phone) ownerUpdates.Phone = changesToApply.Phone;
+        if (changesToApply.Email) ownerUpdates.Email = changesToApply.Email;
+        if (changesToApply.title) ownerUpdates.title = changesToApply.title;
+        if (changesToApply.secondOwnerName) ownerUpdates.secondOwnerName = changesToApply.secondOwnerName;
+        if (changesToApply.secondOwnerPhone) ownerUpdates.secondOwnerPhone = changesToApply.secondOwnerPhone;
+        if (changesToApply.avatarUrl) ownerUpdates.avatarUrl = changesToApply.avatarUrl;
 
         if (Object.keys(ownerUpdates).length > 0) {
             batch.update(doc(db, 'owners', request.ownerId), ownerUpdates);
@@ -115,9 +132,52 @@ export const resolveProfileRequest = async (
         }
 
         // Update Unit Status (if changed)
-        if (changes.UnitStatus) {
-            batch.update(doc(db, 'units', request.residentId), { Status: changes.UnitStatus });
+        if (changesToApply.UnitStatus) {
+            batch.update(doc(db, 'units', request.residentId), { Status: changesToApply.UnitStatus });
             bumpVersion(batch, 'units_version');
+        }
+
+        // --- CRITICAL: SYNC USER TABLE IF EMAIL CHANGED ---
+        // If Email is changed, we must update the 'users' collection used for Login.
+        // Since Email is the Doc ID in 'users', we must Create New + Delete Old.
+        if (changesToApply.Email) {
+            // Find current user doc (we assume the current Owner Email was the ID)
+            // Note: We need to know the OLD email. We can get it from the 'owners' table snapshot or assume
+            // the system integrity holds. Best effort: Query users by residentId or try the old email from the request if we had it.
+            // For now, we will try to fetch the existing Owner to get the OLD email.
+            
+            // NOTE: In a transaction/batch, we can't read-then-write easily without 'runTransaction'.
+            // For simplicity in this batch function, we assume we can query separately or the caller handles the read.
+            // However, since we are inside a batch function here, let's do a read before the batch commit? No, must use runTransaction for that.
+            // To stick to the current pattern, we will fetch the CURRENT owner data first.
+            
+            const ownerSnap = await getDoc(doc(db, 'owners', request.ownerId));
+            if (ownerSnap.exists()) {
+                const currentOwnerData = ownerSnap.data() as Owner;
+                const oldEmail = currentOwnerData.Email;
+                const newEmail = changesToApply.Email;
+
+                if (oldEmail && oldEmail !== newEmail) {
+                    const oldUserRef = doc(db, 'users', oldEmail);
+                    const oldUserSnap = await getDoc(oldUserRef);
+                    
+                    if (oldUserSnap.exists()) {
+                        const oldUserData = oldUserSnap.data() as UserPermission;
+                        
+                        // Create NEW User Doc
+                        const newUserRef = doc(db, 'users', newEmail);
+                        batch.set(newUserRef, {
+                            ...oldUserData,
+                            Email: newEmail,
+                            // Maintain password/role etc.
+                        });
+
+                        // Delete OLD User Doc
+                        batch.delete(oldUserRef);
+                        bumpVersion(batch, 'users_version');
+                    }
+                }
+            }
         }
 
         // Log Activity
@@ -134,6 +194,28 @@ export const resolveProfileRequest = async (
             ids: [request.residentId],
             before_snapshot: null
         } as ActivityLog);
+        
+        // Send Notification to Resident
+        const notifRef = doc(collection(db, 'notifications'));
+        batch.set(notifRef, {
+            type: 'system',
+            title: 'Hồ sơ đã cập nhật',
+            body: 'BQL đã duyệt yêu cầu thay đổi thông tin của bạn.',
+            userId: request.residentId, // Assuming notification system maps UnitID -> User
+            isRead: false,
+            createdAt: new Date().toISOString()
+        });
+    } else {
+        // If Rejected
+        const notifRef = doc(collection(db, 'notifications'));
+        batch.set(notifRef, {
+            type: 'system',
+            title: 'Yêu cầu bị từ chối',
+            body: 'BQL đã từ chối yêu cầu thay đổi thông tin của bạn. Vui lòng liên hệ để biết thêm chi tiết.',
+            userId: request.residentId,
+            isRead: false,
+            createdAt: new Date().toISOString()
+        });
     }
 
     await batch.commit();

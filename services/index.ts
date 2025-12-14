@@ -34,5 +34,6 @@ export const {
     fetchLatestLogs,
     createProfileRequest, // Exported
     getPendingProfileRequest, // Exported
+    getAllPendingProfileRequests, // Exported
     resolveProfileRequest, // Exported
 } = api;
