@@ -171,6 +171,7 @@ export const wipeAllBusinessData = async (progressCallback: (message: string) =>
 };
 
 export const saveUsers = async (newUsers: UserPermission[]) => {
+    // Merge new users with existing, matching by Username
     newUsers.forEach(newUser => {
         const idx = users.findIndex(u => u.Username === newUser.Username);
         if (idx > -1) {

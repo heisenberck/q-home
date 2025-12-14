@@ -147,26 +147,29 @@ export const getResidentsPaged = async (
 
 // --- PROFILE OPERATIONS ---
 
-// 1. DIRECT AVATAR UPDATE (Logic Fix: Find User by Unit relation, not just email)
+// TASK B: DIRECT AVATAR UPDATE (Bypass Request, Sync via UnitID)
 export const updateResidentAvatar = async (ownerId: string, avatarUrl: string): Promise<void> => {
     const batch = writeBatch(db);
     
-    // A. Update Owner Table (Always)
+    // 1. Update Owner Record (Source of Truth for Resident Info)
     const ownerRef = doc(db, 'owners', ownerId);
     batch.update(ownerRef, { avatarUrl: avatarUrl, updatedAt: new Date().toISOString() });
     bumpVersion(batch, 'owners_version');
 
-    // B. Update User Table
-    // To identify the correct User document (Key = UnitID/Username), we query the Unit linked to this Owner.
+    // 2. Sync to User Record (Auth)
+    // STRATEGY: Link Owner -> Unit -> User(Username=UnitID)
+    // We do NOT use email lookup. We look up the UnitID associated with this Owner.
     const unitsQ = query(collection(db, 'units'), where('OwnerID', '==', ownerId));
     const unitsSnap = await getDocs(unitsQ);
 
     unitsSnap.forEach(uDoc => {
         const unitId = uDoc.data().UnitID;
         if (unitId) {
-            // User Document Key is the UnitID (Username)
+            // The User Document ID IS the UnitID (Username)
             const userRef = doc(db, 'users', unitId);
-            // Use set with merge: true to update if exists, or safely ignore/create partially if needed
+            
+            // We use { merge: true } to handle cases where the user doc might be missing specific fields 
+            // but we don't want to overwrite existing permissions/password.
             batch.set(userRef, { avatarUrl: avatarUrl }, { merge: true });
             bumpVersion(batch, 'users_version');
         }
@@ -207,7 +210,7 @@ export const createProfileRequest = async (request: ProfileRequest) => {
     await setDoc(doc(db, 'profileRequests', request.id), request);
 };
 
-// 2. RESOLVE REQUEST (Logic Fix: Use residentId as Key)
+// TASK A: RESOLVE REQUEST (Sync Logic using Immutable Username)
 export const resolveProfileRequest = async (
     request: ProfileRequest, 
     action: 'approve' | 'reject', 
@@ -217,6 +220,7 @@ export const resolveProfileRequest = async (
     const batch = writeBatch(db);
     const reqRef = doc(db, 'profileRequests', request.id);
 
+    // 1. Mark Request Status
     batch.update(reqRef, { 
         status: action === 'approve' ? 'APPROVED' : 'REJECTED',
         updatedAt: new Date().toISOString()
@@ -228,7 +232,7 @@ export const resolveProfileRequest = async (
     if (action === 'approve') {
         const changesToApply = approvedChanges || request.changes;
         
-        // A. Update Owner
+        // 2. Update Resident/Owner Document
         const ownerRef = doc(db, 'owners', request.ownerId);
         const ownerSnap = await getDoc(ownerRef);
         const currentOwnerData = ownerSnap.exists() ? ownerSnap.data() as Owner : null;
@@ -237,7 +241,7 @@ export const resolveProfileRequest = async (
             const ownerUpdates: any = {};
             if (changesToApply.OwnerName) ownerUpdates.OwnerName = changesToApply.OwnerName;
             if (changesToApply.Phone) ownerUpdates.Phone = changesToApply.Phone;
-            if (changesToApply.Email) ownerUpdates.Email = changesToApply.Email;
+            if (changesToApply.Email) ownerUpdates.Email = changesToApply.Email; // Mutable email update
             if (changesToApply.title) ownerUpdates.title = changesToApply.title;
             if (changesToApply.secondOwnerName) ownerUpdates.secondOwnerName = changesToApply.secondOwnerName;
             if (changesToApply.secondOwnerPhone) ownerUpdates.secondOwnerPhone = changesToApply.secondOwnerPhone;
@@ -252,29 +256,32 @@ export const resolveProfileRequest = async (
             }
         }
 
-        // B. Update User (Correctly using residentId as Key)
-        // request.residentId corresponds to UnitID/Username
+        // 3. Sync to User Auth Document
+        // CRITICAL: We use request.residentId (which is the UnitID/Username) as the Key.
+        // We DO NOT lookup by Email.
         if (changesToApply.Email || changesToApply.OwnerName || changesToApply.avatarUrl) {
             const userRef = doc(db, 'users', request.residentId); 
             const userUpdates: any = {};
             
-            if (changesToApply.Email) userUpdates.Email = changesToApply.Email;
+            if (changesToApply.Email) userUpdates.Email = changesToApply.Email; // Update the email field in User doc
             if (changesToApply.OwnerName) userUpdates.DisplayName = changesToApply.OwnerName;
             if (changesToApply.avatarUrl) userUpdates.avatarUrl = changesToApply.avatarUrl;
 
             if (Object.keys(userUpdates).length > 0) {
+                // Merge ensures we don't wipe password or role
                 batch.set(userRef, userUpdates, { merge: true });
                 bumpVersion(batch, 'users_version');
             }
         }
 
-        // C. Update Unit
+        // 4. Update Unit Status (if applicable)
         if (changesToApply.UnitStatus) {
             batch.update(doc(db, 'units', request.residentId), { Status: changesToApply.UnitStatus });
             bumpVersion(batch, 'units_version');
             updatedUnitData = { UnitID: request.residentId, Status: changesToApply.UnitStatus };
         }
 
+        // 5. Audit Log
         const logId = `log_${Date.now()}`;
         batch.set(doc(db, 'activityLogs', logId), {
             id: logId,
@@ -289,17 +296,18 @@ export const resolveProfileRequest = async (
             before_snapshot: null
         } as ActivityLog);
         
+        // 6. Notification
         const notifRef = doc(collection(db, 'notifications'));
         batch.set(notifRef, {
             type: 'system',
             title: 'Hồ sơ đã cập nhật',
             body: 'BQL đã duyệt yêu cầu thay đổi thông tin của bạn.',
-            userId: request.residentId, // Notif uses Username/UnitID as key
+            userId: request.residentId, // Notification targeted by Username/UnitID
             isRead: false,
             createdAt: new Date().toISOString()
         });
     } else {
-        // Rejection
+        // Rejection Logic
         const notifRef = doc(collection(db, 'notifications'));
         batch.set(notifRef, {
             type: 'system',
@@ -442,6 +450,7 @@ const saveBatch = (name: string, data: any[]) => {
     data.forEach(item => {
         let id = item.id;
         if (!id) {
+             // CRITICAL: For users, we explicitly use Username (UnitID) as key
              if (name === 'users') id = item.Username; 
              else id = item.Email ?? item.UnitID ?? item.OwnerID ?? item.VehicleId ?? `${item.Period}_${item.UnitID}`;
         }
@@ -595,9 +604,8 @@ export const setBillingLockStatus = async (period: string, status: boolean): Pro
 };
 
 export const resetUserPassword = async (email: string): Promise<void> => {
-    // Legacy logic might still send email here if UI calls it with email.
-    // If username is key, this should probably query for key.
-    // For now assuming Admin UI finds user first.
+    // Note: If using username as key, this logic needs adjustment if 'email' passed here is actually email address
+    // We lookup by email first
     const q = query(collection(db, 'users'), where('Email', '==', email), limit(1));
     const snap = await getDocs(q);
     if (!snap.empty) {
