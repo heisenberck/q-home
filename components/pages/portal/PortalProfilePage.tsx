@@ -37,30 +37,30 @@ const PortalProfilePage: React.FC<PortalProfilePageProps> = ({ user, owner, onUp
 
     // Initialize Form Data
     // LOGIC: Prefer 'user' (optimistic) > 'owner' (official) > default
-    // This fixes the "Data Persistence" bug where changes disappeared on reload
+    // We use nullish coalescing (??) instead of || to allow empty strings to persist
     const [formData, setFormData] = useState({
-        DisplayName: user.DisplayName || owner.OwnerName || '',
-        Phone: owner.Phone || '',
-        Email: user.contact_email || owner.Email || '',
+        DisplayName: user.DisplayName ?? owner.OwnerName ?? '',
+        Phone: owner.Phone ?? '',
+        Email: user.contact_email ?? owner.Email ?? '',
         
         // Optimistic Fields (Stored in 'users' collection)
-        title: extUser.title || owner.title || 'Anh',
-        secondOwnerName: extUser.spouseName || owner.secondOwnerName || '',
-        secondOwnerPhone: extUser.spousePhone || owner.secondOwnerPhone || '',
-        UnitStatus: extUser.apartmentStatus || currentUnit?.Status || 'Owner',
+        title: extUser.title ?? owner.title ?? 'Anh',
+        secondOwnerName: extUser.spouseName ?? owner.secondOwnerName ?? '',
+        secondOwnerPhone: extUser.spousePhone ?? owner.secondOwnerPhone ?? '',
+        UnitStatus: extUser.apartmentStatus ?? currentUnit?.Status ?? 'Owner',
     });
 
     // Sync state when props change (only if not editing)
     useEffect(() => {
         if (!isEditing) {
             setFormData({
-                DisplayName: user.DisplayName || owner.OwnerName || '',
-                Phone: owner.Phone || '',
-                Email: user.contact_email || owner.Email || '',
-                title: extUser.title || owner.title || 'Anh',
-                secondOwnerName: extUser.spouseName || owner.secondOwnerName || '',
-                secondOwnerPhone: extUser.spousePhone || owner.secondOwnerPhone || '',
-                UnitStatus: extUser.apartmentStatus || currentUnit?.Status || 'Owner',
+                DisplayName: user.DisplayName ?? owner.OwnerName ?? '',
+                Phone: owner.Phone ?? '',
+                Email: user.contact_email ?? owner.Email ?? '',
+                title: extUser.title ?? owner.title ?? 'Anh',
+                secondOwnerName: extUser.spouseName ?? owner.secondOwnerName ?? '',
+                secondOwnerPhone: extUser.spousePhone ?? owner.secondOwnerPhone ?? '',
+                UnitStatus: extUser.apartmentStatus ?? currentUnit?.Status ?? 'Owner',
             });
         }
     }, [user, owner, currentUnit, isEditing, extUser]);
@@ -84,13 +84,13 @@ const PortalProfilePage: React.FC<PortalProfilePageProps> = ({ user, owner, onUp
         setIsEditing(false);
         // Reset to source of truth
         setFormData({
-            DisplayName: user.DisplayName || owner.OwnerName || '',
-            Phone: owner.Phone || '',
-            Email: user.contact_email || owner.Email || '',
-            title: extUser.title || owner.title || 'Anh',
-            secondOwnerName: extUser.spouseName || owner.secondOwnerName || '',
-            secondOwnerPhone: extUser.spousePhone || owner.secondOwnerPhone || '',
-            UnitStatus: extUser.apartmentStatus || currentUnit?.Status || 'Owner',
+            DisplayName: user.DisplayName ?? owner.OwnerName ?? '',
+            Phone: owner.Phone ?? '',
+            Email: user.contact_email ?? owner.Email ?? '',
+            title: extUser.title ?? owner.title ?? 'Anh',
+            secondOwnerName: extUser.spouseName ?? owner.secondOwnerName ?? '',
+            secondOwnerPhone: extUser.spousePhone ?? owner.secondOwnerPhone ?? '',
+            UnitStatus: extUser.apartmentStatus ?? currentUnit?.Status ?? 'Owner',
         });
     };
     
@@ -140,19 +140,28 @@ const PortalProfilePage: React.FC<PortalProfilePageProps> = ({ user, owner, onUp
         }
 
         // Prepare Changes Object
+        // CRITICAL FIX: We must allow empty strings to be sent (to support deletion)
         const changes: any = {};
         
-        // Identity & Contact
-        if (formData.DisplayName !== (user.DisplayName || owner.OwnerName)) changes.displayName = formData.DisplayName;
-        if (formData.Phone !== owner.Phone) changes.phoneNumber = formData.Phone;
-        if (formData.Email !== (user.contact_email || owner.Email)) changes.contactEmail = formData.Email;
+        const currentDisplayName = user.DisplayName ?? owner.OwnerName ?? '';
+        const currentPhone = owner.Phone ?? '';
+        const currentEmail = user.contact_email ?? owner.Email ?? '';
+        
+        const currentTitle = extUser.title ?? owner.title ?? 'Anh';
+        const currentSpouseName = extUser.spouseName ?? owner.secondOwnerName ?? '';
+        const currentSpousePhone = extUser.spousePhone ?? owner.secondOwnerPhone ?? '';
+        const currentStatus = extUser.apartmentStatus ?? currentUnit?.Status ?? 'Owner';
+
+        // Core Fields
+        if (formData.DisplayName !== currentDisplayName) changes.displayName = formData.DisplayName;
+        if (formData.Phone !== currentPhone) changes.phoneNumber = formData.Phone;
+        if (formData.Email !== currentEmail) changes.contactEmail = formData.Email;
         
         // Extended Fields
-        // Logic: We always send these if they are different from what's currently in the USER object (optimistic source)
-        if (formData.title !== (extUser.title || owner.title)) changes.title = formData.title;
-        if (formData.secondOwnerName !== (extUser.spouseName || owner.secondOwnerName)) changes.spouseName = formData.secondOwnerName;
-        if (formData.secondOwnerPhone !== (extUser.spousePhone || owner.secondOwnerPhone)) changes.spousePhone = formData.secondOwnerPhone;
-        if (formData.UnitStatus !== (extUser.apartmentStatus || currentUnit?.Status)) changes.unitStatus = formData.UnitStatus;
+        if (formData.title !== currentTitle) changes.title = formData.title;
+        if (formData.secondOwnerName !== currentSpouseName) changes.spouseName = formData.secondOwnerName;
+        if (formData.secondOwnerPhone !== currentSpousePhone) changes.spousePhone = formData.secondOwnerPhone;
+        if (formData.UnitStatus !== currentStatus) changes.unitStatus = formData.UnitStatus;
 
         if (Object.keys(changes).length === 0) {
             setIsEditing(false);
@@ -306,7 +315,7 @@ const PortalProfilePage: React.FC<PortalProfilePageProps> = ({ user, owner, onUp
                                             onChange={handleChange} 
                                             disabled={!isEditing} 
                                             className={getFieldClass(isEditing)}
-                                            placeholder={isEditing ? "Nhập tên người liên hệ 2" : "Chưa cập nhật"} 
+                                            placeholder={isEditing ? "Nhập tên người liên hệ 2 (hoặc để trống để xóa)" : "Chưa cập nhật"} 
                                         />
                                     </div>
                                     <div>
@@ -317,7 +326,7 @@ const PortalProfilePage: React.FC<PortalProfilePageProps> = ({ user, owner, onUp
                                             onChange={handleChange} 
                                             disabled={!isEditing} 
                                             className={getFieldClass(isEditing)}
-                                            placeholder={isEditing ? "Nhập SĐT người liên hệ 2" : "Chưa cập nhật"} 
+                                            placeholder={isEditing ? "Nhập SĐT người liên hệ 2 (hoặc để trống để xóa)" : "Chưa cập nhật"} 
                                         />
                                     </div>
                                 </div>

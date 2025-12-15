@@ -1,4 +1,5 @@
 
+// ... existing imports ...
 import React, { useState, useMemo, useRef, useCallback, useEffect } from 'react';
 import type { Unit, Owner, Vehicle, Role, UserPermission, VehicleDocument, ActivityLog, ProfileRequest } from '../../types';
 import { UnitType, VehicleTier } from '../../types';
@@ -28,6 +29,7 @@ declare const XLSX: any; // SheetJS
 
 
 // --- START: PDF Generation Helper ---
+// ... (rest of PDF Generation Helper is same) ...
 const renderResidentToHTML = (resident: ResidentData): string => {
     const getTypeDisplay = (status: 'Owner' | 'Rent' | 'Business') => {
         switch (status) {
@@ -193,6 +195,17 @@ const ProfileChangeReview: React.FC<{
         return currentData.owner[key] || '(Trống)';
     };
 
+    // Helper to display new value (handle empty strings as Deletion)
+    const getNewValueDisplay = (key: string, value: any) => {
+        if (key === 'avatarUrl') {
+            return value ? <img src={value as string} alt="New Avatar" className="w-8 h-8 rounded-full object-cover border"/> : <span className="text-red-500 italic">(Đã xóa ảnh)</span>;
+        }
+        if (value === '' || value === null || value === undefined) {
+            return <span className="text-red-500 font-bold italic border border-red-200 bg-red-50 px-2 py-0.5 rounded text-xs">✖ (Đã xóa)</span>;
+        }
+        return String(value);
+    };
+
     return (
         <div className="bg-orange-50 border border-orange-200 rounded-lg p-4 mb-6">
             <div className="flex justify-between items-center mb-3">
@@ -227,7 +240,7 @@ const ProfileChangeReview: React.FC<{
                                 <td className="p-2 font-medium text-gray-700">{label}</td>
                                 <td className="p-2 text-gray-500 line-through">{getCurrentValue(key)}</td>
                                 <td className="p-2 text-green-700 font-bold break-all select-all selection:bg-orange-200">
-                                    {key === 'avatarUrl' ? <img src={newValue as string} alt="New Avatar" className="w-8 h-8 rounded-full object-cover border"/> : String(newValue)}
+                                    {getNewValueDisplay(key, newValue)}
                                 </td>
                             </tr>
                         );
@@ -255,6 +268,7 @@ const ProfileChangeReview: React.FC<{
     );
 };
 
+// ... (Rest of ResidentsPage remains unchanged) ...
 const DocumentPreviewModal: React.FC<{
     doc: VehicleDocument;
     onClose: () => void;
@@ -861,6 +875,7 @@ const ResidentDetailPanel: React.FC<{
 };
 
 const ResidentsPage: React.FC<ResidentsPageProps> = ({ units = [], owners = [], vehicles = [], activityLogs = [], onSaveResident, onImportData, onDeleteResidents, role, currentUser, onNavigate }) => {
+    // ... (rest of the component remains identical)
     const { showToast } = useNotification();
     const canManage = ['Admin', 'Accountant', 'Operator'].includes(role);
     const IS_PROD = isProduction();

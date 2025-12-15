@@ -77,19 +77,20 @@ export const submitUserProfileUpdate = async (
 
     // 1. ACTION A: Instant Update to User UI Data (The "Personal" Profile)
     // Save ALL fields here so the User sees them persist on reload.
+    // BUG FIX: Use !== undefined to allow empty strings (deletions) to be saved.
     const userRef = doc(db, 'users', userAuthEmail);
     const userUpdates: any = {};
     
     // Core Identity Fields
-    if (newData.displayName) userUpdates.DisplayName = newData.displayName;
-    if (newData.contactEmail) userUpdates.contact_email = newData.contactEmail;
-    if (newData.avatarUrl) userUpdates.avatarUrl = newData.avatarUrl;
+    if (newData.displayName !== undefined) userUpdates.DisplayName = newData.displayName;
+    if (newData.contactEmail !== undefined) userUpdates.contact_email = newData.contactEmail;
+    if (newData.avatarUrl !== undefined) userUpdates.avatarUrl = newData.avatarUrl;
     
     // Extended Fields (Optimistic Storage)
-    if (newData.title) userUpdates.title = newData.title;
-    if (newData.spouseName) userUpdates.spouseName = newData.spouseName; 
-    if (newData.spousePhone) userUpdates.spousePhone = newData.spousePhone;
-    if (newData.unitStatus) userUpdates.apartmentStatus = newData.unitStatus; 
+    if (newData.title !== undefined) userUpdates.title = newData.title;
+    if (newData.spouseName !== undefined) userUpdates.spouseName = newData.spouseName; 
+    if (newData.spousePhone !== undefined) userUpdates.spousePhone = newData.spousePhone;
+    if (newData.unitStatus !== undefined) userUpdates.apartmentStatus = newData.unitStatus; 
     
     batch.update(userRef, userUpdates);
     bumpVersion(batch, 'users_version');
@@ -101,15 +102,15 @@ export const submitUserProfileUpdate = async (
     const requestRef = doc(db, 'profileRequests', requestId);
     
     const changesForAdmin: ProfileRequest['changes'] = {};
-    if (newData.displayName) changesForAdmin.OwnerName = newData.displayName;
-    if (newData.phoneNumber) changesForAdmin.Phone = newData.phoneNumber;
-    if (newData.contactEmail) changesForAdmin.Email = newData.contactEmail;
-    if (newData.avatarUrl) changesForAdmin.avatarUrl = newData.avatarUrl;
+    if (newData.displayName !== undefined) changesForAdmin.OwnerName = newData.displayName;
+    if (newData.phoneNumber !== undefined) changesForAdmin.Phone = newData.phoneNumber;
+    if (newData.contactEmail !== undefined) changesForAdmin.Email = newData.contactEmail;
+    if (newData.avatarUrl !== undefined) changesForAdmin.avatarUrl = newData.avatarUrl;
     
     // Map Extended Fields to Official Schema
-    if (newData.spouseName) changesForAdmin.secondOwnerName = newData.spouseName;
-    if (newData.spousePhone) changesForAdmin.secondOwnerPhone = newData.spousePhone;
-    if (newData.unitStatus) changesForAdmin.UnitStatus = newData.unitStatus;
+    if (newData.spouseName !== undefined) changesForAdmin.secondOwnerName = newData.spouseName;
+    if (newData.spousePhone !== undefined) changesForAdmin.secondOwnerPhone = newData.spousePhone;
+    if (newData.unitStatus !== undefined) changesForAdmin.UnitStatus = newData.unitStatus;
     
     // Note: 'title' is intentionally OMITTED here.
 
@@ -197,15 +198,18 @@ export const resolveProfileRequest = async (
         
         // A. Update Owner Data (Official Record)
         const ownerUpdates: any = {};
-        if (changesToApply.OwnerName) ownerUpdates.OwnerName = changesToApply.OwnerName;
-        if (changesToApply.Phone) ownerUpdates.Phone = changesToApply.Phone;
-        if (changesToApply.Email) ownerUpdates.Email = changesToApply.Email;
+        
+        // BUG FIX: Use strict comparison (!== undefined) to allow clearing fields (sending "")
+        if (changesToApply.OwnerName !== undefined) ownerUpdates.OwnerName = changesToApply.OwnerName;
+        if (changesToApply.Phone !== undefined) ownerUpdates.Phone = changesToApply.Phone;
+        if (changesToApply.Email !== undefined) ownerUpdates.Email = changesToApply.Email;
+        
         // 'title' is ignored here as it's not in the request changes
         
         // Map back these fields to update Official Record
-        if (changesToApply.secondOwnerName) ownerUpdates.secondOwnerName = changesToApply.secondOwnerName;
-        if (changesToApply.secondOwnerPhone) ownerUpdates.secondOwnerPhone = changesToApply.secondOwnerPhone;
-        if (changesToApply.avatarUrl) ownerUpdates.avatarUrl = changesToApply.avatarUrl;
+        if (changesToApply.secondOwnerName !== undefined) ownerUpdates.secondOwnerName = changesToApply.secondOwnerName;
+        if (changesToApply.secondOwnerPhone !== undefined) ownerUpdates.secondOwnerPhone = changesToApply.secondOwnerPhone;
+        if (changesToApply.avatarUrl !== undefined) ownerUpdates.avatarUrl = changesToApply.avatarUrl;
         
         ownerUpdates.updatedAt = new Date().toISOString();
 
