@@ -65,6 +65,7 @@ export const submitUserProfileUpdate = async (
         phoneNumber?: string;
         contactEmail?: string;
         avatarUrl?: string;
+        title?: string;
         spouseName?: string;
         spousePhone?: string;
         unitStatus?: 'Owner' | 'Rent' | 'Business';
@@ -78,11 +79,17 @@ export const submitUserProfileUpdate = async (
     const userRef = doc(db, 'users', userAuthEmail);
     const userUpdates: any = {};
     
+    // Core Identity Fields
     if (newData.displayName) userUpdates.DisplayName = newData.displayName;
-    if (newData.contactEmail) userUpdates.contact_email = newData.contactEmail; // Sync contact email
+    if (newData.contactEmail) userUpdates.contact_email = newData.contactEmail;
     if (newData.avatarUrl) userUpdates.avatarUrl = newData.avatarUrl;
-    // Note: 'users' collection might not have phone/spouse fields in type, 
-    // but we update what we can for display purposes.
+    
+    // Extended Fields (Optimistic Storage)
+    // We save these to the 'users' collection so they persist on reload even if not approved yet
+    if (newData.title) userUpdates.title = newData.title;
+    if (newData.spouseName) userUpdates.spouseName = newData.spouseName; 
+    if (newData.spousePhone) userUpdates.spousePhone = newData.spousePhone;
+    if (newData.unitStatus) userUpdates.apartmentStatus = newData.unitStatus; 
     
     batch.update(userRef, userUpdates);
     bumpVersion(batch, 'users_version');
@@ -97,6 +104,9 @@ export const submitUserProfileUpdate = async (
     if (newData.phoneNumber) changesForAdmin.Phone = newData.phoneNumber;
     if (newData.contactEmail) changesForAdmin.Email = newData.contactEmail;
     if (newData.avatarUrl) changesForAdmin.avatarUrl = newData.avatarUrl;
+    
+    // Map User keys to Official Schema keys
+    if (newData.title) changesForAdmin.title = newData.title;
     if (newData.spouseName) changesForAdmin.secondOwnerName = newData.spouseName;
     if (newData.spousePhone) changesForAdmin.secondOwnerPhone = newData.spousePhone;
     if (newData.unitStatus) changesForAdmin.UnitStatus = newData.unitStatus;

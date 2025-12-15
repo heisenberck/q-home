@@ -654,6 +654,15 @@ const VehiclesPage: React.FC<VehiclesPageProps> = ({ vehicles, units, owners, ac
     const [isDuplicateMode, setIsDuplicateMode] = useState(false);
     const [previewDoc, setPreviewDoc] = useState<VehicleDocument | null>(null);
 
+    // --- 0. Check LocalStorage for search term (Cross-page navigation) ---
+    useEffect(() => {
+        const storedSearch = localStorage.getItem('vehicle_search_term');
+        if (storedSearch) {
+            setSearchTerm(storedSearch);
+            localStorage.removeItem('vehicle_search_term');
+        }
+    }, []);
+
     // --- 1. Data Processing ---
     const ownersMap = useMemo(() => new Map(owners.map(o => [o.OwnerID, o])), [owners]);
 
