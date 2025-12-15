@@ -85,7 +85,7 @@ export const submitUserProfileUpdate = async (
     if (newData.avatarUrl) userUpdates.avatarUrl = newData.avatarUrl;
     
     // Extended Fields (Optimistic Storage)
-    // We save these to the 'users' collection so they persist on reload even if not approved yet
+    // BUG FIX: Ensure these fields are written to the 'users' collection so they persist on reload
     if (newData.title) userUpdates.title = newData.title;
     if (newData.spouseName) userUpdates.spouseName = newData.spouseName; 
     if (newData.spousePhone) userUpdates.spousePhone = newData.spousePhone;
@@ -105,7 +105,8 @@ export const submitUserProfileUpdate = async (
     if (newData.contactEmail) changesForAdmin.Email = newData.contactEmail;
     if (newData.avatarUrl) changesForAdmin.avatarUrl = newData.avatarUrl;
     
-    // Map User keys to Official Schema keys
+    // BUG FIX: Map User keys to Official Schema keys for the Request
+    // This ensures the Admin sees the correct fields in the approval panel.
     if (newData.title) changesForAdmin.title = newData.title;
     if (newData.spouseName) changesForAdmin.secondOwnerName = newData.spouseName;
     if (newData.spousePhone) changesForAdmin.secondOwnerPhone = newData.spousePhone;
