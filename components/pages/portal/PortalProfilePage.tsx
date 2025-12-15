@@ -95,6 +95,7 @@ const PortalProfilePage: React.FC<PortalProfilePageProps> = ({ user, owner, onUp
     };
     
     // Updated: Avatar Change now calls updateResidentAvatar directly (Dual Sync)
+    // This is strictly separate from the "Profile Request" flow.
     const handleAvatarChange = async (e: React.ChangeEvent<HTMLInputElement>) => {
         const file = e.target.files?.[0];
         if (!file) return;
@@ -118,6 +119,7 @@ const PortalProfilePage: React.FC<PortalProfilePageProps> = ({ user, owner, onUp
             try {
                 showToast('Đang cập nhật ảnh...', 'info');
                 // Call Direct Update (Updates both 'users' and 'owners' immediately)
+                // This ensures the Admin Panel sees the new avatar instantly upon next fetch/refresh
                 await updateResidentAvatar(owner.OwnerID, base64, user.Email);
                 showToast('Cập nhật ảnh đại diện thành công!', 'success');
                 refreshSystemData(true);
@@ -140,7 +142,7 @@ const PortalProfilePage: React.FC<PortalProfilePageProps> = ({ user, owner, onUp
         }
 
         // Prepare Changes Object
-        // CRITICAL FIX: We must allow empty strings to be sent (to support deletion)
+        // NOTE: Avatar changes are NOT included here. They are handled separately.
         const changes: any = {};
         
         const currentDisplayName = user.DisplayName ?? owner.OwnerName ?? '';

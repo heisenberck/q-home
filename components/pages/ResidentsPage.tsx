@@ -22,6 +22,9 @@ import { loadScript } from '../../utils/scriptLoader';
 import { getAllPendingProfileRequests, resolveProfileRequest } from '../../services/index'; // Import backend services
 import { isProduction } from '../../utils/env';
 
+// ... (Existing code: PDF Generation, StatusBadge, Types, ProfileChangeReview, DocumentPreviewModal, ResidentDetailModal, DataImportModal, FilterPill) ...
+// Note: Keeping existing components unchanged until ResidentDetailPanel
+
 // Declare external libraries
 declare const jspdf: any;
 declare const html2canvas: any;
@@ -268,7 +271,11 @@ const ProfileChangeReview: React.FC<{
     );
 };
 
-// ... (Rest of ResidentsPage remains unchanged) ...
+// ... (Existing components: DocumentPreviewModal, ResidentDetailModal, DataImportModal, FilterPill) ...
+// The above are identical to the previous context, ensuring no breakage. 
+// Skipping re-pasting for brevity unless changes are requested in them. 
+// Assuming they exist as per context.
+
 const DocumentPreviewModal: React.FC<{
     doc: VehicleDocument;
     onClose: () => void;
@@ -296,6 +303,7 @@ const DocumentPreviewModal: React.FC<{
     );
 };
 
+// ... ResidentDetailModal and DataImportModal are kept same as provided in context ...
 const ResidentDetailModal: React.FC<{
     resident: ResidentData;
     onClose: () => void;
@@ -736,7 +744,7 @@ const ResidentDetailPanel: React.FC<{
 
     return (
         <div className="flex flex-col h-full bg-white border-l border-gray-200 shadow-2xl overflow-y-auto animate-slide-up">
-            {/* 1. Header Refactored */}
+            {/* 1. Header Refactored - Use Theme Text Color */}
             <div className={`p-6 ${theme.bg} relative text-center border-b border-gray-100`}>
                 <button onClick={onClose} className="absolute top-4 right-4 p-2 rounded-full bg-white/40 hover:bg-white/70 text-gray-700"><XMarkIcon className="w-5 h-5"/></button>
                 <div className="w-24 h-24 mx-auto bg-white rounded-full p-1 shadow-md mb-3">
@@ -744,7 +752,8 @@ const ResidentDetailPanel: React.FC<{
                         {owner.avatarUrl ? <img src={owner.avatarUrl} alt="Avatar" className="w-full h-full object-cover"/> : <UserCircleIcon className="w-full h-full text-gray-300"/>}
                      </div>
                 </div>
-                <h1 className="text-xl font-bold text-gray-900">{owner.OwnerName}</h1>
+                {/* Applied Theme Text Color Here */}
+                <h1 className={`text-xl font-bold ${theme.text}`}>{owner.OwnerName}</h1>
                 <div className="flex items-center justify-center gap-2 mt-2 text-sm text-gray-600 bg-white/60 px-3 py-1 rounded-full backdrop-blur-sm border border-white/50 w-fit mx-auto">
                     <span className="font-mono font-semibold">Unit {unit.UnitID}</span>
                     <span>•</span>
@@ -754,7 +763,7 @@ const ResidentDetailPanel: React.FC<{
                 </div>
             </div>
 
-            {/* 2. Owner Info Collapsible */}
+            {/* 2. Owner Info Collapsible - Smaller Fonts */}
             <div className="border-b border-gray-100">
                 <button 
                     onClick={() => setOwnerInfoOpen(!isOwnerInfoOpen)}
@@ -769,29 +778,29 @@ const ResidentDetailPanel: React.FC<{
                     <div className="p-4 space-y-4 animate-fade-in-down">
                         <div className="grid grid-cols-2 gap-4">
                             <div>
-                                <label className="text-xs text-gray-500 block mb-1">Chủ hộ</label>
-                                <div className="font-medium text-gray-900">{owner.OwnerName}</div>
+                                <label className="text-[10px] text-gray-500 font-semibold uppercase tracking-wider block mb-1">Chủ hộ</label>
+                                <div className="text-sm font-semibold text-gray-800">{owner.OwnerName}</div>
                             </div>
                             <div>
-                                <label className="text-xs text-gray-500 block mb-1">SĐT</label>
-                                <a href={`tel:${owner.Phone}`} className="font-medium text-blue-600 hover:underline">{owner.Phone}</a>
+                                <label className="text-[10px] text-gray-500 font-semibold uppercase tracking-wider block mb-1">SĐT</label>
+                                <a href={`tel:${owner.Phone}`} className="text-sm font-semibold text-blue-600 hover:underline">{owner.Phone}</a>
                             </div>
                         </div>
                         <div>
-                            <label className="text-xs text-gray-500 block mb-1">Email</label>
+                            <label className="text-[10px] text-gray-500 font-semibold uppercase tracking-wider block mb-1">Email</label>
                             <div className="flex items-center justify-between bg-gray-50 p-2 rounded border border-gray-100">
-                                <span className="font-medium text-gray-900 truncate max-w-[200px]">{owner.Email || '---'}</span>
+                                <span className="text-sm font-semibold text-gray-800 truncate max-w-[200px]">{owner.Email || '---'}</span>
                                 {owner.Email && <button onClick={() => onCopyToClipboard(owner.Email, "Email")}><ClipboardIcon className="w-4 h-4 text-gray-400 hover:text-blue-500"/></button>}
                             </div>
                         </div>
                         <div className="pt-3 border-t border-dashed border-gray-200 grid grid-cols-2 gap-4">
                             <div>
-                                <label className="text-xs text-gray-500 block mb-1">Vợ/Chồng/Khách thuê</label>
-                                <div className="font-medium text-gray-900">{owner.secondOwnerName || '---'}</div>
+                                <label className="text-[10px] text-gray-500 font-semibold uppercase tracking-wider block mb-1">Vợ/Chồng/Khách thuê</label>
+                                <div className="text-sm font-semibold text-gray-800">{owner.secondOwnerName || '---'}</div>
                             </div>
                             <div>
-                                <label className="text-xs text-gray-500 block mb-1">SĐT liên hệ 2</label>
-                                <div className="font-medium text-gray-900">{owner.secondOwnerPhone || '---'}</div>
+                                <label className="text-[10px] text-gray-500 font-semibold uppercase tracking-wider block mb-1">SĐT liên hệ 2</label>
+                                <div className="text-sm font-semibold text-gray-800">{owner.secondOwnerPhone || '---'}</div>
                             </div>
                         </div>
                     </div>
@@ -875,7 +884,9 @@ const ResidentDetailPanel: React.FC<{
 };
 
 const ResidentsPage: React.FC<ResidentsPageProps> = ({ units = [], owners = [], vehicles = [], activityLogs = [], onSaveResident, onImportData, onDeleteResidents, role, currentUser, onNavigate }) => {
-    // ... (rest of the component remains identical)
+// ... rest of the file remains unchanged ...
+// To save space, assuming the rest of ResidentsPage and exports are intact.
+// Re-inserting the rest of ResidentsPage for safety in output.
     const { showToast } = useNotification();
     const canManage = ['Admin', 'Accountant', 'Operator'].includes(role);
     const IS_PROD = isProduction();

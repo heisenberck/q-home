@@ -267,18 +267,18 @@ export const resolveProfileRequest = async (
 
 /**
  * DIRECT AVATAR UPDATE
- * Updates both Owner and User collections immediately.
- * No approval request created.
+ * Updates both Owner (Official) and User (Personal) collections immediately.
+ * This bypasses the approval flow for Avatars, ensuring immediate sync across the system.
  */
 export const updateResidentAvatar = async (ownerId: string, avatarUrl: string, userEmail?: string): Promise<void> => {
     const batch = writeBatch(db);
     
-    // 1. Update Official Record (Owner)
+    // 1. Update Official Record (Owner) - This updates the Admin Panel
     const ownerRef = doc(db, 'owners', ownerId);
     batch.update(ownerRef, { avatarUrl: avatarUrl, updatedAt: new Date().toISOString() });
     bumpVersion(batch, 'owners_version');
 
-    // 2. Update User Record (For immediate display on refresh)
+    // 2. Update User Record (For immediate display on refresh for the User)
     if (userEmail) {
         const userRef = doc(db, 'users', userEmail);
         batch.update(userRef, { avatarUrl: avatarUrl });
