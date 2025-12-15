@@ -53,8 +53,9 @@ export const fetchLatestLogs = async (limitCount: number = 20): Promise<Activity
  * TASK 1: User Profile Update
  * Trigger: User clicks "Save" on their profile.
  * Logic: 
- * 1. Instantly update 'users' collection (User sees changes immediately).
- * 2. Create 'profileRequests' doc (Admin sees notification to update Official Record).
+ * 1. Instantly update 'users' collection with ALL fields (User sees changes immediately - Optimistic).
+ * 2. Create 'profileRequests' doc for Admin Approval (Mapping user fields to Official Schema).
+ *    NOTE: 'title' is saved to User but EXCLUDED from Admin Request as per requirement.
  */
 export const submitUserProfileUpdate = async (
     userAuthEmail: string, 
@@ -75,7 +76,7 @@ export const submitUserProfileUpdate = async (
     const now = new Date().toISOString();
 
     // 1. ACTION A: Instant Update to User UI Data (The "Personal" Profile)
-    // This allows the user to see their changes immediately without waiting for admin.
+    // Save ALL fields here so the User sees them persist on reload.
     const userRef = doc(db, 'users', userAuthEmail);
     const userUpdates: any = {};
     
@@ -85,7 +86,6 @@ export const submitUserProfileUpdate = async (
     if (newData.avatarUrl) userUpdates.avatarUrl = newData.avatarUrl;
     
     // Extended Fields (Optimistic Storage)
-    // BUG FIX: Ensure these fields are written to the 'users' collection so they persist on reload
     if (newData.title) userUpdates.title = newData.title;
     if (newData.spouseName) userUpdates.spouseName = newData.spouseName; 
     if (newData.spousePhone) userUpdates.spousePhone = newData.spousePhone;
@@ -95,7 +95,8 @@ export const submitUserProfileUpdate = async (
     bumpVersion(batch, 'users_version');
 
     // 2. ACTION B: Create Request for Official Record (The "Legal" Resident List)
-    // We map the User-friendly fields to the Official Resident Schema here.
+    // Map User keys to Official Schema keys.
+    // RULE: Do NOT include 'title' in the request to Admin.
     const requestId = `req_${Date.now()}_${residentId}`;
     const requestRef = doc(db, 'profileRequests', requestId);
     
@@ -105,12 +106,12 @@ export const submitUserProfileUpdate = async (
     if (newData.contactEmail) changesForAdmin.Email = newData.contactEmail;
     if (newData.avatarUrl) changesForAdmin.avatarUrl = newData.avatarUrl;
     
-    // BUG FIX: Map User keys to Official Schema keys for the Request
-    // This ensures the Admin sees the correct fields in the approval panel.
-    if (newData.title) changesForAdmin.title = newData.title;
+    // Map Extended Fields to Official Schema
     if (newData.spouseName) changesForAdmin.secondOwnerName = newData.spouseName;
     if (newData.spousePhone) changesForAdmin.secondOwnerPhone = newData.spousePhone;
     if (newData.unitStatus) changesForAdmin.UnitStatus = newData.unitStatus;
+    
+    // Note: 'title' is intentionally OMITTED here.
 
     const profileRequest: ProfileRequest = {
         id: requestId,
@@ -199,7 +200,9 @@ export const resolveProfileRequest = async (
         if (changesToApply.OwnerName) ownerUpdates.OwnerName = changesToApply.OwnerName;
         if (changesToApply.Phone) ownerUpdates.Phone = changesToApply.Phone;
         if (changesToApply.Email) ownerUpdates.Email = changesToApply.Email;
-        if (changesToApply.title) ownerUpdates.title = changesToApply.title;
+        // 'title' is ignored here as it's not in the request changes
+        
+        // Map back these fields to update Official Record
         if (changesToApply.secondOwnerName) ownerUpdates.secondOwnerName = changesToApply.secondOwnerName;
         if (changesToApply.secondOwnerPhone) ownerUpdates.secondOwnerPhone = changesToApply.secondOwnerPhone;
         if (changesToApply.avatarUrl) ownerUpdates.avatarUrl = changesToApply.avatarUrl;

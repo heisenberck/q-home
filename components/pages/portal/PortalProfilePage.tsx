@@ -32,19 +32,18 @@ const PortalProfilePage: React.FC<PortalProfilePageProps> = ({ user, owner, onUp
     const [isEditing, setIsEditing] = useState(false); // Mode State
     const [isExpanded, setIsExpanded] = useState(true); // Collapsible State
 
-    // Helper: Access extended properties safely from User object (for optimistic UI)
-    // The 'user' object comes from the 'users' collection, which holds the "Optimistic" state
+    // Helper: Access extended properties safely from User object (Optimistic Data)
     const extUser = user as any; 
 
     // Initialize Form Data
-    // BUG FIX: Prioritize 'user' (Optimistic) > 'owner' (Official) > Default
-    // This ensures pending changes (saved to 'users' collection) appear immediately even after reload.
+    // LOGIC: Prefer 'user' (optimistic) > 'owner' (official) > default
+    // This fixes the "Data Persistence" bug where changes disappeared on reload
     const [formData, setFormData] = useState({
         DisplayName: user.DisplayName || owner.OwnerName || '',
         Phone: owner.Phone || '',
         Email: user.contact_email || owner.Email || '',
         
-        // Extended Fields
+        // Optimistic Fields (Stored in 'users' collection)
         title: extUser.title || owner.title || 'Anh',
         secondOwnerName: extUser.spouseName || owner.secondOwnerName || '',
         secondOwnerPhone: extUser.spousePhone || owner.secondOwnerPhone || '',
@@ -58,7 +57,6 @@ const PortalProfilePage: React.FC<PortalProfilePageProps> = ({ user, owner, onUp
                 DisplayName: user.DisplayName || owner.OwnerName || '',
                 Phone: owner.Phone || '',
                 Email: user.contact_email || owner.Email || '',
-                
                 title: extUser.title || owner.title || 'Anh',
                 secondOwnerName: extUser.spouseName || owner.secondOwnerName || '',
                 secondOwnerPhone: extUser.spousePhone || owner.secondOwnerPhone || '',
@@ -84,6 +82,7 @@ const PortalProfilePage: React.FC<PortalProfilePageProps> = ({ user, owner, onUp
 
     const handleCancel = () => {
         setIsEditing(false);
+        // Reset to source of truth
         setFormData({
             DisplayName: user.DisplayName || owner.OwnerName || '',
             Phone: owner.Phone || '',
@@ -95,7 +94,7 @@ const PortalProfilePage: React.FC<PortalProfilePageProps> = ({ user, owner, onUp
         });
     };
     
-    // Avatar Change calls updateResidentAvatar directly (Dual Sync)
+    // Updated: Avatar Change now calls updateResidentAvatar directly (Dual Sync)
     const handleAvatarChange = async (e: React.ChangeEvent<HTMLInputElement>) => {
         const file = e.target.files?.[0];
         if (!file) return;
@@ -108,7 +107,7 @@ const PortalProfilePage: React.FC<PortalProfilePageProps> = ({ user, owner, onUp
         const reader = new FileReader();
         reader.onload = async (event) => {
             const base64 = event.target?.result as string;
-            // Optimistic UI Update
+            // Optimistic UI Update for immediate feedback
             onUpdateOwner({ ...owner, avatarUrl: base64 });
             
             if (!IS_PROD) {
@@ -118,7 +117,7 @@ const PortalProfilePage: React.FC<PortalProfilePageProps> = ({ user, owner, onUp
 
             try {
                 showToast('Đang cập nhật ảnh...', 'info');
-                // Call Direct Update (No Request creation)
+                // Call Direct Update (Updates both 'users' and 'owners' immediately)
                 await updateResidentAvatar(owner.OwnerID, base64, user.Email);
                 showToast('Cập nhật ảnh đại diện thành công!', 'success');
                 refreshSystemData(true);
@@ -140,7 +139,7 @@ const PortalProfilePage: React.FC<PortalProfilePageProps> = ({ user, owner, onUp
             return;
         }
 
-        // Detect Changes
+        // Prepare Changes Object
         const changes: any = {};
         
         // Identity & Contact
@@ -148,22 +147,12 @@ const PortalProfilePage: React.FC<PortalProfilePageProps> = ({ user, owner, onUp
         if (formData.Phone !== owner.Phone) changes.phoneNumber = formData.Phone;
         if (formData.Email !== (user.contact_email || owner.Email)) changes.contactEmail = formData.Email;
         
-        // Extended Fields - Explicitly check against current UI values
-        // BUG FIX: We explicitly include these in the 'changes' object if they differ from the defaults/saved values
-        // Note: We use 'formData' values directly as the source of truth for the update
-        
-        if (formData.title !== (extUser.title || owner.title)) {
-            changes.title = formData.title;
-        }
-        if (formData.secondOwnerName !== (extUser.spouseName || owner.secondOwnerName)) {
-            changes.spouseName = formData.secondOwnerName;
-        }
-        if (formData.secondOwnerPhone !== (extUser.spousePhone || owner.secondOwnerPhone)) {
-            changes.spousePhone = formData.secondOwnerPhone;
-        }
-        if (formData.UnitStatus !== (extUser.apartmentStatus || currentUnit?.Status)) {
-            changes.unitStatus = formData.UnitStatus;
-        }
+        // Extended Fields
+        // Logic: We always send these if they are different from what's currently in the USER object (optimistic source)
+        if (formData.title !== (extUser.title || owner.title)) changes.title = formData.title;
+        if (formData.secondOwnerName !== (extUser.spouseName || owner.secondOwnerName)) changes.spouseName = formData.secondOwnerName;
+        if (formData.secondOwnerPhone !== (extUser.spousePhone || owner.secondOwnerPhone)) changes.spousePhone = formData.secondOwnerPhone;
+        if (formData.UnitStatus !== (extUser.apartmentStatus || currentUnit?.Status)) changes.unitStatus = formData.UnitStatus;
 
         if (Object.keys(changes).length === 0) {
             setIsEditing(false);
@@ -173,7 +162,7 @@ const PortalProfilePage: React.FC<PortalProfilePageProps> = ({ user, owner, onUp
 
         setIsLoading(true);
         try {
-            // Send the updates. The service handles splitting them between 'users' collection (immediate) and 'profileRequests' (pending).
+            // submitUserProfileUpdate handles splitting data between 'users' (immediate) and 'profileRequests' (pending)
             const newReq = await submitUserProfileUpdate(user.Email, user.residentId!, owner.OwnerID, changes);
             setPendingRequest(newReq);
             refreshSystemData(true); 
