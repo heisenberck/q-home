@@ -1,9 +1,13 @@
 
 import React, { useState, useEffect, useMemo } from 'react';
-import type { Owner, UserPermission, ProfileRequest, Unit } from '../../../types';
+import type { Owner, UserPermission, ProfileRequest } from '../../../types';
 import { useAuth, useNotification } from '../../../App';
-import { ArrowRightOnRectangleIcon, UserCircleIcon, UploadIcon, WarningIcon, CheckCircleIcon } from '../../ui/Icons';
-import { submitUserProfileUpdate, getPendingProfileRequest, updateResidentAvatar } from '../../../services';
+import { 
+    ArrowRightOnRectangleIcon, UserCircleIcon, UploadIcon, WarningIcon, 
+    PencilSquareIcon, CheckCircleIcon, XMarkIcon, ChevronDownIcon, ChevronUpIcon,
+    UserIcon, PhoneArrowUpRightIcon, EnvelopeIcon, HomeIcon, KeyIcon
+} from '../../ui/Icons';
+import { submitUserProfileUpdate, getPendingProfileRequest } from '../../../services';
 import { useSmartSystemData } from '../../../hooks/useSmartData';
 import { isProduction } from '../../../utils/env';
 
@@ -22,38 +26,67 @@ const PortalProfilePage: React.FC<PortalProfilePageProps> = ({ user, owner, onUp
 
     const currentUnit = useMemo(() => units.find(u => u.UnitID === user.residentId), [units, user.residentId]);
 
+    // --- Local State ---
     const [pendingRequest, setPendingRequest] = useState<ProfileRequest | null>(null);
     const [isLoading, setIsLoading] = useState(false);
+    const [isEditing, setIsEditing] = useState(false); // Mode State
+    const [isExpanded, setIsExpanded] = useState(true); // Collapsible State
 
-    // Initial Form State
+    // Initialize Form Data with User (Display) data preferring User collection over Owner collection
     const [formData, setFormData] = useState({
-        OwnerName: owner.OwnerName || '',
+        DisplayName: user.DisplayName || owner.OwnerName || '',
         Phone: owner.Phone || '',
-        Email: owner.Email || '',
+        Email: user.contact_email || owner.Email || '',
         title: owner.title || 'Anh',
         secondOwnerName: owner.secondOwnerName || '',
         secondOwnerPhone: owner.secondOwnerPhone || '',
         UnitStatus: currentUnit?.Status || 'Owner',
     });
 
+    // Sync state when props change (only if not editing)
+    useEffect(() => {
+        if (!isEditing) {
+            setFormData({
+                DisplayName: user.DisplayName || owner.OwnerName || '',
+                Phone: owner.Phone || '',
+                Email: user.contact_email || owner.Email || '',
+                title: owner.title || 'Anh',
+                secondOwnerName: owner.secondOwnerName || '',
+                secondOwnerPhone: owner.secondOwnerPhone || '',
+                UnitStatus: currentUnit?.Status || 'Owner',
+            });
+        }
+    }, [user, owner, currentUnit, isEditing]);
+
     useEffect(() => {
         const checkPending = async () => {
             if (!IS_PROD || !user.residentId) return;
             const request = await getPendingProfileRequest(user.residentId);
-            if (request) {
-                setPendingRequest(request);
-            }
+            if (request) setPendingRequest(request);
         };
         checkPending();
     }, [IS_PROD, user.residentId]);
 
-    const isLocked = !!pendingRequest;
+    // --- Handlers ---
 
     const handleChange = (e: React.ChangeEvent<HTMLInputElement | HTMLSelectElement>) => {
         setFormData(prev => ({ ...prev, [e.target.name]: e.target.value }));
     };
+
+    const handleCancel = () => {
+        setIsEditing(false);
+        // Reset form data to props
+        setFormData({
+            DisplayName: user.DisplayName || owner.OwnerName || '',
+            Phone: owner.Phone || '',
+            Email: user.contact_email || owner.Email || '',
+            title: owner.title || 'Anh',
+            secondOwnerName: owner.secondOwnerName || '',
+            secondOwnerPhone: owner.secondOwnerPhone || '',
+            UnitStatus: currentUnit?.Status || 'Owner',
+        });
+    };
     
-    // Updated: Uses the new submitUserProfileUpdate which handles both Instant UI Update + Admin Request
     const handleAvatarChange = async (e: React.ChangeEvent<HTMLInputElement>) => {
         const file = e.target.files?.[0];
         if (!file) return;
@@ -66,7 +99,6 @@ const PortalProfilePage: React.FC<PortalProfilePageProps> = ({ user, owner, onUp
         const reader = new FileReader();
         reader.onload = async (event) => {
             const base64 = event.target?.result as string;
-            
             // Optimistic UI Update
             onUpdateOwner({ ...owner, avatarUrl: base64 });
             
@@ -77,14 +109,7 @@ const PortalProfilePage: React.FC<PortalProfilePageProps> = ({ user, owner, onUp
 
             try {
                 showToast('Đang cập nhật ảnh...', 'info');
-                // Use the new consolidated function even for just Avatar
-                await submitUserProfileUpdate(
-                    user.Email,
-                    user.residentId!,
-                    owner.OwnerID,
-                    { avatarUrl: base64 }
-                );
-                
+                await submitUserProfileUpdate(user.Email, user.residentId!, owner.OwnerID, { avatarUrl: base64 });
                 showToast('Cập nhật ảnh đại diện thành công!', 'success');
                 refreshSystemData(true);
             } catch (error) {
@@ -99,44 +124,34 @@ const PortalProfilePage: React.FC<PortalProfilePageProps> = ({ user, owner, onUp
         e.preventDefault();
         
         if (!IS_PROD) {
-            onUpdateOwner({ ...owner, ...formData });
+            onUpdateOwner({ ...owner, OwnerName: formData.DisplayName, Phone: formData.Phone, Email: formData.Email });
+            setIsEditing(false);
             showToast('Đã lưu (Mock Mode)', 'success');
             return;
         }
 
         // Detect Changes
         const changes: any = {};
-        if (formData.OwnerName !== owner.OwnerName) changes.displayName = formData.OwnerName;
+        if (formData.DisplayName !== (user.DisplayName || owner.OwnerName)) changes.displayName = formData.DisplayName;
         if (formData.Phone !== owner.Phone) changes.phoneNumber = formData.Phone;
-        if (formData.Email !== owner.Email) changes.contactEmail = formData.Email;
+        if (formData.Email !== (user.contact_email || owner.Email)) changes.contactEmail = formData.Email;
         if (formData.secondOwnerName !== owner.secondOwnerName) changes.spouseName = formData.secondOwnerName;
         if (formData.secondOwnerPhone !== owner.secondOwnerPhone) changes.spousePhone = formData.secondOwnerPhone;
-        
-        if (currentUnit && formData.UnitStatus !== currentUnit.Status) {
-            changes.unitStatus = formData.UnitStatus as any;
-        }
+        if (currentUnit && formData.UnitStatus !== currentUnit.Status) changes.unitStatus = formData.UnitStatus as any;
 
         if (Object.keys(changes).length === 0) {
+            setIsEditing(false);
             showToast('Không có thay đổi nào.', 'info');
             return;
         }
 
         setIsLoading(true);
         try {
-            // Call the ONE-WAY FLOW service
-            const newReq = await submitUserProfileUpdate(
-                user.Email,
-                user.residentId!,
-                owner.OwnerID,
-                changes
-            );
-
+            const newReq = await submitUserProfileUpdate(user.Email, user.residentId!, owner.OwnerID, changes);
             setPendingRequest(newReq);
-            // Also refresh local data so the user sees the "Instant Update" on their profile UI immediately
-            // (Note: The onUpdateOwner prop updates the parent state, but refreshSystemData ensures consistency)
             refreshSystemData(true); 
-            
-            showToast('Đã cập nhật hồ sơ và gửi yêu cầu xác nhận tới BQL.', 'success');
+            setIsEditing(false); // Switch back to View Mode
+            showToast('Đã cập nhật hồ sơ.', 'success');
         } catch (error) {
             console.error(error);
             showToast('Lỗi khi lưu hồ sơ.', 'error');
@@ -145,112 +160,200 @@ const PortalProfilePage: React.FC<PortalProfilePageProps> = ({ user, owner, onUp
         }
     };
 
-    const inputStyle = `w-full p-3 border rounded-lg bg-gray-50 border-gray-300 text-gray-900 focus:ring-primary focus:border-primary disabled:bg-gray-100 disabled:text-gray-500 disabled:cursor-not-allowed`;
+    // --- Dynamic Styles for View vs Edit ---
+    const getFieldClass = (editable: boolean) => {
+        return editable 
+            ? "w-full p-2.5 border rounded-lg bg-white border-gray-300 text-gray-900 focus:ring-2 focus:ring-primary focus:border-primary transition-all shadow-sm"
+            : "w-full p-2.5 bg-transparent border-none text-gray-800 font-semibold px-0"; // "View Mode" look
+    };
 
     return (
-        <div className="p-4 space-y-6">
-            <div className="bg-white p-4 rounded-xl shadow-sm border space-y-4">
-                
-                {isLocked && (
-                    <div className="bg-orange-50 border border-orange-200 rounded-lg p-4 flex items-start gap-3">
-                        <WarningIcon className="w-6 h-6 text-orange-600 flex-shrink-0 mt-0.5" />
-                        <div>
-                            <h4 className="font-bold text-orange-800 text-sm">Thông tin đang chờ xác nhận</h4>
-                            <p className="text-xs text-orange-700 mt-1">
-                                Bạn đã cập nhật thông tin. Thay đổi hiển thị ngay với bạn, nhưng cần BQL duyệt để áp dụng vào hồ sơ chính thức.
-                            </p>
-                        </div>
+        <div className="p-4 space-y-6 pb-24">
+            
+            {/* 1. Header Card (Avatar & Status) */}
+            <div className="bg-white p-6 rounded-xl shadow-sm border border-gray-100 flex flex-col items-center text-center space-y-3 relative">
+                {pendingRequest && (
+                    <div className="absolute top-4 left-4 right-4 bg-orange-50 border border-orange-200 text-orange-800 p-3 rounded-lg flex items-center gap-2 text-xs md:text-sm animate-fade-in-down">
+                        <WarningIcon className="w-5 h-5 flex-shrink-0" />
+                        <span>Có yêu cầu cập nhật đang chờ BQL duyệt.</span>
                     </div>
                 )}
 
-                <div className="flex flex-col items-center text-center space-y-2">
-                    <div className="relative">
-                        <div className="w-24 h-24 rounded-full bg-gray-100 border-2 border-gray-200 overflow-hidden">
-                           {owner.avatarUrl ? (
-                                <img src={owner.avatarUrl} alt="Avatar" className="w-full h-full object-cover"/>
-                           ) : (
-                                <UserCircleIcon className="w-full h-full text-gray-400"/>
-                           )}
-                        </div>
-                        <label htmlFor="avatar-upload" className="absolute bottom-0 right-0 bg-primary p-2 rounded-full cursor-pointer hover:bg-primary-focus shadow-md transition-transform hover:scale-105" title="Đổi ảnh đại diện">
-                            <UploadIcon className="w-4 h-4 text-white" />
-                        </label>
-                        <input id="avatar-upload" type="file" accept="image/*" className="hidden" onChange={handleAvatarChange} />
+                <div className="relative group mt-6">
+                    <div className="w-28 h-28 rounded-full bg-gray-100 border-4 border-white shadow-md overflow-hidden">
+                       {owner.avatarUrl ? (
+                            <img src={owner.avatarUrl} alt="Avatar" className="w-full h-full object-cover"/>
+                       ) : (
+                            <UserCircleIcon className="w-full h-full text-gray-300"/>
+                       )}
                     </div>
-                    {/* User display name from USER object (instant update), falling back to Owner object */}
-                    <h2 className="text-xl font-bold">{user.DisplayName || owner.OwnerName}</h2>
-                    <p className="text-sm text-gray-500">Căn hộ {user.residentId}</p>
+                    {/* Only allow avatar upload in Edit mode or via explicit action button? 
+                        UX Decision: Allow avatar change always for convenience. */}
+                    <label htmlFor="avatar-upload" className="absolute bottom-1 right-1 bg-white text-gray-600 p-2 rounded-full cursor-pointer hover:text-primary shadow-md border border-gray-200 transition-transform hover:scale-105" title="Đổi ảnh">
+                        <UploadIcon className="w-4 h-4" />
+                    </label>
+                    <input id="avatar-upload" type="file" accept="image/*" className="hidden" onChange={handleAvatarChange} />
                 </div>
-                
-                <form onSubmit={handleSave} className="space-y-4 pt-4 border-t">
-                    <h3 className="font-bold text-lg">Chỉnh sửa hồ sơ</h3>
-                    <div className="grid grid-cols-3 gap-4">
-                        <div className="col-span-1">
-                            <label className="font-medium text-sm text-gray-700">Danh xưng</label>
-                            <select name="title" value={formData.title} onChange={handleChange} className={inputStyle} disabled={isLocked}>
-                                <option value="Anh">Anh</option>
-                                <option value="Chị">Chị</option>
-                                <option value="Ông">Ông</option>
-                                <option value="Bà">Bà</option>
-                            </select>
-                        </div>
-                        <div className="col-span-2">
-                            <label className="font-medium text-sm text-gray-700">Họ và tên</label>
-                            <input name="OwnerName" value={formData.OwnerName} onChange={handleChange} className={inputStyle} disabled={isLocked} />
-                        </div>
-                    </div>
-                    
-                    <div>
-                        <label className="font-medium text-sm text-gray-700">Số điện thoại</label>
-                        <input name="Phone" value={formData.Phone} onChange={handleChange} className={inputStyle} disabled={isLocked} />
-                    </div>
-                    <div>
-                        <label className="font-medium text-sm text-gray-700">Email (Đăng nhập/Liên hệ)</label>
-                        <input type="email" name="Email" value={formData.Email} onChange={handleChange} className={inputStyle} disabled={isLocked} />
-                    </div>
-
-                    <div>
-                        <label className="font-medium text-sm text-gray-700">Tình trạng căn hộ</label>
-                        <select name="UnitStatus" value={formData.UnitStatus} onChange={handleChange} className={inputStyle} disabled={isLocked}>
-                            <option value="Owner">Chính chủ ở</option>
-                            <option value="Rent">Cho thuê</option>
-                            <option value="Business">Kinh doanh / Để trống</option>
-                        </select>
-                    </div>
-
-                    <div className="pt-2 border-t border-gray-100">
-                        <p className="text-xs font-bold text-gray-500 uppercase mb-3">Thông tin Vợ/Chồng/Khách thuê</p>
-                        <div className="space-y-4">
-                            <div>
-                                <label className="font-medium text-sm text-gray-700">Họ và tên</label>
-                                <input name="secondOwnerName" value={formData.secondOwnerName} onChange={handleChange} className={inputStyle} placeholder="Chưa có thông tin" disabled={isLocked} />
-                            </div>
-                            <div>
-                                <label className="font-medium text-sm text-gray-700">Số điện thoại liên hệ</label>
-                                <input name="secondOwnerPhone" value={formData.secondOwnerPhone} onChange={handleChange} className={inputStyle} placeholder="Chưa có thông tin" disabled={isLocked} />
-                            </div>
-                        </div>
-                    </div>
-
-                    <button 
-                        type="submit" 
-                        disabled={isLocked || isLoading} 
-                        className={`w-full p-3 font-bold rounded-lg transition-all ${
-                            isLocked 
-                            ? 'bg-gray-300 text-gray-500 cursor-not-allowed' 
-                            : 'bg-primary text-white hover:bg-primary-focus shadow-md'
-                        }`}
-                    >
-                        {isLocked ? 'Đang chờ duyệt...' : (isLoading ? 'Đang gửi...' : 'Lưu thay đổi')}
-                    </button>
-                </form>
-
-                <div className="pt-4 border-t space-y-3">
-                    <button type="button" onClick={onChangePassword} className="w-full text-left p-3 bg-gray-100 hover:bg-gray-200 rounded-lg font-semibold text-gray-800">Đổi mật khẩu</button>
-                     <button type="button" onClick={logout} className="w-full flex items-center justify-center gap-2 p-3 bg-red-50 text-red-600 font-bold rounded-lg hover:bg-red-100">
-                        <ArrowRightOnRectangleIcon className="w-5 h-5" /> Đăng xuất
-                    </button>
+                <div>
+                    <h2 className="text-xl font-bold text-gray-900">{user.DisplayName || owner.OwnerName}</h2>
+                    <p className="text-sm text-gray-500 font-medium">Căn hộ {user.residentId}</p>
                 </div>
+            </div>
+
+            {/* 2. Collapsible Profile Form */}
+            <div className="bg-white rounded-xl shadow-sm border border-gray-100 overflow-hidden transition-all duration-300 ease-in-out">
+                {/* Header / Toggle */}
+                <div 
+                    onClick={() => setIsExpanded(!isExpanded)}
+                    className="flex justify-between items-center p-4 bg-gray-50 cursor-pointer hover:bg-gray-100 transition-colors border-b border-gray-100"
+                >
+                    <div className="flex items-center gap-2">
+                        <UserIcon className="w-5 h-5 text-primary" />
+                        <h3 className="font-bold text-gray-800">Thông tin cá nhân</h3>
+                    </div>
+                    {isExpanded ? <ChevronUpIcon className="w-5 h-5 text-gray-500" /> : <ChevronDownIcon className="w-5 h-5 text-gray-500" />}
+                </div>
+
+                {/* Form Body */}
+                {isExpanded && (
+                    <div className="p-5 animate-fade-in-down">
+                        <form onSubmit={handleSave} className="space-y-5">
+                            
+                            {/* Static Field (Username/Code) */}
+                            <div className="grid grid-cols-1 md:grid-cols-2 gap-5">
+                                <div>
+                                    <label className="text-xs font-medium text-gray-500 uppercase tracking-wide">Mã Căn hộ</label>
+                                    <div className="flex items-center gap-2 mt-1 p-2.5 bg-gray-100 rounded-lg text-gray-500 border border-transparent">
+                                        <HomeIcon className="w-4 h-4" />
+                                        <span className="font-mono font-bold">{user.residentId}</span>
+                                        <span className="text-xs ml-auto italic">Không thể thay đổi</span>
+                                    </div>
+                                </div>
+                                
+                                <div>
+                                    <label className="text-xs font-medium text-gray-500 uppercase tracking-wide mb-1 block">Danh xưng</label>
+                                    {isEditing ? (
+                                        <select name="title" value={formData.title} onChange={handleChange} className={getFieldClass(true)}>
+                                            <option value="Anh">Anh</option>
+                                            <option value="Chị">Chị</option>
+                                            <option value="Ông">Ông</option>
+                                            <option value="Bà">Bà</option>
+                                        </select>
+                                    ) : (
+                                        <div className={getFieldClass(false)}>{formData.title}</div>
+                                    )}
+                                </div>
+                            </div>
+
+                            <div className="grid grid-cols-1 md:grid-cols-2 gap-5">
+                                <div>
+                                    <label className="text-xs font-medium text-gray-500 uppercase tracking-wide mb-1 block">Họ và tên</label>
+                                    <input 
+                                        name="DisplayName" 
+                                        value={formData.DisplayName} 
+                                        onChange={handleChange} 
+                                        disabled={!isEditing} 
+                                        className={getFieldClass(isEditing)}
+                                        placeholder="Nhập họ tên hiển thị" 
+                                    />
+                                </div>
+                                <div>
+                                    <label className="text-xs font-medium text-gray-500 uppercase tracking-wide mb-1 flex items-center gap-1">
+                                        Số điện thoại <PhoneArrowUpRightIcon className="w-3 h-3"/>
+                                    </label>
+                                    <input 
+                                        name="Phone" 
+                                        value={formData.Phone} 
+                                        onChange={handleChange} 
+                                        disabled={!isEditing} 
+                                        className={getFieldClass(isEditing)}
+                                        placeholder="Nhập số điện thoại" 
+                                    />
+                                </div>
+                            </div>
+
+                            <div>
+                                <label className="text-xs font-medium text-gray-500 uppercase tracking-wide mb-1 flex items-center gap-1">
+                                    Email liên hệ <EnvelopeIcon className="w-3 h-3"/>
+                                </label>
+                                <input 
+                                    type="email" 
+                                    name="Email" 
+                                    value={formData.Email} 
+                                    onChange={handleChange} 
+                                    disabled={!isEditing} 
+                                    className={getFieldClass(isEditing)}
+                                    placeholder="email@example.com" 
+                                />
+                            </div>
+
+                            <div className="pt-4 border-t border-gray-100">
+                                <label className="text-xs font-medium text-gray-500 uppercase tracking-wide mb-2 block">Tình trạng căn hộ</label>
+                                {isEditing ? (
+                                    <select name="UnitStatus" value={formData.UnitStatus} onChange={handleChange} className={getFieldClass(true)}>
+                                        <option value="Owner">Chính chủ đang ở</option>
+                                        <option value="Rent">Cho thuê</option>
+                                        <option value="Business">Kinh doanh / Để trống</option>
+                                    </select>
+                                ) : (
+                                    <div className="flex items-center gap-2">
+                                        <span className={`px-3 py-1 rounded-full text-xs font-bold ${
+                                            formData.UnitStatus === 'Owner' ? 'bg-green-100 text-green-700' : 
+                                            formData.UnitStatus === 'Rent' ? 'bg-blue-100 text-blue-700' : 'bg-purple-100 text-purple-700'
+                                        }`}>
+                                            {formData.UnitStatus === 'Owner' ? 'Chính chủ' : formData.UnitStatus === 'Rent' ? 'Cho thuê' : 'Kinh doanh'}
+                                        </span>
+                                    </div>
+                                )}
+                            </div>
+
+                            {/* Actions */}
+                            <div className="pt-4 flex items-center justify-end gap-3 border-t border-gray-100">
+                                {!isEditing ? (
+                                    <button 
+                                        type="button" 
+                                        onClick={() => setIsEditing(true)}
+                                        className="px-5 py-2.5 bg-white border border-gray-300 text-gray-700 font-semibold rounded-lg shadow-sm hover:bg-gray-50 hover:text-primary transition-all flex items-center gap-2 text-sm"
+                                    >
+                                        <PencilSquareIcon className="w-4 h-4" /> Chỉnh sửa
+                                    </button>
+                                ) : (
+                                    <>
+                                        <button 
+                                            type="button" 
+                                            onClick={handleCancel}
+                                            disabled={isLoading}
+                                            className="px-5 py-2.5 bg-gray-100 text-gray-700 font-semibold rounded-lg hover:bg-gray-200 transition-colors text-sm"
+                                        >
+                                            Hủy bỏ
+                                        </button>
+                                        <button 
+                                            type="submit" 
+                                            disabled={isLoading}
+                                            className="px-5 py-2.5 bg-primary text-white font-bold rounded-lg shadow-md hover:bg-primary-focus transition-all flex items-center gap-2 text-sm disabled:opacity-70"
+                                        >
+                                            {isLoading ? 'Đang lưu...' : <><CheckCircleIcon className="w-4 h-4"/> Lưu thay đổi</>}
+                                        </button>
+                                    </>
+                                )}
+                            </div>
+                        </form>
+                    </div>
+                )}
+            </div>
+
+            {/* 3. Account Actions */}
+            <div className="bg-white p-2 rounded-xl shadow-sm border border-gray-100">
+                <button type="button" onClick={onChangePassword} className="w-full flex items-center gap-3 p-4 hover:bg-gray-50 rounded-lg transition-colors group text-left">
+                    <div className="p-2 bg-gray-100 rounded-full group-hover:bg-white group-hover:shadow-sm transition-all"><KeyIcon className="w-5 h-5 text-gray-600"/></div>
+                    <span className="font-semibold text-gray-700 flex-grow">Đổi mật khẩu</span>
+                    <ChevronDownIcon className="w-4 h-4 text-gray-400 -rotate-90" />
+                </button>
+                <div className="h-px bg-gray-100 mx-4"></div>
+                <button type="button" onClick={logout} className="w-full flex items-center gap-3 p-4 hover:bg-red-50 rounded-lg transition-colors group text-left">
+                    <div className="p-2 bg-red-50 rounded-full group-hover:bg-white group-hover:shadow-sm transition-all"><ArrowRightOnRectangleIcon className="w-5 h-5 text-red-600"/></div>
+                    <span className="font-semibold text-red-600 flex-grow">Đăng xuất</span>
+                </button>
             </div>
         </div>
     );

@@ -343,6 +343,57 @@ export const getAllPendingProfileRequests = async (): Promise<ProfileRequest[]> 
     return Promise.resolve(profileRequests.filter(r => r.status === 'PENDING'));
 };
 
+// NEW: Mock function for user profile update
+export const submitUserProfileUpdate = async (
+    userAuthEmail: string, 
+    residentId: string, 
+    ownerId: string,
+    newData: {
+        displayName?: string;
+        phoneNumber?: string;
+        contactEmail?: string;
+        avatarUrl?: string;
+        spouseName?: string;
+        spousePhone?: string;
+        unitStatus?: 'Owner' | 'Rent' | 'Business';
+    }
+) => {
+    // 1. Mock update user data (UI update)
+    const userIdx = users.findIndex(u => u.Email === userAuthEmail);
+    if (userIdx > -1) {
+        if (newData.displayName) users[userIdx].DisplayName = newData.displayName;
+        if (newData.contactEmail) users[userIdx].contact_email = newData.contactEmail;
+        if (newData.avatarUrl) users[userIdx].avatarUrl = newData.avatarUrl;
+    }
+
+    // 2. Mock create request
+    const now = new Date().toISOString();
+    const requestId = `req_mock_${Date.now()}_${residentId}`;
+    
+    const changesForAdmin: any = {};
+    if (newData.displayName) changesForAdmin.OwnerName = newData.displayName;
+    if (newData.phoneNumber) changesForAdmin.Phone = newData.phoneNumber;
+    if (newData.contactEmail) changesForAdmin.Email = newData.contactEmail;
+    if (newData.avatarUrl) changesForAdmin.avatarUrl = newData.avatarUrl;
+    if (newData.spouseName) changesForAdmin.secondOwnerName = newData.spouseName;
+    if (newData.spousePhone) changesForAdmin.secondOwnerPhone = newData.spousePhone;
+    if (newData.unitStatus) changesForAdmin.UnitStatus = newData.unitStatus;
+
+    const profileRequest: ProfileRequest = {
+        id: requestId,
+        residentId,
+        ownerId,
+        status: 'PENDING',
+        changes: changesForAdmin,
+        createdAt: now,
+        updatedAt: now
+    };
+
+    profileRequests.push(profileRequest);
+
+    return Promise.resolve(profileRequest);
+};
+
 export const createProfileRequest = async (request: ProfileRequest) => {
     profileRequests.push(request);
     return Promise.resolve();
