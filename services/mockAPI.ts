@@ -4,44 +4,82 @@ import type { InvoiceSettings, Unit, Owner, Vehicle, WaterReading, ChargeRaw, Ad
 import { MOCK_UNITS, MOCK_OWNERS, MOCK_VEHICLES, MOCK_WATER_READINGS, MOCK_TARIFFS_SERVICE, MOCK_TARIFFS_PARKING, MOCK_TARIFFS_WATER, MOCK_ADJUSTMENTS, MOCK_USER_PERMISSIONS, patchKiosAreas } from '../constants';
 import { UnitType, VehicleTier } from '../types';
 
-let units: Unit[] = JSON.parse(JSON.stringify(MOCK_UNITS));
-let owners: Owner[] = JSON.parse(JSON.stringify(MOCK_OWNERS));
-let vehicles: Vehicle[] = JSON.parse(JSON.stringify(MOCK_VEHICLES));
-let waterReadings: WaterReading[] = JSON.parse(JSON.stringify(MOCK_WATER_READINGS));
-let charges: ChargeRaw[] = [];
-let adjustments: Adjustment[] = JSON.parse(JSON.stringify(MOCK_ADJUSTMENTS));
-let users: UserPermission[] = JSON.parse(JSON.stringify(MOCK_USER_PERMISSIONS));
-let activityLogs: ActivityLog[] = [];
-let profileRequests: ProfileRequest[] = [];
+// --- PERSISTENCE HELPERS ---
+const DB_PREFIX = 'QHOME_MOCK_DB_V2_';
 
-// Initialize some mock historical stats so the Dashboard chart looks good immediately
-let monthlyStats: MonthlyStat[] = [
+const loadFromStorage = <T>(key: string, defaultData: T): T => {
+    try {
+        const stored = localStorage.getItem(DB_PREFIX + key);
+        if (stored) {
+            return JSON.parse(stored);
+        }
+    } catch (e) {
+        console.warn(`Failed to load ${key} from storage`, e);
+    }
+    return defaultData;
+};
+
+const saveToStorage = (key: string, data: any) => {
+    try {
+        localStorage.setItem(DB_PREFIX + key, JSON.stringify(data));
+    } catch (e) {
+        console.error(`Failed to save ${key} to storage`, e);
+    }
+};
+
+// --- DATA INITIALIZATION ---
+// We clone constants to ensure we don't mutate the imports directly, 
+// and we try to load from LocalStorage first.
+
+let units: Unit[] = loadFromStorage('units', JSON.parse(JSON.stringify(MOCK_UNITS)));
+let owners: Owner[] = loadFromStorage('owners', JSON.parse(JSON.stringify(MOCK_OWNERS)));
+let vehicles: Vehicle[] = loadFromStorage('vehicles', JSON.parse(JSON.stringify(MOCK_VEHICLES)));
+let waterReadings: WaterReading[] = loadFromStorage('waterReadings', JSON.parse(JSON.stringify(MOCK_WATER_READINGS)));
+let charges: ChargeRaw[] = loadFromStorage('charges', []);
+let adjustments: Adjustment[] = loadFromStorage('adjustments', JSON.parse(JSON.stringify(MOCK_ADJUSTMENTS)));
+let users: UserPermission[] = loadFromStorage('users', JSON.parse(JSON.stringify(MOCK_USER_PERMISSIONS)));
+let activityLogs: ActivityLog[] = loadFromStorage('activityLogs', []);
+let profileRequests: ProfileRequest[] = loadFromStorage('profileRequests', []);
+
+let monthlyStats: MonthlyStat[] = loadFromStorage('monthlyStats', [
     { period: '2024-06', totalService: 50000000, totalParking: 30000000, totalWater: 15000000, totalDue: 95000000, updatedAt: new Date().toISOString() },
     { period: '2024-07', totalService: 50000000, totalParking: 31000000, totalWater: 16000000, totalDue: 97000000, updatedAt: new Date().toISOString() },
     { period: '2024-08', totalService: 50000000, totalParking: 30500000, totalWater: 14000000, totalDue: 94500000, updatedAt: new Date().toISOString() },
     { period: '2024-09', totalService: 52000000, totalParking: 32000000, totalWater: 18000000, totalDue: 102000000, updatedAt: new Date().toISOString() },
     { period: '2024-10', totalService: 52000000, totalParking: 32500000, totalWater: 17000000, totalDue: 101500000, updatedAt: new Date().toISOString() },
     { period: '2024-11', totalService: 52000000, totalParking: 33000000, totalWater: 16500000, totalDue: 101500000, updatedAt: new Date().toISOString() },
-];
+]);
 
-let tariffs: TariffCollection = {
+let tariffs: TariffCollection = loadFromStorage('tariffs', {
     service: JSON.parse(JSON.stringify(MOCK_TARIFFS_SERVICE)),
     parking: JSON.parse(JSON.stringify(MOCK_TARIFFS_PARKING)),
     water: JSON.parse(JSON.stringify(MOCK_TARIFFS_WATER)),
-};
-let invoiceSettings: InvoiceSettings | null = {
+});
+
+let invoiceSettings: InvoiceSettings | null = loadFromStorage('invoiceSettings', {
     logoUrl: 'data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNkYAAAAAYAAjCB0C8AAAAASUVORK5CYII=',
     accountName: 'Công ty Cổ phần Mock Service', accountNumber: '123456789', bankName: 'MockBank - Chi nhánh Dev',
     senderEmail: 'dev@example.com', senderName: 'BQL Mock Data',
     emailSubject: '[MOCK] THONG BAO PHI', emailBody: 'Day la email mock.',
     transferContentTemplate: 'HUD3 {{unitId}} T{{period}}',
-};
+});
 
-// ADDED: In-memory store for locks
-let waterLocks = new Map<string, boolean>();
-let billingLocks = new Map<string, boolean>();
+// Map cannot be directly JSON stringified, so we store it as an array of entries or just rebuild it
+let waterLocksRaw = loadFromStorage('waterLocks', []);
+let waterLocks = new Map<string, boolean>(waterLocksRaw);
 
+let billingLocksRaw = loadFromStorage('billingLocks', []);
+let billingLocks = new Map<string, boolean>(billingLocksRaw);
+
+// Apply patch to Ensure Kiosks have correct area even if loaded from old storage (optional, but good for consistency)
 patchKiosAreas(units);
+
+// --- HELPER TO SAVE MAPS ---
+const saveWaterLocks = () => saveToStorage('waterLocks', Array.from(waterLocks.entries()));
+const saveBillingLocks = () => saveToStorage('billingLocks', Array.from(billingLocks.entries()));
+
+
+// --- API IMPLEMENTATION ---
 
 export const loadAllData = async () => {
     // Extract locked water periods for initial load
@@ -67,11 +105,13 @@ export const fetchLatestLogs = async (limitCount: number = 20): Promise<Activity
 
 export const logActivity = async (log: ActivityLog) => {
     activityLogs = [log, ...activityLogs];
+    saveToStorage('activityLogs', activityLogs);
     return Promise.resolve();
 };
 
 export const updateFeeSettings = async (settings: InvoiceSettings) => {
     invoiceSettings = settings;
+    saveToStorage('invoiceSettings', invoiceSettings);
     return Promise.resolve();
 };
 
@@ -79,16 +119,19 @@ export const saveChargesBatch = async (newCharges: ChargeRaw[], periodStat?: Mon
     const period = newCharges[0]?.Period;
     if (period) {
         charges = [...charges.filter(c => c.Period !== period), ...newCharges];
+        saveToStorage('charges', charges);
     }
     // Update local stats store for mock charts
     if (periodStat) {
         monthlyStats = [...monthlyStats.filter(s => s.period !== periodStat.period), periodStat];
+        saveToStorage('monthlyStats', monthlyStats);
     }
     return Promise.resolve();
 };
 
 export const updateChargeStatuses = async (period: string, unitIds: string[], updates: { isPrinted?: boolean; isSent?: boolean }) => {
     charges = charges.map(c => (c.Period === period && unitIds.includes(c.UnitID)) ? { ...c, ...updates } : c);
+    saveToStorage('charges', charges);
     return Promise.resolve();
 };
 
@@ -99,11 +142,13 @@ export const updateChargePayments = async (period: string, paymentUpdates: Map<s
         }
         return c;
     });
+    saveToStorage('charges', charges);
     return Promise.resolve();
 };
 
 export const confirmSinglePayment = async (charge: ChargeRaw, finalPaidAmount: number, status: PaymentStatus = 'paid') => {
     charges = charges.map(c => c.Period === charge.Period && c.UnitID === charge.UnitID ? { ...c, TotalPaid: finalPaidAmount, paymentStatus: status, PaymentConfirmed: true } : c);
+    saveToStorage('charges', charges);
     return Promise.resolve();
 };
 
@@ -114,6 +159,7 @@ export const updatePaymentStatusBatch = async (period: string, unitIds: string[]
         }
         return c;
     });
+    saveToStorage('charges', charges);
     return Promise.resolve();
 };
 
@@ -122,6 +168,8 @@ export const updateResidentData = async (
     updatedData: { unit: Unit; owner: Owner; vehicles: Vehicle[] }
 ) => {
     const { unit, owner, vehicles: draftVehicles } = updatedData;
+    
+    // Update State
     units = currentUnits.map(u => u.UnitID === unit.UnitID ? unit : u);
     owners = currentOwners.map(o => o.OwnerID === owner.OwnerID ? owner : o);
 
@@ -146,13 +194,15 @@ export const updateResidentData = async (
 
     const activeIds = new Set(processedDraftVehicles.map(v => v.VehicleId));
 
-    vehicles.forEach(v => {
+    // Deactivate old vehicles
+    vehicles = vehicles.map(v => {
         if (v.UnitID === unit.UnitID && !activeIds.has(v.VehicleId)) {
-            v.isActive = false;
-            v.updatedAt = new Date().toISOString();
+            return { ...v, isActive: false, updatedAt: new Date().toISOString() };
         }
+        return v;
     });
 
+    // Update/Add new vehicles
     processedDraftVehicles.forEach(updatedV => {
         const existingIdx = vehicles.findIndex(v => v.VehicleId === updatedV.VehicleId);
         if (existingIdx > -1) {
@@ -162,34 +212,65 @@ export const updateResidentData = async (
         }
     });
     
+    // Persist
+    saveToStorage('units', units);
+    saveToStorage('owners', owners);
+    saveToStorage('vehicles', vehicles);
+
     return Promise.resolve({ units, owners, vehicles });
 };
 
 export const wipeAllBusinessData = async (progressCallback: (message: string) => void) => {
-    progressCallback("Wiping mock data in memory...");
-    units = []; owners = []; vehicles = []; waterReadings = []; charges = []; adjustments = []; activityLogs = []; monthlyStats = [];
+    progressCallback("Cleaning LocalStorage...");
+    
+    // Reset variables to defaults or empty
+    units = JSON.parse(JSON.stringify(MOCK_UNITS)); // Keep units structure but could reset
+    owners = JSON.parse(JSON.stringify(MOCK_OWNERS));
+    // Or actually wipe them if that's the intent:
+    // For a "Wipe All Business Data" feature, usually we want to keep config but clear transactions/residents
+    // But since this is "Mock", let's reset to "Factory Settings" (The MOCK_CONSTANTS)
+    
+    vehicles = JSON.parse(JSON.stringify(MOCK_VEHICLES));
+    waterReadings = JSON.parse(JSON.stringify(MOCK_WATER_READINGS));
+    charges = [];
+    adjustments = JSON.parse(JSON.stringify(MOCK_ADJUSTMENTS));
+    activityLogs = [];
+    monthlyStats = [];
+    
+    // Clear storage keys
+    const keysToRemove = ['units', 'owners', 'vehicles', 'waterReadings', 'charges', 'adjustments', 'activityLogs', 'monthlyStats', 'waterLocks', 'billingLocks', 'profileRequests'];
+    keysToRemove.forEach(k => localStorage.removeItem(DB_PREFIX + k));
+
     await new Promise(r => setTimeout(r, 500));
-    progressCallback("Done.");
+    progressCallback("Restored to Factory Mock Data.");
     return Promise.resolve();
 };
 
 export const saveUsers = async (newUsers: UserPermission[]) => {
+    // In mock mode, we usually replace the whole list or merge. 
+    // The App.tsx passes the FULL list of users in 'newUsers' usually when calling setUsers.
+    // However, if it passes just one, we need to handle merge.
+    // Looking at App.tsx handleSetUsers: it calls saveUsers(newState), where newState is the full array.
     users = newUsers;
+    saveToStorage('users', users);
     return Promise.resolve();
 };
 
 export const deleteUsers = async (emails: string[]) => {
     users = users.filter(u => !emails.includes(u.Email));
+    saveToStorage('users', users);
     return Promise.resolve();
 };
 
 export const saveTariffs = async (newTariffs: TariffCollection) => {
     tariffs = newTariffs;
+    saveToStorage('tariffs', tariffs);
     return Promise.resolve();
 };
 
 export const saveAdjustments = async (newAdjustments: Adjustment[]) => {
     adjustments = newAdjustments;
+    saveToStorage('adjustments', adjustments);
     return Promise.resolve();
 };
 
@@ -197,11 +278,15 @@ export const saveWaterReadings = async (newReadings: WaterReading[]) => {
     const newReadingsSet = new Set(newReadings.map(r => `${r.Period}_${r.UnitID}`));
     const updatedReadings = [...waterReadings.filter(r => !newReadingsSet.has(`${r.Period}_${r.UnitID}`)), ...newReadings];
     waterReadings = updatedReadings;
+    saveToStorage('waterReadings', waterReadings);
     return Promise.resolve();
 };
 
 export const saveVehicles = async (newVehicles: Vehicle[]) => {
+    // Merging logic might be needed if newVehicles is partial, but usually setVehicles sends full list.
+    // To be safe, we assume newVehicles IS the master list if passed from setVehicles state.
     vehicles = newVehicles;
+    saveToStorage('vehicles', vehicles);
     return Promise.resolve();
 };
 
@@ -304,6 +389,11 @@ export const importResidentsBatch = async (
         }
     });
     
+    // Persist
+    saveToStorage('units', units);
+    saveToStorage('owners', owners);
+    saveToStorage('vehicles', vehicles);
+
     return Promise.resolve({ units, owners, vehicles, createdCount, updatedCount, vehicleCount });
 };
 
@@ -313,6 +403,7 @@ export const getLockStatus = async (month: string): Promise<boolean> => {
 
 export const setLockStatus = async (month: string, status: boolean): Promise<void> => {
     waterLocks.set(month, status);
+    saveWaterLocks();
     return Promise.resolve();
 };
 
@@ -322,6 +413,7 @@ export const getBillingLockStatus = async (period: string): Promise<boolean> => 
 
 export const setBillingLockStatus = async (period: string, status: boolean): Promise<void> => {
     billingLocks.set(period, status);
+    saveBillingLocks();
     return Promise.resolve();
 };
 
@@ -331,6 +423,7 @@ export const resetUserPassword = async (email: string): Promise<void> => {
         ? { ...u, password: '123456', mustChangePassword: true } 
         : u
     );
+    saveToStorage('users', users);
     return Promise.resolve();
 };
 
@@ -364,6 +457,7 @@ export const submitUserProfileUpdate = async (
         if (newData.displayName) users[userIdx].DisplayName = newData.displayName;
         if (newData.contactEmail) users[userIdx].contact_email = newData.contactEmail;
         if (newData.avatarUrl) users[userIdx].avatarUrl = newData.avatarUrl;
+        saveToStorage('users', users);
     }
 
     // 2. Mock create request
@@ -390,12 +484,14 @@ export const submitUserProfileUpdate = async (
     };
 
     profileRequests.push(profileRequest);
+    saveToStorage('profileRequests', profileRequests);
 
     return Promise.resolve(profileRequest);
 };
 
 export const createProfileRequest = async (request: ProfileRequest) => {
     profileRequests.push(request);
+    saveToStorage('profileRequests', profileRequests);
     return Promise.resolve();
 };
 
@@ -406,6 +502,7 @@ export const updateResidentAvatar = async (ownerId: string, avatarUrl: string, u
     if (owner) {
         owner.avatarUrl = avatarUrl;
         owner.updatedAt = new Date().toISOString();
+        saveToStorage('owners', owners);
     }
     
     // 2. Update User (Personal) directly, skipping request flow
@@ -413,6 +510,7 @@ export const updateResidentAvatar = async (ownerId: string, avatarUrl: string, u
         const user = users.find(u => u.Email === userEmail);
         if (user) {
             user.avatarUrl = avatarUrl;
+            saveToStorage('users', users);
         }
     }
     
@@ -459,8 +557,14 @@ export const resolveProfileRequest = async (
                 if (changes.UnitStatus) {
                     unit.Status = changes.UnitStatus as any;
                 }
+                
+                saveToStorage('units', units);
+                saveToStorage('owners', owners);
+                saveToStorage('users', users);
             }
         }
+        
+        saveToStorage('profileRequests', profileRequests);
     }
     return Promise.resolve();
 };
