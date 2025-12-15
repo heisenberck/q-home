@@ -3,7 +3,7 @@ import React, { useState, useEffect, useMemo } from 'react';
 import type { Owner, UserPermission, ProfileRequest, Unit } from '../../../types';
 import { useAuth, useNotification } from '../../../App';
 import { ArrowRightOnRectangleIcon, UserCircleIcon, UploadIcon, WarningIcon, CheckCircleIcon } from '../../ui/Icons';
-import { createProfileRequest, getPendingProfileRequest, updateResidentAvatar } from '../../../services';
+import { submitUserProfileUpdate, getPendingProfileRequest, updateResidentAvatar } from '../../../services';
 import { useSmartSystemData } from '../../../hooks/useSmartData';
 import { isProduction } from '../../../utils/env';
 
@@ -17,17 +17,15 @@ interface PortalProfilePageProps {
 const PortalProfilePage: React.FC<PortalProfilePageProps> = ({ user, owner, onUpdateOwner, onChangePassword }) => {
     const { logout } = useAuth();
     const { showToast } = useNotification();
-    const { units, refreshSystemData } = useSmartSystemData(); // Need refresh to show avatar immediately
+    const { units, refreshSystemData } = useSmartSystemData(); 
     const IS_PROD = isProduction();
 
-    // Find current unit status
     const currentUnit = useMemo(() => units.find(u => u.UnitID === user.residentId), [units, user.residentId]);
 
-    // Pending Request State
     const [pendingRequest, setPendingRequest] = useState<ProfileRequest | null>(null);
     const [isLoading, setIsLoading] = useState(false);
 
-    // Form State
+    // Initial Form State
     const [formData, setFormData] = useState({
         OwnerName: owner.OwnerName || '',
         Phone: owner.Phone || '',
@@ -36,10 +34,8 @@ const PortalProfilePage: React.FC<PortalProfilePageProps> = ({ user, owner, onUp
         secondOwnerName: owner.secondOwnerName || '',
         secondOwnerPhone: owner.secondOwnerPhone || '',
         UnitStatus: currentUnit?.Status || 'Owner',
-        // Avatar is handled separately now
     });
 
-    // Check for pending requests on load
     useEffect(() => {
         const checkPending = async () => {
             if (!IS_PROD || !user.residentId) return;
@@ -57,12 +53,11 @@ const PortalProfilePage: React.FC<PortalProfilePageProps> = ({ user, owner, onUp
         setFormData(prev => ({ ...prev, [e.target.name]: e.target.value }));
     };
     
-    // NEW: Handle Instant Avatar Upload
+    // Updated: Uses the new submitUserProfileUpdate which handles both Instant UI Update + Admin Request
     const handleAvatarChange = async (e: React.ChangeEvent<HTMLInputElement>) => {
         const file = e.target.files?.[0];
         if (!file) return;
 
-        // Validations
         if (file.size > 5 * 1024 * 1024) {
             showToast('Kích thước ảnh phải nhỏ hơn 5MB', 'error');
             return;
@@ -72,20 +67,25 @@ const PortalProfilePage: React.FC<PortalProfilePageProps> = ({ user, owner, onUp
         reader.onload = async (event) => {
             const base64 = event.target?.result as string;
             
-            // 1. Optimistic Update (UI Only)
+            // Optimistic UI Update
             onUpdateOwner({ ...owner, avatarUrl: base64 });
-            showToast('Đang cập nhật ảnh đại diện...', 'info');
-
+            
             if (!IS_PROD) {
                 showToast('Đã cập nhật (Mock Mode)', 'success');
                 return;
             }
 
-            // 2. Real Update
             try {
-                await updateResidentAvatar(owner.OwnerID, base64);
+                showToast('Đang cập nhật ảnh...', 'info');
+                // Use the new consolidated function even for just Avatar
+                await submitUserProfileUpdate(
+                    user.Email,
+                    user.residentId!,
+                    owner.OwnerID,
+                    { avatarUrl: base64 }
+                );
+                
                 showToast('Cập nhật ảnh đại diện thành công!', 'success');
-                // Trigger refresh to ensure sidebars and headers update if they pull from smart data
                 refreshSystemData(true);
             } catch (error) {
                 console.error(error);
@@ -99,24 +99,21 @@ const PortalProfilePage: React.FC<PortalProfilePageProps> = ({ user, owner, onUp
         e.preventDefault();
         
         if (!IS_PROD) {
-            // Mock mode behavior
             onUpdateOwner({ ...owner, ...formData });
             showToast('Đã lưu (Mock Mode)', 'success');
             return;
         }
 
-        // Calculate Diff
-        const changes: ProfileRequest['changes'] = {};
-        if (formData.OwnerName !== owner.OwnerName) changes.OwnerName = formData.OwnerName;
-        if (formData.Phone !== owner.Phone) changes.Phone = formData.Phone;
-        if (formData.Email !== owner.Email) changes.Email = formData.Email;
-        if (formData.title !== owner.title) changes.title = formData.title;
-        if (formData.secondOwnerName !== owner.secondOwnerName) changes.secondOwnerName = formData.secondOwnerName;
-        if (formData.secondOwnerPhone !== owner.secondOwnerPhone) changes.secondOwnerPhone = formData.secondOwnerPhone;
+        // Detect Changes
+        const changes: any = {};
+        if (formData.OwnerName !== owner.OwnerName) changes.displayName = formData.OwnerName;
+        if (formData.Phone !== owner.Phone) changes.phoneNumber = formData.Phone;
+        if (formData.Email !== owner.Email) changes.contactEmail = formData.Email;
+        if (formData.secondOwnerName !== owner.secondOwnerName) changes.spouseName = formData.secondOwnerName;
+        if (formData.secondOwnerPhone !== owner.secondOwnerPhone) changes.spousePhone = formData.secondOwnerPhone;
         
-        // Handle Unit Status Change (lives on Unit table but edited here)
         if (currentUnit && formData.UnitStatus !== currentUnit.Status) {
-            changes.UnitStatus = formData.UnitStatus as any;
+            changes.unitStatus = formData.UnitStatus as any;
         }
 
         if (Object.keys(changes).length === 0) {
@@ -126,21 +123,23 @@ const PortalProfilePage: React.FC<PortalProfilePageProps> = ({ user, owner, onUp
 
         setIsLoading(true);
         try {
-            const newRequest: ProfileRequest = {
-                id: `req_${Date.now()}`,
-                residentId: user.residentId!,
-                ownerId: owner.OwnerID,
-                status: 'PENDING',
-                changes: changes,
-                createdAt: new Date().toISOString(),
-                updatedAt: new Date().toISOString()
-            };
+            // Call the ONE-WAY FLOW service
+            const newReq = await submitUserProfileUpdate(
+                user.Email,
+                user.residentId!,
+                owner.OwnerID,
+                changes
+            );
 
-            await createProfileRequest(newRequest);
-            setPendingRequest(newRequest);
-            showToast('Yêu cầu cập nhật đã được gửi đến BQL.', 'success');
+            setPendingRequest(newReq);
+            // Also refresh local data so the user sees the "Instant Update" on their profile UI immediately
+            // (Note: The onUpdateOwner prop updates the parent state, but refreshSystemData ensures consistency)
+            refreshSystemData(true); 
+            
+            showToast('Đã cập nhật hồ sơ và gửi yêu cầu xác nhận tới BQL.', 'success');
         } catch (error) {
-            showToast('Lỗi khi gửi yêu cầu.', 'error');
+            console.error(error);
+            showToast('Lỗi khi lưu hồ sơ.', 'error');
         } finally {
             setIsLoading(false);
         }
@@ -152,18 +151,14 @@ const PortalProfilePage: React.FC<PortalProfilePageProps> = ({ user, owner, onUp
         <div className="p-4 space-y-6">
             <div className="bg-white p-4 rounded-xl shadow-sm border space-y-4">
                 
-                {/* Banner Status */}
                 {isLocked && (
                     <div className="bg-orange-50 border border-orange-200 rounded-lg p-4 flex items-start gap-3">
                         <WarningIcon className="w-6 h-6 text-orange-600 flex-shrink-0 mt-0.5" />
                         <div>
-                            <h4 className="font-bold text-orange-800 text-sm">Yêu cầu đang chờ duyệt</h4>
+                            <h4 className="font-bold text-orange-800 text-sm">Thông tin đang chờ xác nhận</h4>
                             <p className="text-xs text-orange-700 mt-1">
-                                Bạn đã gửi yêu cầu cập nhật thông tin. Vui lòng đợi BQL duyệt trước khi thực hiện thay đổi mới.
+                                Bạn đã cập nhật thông tin. Thay đổi hiển thị ngay với bạn, nhưng cần BQL duyệt để áp dụng vào hồ sơ chính thức.
                             </p>
-                            <div className="mt-2 text-xs font-semibold text-orange-800">
-                                Thay đổi: {Object.keys(pendingRequest.changes).join(', ')}
-                            </div>
                         </div>
                     </div>
                 )}
@@ -177,13 +172,13 @@ const PortalProfilePage: React.FC<PortalProfilePageProps> = ({ user, owner, onUp
                                 <UserCircleIcon className="w-full h-full text-gray-400"/>
                            )}
                         </div>
-                        {/* Always show Avatar upload, decoupled from request lock */}
                         <label htmlFor="avatar-upload" className="absolute bottom-0 right-0 bg-primary p-2 rounded-full cursor-pointer hover:bg-primary-focus shadow-md transition-transform hover:scale-105" title="Đổi ảnh đại diện">
                             <UploadIcon className="w-4 h-4 text-white" />
                         </label>
                         <input id="avatar-upload" type="file" accept="image/*" className="hidden" onChange={handleAvatarChange} />
                     </div>
-                    <h2 className="text-xl font-bold">{owner.OwnerName}</h2>
+                    {/* User display name from USER object (instant update), falling back to Owner object */}
+                    <h2 className="text-xl font-bold">{user.DisplayName || owner.OwnerName}</h2>
                     <p className="text-sm text-gray-500">Căn hộ {user.residentId}</p>
                 </div>
                 
@@ -210,7 +205,7 @@ const PortalProfilePage: React.FC<PortalProfilePageProps> = ({ user, owner, onUp
                         <input name="Phone" value={formData.Phone} onChange={handleChange} className={inputStyle} disabled={isLocked} />
                     </div>
                     <div>
-                        <label className="font-medium text-sm text-gray-700">Email</label>
+                        <label className="font-medium text-sm text-gray-700">Email (Đăng nhập/Liên hệ)</label>
                         <input type="email" name="Email" value={formData.Email} onChange={handleChange} className={inputStyle} disabled={isLocked} />
                     </div>
 

@@ -32,9 +32,10 @@ export const {
     resetUserPassword,
     logActivity,
     fetchLatestLogs,
-    createProfileRequest, // Exported
-    getPendingProfileRequest, // Exported
-    getAllPendingProfileRequests, // Exported
-    resolveProfileRequest, // Exported
-    updateResidentAvatar, // Exported
+    createProfileRequest, // Deprecated but kept for compatibility
+    submitUserProfileUpdate, // NEW: One-way flow handler
+    getPendingProfileRequest, 
+    getAllPendingProfileRequests, 
+    resolveProfileRequest, 
+    updateResidentAvatar, 
 } = api;

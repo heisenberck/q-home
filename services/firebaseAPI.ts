@@ -1,10 +1,9 @@
 
 // services/firebaseAPI.ts
-import { doc, getDoc, setDoc, collection, getDocs, writeBatch, query, deleteDoc, updateDoc, limit, orderBy, where } from 'firebase/firestore';
+import { doc, getDoc, setDoc, collection, getDocs, writeBatch, query, deleteDoc, updateDoc, limit, orderBy, where, serverTimestamp } from 'firebase/firestore';
 import { db } from '../firebaseConfig';
 import type { InvoiceSettings, Unit, Owner, Vehicle, WaterReading, ChargeRaw, Adjustment, UserPermission, ActivityLog, AllData, PaymentStatus, MonthlyStat, SystemMetadata, ProfileRequest } from '../types';
 import { VehicleTier } from '../types';
-import { MOCK_TARIFFS_SERVICE, MOCK_TARIFFS_PARKING, MOCK_TARIFFS_WATER, MOCK_USER_PERMISSIONS } from '../constants';
 
 // --- METADATA HELPERS ---
 const METADATA_DOC_ID = 'metadata';
@@ -15,11 +14,9 @@ export const getSystemMetadata = async (): Promise<SystemMetadata> => {
     if (snap.exists()) {
         return snap.data() as SystemMetadata;
     }
-    // Return default if not exists (forces initial load)
     return { units_version: 0, owners_version: 0, vehicles_version: 0, tariffs_version: 0, users_version: 0 };
 };
 
-// Helper to atomically bump a version number
 const bumpVersion = (batch: any, field: keyof SystemMetadata) => {
     const metaRef = doc(db, SETTINGS_COLLECTION, METADATA_DOC_ID);
     batch.set(metaRef, { [field]: Date.now() }, { merge: true });
@@ -27,9 +24,7 @@ const bumpVersion = (batch: any, field: keyof SystemMetadata) => {
 
 // --- READ OPERATIONS ---
 
-// Used only for initial migration or DEV mode
 export const loadAllData = async (): Promise<any> => {
-    // Return safe empty structure
     return {
         units: [], owners: [], vehicles: [], tariffs: { service: [], parking: [], water: [] },
         users: [], invoiceSettings: null, adjustments: [], waterReadings: [], activityLogs: [], monthlyStats: [], lockedWaterPeriods: [],
@@ -37,14 +32,11 @@ export const loadAllData = async (): Promise<any> => {
     };
 };
 
-// NEW: Granular Fetchers for useSmartData
 export const fetchCollection = async <T>(colName: string): Promise<T[]> => {
     const snap = await getDocs(collection(db, colName));
     return snap.docs.map(d => d.data() as T);
 };
 
-// OPTIMIZATION: Only fetch the latest 20 logs to save bandwidth and read quota
-// This is sufficient for the dashboard footer and initial view.
 export const fetchLatestLogs = async (limitCount: number = 20): Promise<ActivityLog[]> => {
     try {
         const q = query(collection(db, 'activityLogs'), orderBy('ts', 'desc'), limit(limitCount));
@@ -56,37 +48,79 @@ export const fetchLatestLogs = async (limitCount: number = 20): Promise<Activity
     }
 };
 
-// --- PROFILE REQUEST OPERATIONS (APPROVAL WORKFLOW) ---
+// --- PROFILE & RESIDENT LOGIC (ONE-WAY FLOW) ---
 
-// 1. INSTANT AVATAR UPDATE (Bypass Request)
-export const updateResidentAvatar = async (ownerId: string, avatarUrl: string): Promise<void> => {
-    const batch = writeBatch(db);
-    
-    // 1. Update Owner Record
-    const ownerRef = doc(db, 'owners', ownerId);
-    // We need to fetch owner first to get the Email to update the User record
-    const ownerSnap = await getDoc(ownerRef);
-    
-    if (ownerSnap.exists()) {
-        const ownerData = ownerSnap.data() as Owner;
-        
-        // Update Owner Table
-        batch.update(ownerRef, { avatarUrl: avatarUrl, updatedAt: new Date().toISOString() });
-        bumpVersion(batch, 'owners_version');
-
-        // 2. Update User Record (if exists)
-        if (ownerData.Email) {
-            const userRef = doc(db, 'users', ownerData.Email);
-            // Check if user exists before update to avoid crashes
-            const userSnap = await getDoc(userRef);
-            if (userSnap.exists()) {
-                batch.update(userRef, { avatarUrl: avatarUrl });
-                bumpVersion(batch, 'users_version');
-            }
-        }
+/**
+ * TASK 1: User Profile Update
+ * Trigger: User clicks "Save" on their profile.
+ * Logic: 
+ * 1. Instantly update 'users' collection (User sees changes immediately).
+ * 2. Create 'profileRequests' doc (Admin sees notification to update Official Record).
+ */
+export const submitUserProfileUpdate = async (
+    userAuthEmail: string, 
+    residentId: string, 
+    ownerId: string,
+    newData: {
+        displayName?: string;
+        phoneNumber?: string;
+        contactEmail?: string;
+        avatarUrl?: string;
+        spouseName?: string;
+        spousePhone?: string;
+        unitStatus?: 'Owner' | 'Rent' | 'Business';
     }
+) => {
+    const batch = writeBatch(db);
+    const now = new Date().toISOString();
+
+    // 1. ACTION A: Instant Update to User UI Data (The "Personal" Profile)
+    // This allows the user to see their changes immediately without waiting for admin.
+    const userRef = doc(db, 'users', userAuthEmail);
+    const userUpdates: any = {};
+    
+    if (newData.displayName) userUpdates.DisplayName = newData.displayName;
+    if (newData.contactEmail) userUpdates.contact_email = newData.contactEmail; // Sync contact email
+    if (newData.avatarUrl) userUpdates.avatarUrl = newData.avatarUrl;
+    // Note: 'users' collection might not have phone/spouse fields in type, 
+    // but we update what we can for display purposes.
+    
+    batch.update(userRef, userUpdates);
+    bumpVersion(batch, 'users_version');
+
+    // 2. ACTION B: Create Request for Official Record (The "Legal" Resident List)
+    // We map the User-friendly fields to the Official Resident Schema here.
+    const requestId = `req_${Date.now()}_${residentId}`;
+    const requestRef = doc(db, 'profileRequests', requestId);
+    
+    const changesForAdmin: ProfileRequest['changes'] = {};
+    if (newData.displayName) changesForAdmin.OwnerName = newData.displayName;
+    if (newData.phoneNumber) changesForAdmin.Phone = newData.phoneNumber;
+    if (newData.contactEmail) changesForAdmin.Email = newData.contactEmail;
+    if (newData.avatarUrl) changesForAdmin.avatarUrl = newData.avatarUrl;
+    if (newData.spouseName) changesForAdmin.secondOwnerName = newData.spouseName;
+    if (newData.spousePhone) changesForAdmin.secondOwnerPhone = newData.spousePhone;
+    if (newData.unitStatus) changesForAdmin.UnitStatus = newData.unitStatus;
+
+    const profileRequest: ProfileRequest = {
+        id: requestId,
+        residentId, // Unit ID
+        ownerId,    // Owner ID in Official Record
+        status: 'PENDING',
+        changes: changesForAdmin,
+        createdAt: now,
+        updatedAt: now
+    };
+
+    batch.set(requestRef, profileRequest);
 
     await batch.commit();
+    return profileRequest;
+};
+
+// [Deprecated] Use submitUserProfileUpdate instead
+export const createProfileRequest = async (request: ProfileRequest) => {
+    await setDoc(doc(db, 'profileRequests', request.id), request);
 };
 
 export const getPendingProfileRequest = async (residentId: string): Promise<ProfileRequest | null> => {
@@ -108,7 +142,6 @@ export const getPendingProfileRequest = async (residentId: string): Promise<Prof
     }
 };
 
-// NEW: Fetch all pending requests for Admin View
 export const getAllPendingProfileRequests = async (): Promise<ProfileRequest[]> => {
     try {
         const q = query(
@@ -123,11 +156,14 @@ export const getAllPendingProfileRequests = async (): Promise<ProfileRequest[]> 
     }
 };
 
-export const createProfileRequest = async (request: ProfileRequest) => {
-    await setDoc(doc(db, 'profileRequests', request.id), request);
-};
-
-// FIXED: Resolve Request with Transactional Data Sync
+/**
+ * TASK 2: Admin Approval
+ * Trigger: Admin clicks "Approve".
+ * Logic:
+ * 1. Update 'owners' / 'units' collection (The Official Record).
+ * 2. Mark request as APPROVED.
+ * 3. CRITICAL: Do NOT write back to 'users'. The user already updated their own profile in Task 1.
+ */
 export const resolveProfileRequest = async (
     request: ProfileRequest, 
     action: 'approve' | 'reject', 
@@ -143,71 +179,35 @@ export const resolveProfileRequest = async (
         updatedAt: new Date().toISOString()
     });
 
-    // 2. If Approved, Apply Changes to Actual Tables
+    // 2. If Approved, Update Official Records ONLY (Residents/Owners)
     if (action === 'approve') {
         const changesToApply = approvedChanges || request.changes;
         const ownerRef = doc(db, 'owners', request.ownerId);
         
-        // Fetch current owner data to handle Email changes correctly
-        const ownerSnap = await getDoc(ownerRef);
-        const currentOwnerData = ownerSnap.exists() ? ownerSnap.data() as Owner : null;
+        // A. Update Owner Data (Official Record)
+        const ownerUpdates: any = {};
+        if (changesToApply.OwnerName) ownerUpdates.OwnerName = changesToApply.OwnerName;
+        if (changesToApply.Phone) ownerUpdates.Phone = changesToApply.Phone;
+        if (changesToApply.Email) ownerUpdates.Email = changesToApply.Email;
+        if (changesToApply.title) ownerUpdates.title = changesToApply.title;
+        if (changesToApply.secondOwnerName) ownerUpdates.secondOwnerName = changesToApply.secondOwnerName;
+        if (changesToApply.secondOwnerPhone) ownerUpdates.secondOwnerPhone = changesToApply.secondOwnerPhone;
+        if (changesToApply.avatarUrl) ownerUpdates.avatarUrl = changesToApply.avatarUrl;
+        
+        ownerUpdates.updatedAt = new Date().toISOString();
 
-        if (currentOwnerData) {
-            // A. Update Owner Data
-            const ownerUpdates: any = {};
-            if (changesToApply.OwnerName) ownerUpdates.OwnerName = changesToApply.OwnerName;
-            if (changesToApply.Phone) ownerUpdates.Phone = changesToApply.Phone;
-            if (changesToApply.Email) ownerUpdates.Email = changesToApply.Email;
-            if (changesToApply.title) ownerUpdates.title = changesToApply.title;
-            if (changesToApply.secondOwnerName) ownerUpdates.secondOwnerName = changesToApply.secondOwnerName;
-            if (changesToApply.secondOwnerPhone) ownerUpdates.secondOwnerPhone = changesToApply.secondOwnerPhone;
-            // Avatar is handled by separate endpoint, but if it's here, update it too
-            if (changesToApply.avatarUrl) ownerUpdates.avatarUrl = changesToApply.avatarUrl;
-            
-            ownerUpdates.updatedAt = new Date().toISOString();
-
-            if (Object.keys(ownerUpdates).length > 0) {
-                batch.update(ownerRef, ownerUpdates);
-                bumpVersion(batch, 'owners_version');
-            }
-
-            // B. Sync User Table (Critical for Auth)
-            // Case 1: Email Changed -> We must Create New User Doc & Delete Old One (Since ID is Email)
-            if (changesToApply.Email && currentOwnerData.Email && changesToApply.Email !== currentOwnerData.Email) {
-                const oldUserRef = doc(db, 'users', currentOwnerData.Email);
-                const oldUserSnap = await getDoc(oldUserRef);
-                
-                if (oldUserSnap.exists()) {
-                    const oldUserData = oldUserSnap.data() as UserPermission;
-                    const newUserRef = doc(db, 'users', changesToApply.Email);
-                    
-                    batch.set(newUserRef, {
-                        ...oldUserData,
-                        Email: changesToApply.Email,
-                        Username: changesToApply.Email.split('@')[0], // Optional: Update username
-                        DisplayName: changesToApply.OwnerName || oldUserData.DisplayName // Sync name
-                    });
-                    
-                    batch.delete(oldUserRef);
-                    bumpVersion(batch, 'users_version');
-                }
-            } 
-            // Case 2: Just Name or Phone changed -> Update existing User Doc
-            else if (changesToApply.OwnerName && currentOwnerData.Email) {
-                const userRef = doc(db, 'users', currentOwnerData.Email);
-                // We use set with merge to be safe if user doc is missing
-                batch.set(userRef, { DisplayName: changesToApply.OwnerName }, { merge: true });
-                bumpVersion(batch, 'users_version');
-            }
+        if (Object.keys(ownerUpdates).length > 0) {
+            batch.update(ownerRef, ownerUpdates);
+            bumpVersion(batch, 'owners_version');
         }
 
-        // C. Update Unit Status (if changed)
+        // B. Update Unit Status (if changed)
         if (changesToApply.UnitStatus) {
             batch.update(doc(db, 'units', request.residentId), { Status: changesToApply.UnitStatus });
             bumpVersion(batch, 'units_version');
         }
 
-        // D. Log Activity
+        // C. Log Activity
         const logId = `log_${Date.now()}`;
         batch.set(doc(db, 'activityLogs', logId), {
             id: logId,
@@ -216,19 +216,19 @@ export const resolveProfileRequest = async (
             actor_role: 'Admin',
             module: 'Residents',
             action: 'APPROVE_PROFILE_UPDATE',
-            summary: `Duyệt yêu cầu cập nhật cho căn ${request.residentId}`,
+            summary: `Duyệt cập nhật thông tin cư dân ${request.residentId}`,
             undone: false,
             ids: [request.residentId],
             before_snapshot: null
         } as ActivityLog);
         
-        // E. Send Notification
+        // D. Send Notification
         const notifRef = doc(collection(db, 'notifications'));
         batch.set(notifRef, {
             type: 'system',
-            title: 'Hồ sơ đã cập nhật',
-            body: 'BQL đã duyệt yêu cầu thay đổi thông tin của bạn.',
-            userId: request.residentId,
+            title: 'Hồ sơ đã được duyệt',
+            body: 'Thông tin chính thức của bạn trên hệ thống BQL đã được cập nhật.',
+            userId: request.residentId, // Unit ID as User ID
             isRead: false,
             createdAt: new Date().toISOString()
         });
@@ -238,7 +238,7 @@ export const resolveProfileRequest = async (
         batch.set(notifRef, {
             type: 'system',
             title: 'Yêu cầu bị từ chối',
-            body: 'BQL đã từ chối yêu cầu thay đổi thông tin của bạn.',
+            body: 'BQL đã từ chối yêu cầu thay đổi thông tin chính thức của bạn.',
             userId: request.residentId,
             isRead: false,
             createdAt: new Date().toISOString()
@@ -248,10 +248,22 @@ export const resolveProfileRequest = async (
     await batch.commit();
 };
 
-// --- WRITE OPERATIONS ---
+export const updateResidentAvatar = async (ownerId: string, avatarUrl: string): Promise<void> => {
+    const batch = writeBatch(db);
+    const ownerRef = doc(db, 'owners', ownerId);
+    
+    // We assume the user profile (in 'users') is already updated via submitUserProfileUpdate
+    // This function is strictly for updating the Official Record (Owner) if needed separately
+    // Or if an Admin is uploading the avatar for the user.
+    batch.update(ownerRef, { avatarUrl: avatarUrl, updatedAt: new Date().toISOString() });
+    bumpVersion(batch, 'owners_version');
+
+    await batch.commit();
+};
+
+// --- WRITE OPERATIONS (GENERIC) ---
 
 export const logActivity = async (log: ActivityLog) => {
-    // Direct write, no batch needed for single log
     await setDoc(doc(db, 'activityLogs', log.id), log);
 };
 
@@ -343,7 +355,6 @@ export const updateResidentData = async (
         batch.update(doc(db, 'vehicles', v.VehicleId), { isActive: false, updatedAt: new Date().toISOString() });
     });
 
-    // BUMP METADATA VERSIONS
     bumpVersion(batch, 'units_version');
     bumpVersion(batch, 'owners_version');
     bumpVersion(batch, 'vehicles_version');
@@ -375,7 +386,6 @@ const saveBatch = (name: string, data: any[]) => {
     return batch.commit();
 };
 
-// Wrappers that bump versions
 export const saveUsers = async (d: UserPermission[]) => {
     const batch = writeBatch(db);
     d.forEach(u => batch.set(doc(db, 'users', u.Email), u));
@@ -488,7 +498,6 @@ export const importResidentsBatch = async (
         }
     });
 
-    // BUMP METADATA
     bumpVersion(batch, 'units_version');
     bumpVersion(batch, 'owners_version');
     bumpVersion(batch, 'vehicles_version');
@@ -497,7 +506,6 @@ export const importResidentsBatch = async (
     return { units: [], owners: [], vehicles: [], createdCount: created, updatedCount: updated, vehicleCount };
 };
 
-// Water Lock
 export const getLockStatus = async (month: string): Promise<boolean> => {
     const docRef = doc(db, 'water_locks', month);
     const docSnap = await getDoc(docRef);
@@ -509,7 +517,6 @@ export const setLockStatus = async (month: string, status: boolean): Promise<voi
     await setDoc(docRef, { isLocked: status, updatedAt: new Date().toISOString() });
 };
 
-// Billing Lock
 export const getBillingLockStatus = async (period: string): Promise<boolean> => {
     const docRef = doc(db, 'billing_locks', period);
     const docSnap = await getDoc(docRef);

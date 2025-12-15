@@ -7,9 +7,10 @@ export type Role = 'Admin' | 'Accountant' | 'Operator' | 'Viewer' | 'Resident';
 export type PaymentStatus = 'pending' | 'unpaid' | 'paid' | 'reconciling' | 'paid_tm' | 'paid_ck';
 
 export interface UserPermission {
-    Email: string; // Used as the unique ID in Firestore
+    Email: string; // System Auth Email (Used as ID in Firebase Auth)
+    contact_email?: string; // NEW: The actual contact email for the user
     Username?: string; // Login ID / System Username (Fixed for system users)
-    DisplayName?: string; // NEW: Editable display name (e.g., "Nguyễn Văn A")
+    DisplayName?: string; // Editable display name (e.g., "Nguyễn Văn A")
     avatarUrl?: string; // Added Avatar URL (Base64)
     Role: Role;
     status: 'Active' | 'Disabled' | 'Pending';
