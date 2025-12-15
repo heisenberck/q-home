@@ -399,19 +399,23 @@ export const createProfileRequest = async (request: ProfileRequest) => {
     return Promise.resolve();
 };
 
-// MOCK: Update Resident Avatar
-export const updateResidentAvatar = async (ownerId: string, avatarUrl: string): Promise<void> => {
+// MOCK: Update Resident Avatar with Direct Dual Update
+export const updateResidentAvatar = async (ownerId: string, avatarUrl: string, userEmail?: string): Promise<void> => {
+    // 1. Update Owner (Official)
     const owner = owners.find(o => o.OwnerID === ownerId);
     if (owner) {
         owner.avatarUrl = avatarUrl;
         owner.updatedAt = new Date().toISOString();
-        if (owner.Email) {
-            const user = users.find(u => u.Email === owner.Email);
-            if (user) {
-                user.avatarUrl = avatarUrl;
-            }
+    }
+    
+    // 2. Update User (Personal) directly, skipping request flow
+    if (userEmail) {
+        const user = users.find(u => u.Email === userEmail);
+        if (user) {
+            user.avatarUrl = avatarUrl;
         }
     }
+    
     return Promise.resolve();
 };
 

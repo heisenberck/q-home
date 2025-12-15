@@ -1,5 +1,4 @@
 
-// services/firebaseAPI.ts
 import { doc, getDoc, setDoc, collection, getDocs, writeBatch, query, deleteDoc, updateDoc, limit, orderBy, where, serverTimestamp } from 'firebase/firestore';
 import { db } from '../firebaseConfig';
 import type { InvoiceSettings, Unit, Owner, Vehicle, WaterReading, ChargeRaw, Adjustment, UserPermission, ActivityLog, AllData, PaymentStatus, MonthlyStat, SystemMetadata, ProfileRequest } from '../types';
@@ -248,15 +247,25 @@ export const resolveProfileRequest = async (
     await batch.commit();
 };
 
-export const updateResidentAvatar = async (ownerId: string, avatarUrl: string): Promise<void> => {
+/**
+ * DIRECT AVATAR UPDATE
+ * Updates both Owner and User collections immediately.
+ * No approval request created.
+ */
+export const updateResidentAvatar = async (ownerId: string, avatarUrl: string, userEmail?: string): Promise<void> => {
     const batch = writeBatch(db);
-    const ownerRef = doc(db, 'owners', ownerId);
     
-    // We assume the user profile (in 'users') is already updated via submitUserProfileUpdate
-    // This function is strictly for updating the Official Record (Owner) if needed separately
-    // Or if an Admin is uploading the avatar for the user.
+    // 1. Update Official Record (Owner)
+    const ownerRef = doc(db, 'owners', ownerId);
     batch.update(ownerRef, { avatarUrl: avatarUrl, updatedAt: new Date().toISOString() });
     bumpVersion(batch, 'owners_version');
+
+    // 2. Update User Record (For immediate display on refresh)
+    if (userEmail) {
+        const userRef = doc(db, 'users', userEmail);
+        batch.update(userRef, { avatarUrl: avatarUrl });
+        bumpVersion(batch, 'users_version');
+    }
 
     await batch.commit();
 };

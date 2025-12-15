@@ -7,7 +7,7 @@ import {
     PencilSquareIcon, CheckCircleIcon, XMarkIcon, ChevronDownIcon, ChevronUpIcon,
     UserIcon, PhoneArrowUpRightIcon, EnvelopeIcon, HomeIcon, KeyIcon
 } from '../../ui/Icons';
-import { submitUserProfileUpdate, getPendingProfileRequest } from '../../../services';
+import { submitUserProfileUpdate, getPendingProfileRequest, updateResidentAvatar } from '../../../services';
 import { useSmartSystemData } from '../../../hooks/useSmartData';
 import { isProduction } from '../../../utils/env';
 
@@ -32,7 +32,7 @@ const PortalProfilePage: React.FC<PortalProfilePageProps> = ({ user, owner, onUp
     const [isEditing, setIsEditing] = useState(false); // Mode State
     const [isExpanded, setIsExpanded] = useState(true); // Collapsible State
 
-    // Initialize Form Data with User (Display) data preferring User collection over Owner collection
+    // Initialize Form Data
     const [formData, setFormData] = useState({
         DisplayName: user.DisplayName || owner.OwnerName || '',
         Phone: owner.Phone || '',
@@ -75,7 +75,6 @@ const PortalProfilePage: React.FC<PortalProfilePageProps> = ({ user, owner, onUp
 
     const handleCancel = () => {
         setIsEditing(false);
-        // Reset form data to props
         setFormData({
             DisplayName: user.DisplayName || owner.OwnerName || '',
             Phone: owner.Phone || '',
@@ -87,6 +86,7 @@ const PortalProfilePage: React.FC<PortalProfilePageProps> = ({ user, owner, onUp
         });
     };
     
+    // Updated: Avatar Change now calls updateResidentAvatar directly (Dual Sync)
     const handleAvatarChange = async (e: React.ChangeEvent<HTMLInputElement>) => {
         const file = e.target.files?.[0];
         if (!file) return;
@@ -103,13 +103,14 @@ const PortalProfilePage: React.FC<PortalProfilePageProps> = ({ user, owner, onUp
             onUpdateOwner({ ...owner, avatarUrl: base64 });
             
             if (!IS_PROD) {
-                showToast('Đã cập nhật (Mock Mode)', 'success');
+                showToast('Đã cập nhật ảnh (Mock Mode)', 'success');
                 return;
             }
 
             try {
                 showToast('Đang cập nhật ảnh...', 'info');
-                await submitUserProfileUpdate(user.Email, user.residentId!, owner.OwnerID, { avatarUrl: base64 });
+                // Call Direct Update (No Request creation)
+                await updateResidentAvatar(owner.OwnerID, base64, user.Email);
                 showToast('Cập nhật ảnh đại diện thành công!', 'success');
                 refreshSystemData(true);
             } catch (error) {
@@ -135,8 +136,11 @@ const PortalProfilePage: React.FC<PortalProfilePageProps> = ({ user, owner, onUp
         if (formData.DisplayName !== (user.DisplayName || owner.OwnerName)) changes.displayName = formData.DisplayName;
         if (formData.Phone !== owner.Phone) changes.phoneNumber = formData.Phone;
         if (formData.Email !== (user.contact_email || owner.Email)) changes.contactEmail = formData.Email;
+        
+        // Map Secondary Contact Fields
         if (formData.secondOwnerName !== owner.secondOwnerName) changes.spouseName = formData.secondOwnerName;
         if (formData.secondOwnerPhone !== owner.secondOwnerPhone) changes.spousePhone = formData.secondOwnerPhone;
+        
         if (currentUnit && formData.UnitStatus !== currentUnit.Status) changes.unitStatus = formData.UnitStatus as any;
 
         if (Object.keys(changes).length === 0) {
@@ -150,8 +154,8 @@ const PortalProfilePage: React.FC<PortalProfilePageProps> = ({ user, owner, onUp
             const newReq = await submitUserProfileUpdate(user.Email, user.residentId!, owner.OwnerID, changes);
             setPendingRequest(newReq);
             refreshSystemData(true); 
-            setIsEditing(false); // Switch back to View Mode
-            showToast('Đã cập nhật hồ sơ.', 'success');
+            setIsEditing(false);
+            showToast('Đã lưu hồ sơ và gửi yêu cầu cập nhật tới BQL.', 'success');
         } catch (error) {
             console.error(error);
             showToast('Lỗi khi lưu hồ sơ.', 'error');
@@ -187,9 +191,8 @@ const PortalProfilePage: React.FC<PortalProfilePageProps> = ({ user, owner, onUp
                             <UserCircleIcon className="w-full h-full text-gray-300"/>
                        )}
                     </div>
-                    {/* Only allow avatar upload in Edit mode or via explicit action button? 
-                        UX Decision: Allow avatar change always for convenience. */}
-                    <label htmlFor="avatar-upload" className="absolute bottom-1 right-1 bg-white text-gray-600 p-2 rounded-full cursor-pointer hover:text-primary shadow-md border border-gray-200 transition-transform hover:scale-105" title="Đổi ảnh">
+                    {/* Avatar Upload is ALWAYS active, decoupled from form editing */}
+                    <label htmlFor="avatar-upload" className="absolute bottom-1 right-1 bg-white text-gray-600 p-2 rounded-full cursor-pointer hover:text-primary shadow-md border border-gray-200 transition-transform hover:scale-105" title="Đổi ảnh ngay">
                         <UploadIcon className="w-4 h-4" />
                     </label>
                     <input id="avatar-upload" type="file" accept="image/*" className="hidden" onChange={handleAvatarChange} />
@@ -217,76 +220,98 @@ const PortalProfilePage: React.FC<PortalProfilePageProps> = ({ user, owner, onUp
                 {/* Form Body */}
                 {isExpanded && (
                     <div className="p-5 animate-fade-in-down">
-                        <form onSubmit={handleSave} className="space-y-5">
+                        <form onSubmit={handleSave} className="space-y-6">
                             
-                            {/* Static Field (Username/Code) */}
-                            <div className="grid grid-cols-1 md:grid-cols-2 gap-5">
-                                <div>
-                                    <label className="text-xs font-medium text-gray-500 uppercase tracking-wide">Mã Căn hộ</label>
-                                    <div className="flex items-center gap-2 mt-1 p-2.5 bg-gray-100 rounded-lg text-gray-500 border border-transparent">
-                                        <HomeIcon className="w-4 h-4" />
-                                        <span className="font-mono font-bold">{user.residentId}</span>
-                                        <span className="text-xs ml-auto italic">Không thể thay đổi</span>
+                            {/* Section 1: Main Contact */}
+                            <div className="space-y-4">
+                                <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+                                    <div className="md:col-span-1">
+                                        <label className="text-xs font-medium text-gray-500 uppercase tracking-wide mb-1 block">Danh xưng</label>
+                                        {isEditing ? (
+                                            <select name="title" value={formData.title} onChange={handleChange} className={getFieldClass(true)}>
+                                                <option value="Anh">Anh</option>
+                                                <option value="Chị">Chị</option>
+                                                <option value="Ông">Ông</option>
+                                                <option value="Bà">Bà</option>
+                                            </select>
+                                        ) : (
+                                            <div className={getFieldClass(false)}>{formData.title}</div>
+                                        )}
+                                    </div>
+                                    <div className="md:col-span-2">
+                                        <label className="text-xs font-medium text-gray-500 uppercase tracking-wide mb-1 block">Họ và tên Chủ hộ</label>
+                                        <input 
+                                            name="DisplayName" 
+                                            value={formData.DisplayName} 
+                                            onChange={handleChange} 
+                                            disabled={!isEditing} 
+                                            className={getFieldClass(isEditing)}
+                                            placeholder="Nhập họ tên hiển thị" 
+                                        />
                                     </div>
                                 </div>
-                                
-                                <div>
-                                    <label className="text-xs font-medium text-gray-500 uppercase tracking-wide mb-1 block">Danh xưng</label>
-                                    {isEditing ? (
-                                        <select name="title" value={formData.title} onChange={handleChange} className={getFieldClass(true)}>
-                                            <option value="Anh">Anh</option>
-                                            <option value="Chị">Chị</option>
-                                            <option value="Ông">Ông</option>
-                                            <option value="Bà">Bà</option>
-                                        </select>
-                                    ) : (
-                                        <div className={getFieldClass(false)}>{formData.title}</div>
-                                    )}
+
+                                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                                    <div>
+                                        <label className="text-xs font-medium text-gray-500 uppercase tracking-wide mb-1 flex items-center gap-1">
+                                            Số điện thoại <PhoneArrowUpRightIcon className="w-3 h-3"/>
+                                        </label>
+                                        <input 
+                                            name="Phone" 
+                                            value={formData.Phone} 
+                                            onChange={handleChange} 
+                                            disabled={!isEditing} 
+                                            className={getFieldClass(isEditing)}
+                                            placeholder="Nhập số điện thoại" 
+                                        />
+                                    </div>
+                                    <div>
+                                        <label className="text-xs font-medium text-gray-500 uppercase tracking-wide mb-1 flex items-center gap-1">
+                                            Email liên hệ <EnvelopeIcon className="w-3 h-3"/>
+                                        </label>
+                                        <input 
+                                            type="email" 
+                                            name="Email" 
+                                            value={formData.Email} 
+                                            onChange={handleChange} 
+                                            disabled={!isEditing} 
+                                            className={getFieldClass(isEditing)}
+                                            placeholder="email@example.com" 
+                                        />
+                                    </div>
                                 </div>
                             </div>
 
-                            <div className="grid grid-cols-1 md:grid-cols-2 gap-5">
-                                <div>
-                                    <label className="text-xs font-medium text-gray-500 uppercase tracking-wide mb-1 block">Họ và tên</label>
-                                    <input 
-                                        name="DisplayName" 
-                                        value={formData.DisplayName} 
-                                        onChange={handleChange} 
-                                        disabled={!isEditing} 
-                                        className={getFieldClass(isEditing)}
-                                        placeholder="Nhập họ tên hiển thị" 
-                                    />
-                                </div>
-                                <div>
-                                    <label className="text-xs font-medium text-gray-500 uppercase tracking-wide mb-1 flex items-center gap-1">
-                                        Số điện thoại <PhoneArrowUpRightIcon className="w-3 h-3"/>
-                                    </label>
-                                    <input 
-                                        name="Phone" 
-                                        value={formData.Phone} 
-                                        onChange={handleChange} 
-                                        disabled={!isEditing} 
-                                        className={getFieldClass(isEditing)}
-                                        placeholder="Nhập số điện thoại" 
-                                    />
+                            {/* Section 2: Secondary Contact (New Section) */}
+                            <div className="border-t border-gray-100 pt-4 space-y-4">
+                                <h4 className="text-xs font-bold text-gray-400 uppercase tracking-wider">Người liên hệ thứ 2</h4>
+                                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                                    <div>
+                                        <label className="text-xs font-medium text-gray-500 uppercase tracking-wide mb-1 block">Họ tên Vợ/Chồng/Khách thuê</label>
+                                        <input 
+                                            name="secondOwnerName" 
+                                            value={formData.secondOwnerName} 
+                                            onChange={handleChange} 
+                                            disabled={!isEditing} 
+                                            className={getFieldClass(isEditing)}
+                                            placeholder={isEditing ? "Nhập tên người liên hệ 2" : "Chưa cập nhật"} 
+                                        />
+                                    </div>
+                                    <div>
+                                        <label className="text-xs font-medium text-gray-500 uppercase tracking-wide mb-1 block">SĐT Vợ/Chồng/Khách thuê</label>
+                                        <input 
+                                            name="secondOwnerPhone" 
+                                            value={formData.secondOwnerPhone} 
+                                            onChange={handleChange} 
+                                            disabled={!isEditing} 
+                                            className={getFieldClass(isEditing)}
+                                            placeholder={isEditing ? "Nhập SĐT người liên hệ 2" : "Chưa cập nhật"} 
+                                        />
+                                    </div>
                                 </div>
                             </div>
 
-                            <div>
-                                <label className="text-xs font-medium text-gray-500 uppercase tracking-wide mb-1 flex items-center gap-1">
-                                    Email liên hệ <EnvelopeIcon className="w-3 h-3"/>
-                                </label>
-                                <input 
-                                    type="email" 
-                                    name="Email" 
-                                    value={formData.Email} 
-                                    onChange={handleChange} 
-                                    disabled={!isEditing} 
-                                    className={getFieldClass(isEditing)}
-                                    placeholder="email@example.com" 
-                                />
-                            </div>
-
+                            {/* Section 3: Unit Status */}
                             <div className="pt-4 border-t border-gray-100">
                                 <label className="text-xs font-medium text-gray-500 uppercase tracking-wide mb-2 block">Tình trạng căn hộ</label>
                                 {isEditing ? (
