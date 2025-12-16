@@ -1,10 +1,15 @@
-
 <!DOCTYPE html>
 <html lang="vi" class="light" style="background-color: #ffffff;">
   <head>
     <meta charset="UTF-8" />
     <link rel="icon" type="image/svg+xml" href="/vite.svg" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    
+    <!-- PWA Setup -->
+    <link rel="manifest" href="/manifest.json" />
+    <meta name="theme-color" content="#006d4e" />
+    <link rel="apple-touch-icon" href="/icons/icon-192x192.png">
+    
     <title>Hệ thống Quản lý Chung cư HUD3</title>
     
     <!-- Google Fonts: Inter -->
@@ -114,7 +119,10 @@
     "firebase/firestore": "https://www.gstatic.com/firebasejs/12.6.0/firebase-firestore.js",
     "firebase/auth": "https://www.gstatic.com/firebasejs/12.6.0/firebase-auth.js",
     "firebase/": "https://aistudiocdn.com/firebase@^12.6.0/",
-    "idb-keyval": "https://cdn.jsdelivr.net/npm/idb-keyval@6/dist/index.js"
+    "idb-keyval": "https://cdn.jsdelivr.net/npm/idb-keyval@6/dist/index.js",
+    "@vitejs/plugin-react": "https://esm.sh/@vitejs/plugin-react@^5.1.2",
+    "vite": "https://esm.sh/vite@^7.3.0",
+    "vite-plugin-pwa": "https://esm.sh/vite-plugin-pwa@^1.2.0"
   }
 }
 </script>

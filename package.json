@@ -14,7 +14,10 @@
     "@google/genai": "^1.27.0",
     "recharts": "^3.3.0",
     "firebase": "^12.6.0",
-    "idb-keyval": "6"
+    "idb-keyval": "6",
+    "@vitejs/plugin-react": "^5.1.2",
+    "vite": "^7.3.0",
+    "vite-plugin-pwa": "^1.2.0"
   },
   "devDependencies": {
     "@types/node": "^22.14.0",
