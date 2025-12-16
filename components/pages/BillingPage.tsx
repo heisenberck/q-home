@@ -332,6 +332,7 @@ const BillingPage: React.FC<BillingPageProps> = ({ charges, setCharges, allData,
             }));
 
             // 6. AGGREGATE STATS (NEW OPTIMIZATION)
+            // Combine newly calculated charges with existing paid charges to get full month totals
             const allChargesForPeriod = [...existingPaid, ...finalNewCharges];
             const monthlyStat: MonthlyStat = {
                 period: period,

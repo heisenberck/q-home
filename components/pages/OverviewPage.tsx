@@ -187,7 +187,7 @@ interface OverviewPageProps {
     activityLogs: ActivityLog[];
     feedback: any[];
     onNavigate: (page: string) => void;
-    monthlyStats?: MonthlyStat[]; // NEW Prop
+    monthlyStats?: MonthlyStat[];
 }
 
 const OverviewPage: React.FC<OverviewPageProps> = ({ allUnits, allOwners, allVehicles, allWaterReadings, charges, activityLogs, feedback, onNavigate, monthlyStats = [] }) => {
@@ -245,6 +245,7 @@ const OverviewPage: React.FC<OverviewPageProps> = ({ allUnits, allOwners, allVeh
                 };
             } else {
                 // Fallback to calculation from charges array (backward compatibility or missing stat)
+                // Note: 'charges' now only contains current month data in prod, so this is mainly for Mock Mode or recent data fallback
                 const chargesForP = charges.filter(c => c.Period === p); 
                 return { 
                     name: `T${d.getMonth() + 1}`, 

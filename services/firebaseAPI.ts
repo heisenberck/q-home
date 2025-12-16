@@ -70,6 +70,13 @@ export const fetchRecentWaterReadings = async (periods: string[]): Promise<Water
     return snap.docs.map(d => d.data() as WaterReading);
 };
 
+// NEW: Optimization for Adjustments - Fetch only recent adjustments (e.g., from a specific start period)
+export const fetchRecentAdjustments = async (startPeriod: string): Promise<Adjustment[]> => {
+    const q = query(collection(db, 'adjustments'), where('Period', '>=', startPeriod));
+    const snap = await getDocs(q);
+    return snap.docs.map(d => d.data() as Adjustment);
+};
+
 // NEW: Paginated Logs Fetching
 export const fetchLogsPaginated = async (lastDoc: any = null, limitCount: number = 20) => {
     let q = query(collection(db, 'activityLogs'), orderBy('ts', 'desc'), limit(limitCount));
@@ -311,13 +318,19 @@ export const logActivity = async (log: ActivityLog) => {
 
 export const updateFeeSettings = (settings: InvoiceSettings) => setDoc(doc(db, 'settings', 'invoice'), settings, { merge: true });
 
+// UPDATED: Save Monthly Stats along with Charges
 export const saveChargesBatch = (charges: ChargeRaw[], periodStat?: MonthlyStat) => {
     if (charges.length === 0 && !periodStat) return Promise.resolve();
     const batch = writeBatch(db);
+    
+    // Save individual charge records
     charges.forEach(charge => batch.set(doc(db, 'charges', `${charge.Period}_${charge.UnitID}`), charge));
+    
+    // Save aggregated stats for the month
     if (periodStat) {
         batch.set(doc(db, 'monthly_stats', periodStat.period), periodStat);
     }
+    
     return batch.commit();
 };
 

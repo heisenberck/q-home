@@ -117,10 +117,17 @@ export const useSmartSystemData = (currentUser: UserPermission | null) => {
                 promises.push(shouldFetchOwners ? firebaseAPI.fetchCollection<Owner>('owners') : Promise.resolve(cachedOwners));
                 promises.push(shouldFetchVehicles ? firebaseAPI.fetchCollection<Vehicle>('vehicles') : Promise.resolve(cachedVehicles));
                 
-                promises.push(firebaseAPI.fetchCollection<Adjustment>('adjustments')); 
-                
+                // OPTIMIZATION: Fetch only recent adjustments (last 6 months) instead of all history
                 const currentPeriod = new Date().toISOString().slice(0, 7);
                 const [year, month] = currentPeriod.split('-').map(Number);
+                
+                // Calculate 6 months ago for adjustments window
+                const sixMonthsAgoDate = new Date(year, month - 6, 1);
+                const startPeriod = `${sixMonthsAgoDate.getFullYear()}-${String(sixMonthsAgoDate.getMonth() + 1).padStart(2, '0')}`;
+                
+                promises.push(firebaseAPI.fetchRecentAdjustments(startPeriod)); 
+                
+                // Fetch recent water readings (2 months window for processing)
                 const prevDate = new Date(year, month - 2, 1);
                 const prevPeriod = `${prevDate.getFullYear()}-${String(prevDate.getMonth() + 1).padStart(2, '0')}`;
                 promises.push(firebaseAPI.fetchRecentWaterReadings([currentPeriod, prevPeriod]));
