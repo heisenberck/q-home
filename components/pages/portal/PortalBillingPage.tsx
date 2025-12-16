@@ -14,7 +14,7 @@ import { formatCurrency, generateTransferContent } from '../../../utils/helpers'
 import { 
     ReceiptIcon, CheckCircleIcon, ClipboardIcon, 
     HomeIcon, DropletsIcon, CarIcon, XMarkIcon, 
-    ArrowDownTrayIcon, BanknotesIcon, ClockIcon
+    ArrowDownTrayIcon, BanknotesIcon, ClockIcon, ShareIcon
 } from '../../ui/Icons';
 import { useNotification, useSettings } from '../../../App';
 import Modal from '../../ui/Modal';
@@ -58,6 +58,8 @@ const QRModal: React.FC<{
     onClose: () => void;
     onDownloadSuccess: () => void;
 }> = ({ qrUrl, amount, onClose, onDownloadSuccess }) => {
+    const { showToast } = useNotification();
+
     const handleDownload = async () => {
         try {
             const response = await fetch(qrUrl);
@@ -76,6 +78,30 @@ const QRModal: React.FC<{
         }
     };
 
+    const handleShare = async () => {
+        try {
+            const response = await fetch(qrUrl);
+            const blob = await response.blob();
+            const file = new File([blob], `vietqr-payment-${amount}.png`, { type: 'image/png' });
+
+            if (navigator.canShare && navigator.canShare({ files: [file] })) {
+                await navigator.share({
+                    title: 'Thanh toán phí Q-Home',
+                    text: `Mã QR thanh toán phí dịch vụ: ${formatCurrency(amount)}`,
+                    files: [file]
+                });
+            } else {
+                showToast('Trình duyệt không hỗ trợ chia sẻ ảnh.', 'warn');
+            }
+        } catch (e: any) {
+            // Ignore abort errors (user cancelled)
+            if (e.name !== 'AbortError') {
+                console.error(e);
+                showToast('Không thể chia sẻ.', 'error');
+            }
+        }
+    };
+
     return (
         <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/60 backdrop-blur-sm animate-fade-in-down">
             <div className="bg-white rounded-2xl shadow-2xl w-full max-w-sm overflow-hidden flex flex-col">
@@ -90,12 +116,18 @@ const QRModal: React.FC<{
                     <p className="mt-4 text-2xl font-bold text-primary">{formatCurrency(amount)}</p>
                     <p className="text-sm text-gray-500 text-center mt-2">Sử dụng App Ngân hàng hoặc Camera để quét mã</p>
                 </div>
-                <div className="p-4 border-t border-gray-100 bg-gray-50 flex justify-center">
+                <div className="p-4 border-t border-gray-100 bg-gray-50 flex gap-3">
                     <button 
                         onClick={handleDownload}
-                        className="flex items-center gap-2 px-6 py-2.5 bg-white border border-gray-300 text-gray-700 font-semibold rounded-full shadow-sm hover:bg-gray-100 transition-colors"
+                        className="flex-1 flex items-center justify-center gap-2 px-4 py-2.5 bg-white border border-gray-300 text-gray-700 font-semibold rounded-lg shadow-sm hover:bg-gray-100 transition-colors"
                     >
-                        <ArrowDownTrayIcon className="w-5 h-5"/> Lưu ảnh QR
+                        <ArrowDownTrayIcon className="w-5 h-5"/> Lưu ảnh
+                    </button>
+                    <button 
+                        onClick={handleShare}
+                        className="flex-1 flex items-center justify-center gap-2 px-4 py-2.5 bg-[#006f3a] text-white font-semibold rounded-lg shadow-sm hover:bg-[#005a2f] transition-colors"
+                    >
+                        <ShareIcon className="w-5 h-5"/> Chia sẻ
                     </button>
                 </div>
             </div>
