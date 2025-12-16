@@ -404,7 +404,27 @@ const WaterPage: React.FC<WaterPageProps> = ({ waterReadings, setWaterReadings, 
                          <div className="relative flex-grow min-w-[150px]"><SearchIcon className="absolute left-3 top-1/2 -translate-y-1/2 h-5 w-5 text-gray-400" /><input type="text" placeholder="Tìm căn hộ..." value={searchTerm} onChange={e => setSearchTerm(e.target.value)} className="w-full h-10 pl-10 pr-3 border rounded-lg bg-gray-50 border-gray-200 focus:bg-white focus:ring-2 focus:ring-primary"/></div>
                          <select value={floorFilter} onChange={e => setFloorFilter(e.target.value)} className="h-10 px-3 border rounded-lg bg-gray-50 border-gray-200 focus:ring-2 focus:ring-primary">{floors.map(f => <option key={f.value} value={f.value}>{f.label}</option>)}</select>
                          <div className="flex items-center gap-2">
-                            {isLocked ? (<button onDoubleClick={handleUnlock} disabled={!canEdit || isLocking} data-tooltip="Dữ liệu đã chốt. Nhấn đúp để mở khóa chỉnh sửa" className="h-10 px-4 font-semibold rounded-lg flex items-center gap-2 bg-gray-100 text-gray-700 border border-gray-300 disabled:opacity-50"><LockClosedIcon /> Locked</button>) : (<button onClick={handleLock} disabled={!canEdit || isLocking} className="h-10 px-4 font-semibold rounded-lg flex items-center gap-2 bg-primary text-white hover:bg-primary-focus shadow-sm disabled:opacity-50"><SaveIcon /> Save</button>)}
+                            {/* Updated Save/Lock Button Logic */}
+                            {isLocked ? (
+                                <button 
+                                    onDoubleClick={handleUnlock} 
+                                    disabled={!canEdit || isLocking} 
+                                    className="h-10 px-4 font-semibold rounded-lg flex items-center gap-2 bg-gray-400 text-white border border-gray-400 disabled:opacity-50 hover:bg-gray-500 cursor-pointer select-none shadow-sm"
+                                    title="Dữ liệu đã chốt. Nhấn đúp để mở khóa."
+                                >
+                                    <LockClosedIcon className="w-5 h-5" /> Đã chốt
+                                </button>
+                            ) : (
+                                <button 
+                                    onClick={handleLock} 
+                                    disabled={!canEdit || isLocking} 
+                                    className="h-10 px-4 font-semibold rounded-lg flex items-center gap-2 bg-primary text-white hover:bg-primary-focus shadow-sm disabled:opacity-50"
+                                    title="Chốt số liệu kỳ này"
+                                >
+                                    <SaveIcon className="w-5 h-5" /> Chốt sổ
+                                </button>
+                            )}
+                            
                             <button onClick={() => setIsImportModalOpen(true)} disabled={!canEdit || isLocked} className="h-10 px-4 font-semibold rounded-lg flex items-center gap-2 border border-primary text-primary hover:bg-primary/10 bg-white disabled:opacity-50"><UploadIcon /> Import</button>
                         </div>
                     </div>

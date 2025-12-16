@@ -1,3 +1,4 @@
+
 import React, { useState, useEffect, useCallback, createContext, useMemo } from 'react';
 import type { Role, UserPermission, Unit, Owner, Vehicle, WaterReading, ChargeRaw, TariffService, TariffParking, TariffWater, Adjustment, InvoiceSettings, ActivityLog, VehicleTier, TariffCollection, AllData, NewsItem, FeedbackItem, FeedbackReply, MonthlyStat } from './types';
 import { patchKiosAreas, MOCK_NEWS_ITEMS, MOCK_FEEDBACK_ITEMS, MOCK_USER_PERMISSIONS } from './constants';
@@ -72,7 +73,7 @@ interface AppContextType {
     showToast: (message: string, type: ToastType, duration?: number) => void;
     logAction: (payload: LogPayload) => void;
     logout: () => void;
-    updateUser: (updatedUser: UserPermission) => void;
+    updateUser: (updatedUser: UserPermission, oldEmail?: string) => void;
     invoiceSettings: InvoiceSettings;
     refreshData: () => void;
 }
@@ -118,6 +119,7 @@ const App: React.FC = () => {
         units, owners, vehicles, tariffs, users: smartUsers, 
         invoiceSettings: smartInvoiceSettings, adjustments, waterReadings, activityLogs,
         monthlyStats: loadedMonthlyStats, // NEW
+        lockedWaterPeriods,
         loading: smartLoading, hasLoaded: smartHasLoaded, refreshSystemData 
     } = useSmartSystemData();
 
@@ -287,9 +289,10 @@ const App: React.FC = () => {
         setNotifications(prev => ({ ...prev, hasNewNotifications: false })); 
     }, []);
     
-    const handleUpdateUser = useCallback((updatedUser: UserPermission) => {
-        setUsers(prev => prev.map(u => (u.Email === updatedUser.Email) ? updatedUser : u));
-        if (currentUser && (currentUser.Email === updatedUser.Email)) setCurrentUser(updatedUser);
+    const handleUpdateUser = useCallback((updatedUser: UserPermission, oldEmail?: string) => {
+        const targetEmail = oldEmail || updatedUser.Email;
+        setUsers(prev => prev.map(u => (u.Email === targetEmail) ? updatedUser : u));
+        if (currentUser && (currentUser.Email === targetEmail)) setCurrentUser(updatedUser);
     }, [currentUser]);
 
     const logAction = useCallback((payload: LogPayload) => {
@@ -329,7 +332,27 @@ const App: React.FC = () => {
         }
     }, [vehicles, saveVehicles, logAction, showToast, refreshSystemData]);
 
-    const handleSetWaterReadings = createDataHandler(() => {}, saveWaterReadings);
+    // UPDATED: Handle Water Readings manually to integrate with smart hook refresh
+    const handleSetWaterReadings = useCallback(async (updater: React.SetStateAction<WaterReading[]>, logPayload?: LogPayload) => {
+        let newReadings: WaterReading[];
+        if (typeof updater === 'function') {
+            // NOTE: Use waterReadings from the HOOK scope, as there is no local 'waterReadings' state in App.tsx
+            newReadings = (updater as (prevState: WaterReading[]) => WaterReading[])(waterReadings);
+        } else {
+            newReadings = updater;
+        }
+
+        try {
+            await saveWaterReadings(newReadings);
+            if (logPayload) logAction(logPayload);
+            showToast('Dữ liệu nước đã được lưu.', 'success');
+            refreshSystemData(true); // Force UI update
+        } catch (error) {
+            console.error(error);
+            showToast('Lưu dữ liệu thất bại.', 'error');
+        }
+    }, [waterReadings, saveWaterReadings, logAction, showToast, refreshSystemData]);
+
     const handleSetTariffs = createDataHandler(() => {}, saveTariffs);
     const handleSetAdjustments = createDataHandler(() => {}, saveAdjustments);
     const handleSetNews = createDataHandler(setNews, async (d) => {});
@@ -367,14 +390,14 @@ const App: React.FC = () => {
     }
 
     const renderAdminPage = () => {
-        const allDataForBilling: AllData = { units, owners, vehicles, waterReadings, tariffs, adjustments, activityLogs, monthlyStats };
+        const allDataForBilling: AllData = { units, owners, vehicles, waterReadings, tariffs, adjustments, activityLogs, monthlyStats, lockedWaterPeriods };
         switch (activePage as AdminPage) {
             // Pass monthlyStats to OverviewPage via props or if it uses context
             case 'overview': return <OverviewPage allUnits={units} allOwners={owners} allVehicles={vehicles} allWaterReadings={waterReadings} charges={charges} activityLogs={activityLogs} feedback={feedback} onNavigate={setActivePage as (p: AdminPage) => void} monthlyStats={monthlyStats} />;
             case 'billing': return <BillingPage charges={charges} setCharges={handleSetCharges} allData={allDataForBilling} onUpdateAdjustments={handleSetAdjustments} role={currentUser!.Role} invoiceSettings={invoiceSettings} />;
             case 'residents': return <ResidentsPage units={units} owners={owners} vehicles={vehicles} activityLogs={activityLogs} onSaveResident={handleSaveResident} onImportData={handleImportResidents} onDeleteResidents={()=>{}} role={currentUser!.Role} currentUser={currentUser!} />;
             case 'vehicles': return <VehiclesPage vehicles={vehicles} units={units} owners={owners} activityLogs={activityLogs} onSetVehicles={handleSetVehicles} role={currentUser!.Role} />;
-            case 'water': return <WaterPage waterReadings={waterReadings} setWaterReadings={handleSetWaterReadings} allUnits={units} role={currentUser!.Role} tariffs={tariffs} />;
+            case 'water': return <WaterPage waterReadings={waterReadings} setWaterReadings={handleSetWaterReadings} allUnits={units} role={currentUser!.Role} tariffs={tariffs} lockedPeriods={lockedWaterPeriods} refreshData={() => refreshSystemData(true)} />;
             case 'pricing': return <PricingPage tariffs={tariffs} setTariffs={handleSetTariffs} role={currentUser!.Role} />;
             case 'users': return <UsersPage users={users} setUsers={handleSetUsers} units={units} role={currentUser!.Role} />;
             case 'settings': return <SettingsPage invoiceSettings={invoiceSettings} setInvoiceSettings={updateFeeSettings} role={currentUser!.Role} />;
