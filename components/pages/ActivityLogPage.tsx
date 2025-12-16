@@ -1,22 +1,57 @@
-import React, { useState, useMemo } from 'react';
+
+import React, { useState, useEffect } from 'react';
 import type { ActivityLog, Role } from '../../types';
-import { ArrowUturnLeftIcon, SearchIcon } from '../ui/Icons';
+import { ArrowUturnLeftIcon, SearchIcon, ChevronLeftIcon, ChevronRightIcon } from '../ui/Icons';
+import { fetchLogsPaginated } from '../../services/firebaseAPI';
+import { isProduction } from '../../utils/env';
+import Spinner from '../ui/Spinner';
 
 interface ActivityLogPageProps {
-    logs: ActivityLog[];
+    logs: ActivityLog[]; // Deprecated prop, kept for compatibility interface
     onUndo: (logId: string) => void;
     role: Role;
 }
 
-const ITEMS_PER_PAGE = 25;
-
-const ActivityLogPage: React.FC<ActivityLogPageProps> = ({ logs, onUndo, role }) => {
-    const [searchTerm, setSearchTerm] = useState('');
-    const [moduleFilter, setModuleFilter] = useState('all');
-    const [userFilter, setUserFilter] = useState('all');
-    const [dateFilter, setDateFilter] = useState('all');
-    const [currentPage, setCurrentPage] = useState(1);
+const ActivityLogPage: React.FC<ActivityLogPageProps> = ({ logs: initialLogs, onUndo, role }) => {
+    // Internal state for pagination
+    const [logs, setLogs] = useState<ActivityLog[]>(initialLogs.length > 0 ? initialLogs : []);
+    const [loading, setLoading] = useState(false);
+    const [lastDoc, setLastDoc] = useState<any>(null);
+    const [hasMore, setHasMore] = useState(true);
+    const [page, setPage] = useState(1);
     
+    // Fallback to initial props for Mock Mode
+    const IS_PROD = isProduction();
+
+    const loadData = async (reset = false) => {
+        if (!IS_PROD) return; // Use props in dev/mock
+        
+        setLoading(true);
+        try {
+            const result = await fetchLogsPaginated(reset ? null : lastDoc, 25);
+            if (reset) {
+                setLogs(result.data);
+                setPage(1);
+            } else {
+                setLogs(prev => [...prev, ...result.data]);
+                setPage(p => p + 1);
+            }
+            setLastDoc(result.lastDoc);
+            setHasMore(result.hasMore);
+        } catch (e) {
+            console.error(e);
+        } finally {
+            setLoading(false);
+        }
+    };
+
+    // Initial Load
+    useEffect(() => {
+        if (IS_PROD && logs.length === 0) {
+            loadData(true);
+        }
+    }, [IS_PROD]);
+
     if (role !== 'Admin') {
         return (
             <div className="text-center p-8 text-red-500 font-semibold">
@@ -30,60 +65,16 @@ const ActivityLogPage: React.FC<ActivityLogPageProps> = ({ logs, onUndo, role })
             onUndo(log.id);
         }
     };
-    
-    const uniqueUsers = useMemo(() => ['all', ...Array.from(new Set(logs.map(l => l.actor_email)))], [logs]);
-    const uniqueModules = useMemo(() => ['all', ...Array.from(new Set(logs.map(l => l.module)))], [logs]);
-
-    const filteredLogs = useMemo(() => {
-        const now = new Date();
-        const lowerSearchTerm = searchTerm.toLowerCase();
-
-        return logs.filter(log => {
-            if (moduleFilter !== 'all' && log.module !== moduleFilter) return false;
-            if (userFilter !== 'all' && log.actor_email !== userFilter) return false;
-
-            if (dateFilter !== 'all') {
-                const logDate = new Date(log.ts);
-                const diffDays = (now.getTime() - logDate.getTime()) / (1000 * 3600 * 24);
-                if (diffDays > parseInt(dateFilter, 10)) return false;
-            }
-
-            if (searchTerm && !(
-                log.summary.toLowerCase().includes(lowerSearchTerm) ||
-                log.action.toLowerCase().includes(lowerSearchTerm) ||
-                log.actor_email.toLowerCase().includes(lowerSearchTerm) ||
-                (log.ids && log.ids.join(',').toLowerCase().includes(lowerSearchTerm))
-            )) return false;
-
-            return true;
-        });
-    }, [logs, searchTerm, moduleFilter, userFilter, dateFilter]);
-
-    const paginatedLogs = useMemo(() => {
-        const startIndex = (currentPage - 1) * ITEMS_PER_PAGE;
-        return filteredLogs.slice(startIndex, startIndex + ITEMS_PER_PAGE);
-    }, [filteredLogs, currentPage]);
-
-    const totalPages = Math.ceil(filteredLogs.length / ITEMS_PER_PAGE);
-
-    const inputStyle = "p-2 border rounded-lg bg-white border-gray-300 text-gray-900";
 
     return (
         <div className="h-full flex flex-col space-y-6">
-            <div className="bg-white p-4 rounded-xl shadow-sm">
-                <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
-                    <div className="relative col-span-1 md:col-span-2 lg:col-span-1">
-                        <SearchIcon className="absolute left-3 top-1/2 -translate-y-1/2 h-5 w-5 text-gray-400" />
-                        <input type="text" placeholder="Tìm kiếm..." value={searchTerm} onChange={e => setSearchTerm(e.target.value)} className={`w-full pl-10 ${inputStyle}`}/>
-                    </div>
-                    <select value={moduleFilter} onChange={e => setModuleFilter(e.target.value)} className={inputStyle}><option value="all">Tất cả Module</option>{uniqueModules.slice(1).map(m => <option key={m} value={m}>{m}</option>)}</select>
-                    <select value={userFilter} onChange={e => setUserFilter(e.target.value)} className={inputStyle}><option value="all">Tất cả người dùng</option>{uniqueUsers.slice(1).map(u => <option key={u} value={u}>{u}</option>)}</select>
-                    <select value={dateFilter} onChange={e => setDateFilter(e.target.value)} className={inputStyle}><option value="all">Toàn bộ thời gian</option><option value="1">24 giờ qua</option><option value="7">7 ngày qua</option><option value="30">30 ngày qua</option></select>
-                </div>
+            <div className="bg-white p-4 rounded-xl shadow-sm flex justify-between items-center">
+                <h2 className="font-bold text-lg text-gray-800">Nhật ký Hoạt động</h2>
+                <button onClick={() => loadData(true)} className="p-2 bg-gray-100 rounded-full hover:bg-gray-200" title="Làm mới"><SearchIcon className="w-5 h-5"/></button>
             </div>
 
             <div className="bg-white rounded-xl shadow-sm flex-1 flex flex-col overflow-hidden">
-                <div className="overflow-y-auto">
+                <div className="overflow-y-auto flex-1">
                     <table className="min-w-full">
                         <thead className="bg-gray-50 sticky top-0 z-10">
                             <tr>
@@ -96,10 +87,10 @@ const ActivityLogPage: React.FC<ActivityLogPageProps> = ({ logs, onUndo, role })
                             </tr>
                         </thead>
                         <tbody className="divide-y divide-gray-200 text-sm">
-                            {paginatedLogs.length === 0 ? (
-                                <tr><td colSpan={6} className="text-center p-8 text-gray-500">Không có hoạt động nào phù hợp.</td></tr>
+                            {logs.length === 0 && !loading ? (
+                                <tr><td colSpan={6} className="text-center p-8 text-gray-500">Không có hoạt động nào.</td></tr>
                             ) : (
-                                paginatedLogs.map(log => {
+                                logs.map(log => {
                                     const canUndo = !log.undone && log.undo_token && new Date() < new Date(log.undo_until!);
                                     return (
                                         <tr key={log.id} className={`${log.undone ? 'opacity-40' : ''} hover:bg-gray-50`}>
@@ -124,15 +115,18 @@ const ActivityLogPage: React.FC<ActivityLogPageProps> = ({ logs, onUndo, role })
                             )}
                         </tbody>
                     </table>
+                    {loading && <div className="p-4"><Spinner /></div>}
                 </div>
 
-                {totalPages > 1 && (
-                    <div className="p-3 border-t flex justify-between items-center">
-                        <span className="text-sm font-medium text-gray-600">{`Trang ${currentPage} / ${totalPages}`}</span>
-                        <div className="flex gap-2">
-                             <button onClick={() => setCurrentPage(p => Math.max(1, p - 1))} disabled={currentPage === 1} className="px-3 py-1 text-sm bg-white border rounded-md disabled:opacity-50">Trước</button>
-                             <button onClick={() => setCurrentPage(p => Math.min(totalPages, p + 1))} disabled={currentPage === totalPages} className="px-3 py-1 text-sm bg-white border rounded-md disabled:opacity-50">Sau</button>
-                        </div>
+                {hasMore && IS_PROD && (
+                    <div className="p-3 border-t flex justify-center">
+                        <button 
+                            onClick={() => loadData(false)} 
+                            disabled={loading}
+                            className="px-4 py-2 text-sm bg-primary text-white rounded-md shadow hover:bg-primary-focus disabled:opacity-50"
+                        >
+                            {loading ? 'Đang tải...' : 'Xem thêm'}
+                        </button>
                     </div>
                 )}
             </div>

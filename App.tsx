@@ -1,4 +1,3 @@
-
 import React, { useState, useEffect, useCallback, createContext, useMemo } from 'react';
 import type { Role, UserPermission, Unit, Owner, Vehicle, WaterReading, ChargeRaw, TariffService, TariffParking, TariffWater, Adjustment, InvoiceSettings, ActivityLog, VehicleTier, TariffCollection, AllData, NewsItem, FeedbackItem, FeedbackReply, MonthlyStat } from './types';
 import { patchKiosAreas, MOCK_NEWS_ITEMS, MOCK_FEEDBACK_ITEMS, MOCK_USER_PERMISSIONS } from './constants';
@@ -121,7 +120,7 @@ const App: React.FC = () => {
         monthlyStats: loadedMonthlyStats, // NEW
         lockedWaterPeriods,
         loading: smartLoading, hasLoaded: smartHasLoaded, refreshSystemData 
-    } = useSmartSystemData();
+    } = useSmartSystemData(currentUser);
 
     // Local state
     const [charges, setCharges] = useState<ChargeRaw[]>([]);

@@ -1,5 +1,5 @@
 
-import { doc, getDoc, setDoc, collection, getDocs, writeBatch, query, deleteDoc, updateDoc, limit, orderBy, where, serverTimestamp } from 'firebase/firestore';
+import { doc, getDoc, setDoc, collection, getDocs, writeBatch, query, deleteDoc, updateDoc, limit, orderBy, where, serverTimestamp, startAfter } from 'firebase/firestore';
 import { db } from '../firebaseConfig';
 import type { InvoiceSettings, Unit, Owner, Vehicle, WaterReading, ChargeRaw, Adjustment, UserPermission, ActivityLog, AllData, PaymentStatus, MonthlyStat, SystemMetadata, ProfileRequest } from '../types';
 import { VehicleTier } from '../types';
@@ -36,28 +36,74 @@ export const fetchCollection = async <T>(colName: string): Promise<T[]> => {
     return snap.docs.map(d => d.data() as T);
 };
 
-// FIX: Dedicated function to fetch water locks ensuring Document ID (Period) is retrieved
+// NEW: Optimized fetch for Residents (Single Docs instead of Collection)
+export const fetchResidentSpecificData = async (unitId: string) => {
+    const unitSnap = await getDoc(doc(db, 'units', unitId));
+    let unit: Unit | null = null;
+    let owner: Owner | null = null;
+    let vehicles: Vehicle[] = [];
+
+    if (unitSnap.exists()) {
+        unit = unitSnap.data() as Unit;
+        if (unit.OwnerID) {
+            const ownerSnap = await getDoc(doc(db, 'owners', unit.OwnerID));
+            if (ownerSnap.exists()) {
+                owner = ownerSnap.data() as Owner;
+            }
+        }
+    }
+
+    // Fetch vehicles for this unit
+    const vQ = query(collection(db, 'vehicles'), where('UnitID', '==', unitId), where('isActive', '==', true));
+    const vSnap = await getDocs(vQ);
+    vehicles = vSnap.docs.map(d => d.data() as Vehicle);
+
+    return { unit, owner, vehicles };
+};
+
+// NEW: Fetch Water Readings for specific periods only (Optimization)
+export const fetchRecentWaterReadings = async (periods: string[]): Promise<WaterReading[]> => {
+    if (periods.length === 0) return [];
+    // Firestore 'in' query supports up to 10 items
+    const q = query(collection(db, 'waterReadings'), where('Period', 'in', periods.slice(0, 10)));
+    const snap = await getDocs(q);
+    return snap.docs.map(d => d.data() as WaterReading);
+};
+
+// NEW: Paginated Logs Fetching
+export const fetchLogsPaginated = async (lastDoc: any = null, limitCount: number = 20) => {
+    let q = query(collection(db, 'activityLogs'), orderBy('ts', 'desc'), limit(limitCount));
+    if (lastDoc) {
+        q = query(collection(db, 'activityLogs'), orderBy('ts', 'desc'), startAfter(lastDoc), limit(limitCount));
+    }
+    const snap = await getDocs(q);
+    return {
+        data: snap.docs.map(d => d.data() as ActivityLog),
+        lastDoc: snap.docs[snap.docs.length - 1] || null,
+        hasMore: snap.docs.length === limitCount
+    };
+};
+
 export const fetchWaterLocks = async (): Promise<string[]> => {
     const snap = await getDocs(collection(db, 'water_locks'));
-    // Filter docs where data().isLocked is true, then return their ID (which is the period string "YYYY-MM")
     return snap.docs
         .filter(d => d.data().isLocked === true)
         .map(d => d.id);
 };
 
+// Deprecated for Global Load, kept for compatibility if needed elsewhere
 export const fetchLatestLogs = async (limitCount: number = 20): Promise<ActivityLog[]> => {
     try {
         const q = query(collection(db, 'activityLogs'), orderBy('ts', 'desc'), limit(limitCount));
         const snap = await getDocs(q);
         return snap.docs.map(d => d.data() as ActivityLog);
     } catch (e) {
-        console.warn("Failed to fetch logs (possibly missing index). Returning empty.", e);
+        console.warn("Failed to fetch logs.", e);
         return [];
     }
 };
 
-// ... rest of the file remains unchanged (keeping existing exports like submitUserProfileUpdate, resolveProfileRequest etc.)
-// Re-exporting critical functions to ensure file integrity in XML patch
+// ... (Rest of the file remains strictly unchanged: submitUserProfileUpdate, resolveProfileRequest, etc.)
 export const submitUserProfileUpdate = async (
     userAuthEmail: string, 
     residentId: string, 

@@ -106,22 +106,24 @@ export const useDataRefresh = () => {
     return { refreshData: context.refreshData };
 }
 
-const App: React.FC = () => {
-    const [currentUser, setCurrentUser] = useState<UserPermission | null>(null);
-    const [currentOwner, setCurrentOwner] = useState<Owner | null>(null);
-    const [activePage, setActivePage] = useState<Page>('overview');
-    const [toasts, setToasts] = useState<ToastMessage[]>([]);
-    const [isPasswordModalOpen, setIsPasswordModalOpen] = useState(false);
-    const [resetInfo, setResetInfo] = useState<{ email: string; pass: string } | null>(null);
+// --- APP CONTENT COMPONENT (Consumer) ---
+const AppContent: React.FC<{ 
+    setIsPasswordModalOpen: (v: boolean) => void;
+    isPasswordModalOpen: boolean;
+    resetInfo: any;
+}> = ({ setIsPasswordModalOpen, isPasswordModalOpen, resetInfo }) => {
+    const { user: currentUser, logout, updateUser } = useAuth() || {}; // Safe due to being inside Provider now
+    const { showToast, logAction } = { showToast: useNotification().showToast, logAction: useLogger().logAction };
     
-    // --- Smart Data Hook Integration ---
+    // --- Smart Data Hook ---
+    // UPDATED: Pass currentUser directly to break circular dependency
     const { 
         units, owners, vehicles, tariffs, users: smartUsers, 
         invoiceSettings: smartInvoiceSettings, adjustments, waterReadings, activityLogs,
-        monthlyStats: loadedMonthlyStats, // NEW
+        monthlyStats: loadedMonthlyStats, 
         lockedWaterPeriods,
         loading: smartLoading, hasLoaded: smartHasLoaded, refreshSystemData 
-    } = useSmartSystemData();
+    } = useSmartSystemData(currentUser || null);
 
     // Local state
     const [charges, setCharges] = useState<ChargeRaw[]>([]);
@@ -129,7 +131,9 @@ const App: React.FC = () => {
     const [feedback, setFeedback] = useState<FeedbackItem[]>(MOCK_FEEDBACK_ITEMS);
     const [users, setUsers] = useState<UserPermission[]>([]);
     const [invoiceSettings, setInvoiceSettings] = useState<InvoiceSettings>(initialInvoiceSettings);
-    const [monthlyStats, setMonthlyStats] = useState<MonthlyStat[]>([]); // NEW
+    const [monthlyStats, setMonthlyStats] = useState<MonthlyStat[]>([]);
+    const [currentOwner, setCurrentOwner] = useState<Owner | null>(null);
+    const [activePage, setActivePage] = useState<Page>('overview');
 
     const [notifications, setNotifications] = useState({
         unreadNews: 0,
@@ -142,7 +146,7 @@ const App: React.FC = () => {
     // 3. Sync Smart Data to Local State
     useEffect(() => {
         if (smartHasLoaded) {
-            setUsers(smartUsers.length > 0 ? smartUsers : MOCK_USER_PERMISSIONS); // Safe fallback
+            if(smartUsers.length > 0) setUsers(smartUsers);
             if (smartInvoiceSettings) setInvoiceSettings(smartInvoiceSettings);
             if (loadedMonthlyStats) setMonthlyStats(loadedMonthlyStats);
             patchKiosAreas(units);
@@ -154,33 +158,36 @@ const App: React.FC = () => {
         if (!currentUser) return;
 
         const loadCharges = async () => {
-            let initialCharges: ChargeRaw[] = [];
             if (IS_PROD) {
                 if (charges.length === 0) {
                     try {
-                        // Only fetch very recent charges for billing checks
-                        // Historical charts now use 'monthlyStats', so we don't need all charges here!
-                        // Just fetching last 1-2 months is enough for billing status check.
                         const today = new Date();
                         today.setMonth(today.getMonth() - 2); 
                         const recent = today.toISOString().slice(0, 7);
 
-                        const q = query(collection(db, 'charges'), where('Period', '>=', recent));
-                        const snap = await getDocs(q);
+                        let q;
+                        if (currentUser.Role === 'Resident' && currentUser.residentId) {
+                             q = query(collection(db, 'charges'), where('UnitID', '==', currentUser.residentId));
+                        } else {
+                             q = query(collection(db, 'charges'), where('Period', '>=', recent));
+                        }
                         
-                        initialCharges = snap.docs.map(d => d.data() as ChargeRaw);
+                        const snap = await getDocs(q);
+                        const initialCharges = snap.docs.map(d => d.data() as ChargeRaw);
                         setCharges(initialCharges);
                     } catch (e) {
                         console.error("Error loading charges", e);
                     }
                 }
 
-                // Realtime Listener for CURRENT MONTH ONLY
+                // Realtime Listener
                 const currentPeriod = new Date().toISOString().slice(0, 7);
-                const q = query(
-                    collection(db, 'charges'),
-                    where('Period', '==', currentPeriod)
-                );
+                let q;
+                if (currentUser.Role === 'Resident' && currentUser.residentId) {
+                    q = query(collection(db, 'charges'), where('UnitID', '==', currentUser.residentId), where('Period', '==', currentPeriod));
+                } else {
+                    q = query(collection(db, 'charges'), where('Period', '==', currentPeriod));
+                }
 
                 const unsubscribe = onSnapshot(q, (snapshot) => {
                     const currentMonthCharges = snapshot.docs.map(d => d.data() as ChargeRaw);
@@ -196,13 +203,6 @@ const App: React.FC = () => {
 
         loadCharges();
     }, [currentUser, IS_PROD]); 
-
-    // --- Toast Logic ---
-    const showToast = useCallback((message: string, type: ToastType = 'info', duration?: number) => {
-        setToasts(prev => [...prev, { id: Date.now() + Math.random(), message, type, duration }]);
-    }, []);
-    const handleCloseToast = useCallback((id: number) => setToasts(prev => prev.filter(t => t.id !== id)), []);
-    const handleClearAllToasts = useCallback(() => setToasts([]), []);
 
     // --- Notification & Messaging ---
     useEffect(() => {
@@ -241,7 +241,6 @@ const App: React.FC = () => {
     }, [currentUser, charges, news, notifications.hasNewNotifications]);
 
     // --- User Management Logic ---
-    // Handle Owner Linking
     useEffect(() => {
         if (currentUser?.Role === 'Resident' && smartHasLoaded) {
             const unit = units.find(u => u.UnitID === currentUser.residentId);
@@ -253,31 +252,20 @@ const App: React.FC = () => {
     }, [currentUser, units, owners, smartHasLoaded]);
 
     const handleInitialLogin = (user: UserPermission, rememberMe: boolean) => {
-        if (rememberMe) localStorage.setItem('rememberedUser', user.Username || user.Email);
-        else localStorage.removeItem('rememberedUser');
-
-        setCurrentUser(user);
-        setActivePage(user.Role === 'Resident' ? 'portalHome' : 'overview');
-        if (user.mustChangePassword) setTimeout(() => setIsPasswordModalOpen(true), 500);
-        showToast(`Chào mừng, ${user.Username || user.Email.split('@')[0]}!`, 'success');
+        // Handled by Context Login
     };
     
     const handlePasswordChanged = (newPassword: string) => {
         if (currentUser) {
             const updatedUser = { ...currentUser, password: newPassword, mustChangePassword: false };
-            setCurrentUser(updatedUser);
-            // Optimistic update
+            updateUser(updatedUser); // This updates the user in the list and current user in context
+            
+            // Optimistic update logs
             handleSetUsers(prev => prev.map(u => u.Email === updatedUser.Email ? updatedUser : u), { module: 'System', action: 'CHANGE_PASSWORD', summary: 'Đổi mật khẩu', before_snapshot: users });
             setIsPasswordModalOpen(false);
             showToast('Mật khẩu đã được thay đổi thành công.', 'success');
         }
     };
-
-    const handleLogout = useCallback(() => { 
-        setCurrentUser(null); 
-        setCurrentOwner(null);
-        showToast('Đã đăng xuất.', 'info'); 
-    }, [showToast]);
 
     const handleMarkNewsAsRead = useCallback(() => { 
         localStorage.setItem('lastViewedNews', Date.now().toString()); 
@@ -288,18 +276,6 @@ const App: React.FC = () => {
         localStorage.setItem('lastViewedNotifications', Date.now().toString()); 
         setNotifications(prev => ({ ...prev, hasNewNotifications: false })); 
     }, []);
-    
-    const handleUpdateUser = useCallback((updatedUser: UserPermission, oldEmail?: string) => {
-        const targetEmail = oldEmail || updatedUser.Email;
-        setUsers(prev => prev.map(u => (u.Email === targetEmail) ? updatedUser : u));
-        if (currentUser && (currentUser.Email === targetEmail)) setCurrentUser(updatedUser);
-    }, [currentUser]);
-
-    const logAction = useCallback((payload: LogPayload) => {
-        if (!currentUser) return;
-        // In a real app, this would write to Firestore.
-        console.log("Action Logged:", payload);
-    }, [currentUser]);
 
     const createDataHandler = <T,>(stateSetter: React.Dispatch<React.SetStateAction<T>>, saveFunction: (data: T) => Promise<any>) => useCallback(async (updater: React.SetStateAction<T>, logPayload?: LogPayload) => {
         stateSetter(prevState => {
@@ -312,7 +288,6 @@ const App: React.FC = () => {
     const handleSetUsers = createDataHandler(setUsers, saveUsers);
     const handleSetCharges = createDataHandler(setCharges, saveChargesBatch);
     
-    // Updated: Handle vehicles manually to integrate with smart hook refresh
     const handleSetVehicles = useCallback(async (updater: React.SetStateAction<Vehicle[]>, logPayload?: LogPayload) => {
         let newVehicles: Vehicle[];
         if (typeof updater === 'function') {
@@ -332,11 +307,9 @@ const App: React.FC = () => {
         }
     }, [vehicles, saveVehicles, logAction, showToast, refreshSystemData]);
 
-    // UPDATED: Handle Water Readings manually to integrate with smart hook refresh
     const handleSetWaterReadings = useCallback(async (updater: React.SetStateAction<WaterReading[]>, logPayload?: LogPayload) => {
         let newReadings: WaterReading[];
         if (typeof updater === 'function') {
-            // NOTE: Use waterReadings from the HOOK scope, as there is no local 'waterReadings' state in App.tsx
             newReadings = (updater as (prevState: WaterReading[]) => WaterReading[])(waterReadings);
         } else {
             newReadings = updater;
@@ -346,7 +319,7 @@ const App: React.FC = () => {
             await saveWaterReadings(newReadings);
             if (logPayload) logAction(logPayload);
             showToast('Dữ liệu nước đã được lưu.', 'success');
-            refreshSystemData(true); // Force UI update
+            refreshSystemData(true); 
         } catch (error) {
             console.error(error);
             showToast('Lưu dữ liệu thất bại.', 'error');
@@ -390,9 +363,8 @@ const App: React.FC = () => {
     }
 
     const renderAdminPage = () => {
-        const allDataForBilling: AllData = { units, owners, vehicles, waterReadings, tariffs, adjustments, activityLogs, monthlyStats, lockedWaterPeriods };
+        const allDataForBilling: AllData = { units, owners, vehicles, waterReadings, tariffs, adjustments, activityLogs, monthlyStats, lockedWaterPeriods: lockedWaterPeriods || [] };
         switch (activePage as AdminPage) {
-            // Pass monthlyStats to OverviewPage via props or if it uses context
             case 'overview': return <OverviewPage allUnits={units} allOwners={owners} allVehicles={vehicles} allWaterReadings={waterReadings} charges={charges} activityLogs={activityLogs} feedback={feedback} onNavigate={setActivePage as (p: AdminPage) => void} monthlyStats={monthlyStats} />;
             case 'billing': return <BillingPage charges={charges} setCharges={handleSetCharges} allData={allDataForBilling} onUpdateAdjustments={handleSetAdjustments} role={currentUser!.Role} invoiceSettings={invoiceSettings} />;
             case 'residents': return <ResidentsPage units={units} owners={owners} vehicles={vehicles} activityLogs={activityLogs} onSaveResident={handleSaveResident} onImportData={handleImportResidents} onDeleteResidents={()=>{}} role={currentUser!.Role} currentUser={currentUser!} />;
@@ -420,23 +392,29 @@ const App: React.FC = () => {
         }
     };
 
-    const contextValue = useMemo(() => ({ 
-        currentUser, role: currentUser?.Role || null, 
-        showToast, logAction, logout: handleLogout, 
-        updateUser: handleUpdateUser, invoiceSettings,
-        refreshData: () => refreshSystemData(true)
-    }), [currentUser, showToast, logAction, handleLogout, handleUpdateUser, invoiceSettings, refreshSystemData]);
-    
-    if (!smartHasLoaded && !currentUser) {
+    if (!smartHasLoaded) {
         return <div className="flex h-screen w-screen items-center justify-center"><Spinner /></div>;
     }
 
+    // Login View if no user
     if (!currentUser) {
-        return <AppContext.Provider value={contextValue}><LoginPage users={users} onLogin={handleInitialLogin} allOwners={owners} allUnits={units} resetInfo={resetInfo} /><FooterToast toasts={toasts} onClose={handleCloseToast} onClearAll={handleClearAllToasts} /></AppContext.Provider>;
+        // Consume context to get `login` method. 
+        // Cast to any to access extended context properties defined in App.
+        const { login } = React.useContext(AppContext) as any; 
+
+        return (
+            <LoginPage 
+                users={users} 
+                onLogin={(u, rem) => login(u, rem)} 
+                allOwners={owners} 
+                allUnits={units} 
+                resetInfo={resetInfo} 
+            />
+        );
     }
-    
+
     return (
-        <AppContext.Provider value={contextValue}>
+        <>
             {isPasswordModalOpen && <ChangePasswordModal onClose={() => setIsPasswordModalOpen(false)} onSave={handlePasswordChanged} />}
             {currentUser && <NotificationListener userId={currentUser.Username || currentUser.residentId || ''} />}
             {currentUser.Role === 'Resident' ? (
@@ -464,6 +442,70 @@ const App: React.FC = () => {
                     </div>
                 </div>
             )}
+        </>
+    );
+}
+
+// --- APP PROVIDER COMPONENT ---
+const App: React.FC = () => {
+    const [currentUser, setCurrentUser] = useState<UserPermission | null>(null);
+    const [toasts, setToasts] = useState<ToastMessage[]>([]);
+    const [isPasswordModalOpen, setIsPasswordModalOpen] = useState(false);
+    const [resetInfo, setResetInfo] = useState<{ email: string; pass: string } | null>(null);
+    const [invoiceSettings, setInvoiceSettings] = useState<InvoiceSettings>(initialInvoiceSettings);
+    
+    // --- Toast Logic ---
+    const showToast = useCallback((message: string, type: ToastType = 'info', duration?: number) => {
+        setToasts(prev => [...prev, { id: Date.now() + Math.random(), message, type, duration }]);
+    }, []);
+    const handleCloseToast = useCallback((id: number) => setToasts(prev => prev.filter(t => t.id !== id)), []);
+    const handleClearAllToasts = useCallback(() => setToasts([]), []);
+
+    const handleLogout = useCallback(() => { 
+        setCurrentUser(null); 
+        showToast('Đã đăng xuất.', 'info'); 
+    }, [showToast]);
+
+    const handleUpdateUser = useCallback((updatedUser: UserPermission, oldEmail?: string) => {
+        if (currentUser && (currentUser.Email === (oldEmail || updatedUser.Email))) {
+            setCurrentUser(updatedUser);
+        }
+    }, [currentUser]);
+
+    const logAction = useCallback((payload: LogPayload) => {
+        if (!currentUser) return;
+        console.log("Action Logged:", payload);
+    }, [currentUser]);
+
+    const handleLogin = (user: UserPermission, rememberMe: boolean) => {
+        if (rememberMe) localStorage.setItem('rememberedUser', user.Username || user.Email);
+        else localStorage.removeItem('rememberedUser');
+
+        setCurrentUser(user);
+        if (user.mustChangePassword) setTimeout(() => setIsPasswordModalOpen(true), 500);
+        showToast(`Chào mừng, ${user.Username || user.Email.split('@')[0]}!`, 'success');
+    };
+
+    // Extended Context Value including `login` for the Login Page
+    const contextValue = useMemo(() => ({ 
+        currentUser, 
+        role: currentUser?.Role || null, 
+        showToast, 
+        logAction, 
+        logout: handleLogout, 
+        updateUser: handleUpdateUser, 
+        invoiceSettings,
+        refreshData: () => {}, 
+        login: handleLogin 
+    }), [currentUser, showToast, logAction, handleLogout, handleUpdateUser, invoiceSettings]);
+
+    return (
+        <AppContext.Provider value={contextValue}> 
+            <AppContent 
+                setIsPasswordModalOpen={setIsPasswordModalOpen}
+                isPasswordModalOpen={isPasswordModalOpen}
+                resetInfo={resetInfo}
+            />
             <FooterToast toasts={toasts} onClose={handleCloseToast} onClearAll={handleClearAllToasts} />
         </AppContext.Provider>
     );

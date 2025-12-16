@@ -1,4 +1,3 @@
-
 import React, { useState, useEffect, useMemo } from 'react';
 import type { Owner, UserPermission, ProfileRequest } from '../../../types';
 import { useAuth, useNotification } from '../../../App';
@@ -21,7 +20,7 @@ interface PortalProfilePageProps {
 const PortalProfilePage: React.FC<PortalProfilePageProps> = ({ user, owner, onUpdateOwner, onChangePassword }) => {
     const { logout } = useAuth();
     const { showToast } = useNotification();
-    const { units, refreshSystemData } = useSmartSystemData(); 
+    const { units, refreshSystemData } = useSmartSystemData(user); 
     const IS_PROD = isProduction();
 
     const currentUnit = useMemo(() => units.find(u => u.UnitID === user.residentId), [units, user.residentId]);
