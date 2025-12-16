@@ -120,8 +120,16 @@ const QRModal: React.FC<{
             // 2. Compress Image
             const base64 = await compressImageToWebP(file);
 
-            // 3. Perform OCR
-            const worker = await Tesseract.createWorker('vie');
+            // 3. Perform OCR with Production-Safe Configuration
+            // FORCE load worker & core from CDN to bypass build path issues
+            const worker = await Tesseract.createWorker('vie', 1, {
+                logger: (m: any) => console.log(m),
+                workerPath: 'https://cdn.jsdelivr.net/npm/tesseract.js@5/dist/worker.min.js',
+                corePath: 'https://cdn.jsdelivr.net/npm/tesseract.js-core@5/tesseract-core.wasm.js',
+                langPath: 'https://tessdata.projectnaptha.com/4.0.0', // Reliable language data source
+                errorHandler: (err: any) => console.error(err)
+            });
+
             const ret = await worker.recognize(base64);
             const text = ret.data.text.toLowerCase();
             await worker.terminate();
@@ -163,11 +171,27 @@ const QRModal: React.FC<{
             
             onUploadSuccess();
 
-        } catch (err: any) {
-            console.error(err);
-            showToast('Lỗi xử lý ảnh: ' + err.message, 'error');
+        } catch (error: any) {
+            console.error("OCR Full Error:", error);
+            
+            // Smart error parsing
+            let errorMessage = "Không xác định";
+            if (typeof error === 'string') {
+                errorMessage = error;
+            } else if (error instanceof Error) {
+                errorMessage = error.message;
+            } else if (error && typeof error === 'object') {
+                try {
+                    errorMessage = JSON.stringify(error);
+                } catch (e) {
+                    errorMessage = "Lỗi không thể đọc chi tiết";
+                }
+            }
+
+            showToast(`Lỗi xử lý ảnh: ${errorMessage}`, 'error');
         } finally {
             setIsScanning(false);
+            if (fileInputRef.current) fileInputRef.current.value = "";
         }
     };
 

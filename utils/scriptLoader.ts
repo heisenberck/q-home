@@ -3,7 +3,7 @@ export const SCRIPT_URLS = {
   jspdf: 'https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js',
   html2canvas: 'https://cdnjs.cloudflare.com/ajax/libs/html2canvas/1.4.1/html2canvas.min.js',
   jszip: 'https://cdnjs.cloudflare.com/ajax/libs/jszip/3.10.1/jszip.min.js',
-  tesseract: 'https://unpkg.com/tesseract.js@v2.1.0/dist/tesseract.min.js'
+  tesseract: 'https://cdn.jsdelivr.net/npm/tesseract.js@5/dist/tesseract.min.js'
 };
 
 type ScriptKey = keyof typeof SCRIPT_URLS;
