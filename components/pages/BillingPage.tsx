@@ -15,13 +15,15 @@ import {
 } from '../../services';
 import { calculateChargesBatch } from '../../services/feeService';
 import NoticePreviewModal from '../NoticePreviewModal';
+import VerificationModal from '../VerificationModal'; // NEW IMPORT
 import Spinner from '../ui/Spinner';
 import { 
     SearchIcon, ChevronLeftIcon, ChevronRightIcon, 
     CheckCircleIcon, CalculatorIcon2, LockClosedIcon,
     ArrowDownTrayIcon, BanknotesIcon, ArrowUpTrayIcon,
     PaperAirplaneIcon, TrashIcon, PrinterIcon, EnvelopeIcon, ArrowUturnLeftIcon,
-    ActionViewIcon, ChevronDownIcon, ChevronUpIcon, SaveIcon
+    ActionViewIcon, ChevronDownIcon, ChevronUpIcon, SaveIcon,
+    MagnifyingGlassIcon
 } from '../ui/Icons';
 import { loadScript } from '../../utils/scriptLoader';
 import { formatCurrency, parseUnitCode, renderInvoiceHTMLForPdf, formatNumber } from '../../utils/helpers';
@@ -187,9 +189,6 @@ const BillingPage: React.FC<BillingPageProps> = ({ charges, setCharges, allData,
     const [period, setPeriod] = useState(new Date().toISOString().slice(0, 7));
     const [isBillingLocked, setIsBillingLocked] = useState(false); // New Billing Lock State
     
-    // Legacy local state logic replaced by centralized lock
-    // const [lockedPeriods, setLockedPeriods] = useState<Set<string>>...
-
     const [isLoading, setIsLoading] = useState(false);
     const [selectedUnits, setSelectedUnits] = useState<Set<string>>(new Set());
     const [searchTerm, setSearchTerm] = useState('');
@@ -201,6 +200,7 @@ const BillingPage: React.FC<BillingPageProps> = ({ charges, setCharges, allData,
     // UI State
     const [showStats, setShowStats] = useState(true);
     const [isMonthPickerOpen, setIsMonthPickerOpen] = useState(false);
+    const [verifyCharge, setVerifyCharge] = useState<ChargeRaw | null>(null);
     
     // Refs
     const fileInputRef = useRef<HTMLInputElement>(null);
@@ -242,6 +242,8 @@ const BillingPage: React.FC<BillingPageProps> = ({ charges, setCharges, allData,
                     if (c.paymentStatus !== 'pending') return false;
                 } else if (statusFilter === 'unpaid') {
                     if (c.paymentStatus !== 'unpaid') return false;
+                } else if (statusFilter === 'reconciling') {
+                    if (c.paymentStatus !== 'reconciling') return false;
                 } else {
                     if (c.paymentStatus !== statusFilter) return false;
                 }
@@ -757,12 +759,27 @@ const BillingPage: React.FC<BillingPageProps> = ({ charges, setCharges, allData,
         }
     };
 
+    // Intercept payment to check for verification flow
     const handleSinglePayment = async (charge: ChargeRaw, method: 'paid_tm' | 'paid_ck') => {
         if (isBillingLocked) return;
+        
+        // INTERCEPT: If reconcilation needed or proof image exists, show verification modal
+        if (method === 'paid_ck' && (charge.paymentStatus === 'reconciling' || charge.proofImage)) {
+            setVerifyCharge(charge);
+            return;
+        }
+
         const amount = editedPayments[charge.UnitID] ?? charge.TotalPaid;
         await confirmSinglePayment(charge, amount, method);
         setCharges(prev => prev.map(c => c.UnitID === charge.UnitID && c.Period === period ? { ...c, paymentStatus: method, PaymentConfirmed: true, TotalPaid: amount } : c));
         showToast(`Đã thu ${formatCurrency(amount)} cho căn ${charge.UnitID}`, 'success');
+    };
+
+    const handleVerifyConfirm = async (charge: ChargeRaw, finalAmount: number) => {
+        await confirmSinglePayment(charge, finalAmount, 'paid_ck');
+        setCharges(prev => prev.map(c => c.UnitID === charge.UnitID && c.Period === period ? { ...c, paymentStatus: 'paid_ck', PaymentConfirmed: true, TotalPaid: finalAmount } : c));
+        showToast(`Đã xác thực và thu ${formatCurrency(finalAmount)}`, 'success');
+        setVerifyCharge(null);
     };
 
     const formatPeriod = (p: string) => { const d = new Date(p + '-02'); return `T${d.getMonth() + 1}/${d.getFullYear()}`; };
@@ -835,6 +852,7 @@ const BillingPage: React.FC<BillingPageProps> = ({ charges, setCharges, allData,
                 <select value={statusFilter} onChange={e => setStatusFilter(e.target.value)} className="h-9 px-2 text-sm border border-gray-300 rounded-lg bg-white text-gray-900 outline-none">
                     <option value="all">Tất cả trạng thái</option>
                     <option value="pending">Đang chờ</option>
+                    <option value="reconciling">Chờ xác nhận (CK)</option>
                     <option value="paid">Đã thu (Tất cả)</option>
                     <option value="paid_tm">Đã thu (TM)</option>
                     <option value="paid_ck">Đã thu (CK)</option>
@@ -924,7 +942,7 @@ const BillingPage: React.FC<BillingPageProps> = ({ charges, setCharges, allData,
                                     } else if (charge.paymentStatus === 'paid_ck' || charge.paymentStatus === 'paid') {
                                         statusBadge = <span className="px-2 py-0.5 text-xs font-bold rounded-full bg-blue-100 text-blue-800 border border-blue-200">Đã thu (CK)</span>;
                                     } else if (charge.paymentStatus === 'reconciling') {
-                                        statusBadge = <span className="px-2 py-0.5 text-xs font-bold rounded-full bg-pink-100 text-pink-800 border border-pink-200">Chờ đối soát</span>;
+                                        statusBadge = <span className="px-2 py-0.5 text-xs font-bold rounded-full bg-yellow-100 text-yellow-800 border border-yellow-200 flex items-center gap-1 justify-center"><MagnifyingGlassIcon className="w-3 h-3"/> Chờ đối soát</span>;
                                     } else if (charge.sentCount && charge.sentCount > 0) {
                                         const color = charge.sentCount > 1 ? 'text-blue-800 bg-blue-100 border-blue-200' : 'text-cyan-800 bg-cyan-100 border-cyan-200';
                                         statusBadge = <span className={`px-2 py-0.5 text-xs font-bold rounded-full border ${color}`}>Đã gửi - {charge.sentCount}</span>;
@@ -940,7 +958,10 @@ const BillingPage: React.FC<BillingPageProps> = ({ charges, setCharges, allData,
                                         <tr key={charge.UnitID} className={`hover:bg-gray-50 transition-colors ${selectedUnits.has(charge.UnitID) ? 'bg-blue-50' : ''}`}>
                                             <td className="px-4 py-3 text-center"><input type="checkbox" checked={selectedUnits.has(charge.UnitID)} onChange={() => setSelectedUnits(p => { const n = new Set(p); if(n.has(charge.UnitID)) n.delete(charge.UnitID); else n.add(charge.UnitID); return n; })} className="w-4 h-4 rounded text-primary focus:ring-primary cursor-pointer"/></td>
                                             <td className="px-4 py-3 font-bold text-gray-900">{charge.UnitID}</td>
-                                            <td className="px-4 py-3 text-gray-700">{charge.OwnerName}</td>
+                                            <td className="px-4 py-3 text-gray-700 flex items-center gap-2">
+                                                {charge.paymentStatus === 'reconciling' && <div className="w-2 h-2 rounded-full bg-blue-500 animate-pulse" title="Có biên lai cần duyệt"></div>}
+                                                {charge.OwnerName}
+                                            </td>
                                             <td className="px-4 py-3 text-right font-medium text-gray-900">{formatNumber(charge.TotalDue)}</td>
                                             <td className="px-4 py-3 text-right">
                                                 <input 
@@ -969,7 +990,7 @@ const BillingPage: React.FC<BillingPageProps> = ({ charges, setCharges, allData,
                                                         disabled={role === 'Operator' || isBillingLocked} 
                                                         trigger={
                                                             <button title="Xác nhận thu" className={`p-1.5 rounded hover:bg-green-50 text-green-500 hover:text-green-700 ${isBillingLocked ? 'opacity-50 cursor-not-allowed' : ''}`}>
-                                                                <CheckCircleIcon className="w-4 h-4"/>
+                                                                {charge.paymentStatus === 'reconciling' ? <MagnifyingGlassIcon className="w-4 h-4 text-purple-600"/> : <CheckCircleIcon className="w-4 h-4"/>}
                                                             </button>
                                                         }
                                                     />
@@ -1014,6 +1035,14 @@ const BillingPage: React.FC<BillingPageProps> = ({ charges, setCharges, allData,
                     invoiceSettings={invoiceSettings} 
                     allData={allData} 
                     onSendEmail={() => handleBulkSendEmail(previewCharge.UnitID)}
+                />
+            )}
+
+            {verifyCharge && (
+                <VerificationModal 
+                    charge={verifyCharge}
+                    onClose={() => setVerifyCharge(null)}
+                    onConfirm={handleVerifyConfirm}
                 />
             )}
         </div>

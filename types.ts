@@ -198,6 +198,15 @@ export interface ChargeRaw {
     // NEW: Added for delivery status tracking
     isPrinted?: boolean;
     isSent?: boolean;
+    sentCount?: number;
+    // NEW: Payment Proof & OCR
+    proofImage?: string;
+    ocrResult?: {
+        scannedAmount: number;
+        isMatch: boolean;
+        rawText?: string;
+    };
+    submittedAt?: string;
 }
 
 // NEW: Aggregated Statistics for Charts (Optimization)
