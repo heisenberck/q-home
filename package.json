@@ -15,8 +15,8 @@
     "recharts": "^3.3.0",
     "firebase": "^12.6.0",
     "idb-keyval": "6",
-    "@vitejs/plugin-react": "^5.1.2",
     "vite": "^7.3.0",
+    "@vitejs/plugin-react": "^5.1.2",
     "vite-plugin-pwa": "^1.2.0"
   },
   "devDependencies": {
