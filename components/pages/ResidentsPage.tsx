@@ -3,7 +3,7 @@
 import React, { useState, useMemo, useRef, useCallback, useEffect } from 'react';
 import type { Unit, Owner, Vehicle, Role, UserPermission, VehicleDocument, ActivityLog, ProfileRequest } from '../../types';
 import { UnitType, VehicleTier } from '../../types';
-import { useNotification } from '../../App';
+import { useNotification, useDataRefresh } from '../../App';
 import Modal from '../ui/Modal';
 import StatCard from '../ui/StatCard';
 import { 
@@ -884,10 +884,8 @@ const ResidentDetailPanel: React.FC<{
 };
 
 const ResidentsPage: React.FC<ResidentsPageProps> = ({ units = [], owners = [], vehicles = [], activityLogs = [], onSaveResident, onImportData, onDeleteResidents, role, currentUser, onNavigate }) => {
-// ... rest of the file remains unchanged ...
-// To save space, assuming the rest of ResidentsPage and exports are intact.
-// Re-inserting the rest of ResidentsPage for safety in output.
     const { showToast } = useNotification();
+    const { refreshData } = useDataRefresh(); 
     const canManage = ['Admin', 'Accountant', 'Operator'].includes(role);
     const IS_PROD = isProduction();
     
@@ -937,6 +935,16 @@ const ResidentsPage: React.FC<ResidentsPageProps> = ({ units = [], owners = [], 
         });
     }, [units, owners, vehicles, pendingRequests]);
 
+    // Sync selectedResident with fresh data if residentsData updates (e.g. after refresh)
+    useEffect(() => {
+        if (selectedResident) {
+            const updated = residentsData.find(r => r.unit.UnitID === selectedResident.unit.UnitID);
+            if (updated && updated !== selectedResident) {
+                setSelectedResident(updated);
+            }
+        }
+    }, [residentsData, selectedResident]);
+
     const filteredResidents = useMemo(() => {
         return residentsData.filter(r => {
             if (!r.owner) return false;
@@ -970,6 +978,7 @@ const ResidentsPage: React.FC<ResidentsPageProps> = ({ units = [], owners = [], 
             await resolveProfileRequest(req, action, currentUser.Email, changes);
             showToast(action === 'approve' ? 'Đã phê duyệt yêu cầu.' : 'Đã từ chối yêu cầu.', 'success');
             fetchPendingRequests();
+            refreshData(); // Triggers a global data refresh to update owners list immediately
             handleCloseModal();
         } catch (error) {
             console.error(error);
