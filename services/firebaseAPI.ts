@@ -103,7 +103,7 @@ export const fetchLatestLogs = async (limitCount: number = 20): Promise<Activity
     }
 };
 
-// ... (Rest of the file remains strictly unchanged: submitUserProfileUpdate, resolveProfileRequest, etc.)
+// --- ONE-WAY FLOW: User Updates Profile -> Request Created ---
 export const submitUserProfileUpdate = async (
     userAuthEmail: string, 
     residentId: string, 
@@ -122,6 +122,7 @@ export const submitUserProfileUpdate = async (
     const batch = writeBatch(db);
     const now = new Date().toISOString();
 
+    // 1. Optimistic Update on 'users' collection (Instant Feedback for User)
     const userRef = doc(db, 'users', userAuthEmail);
     const userUpdates: any = {};
     if (newData.displayName !== undefined) userUpdates.DisplayName = newData.displayName;
@@ -135,6 +136,7 @@ export const submitUserProfileUpdate = async (
     batch.update(userRef, userUpdates);
     bumpVersion(batch, 'users_version');
 
+    // 2. Create Profile Request for Admin (Official Data Update)
     const requestId = `req_${Date.now()}_${residentId}`;
     const requestRef = doc(db, 'profileRequests', requestId);
     
@@ -143,6 +145,8 @@ export const submitUserProfileUpdate = async (
     if (newData.phoneNumber !== undefined) changesForAdmin.Phone = newData.phoneNumber;
     if (newData.contactEmail !== undefined) changesForAdmin.Email = newData.contactEmail;
     if (newData.avatarUrl !== undefined) changesForAdmin.avatarUrl = newData.avatarUrl;
+    
+    // Mapping: spouseName -> secondOwnerName for Official Records
     if (newData.spouseName !== undefined) changesForAdmin.secondOwnerName = newData.spouseName;
     if (newData.spousePhone !== undefined) changesForAdmin.secondOwnerPhone = newData.spousePhone;
     if (newData.unitStatus !== undefined) changesForAdmin.UnitStatus = newData.unitStatus;
@@ -158,6 +162,7 @@ export const submitUserProfileUpdate = async (
     };
 
     batch.set(requestRef, profileRequest);
+
     await batch.commit();
     return profileRequest;
 };
@@ -196,6 +201,7 @@ export const getAllPendingProfileRequests = async (): Promise<ProfileRequest[]> 
     }
 };
 
+// --- ADMIN APPROVAL FLOW ---
 export const resolveProfileRequest = async (
     request: ProfileRequest, 
     action: 'approve' | 'reject', 
@@ -203,21 +209,27 @@ export const resolveProfileRequest = async (
     approvedChanges?: Partial<ProfileRequest['changes']>
 ) => {
     const batch = writeBatch(db);
+    
+    // 1. Update Request Status
     const reqRef = doc(db, 'profileRequests', request.id);
-
     batch.update(reqRef, { 
         status: action === 'approve' ? 'APPROVED' : 'REJECTED',
         updatedAt: new Date().toISOString()
     });
 
+    // 2. If Approved, Update Official Tables (Owners & Units)
     if (action === 'approve') {
         const changesToApply = approvedChanges || request.changes;
+        
+        // Update Owner Info
         const ownerRef = doc(db, 'owners', request.ownerId);
         const ownerUpdates: any = {};
         
         if (changesToApply.OwnerName !== undefined) ownerUpdates.OwnerName = changesToApply.OwnerName;
         if (changesToApply.Phone !== undefined) ownerUpdates.Phone = changesToApply.Phone;
         if (changesToApply.Email !== undefined) ownerUpdates.Email = changesToApply.Email;
+        
+        // Critical Fix: Explicitly map second owner fields
         if (changesToApply.secondOwnerName !== undefined) ownerUpdates.secondOwnerName = changesToApply.secondOwnerName;
         if (changesToApply.secondOwnerPhone !== undefined) ownerUpdates.secondOwnerPhone = changesToApply.secondOwnerPhone;
         if (changesToApply.avatarUrl !== undefined) ownerUpdates.avatarUrl = changesToApply.avatarUrl;
@@ -229,11 +241,13 @@ export const resolveProfileRequest = async (
             bumpVersion(batch, 'owners_version');
         }
 
+        // Update Unit Info (Status)
         if (changesToApply.UnitStatus) {
             batch.update(doc(db, 'units', request.residentId), { Status: changesToApply.UnitStatus });
             bumpVersion(batch, 'units_version');
         }
 
+        // Log Activity
         const logId = `log_${Date.now()}`;
         batch.set(doc(db, 'activityLogs', logId), {
             id: logId,
@@ -248,16 +262,18 @@ export const resolveProfileRequest = async (
             before_snapshot: null
         } as ActivityLog);
         
+        // Notify Resident
         const notifRef = doc(collection(db, 'notifications'));
         batch.set(notifRef, {
             type: 'system',
             title: 'Hồ sơ đã được duyệt',
             body: 'Thông tin chính thức của bạn trên hệ thống BQL đã được cập nhật.',
-            userId: request.residentId,
+            userId: request.residentId, // Sending to Unit ID as User ID
             isRead: false,
             createdAt: new Date().toISOString()
         });
     } else {
+        // Notify Rejection
         const notifRef = doc(collection(db, 'notifications'));
         batch.set(notifRef, {
             type: 'system',
@@ -274,10 +290,13 @@ export const resolveProfileRequest = async (
 
 export const updateResidentAvatar = async (ownerId: string, avatarUrl: string, userEmail?: string): Promise<void> => {
     const batch = writeBatch(db);
+    
+    // 1. Update Official Owner Record
     const ownerRef = doc(db, 'owners', ownerId);
     batch.update(ownerRef, { avatarUrl: avatarUrl, updatedAt: new Date().toISOString() });
     bumpVersion(batch, 'owners_version');
 
+    // 2. Update User Account Record (Optimistic)
     if (userEmail) {
         const userRef = doc(db, 'users', userEmail);
         batch.update(userRef, { avatarUrl: avatarUrl });
