@@ -37,5 +37,6 @@ export const {
     getPendingProfileRequest, 
     getAllPendingProfileRequests, 
     resolveProfileRequest, 
-    updateResidentAvatar, 
+    updateResidentAvatar,
+    fetchWaterLocks, // EXPORTED NEW FUNCTION
 } = api;

@@ -194,8 +194,20 @@ const WaterPage: React.FC<WaterPageProps> = ({ waterReadings, setWaterReadings, 
     const [selectedUnitId, setSelectedUnitId] = useState<string | null>(null);
     const [fullListModalData, setFullListModalData] = useState<{title: string; data: any[]; type: 'highest' | 'increase'} | null>(null);
 
-    // Optimized Lock check (Client-side cache from App.tsx)
-    const isLocked = useMemo(() => lockedPeriods.includes(period), [period, lockedPeriods]);
+    // OPTIMISTIC UI STATE: Local lock override
+    // Used to show "Locked" status instantly upon successful API call, even before data refresh
+    const [localLockedState, setLocalLockedState] = useState<boolean | null>(null);
+
+    // Reset local lock state when period changes
+    useEffect(() => {
+        setLocalLockedState(null);
+    }, [period]);
+
+    // Combined Lock Check: Use Local State if available, otherwise fallback to Props
+    const isLocked = useMemo(() => {
+        if (localLockedState !== null) return localLockedState;
+        return lockedPeriods.includes(period);
+    }, [period, lockedPeriods, localLockedState]);
 
     const waterReadingsMap = useMemo(() => {
         const map = new Map<string, WaterReading[]>();
@@ -364,10 +376,15 @@ const WaterPage: React.FC<WaterPageProps> = ({ waterReadings, setWaterReadings, 
         setIsLocking(true);
         try {
             await setLockStatus(period, true);
-            if (refreshData) refreshData(true); // Trigger refresh to update locked status locally
+            setLocalLockedState(true); // Optimistic UI Update
+            if (refreshData) refreshData(true);
             showToast(`Đã chốt sổ kỳ ${period}. Dữ liệu sẽ không thể chỉnh sửa.`, 'success');
-        } catch (e) { showToast('Lỗi khi chốt sổ.', 'error'); } 
-        finally { setIsLocking(false); }
+        } catch (e) { 
+            showToast('Lỗi khi chốt sổ.', 'error'); 
+            setLocalLockedState(null); // Revert optimistic update on error
+        } finally { 
+            setIsLocking(false); 
+        }
     };
 
     const handleUnlock = async () => {
@@ -375,10 +392,15 @@ const WaterPage: React.FC<WaterPageProps> = ({ waterReadings, setWaterReadings, 
         setIsLocking(true);
         try {
             await setLockStatus(period, false);
-            if (refreshData) refreshData(true); // Trigger refresh to update locked status locally
+            setLocalLockedState(false); // Optimistic UI Update
+            if (refreshData) refreshData(true);
             showToast(`Đã mở lại sổ kỳ ${period}.`, 'success');
-        } catch (e) { showToast('Lỗi khi mở sổ.', 'error'); } 
-        finally { setIsLocking(false); }
+        } catch (e) { 
+            showToast('Lỗi khi mở sổ.', 'error'); 
+            setLocalLockedState(null); // Revert optimistic update on error
+        } finally { 
+            setIsLocking(false); 
+        }
     };
 
     const handleImportClick = () => fileInputRef.current?.click();
@@ -409,7 +431,7 @@ const WaterPage: React.FC<WaterPageProps> = ({ waterReadings, setWaterReadings, 
                                 <button 
                                     onDoubleClick={handleUnlock} 
                                     disabled={!canEdit || isLocking} 
-                                    className="h-10 px-4 font-semibold rounded-lg flex items-center gap-2 bg-gray-400 text-white border border-gray-400 disabled:opacity-50 hover:bg-gray-500 cursor-pointer select-none shadow-sm"
+                                    className="h-10 px-4 font-semibold rounded-lg flex items-center gap-2 bg-gray-400 text-white border border-gray-400 disabled:opacity-50 hover:bg-gray-500 cursor-pointer select-none shadow-sm transition-colors"
                                     title="Dữ liệu đã chốt. Nhấn đúp để mở khóa."
                                 >
                                     <LockClosedIcon className="w-5 h-5" /> Đã chốt
@@ -418,7 +440,7 @@ const WaterPage: React.FC<WaterPageProps> = ({ waterReadings, setWaterReadings, 
                                 <button 
                                     onClick={handleLock} 
                                     disabled={!canEdit || isLocking} 
-                                    className="h-10 px-4 font-semibold rounded-lg flex items-center gap-2 bg-primary text-white hover:bg-primary-focus shadow-sm disabled:opacity-50"
+                                    className="h-10 px-4 font-semibold rounded-lg flex items-center gap-2 bg-primary text-white hover:bg-primary-focus shadow-sm disabled:opacity-50 transition-colors"
                                     title="Chốt số liệu kỳ này"
                                 >
                                     <SaveIcon className="w-5 h-5" /> Chốt sổ

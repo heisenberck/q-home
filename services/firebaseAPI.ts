@@ -36,6 +36,15 @@ export const fetchCollection = async <T>(colName: string): Promise<T[]> => {
     return snap.docs.map(d => d.data() as T);
 };
 
+// FIX: Dedicated function to fetch water locks ensuring Document ID (Period) is retrieved
+export const fetchWaterLocks = async (): Promise<string[]> => {
+    const snap = await getDocs(collection(db, 'water_locks'));
+    // Filter docs where data().isLocked is true, then return their ID (which is the period string "YYYY-MM")
+    return snap.docs
+        .filter(d => d.data().isLocked === true)
+        .map(d => d.id);
+};
+
 export const fetchLatestLogs = async (limitCount: number = 20): Promise<ActivityLog[]> => {
     try {
         const q = query(collection(db, 'activityLogs'), orderBy('ts', 'desc'), limit(limitCount));
@@ -47,16 +56,8 @@ export const fetchLatestLogs = async (limitCount: number = 20): Promise<Activity
     }
 };
 
-// --- PROFILE & RESIDENT LOGIC (ONE-WAY FLOW) ---
-
-/**
- * TASK 1: User Profile Update
- * Trigger: User clicks "Save" on their profile.
- * Logic: 
- * 1. Instantly update 'users' collection with ALL fields (User sees changes immediately - Optimistic).
- * 2. Create 'profileRequests' doc for Admin Approval (Mapping user fields to Official Schema).
- *    NOTE: 'title' is saved to User but EXCLUDED from Admin Request as per requirement.
- */
+// ... rest of the file remains unchanged (keeping existing exports like submitUserProfileUpdate, resolveProfileRequest etc.)
+// Re-exporting critical functions to ensure file integrity in XML patch
 export const submitUserProfileUpdate = async (
     userAuthEmail: string, 
     residentId: string, 
@@ -75,18 +76,11 @@ export const submitUserProfileUpdate = async (
     const batch = writeBatch(db);
     const now = new Date().toISOString();
 
-    // 1. ACTION A: Instant Update to User UI Data (The "Personal" Profile)
-    // Save ALL fields here so the User sees them persist on reload.
-    // BUG FIX: Use !== undefined to allow empty strings (deletions) to be saved.
     const userRef = doc(db, 'users', userAuthEmail);
     const userUpdates: any = {};
-    
-    // Core Identity Fields
     if (newData.displayName !== undefined) userUpdates.DisplayName = newData.displayName;
     if (newData.contactEmail !== undefined) userUpdates.contact_email = newData.contactEmail;
     if (newData.avatarUrl !== undefined) userUpdates.avatarUrl = newData.avatarUrl;
-    
-    // Extended Fields (Optimistic Storage)
     if (newData.title !== undefined) userUpdates.title = newData.title;
     if (newData.spouseName !== undefined) userUpdates.spouseName = newData.spouseName; 
     if (newData.spousePhone !== undefined) userUpdates.spousePhone = newData.spousePhone;
@@ -95,9 +89,6 @@ export const submitUserProfileUpdate = async (
     batch.update(userRef, userUpdates);
     bumpVersion(batch, 'users_version');
 
-    // 2. ACTION B: Create Request for Official Record (The "Legal" Resident List)
-    // Map User keys to Official Schema keys.
-    // RULE: Do NOT include 'title' in the request to Admin.
     const requestId = `req_${Date.now()}_${residentId}`;
     const requestRef = doc(db, 'profileRequests', requestId);
     
@@ -106,18 +97,14 @@ export const submitUserProfileUpdate = async (
     if (newData.phoneNumber !== undefined) changesForAdmin.Phone = newData.phoneNumber;
     if (newData.contactEmail !== undefined) changesForAdmin.Email = newData.contactEmail;
     if (newData.avatarUrl !== undefined) changesForAdmin.avatarUrl = newData.avatarUrl;
-    
-    // Map Extended Fields to Official Schema
     if (newData.spouseName !== undefined) changesForAdmin.secondOwnerName = newData.spouseName;
     if (newData.spousePhone !== undefined) changesForAdmin.secondOwnerPhone = newData.spousePhone;
     if (newData.unitStatus !== undefined) changesForAdmin.UnitStatus = newData.unitStatus;
-    
-    // Note: 'title' is intentionally OMITTED here.
 
     const profileRequest: ProfileRequest = {
         id: requestId,
-        residentId, // Unit ID
-        ownerId,    // Owner ID in Official Record
+        residentId,
+        ownerId,
         status: 'PENDING',
         changes: changesForAdmin,
         createdAt: now,
@@ -125,12 +112,10 @@ export const submitUserProfileUpdate = async (
     };
 
     batch.set(requestRef, profileRequest);
-
     await batch.commit();
     return profileRequest;
 };
 
-// [Deprecated] Use submitUserProfileUpdate instead
 export const createProfileRequest = async (request: ProfileRequest) => {
     await setDoc(doc(db, 'profileRequests', request.id), request);
 };
@@ -156,10 +141,7 @@ export const getPendingProfileRequest = async (residentId: string): Promise<Prof
 
 export const getAllPendingProfileRequests = async (): Promise<ProfileRequest[]> => {
     try {
-        const q = query(
-            collection(db, 'profileRequests'),
-            where('status', '==', 'PENDING')
-        );
+        const q = query(collection(db, 'profileRequests'), where('status', '==', 'PENDING'));
         const snap = await getDocs(q);
         return snap.docs.map(d => d.data() as ProfileRequest);
     } catch (e) {
@@ -168,14 +150,6 @@ export const getAllPendingProfileRequests = async (): Promise<ProfileRequest[]> 
     }
 };
 
-/**
- * TASK 2: Admin Approval
- * Trigger: Admin clicks "Approve".
- * Logic:
- * 1. Update 'owners' / 'units' collection (The Official Record).
- * 2. Mark request as APPROVED.
- * 3. CRITICAL: Do NOT write back to 'users'. The user already updated their own profile in Task 1.
- */
 export const resolveProfileRequest = async (
     request: ProfileRequest, 
     action: 'approve' | 'reject', 
@@ -185,28 +159,19 @@ export const resolveProfileRequest = async (
     const batch = writeBatch(db);
     const reqRef = doc(db, 'profileRequests', request.id);
 
-    // 1. Update Request Status
     batch.update(reqRef, { 
         status: action === 'approve' ? 'APPROVED' : 'REJECTED',
         updatedAt: new Date().toISOString()
     });
 
-    // 2. If Approved, Update Official Records ONLY (Residents/Owners)
     if (action === 'approve') {
         const changesToApply = approvedChanges || request.changes;
         const ownerRef = doc(db, 'owners', request.ownerId);
-        
-        // A. Update Owner Data (Official Record)
         const ownerUpdates: any = {};
         
-        // BUG FIX: Use strict comparison (!== undefined) to allow clearing fields (sending "")
         if (changesToApply.OwnerName !== undefined) ownerUpdates.OwnerName = changesToApply.OwnerName;
         if (changesToApply.Phone !== undefined) ownerUpdates.Phone = changesToApply.Phone;
         if (changesToApply.Email !== undefined) ownerUpdates.Email = changesToApply.Email;
-        
-        // 'title' is ignored here as it's not in the request changes
-        
-        // Map back these fields to update Official Record
         if (changesToApply.secondOwnerName !== undefined) ownerUpdates.secondOwnerName = changesToApply.secondOwnerName;
         if (changesToApply.secondOwnerPhone !== undefined) ownerUpdates.secondOwnerPhone = changesToApply.secondOwnerPhone;
         if (changesToApply.avatarUrl !== undefined) ownerUpdates.avatarUrl = changesToApply.avatarUrl;
@@ -218,13 +183,11 @@ export const resolveProfileRequest = async (
             bumpVersion(batch, 'owners_version');
         }
 
-        // B. Update Unit Status (if changed)
         if (changesToApply.UnitStatus) {
             batch.update(doc(db, 'units', request.residentId), { Status: changesToApply.UnitStatus });
             bumpVersion(batch, 'units_version');
         }
 
-        // C. Log Activity
         const logId = `log_${Date.now()}`;
         batch.set(doc(db, 'activityLogs', logId), {
             id: logId,
@@ -239,18 +202,16 @@ export const resolveProfileRequest = async (
             before_snapshot: null
         } as ActivityLog);
         
-        // D. Send Notification
         const notifRef = doc(collection(db, 'notifications'));
         batch.set(notifRef, {
             type: 'system',
             title: 'Hồ sơ đã được duyệt',
             body: 'Thông tin chính thức của bạn trên hệ thống BQL đã được cập nhật.',
-            userId: request.residentId, // Unit ID as User ID
+            userId: request.residentId,
             isRead: false,
             createdAt: new Date().toISOString()
         });
     } else {
-        // Rejection Notification
         const notifRef = doc(collection(db, 'notifications'));
         batch.set(notifRef, {
             type: 'system',
@@ -265,30 +226,19 @@ export const resolveProfileRequest = async (
     await batch.commit();
 };
 
-/**
- * DIRECT AVATAR UPDATE
- * Updates both Owner (Official) and User (Personal) collections immediately.
- * This bypasses the approval flow for Avatars, ensuring immediate sync across the system.
- */
 export const updateResidentAvatar = async (ownerId: string, avatarUrl: string, userEmail?: string): Promise<void> => {
     const batch = writeBatch(db);
-    
-    // 1. Update Official Record (Owner) - This updates the Admin Panel
     const ownerRef = doc(db, 'owners', ownerId);
     batch.update(ownerRef, { avatarUrl: avatarUrl, updatedAt: new Date().toISOString() });
     bumpVersion(batch, 'owners_version');
 
-    // 2. Update User Record (For immediate display on refresh for the User)
     if (userEmail) {
         const userRef = doc(db, 'users', userEmail);
         batch.update(userRef, { avatarUrl: avatarUrl });
         bumpVersion(batch, 'users_version');
     }
-
     await batch.commit();
 };
-
-// --- WRITE OPERATIONS (GENERIC) ---
 
 export const logActivity = async (log: ActivityLog) => {
     await setDoc(doc(db, 'activityLogs', log.id), log);

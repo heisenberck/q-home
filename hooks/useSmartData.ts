@@ -96,7 +96,9 @@ export const useSmartSystemData = () => {
             promises.push(firebaseAPI.fetchLatestLogs(20)); 
             
             promises.push(firebaseAPI.fetchCollection<MonthlyStat>('monthly_stats'));
-            promises.push(firebaseAPI.fetchCollection('water_locks').then(docs => docs.filter((d:any) => d.isLocked).map((d:any) => d.id))); 
+            // FIX: Use dedicated fetcher for locks that preserves Document IDs (Periods)
+            promises.push(firebaseAPI.fetchWaterLocks()); 
+            
             promises.push(getDoc(doc(db, 'settings', 'invoice')).then(s => s.exists() ? s.data() : null));
 
             const [

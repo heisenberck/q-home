@@ -94,6 +94,15 @@ export const loadAllData = async () => {
     });
 };
 
+// FIX: Added mock implementation for fetchWaterLocks
+export const fetchWaterLocks = async (): Promise<string[]> => {
+    return Promise.resolve(
+        Array.from(waterLocks.entries())
+            .filter(([_, isLocked]) => isLocked)
+            .map(([period]) => period)
+    );
+};
+
 export const fetchLatestLogs = async (limitCount: number = 20): Promise<ActivityLog[]> => {
     // Return sorted descending
     return Promise.resolve(
