@@ -7,35 +7,39 @@ export default defineConfig({
     react(),
     VitePWA({
       registerType: 'autoUpdate',
-      includeAssets: ['favicon.ico', 'apple-touch-icon.png', 'mask-icon.svg'],
-      manifest: false, // We are managing manifest.json manually in /public
-      workbox: {
-        globPatterns: ['**/*.{js,css,html,ico,png,svg}'],
-        runtimeCaching: [
+      injectRegister: 'auto', // Auto-injects the SW script. Do NOT touch main.tsx
+      includeAssets: ['favicon.ico', 'apple-touch-icon.png', 'masked-icon.svg'],
+      manifest: {
+        name: 'Cổng Cư Dân Q-Home',
+        short_name: 'Q-Home',
+        description: 'Cổng thông tin cư dân và thanh toán trực tuyến',
+        theme_color: '#006d4e', // Matching the app header color
+        background_color: '#ffffff',
+        display: 'standalone', // Makes it look like a native app
+        orientation: 'portrait',
+        scope: '/',
+        start_url: '/',
+        icons: [
           {
-            urlPattern: ({ request }) => request.destination === 'style' || request.destination === 'script' || request.destination === 'worker',
-            handler: 'StaleWhileRevalidate',
-            options: {
-              cacheName: 'static-resources',
-              expiration: {
-                maxEntries: 50,
-              },
-            },
+            src: '/icons/icon-192x192.png',
+            sizes: '192x192',
+            type: 'image/png',
+            purpose: 'any maskable'
           },
           {
-            urlPattern: ({ request }) => request.destination === 'image',
-            handler: 'CacheFirst',
-            options: {
-              cacheName: 'images',
-              expiration: {
-                maxEntries: 100,
-                maxAgeSeconds: 30 * 24 * 60 * 60, // 30 Days
-              },
-            },
-          },
-        ],
-        navigateFallback: 'index.html',
+            src: '/icons/icon-512x512.png',
+            sizes: '512x512',
+            type: 'image/png',
+            purpose: 'any maskable'
+          }
+        ]
       },
+      workbox: {
+        globPatterns: ['**/*.{js,css,html,ico,png,svg}'], // Cache basic assets
+        cleanupOutdatedCaches: true,
+        skipWaiting: true,
+        clientsClaim: true,
+      }
     }),
   ],
 });

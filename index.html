@@ -6,7 +6,6 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     
     <!-- PWA Setup -->
-    <link rel="manifest" href="/manifest.json" />
     <meta name="theme-color" content="#006d4e" />
     <link rel="apple-touch-icon" href="/icons/icon-192x192.png">
     
@@ -84,11 +83,8 @@
         box-shadow: 0 4px 6px rgba(0,0,0,0.1);
         border: 1px solid #e5e7eb;
         pointer-events: none;
-        opacity: 0;
-        transition: opacity 0.15s ease;
-      }
-      [data-tooltip]:hover::after {
         opacity: 1;
+        transition: opacity 0.15s ease;
       }
 
       /* Simple animation for modals */

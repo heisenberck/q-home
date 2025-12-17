@@ -1,0 +1,8 @@
+IMPORTANT: PWA Assets Required
+
+Please upload the following icon files to this directory (public/icons/):
+
+1. icon-192x192.png (Exactly 192x192 pixels)
+2. icon-512x512.png (Exactly 512x512 pixels)
+
+Note: These are required for the "Add to Home Screen" prompt to work correctly on mobile devices.
