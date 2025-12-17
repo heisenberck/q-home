@@ -10,8 +10,8 @@ export default defineConfig({
       injectRegister: 'auto', // Auto-injects the SW script. Do NOT touch main.tsx
       includeAssets: ['favicon.ico', 'apple-touch-icon.png', 'masked-icon.svg'],
       manifest: {
-        name: 'Cổng Cư Dân Q-Home',
-        short_name: 'Q-Home',
+        name: 'Cổng Cư Dân HUD3 LD',
+        short_name: 'My HUD3LD',
         description: 'Cổng thông tin cư dân và thanh toán trực tuyến',
         theme_color: '#006d4e', // Matching the app header color
         background_color: '#ffffff',

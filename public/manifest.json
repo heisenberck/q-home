@@ -1,6 +1,7 @@
 {
-  "name": "HUD3 Linh Đàm Portal",
+  "name": "Cổng Cư Dân HUD3 LD",
   "short_name": "My HUD3LD",
+  "description": "Cổng thông tin cư dân và thanh toán trực tuyến",
   "start_url": "/",
   "display": "standalone",
   "background_color": "#ffffff",
