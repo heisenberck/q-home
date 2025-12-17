@@ -3,11 +3,19 @@
   <head>
     <meta charset="UTF-8" />
     <link rel="icon" type="image/svg+xml" href="/vite.svg" />
-    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no" />
     
-    <!-- PWA Setup -->
+    <!-- PWA Setup & iOS Compatibility -->
     <meta name="theme-color" content="#006d4e" />
+    <meta name="apple-mobile-web-app-capable" content="yes">
+    <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+    <meta name="apple-mobile-web-app-title" content="My HUD3LD">
+    
+    <!-- iOS Icons -->
     <link rel="apple-touch-icon" href="/icons/icon-192x192.png">
+    <link rel="apple-touch-icon" sizes="152x152" href="/icons/icon-192x192.png">
+    <link rel="apple-touch-icon" sizes="180x180" href="/icons/icon-192x192.png">
+    <link rel="apple-touch-icon" sizes="167x167" href="/icons/icon-192x192.png">
     
     <title>Hệ thống Quản lý Chung cư HUD3</title>
     
@@ -27,7 +35,7 @@
 
     <script>
       tailwind.config = {
-        darkMode: 'class', // Enforce class-based dark mode; since we won't add the class, it's disabled.
+        darkMode: 'class',
         theme: {
           extend: {
             fontFamily: {
@@ -55,14 +63,13 @@
         --background-end-rgb: 255, 255, 255;
       }
       
-      /* Force light mode styles */
       body {
         color: rgb(var(--foreground-rgb)) !important;
         background: rgb(var(--background-start-rgb)) !important;
         background-color: #ffffff !important;
+        -webkit-tap-highlight-color: transparent;
       }
 
-      /* Base Tooltip Style - Light Mode */
       [data-tooltip] {
         position: relative;
       }
@@ -87,7 +94,6 @@
         transition: opacity 0.15s ease;
       }
 
-      /* Simple animation for modals */
        @keyframes fade-in-down {
           from { opacity: 0; transform: translateY(-10px); }
           to { opacity: 1; transform: translateY(0); }
