@@ -60,7 +60,7 @@ const ModuleCard: React.FC<ModuleCardProps> = ({ title, icon, borderColor, child
 
 const ProgressBar: React.FC<{ value: number }> = ({ value }) => ( <div className="w-full bg-gray-200 rounded-full h-2.5"><div className="bg-blue-600 h-2.5 rounded-full" style={{ width: `${value}%` }}></div></div>);
 
-// --- NEW Dashboard Footer Component ---
+// --- Dashboard Footer Component ---
 const DashboardFooter: React.FC<{
     activityLogs: ActivityLog[];
     feedback: FeedbackItem[];
@@ -70,21 +70,18 @@ const DashboardFooter: React.FC<{
     const [showActivityPopup, setShowActivityPopup] = useState(false);
     const [showMsgPopup, setShowMsgPopup] = useState(false);
     
-    // Logic: Activity Log (Latest 5 for popup, 1 for ticker)
     const latestLogs = useMemo(() => activityLogs.slice(0, 5), [activityLogs]);
     const currentLog = latestLogs.length > 0 ? latestLogs[tickerKey % Math.min(latestLogs.length, 3)] : null;
 
-    // Logic: Unread Messages (Pending)
     const unreadMessages = useMemo(() => feedback.filter(f => f.status === 'Pending').slice(0, 5), [feedback]);
     const pendingFeedbackCount = feedback.filter(f => f.status === 'Pending').length;
 
     useEffect(() => {
         if (latestLogs.length === 0) return;
-        const interval = setInterval(() => { setTickerKey(prev => prev + 1); }, 5000); // Slower ticker
+        const interval = setInterval(() => { setTickerKey(prev => prev + 1); }, 5000);
         return () => clearInterval(interval);
     }, [latestLogs.length]);
 
-    // Close popups when clicking outside (Simple implementation using state toggle backdrop)
     useEffect(() => {
         const close = () => { setShowActivityPopup(false); setShowMsgPopup(false); };
         if(showActivityPopup || showMsgPopup) document.addEventListener('click', close);
@@ -93,8 +90,6 @@ const DashboardFooter: React.FC<{
 
     return (
         <div className="fixed bottom-0 left-64 right-0 bg-white/95 backdrop-blur-md border-t border-gray-200 h-12 flex items-center justify-between px-6 text-gray-600 z-30 shadow-[0_-4px_6px_-1px_rgba(0,0,0,0.05)]">
-            
-            {/* LEFT: Activity Log Area */}
             <div className="flex-1 flex items-center relative max-w-2xl" onClick={(e) => { e.stopPropagation(); setShowActivityPopup(!showActivityPopup); setShowMsgPopup(false); }}>
                 <div className="flex items-center gap-3 cursor-pointer hover:bg-gray-100 py-1.5 px-3 rounded-lg transition-colors w-full">
                     {currentLog ? (
@@ -114,7 +109,6 @@ const DashboardFooter: React.FC<{
                     )}
                 </div>
 
-                {/* Activity Popup */}
                 {showActivityPopup && latestLogs.length > 0 && (
                     <div className="absolute bottom-14 left-0 w-96 bg-white rounded-xl shadow-2xl border border-gray-200 p-1 animate-slide-up z-40" onClick={(e) => e.stopPropagation()}>
                         <div className="bg-gray-50 px-3 py-2 border-b border-gray-100 rounded-t-lg flex justify-between items-center">
@@ -136,7 +130,6 @@ const DashboardFooter: React.FC<{
                 )}
             </div>
 
-            {/* RIGHT: Messages Area */}
             <div className="flex items-center relative" onClick={(e) => { e.stopPropagation(); setShowMsgPopup(!showMsgPopup); setShowActivityPopup(false); }}>
                 <button className={`relative flex items-center gap-2 px-3 py-1.5 rounded-lg text-sm font-semibold transition-colors ${showMsgPopup ? 'bg-blue-50 text-blue-600' : 'hover:bg-gray-100 text-gray-600'}`}>
                     <ChatBubbleLeftRightIcon className="w-5 h-5" />
@@ -144,7 +137,6 @@ const DashboardFooter: React.FC<{
                     {pendingFeedbackCount > 0 && (<span className="absolute -top-1 -right-1 flex h-4 w-4 items-center justify-center rounded-full bg-red-500 text-white text-[10px] font-bold ring-2 ring-white shadow-sm">{pendingFeedbackCount}</span>)}
                 </button>
 
-                {/* Messages Popup */}
                 {showMsgPopup && (
                     <div className="absolute bottom-14 right-0 w-80 bg-white rounded-xl shadow-2xl border border-gray-200 p-1 animate-slide-up z-40" onClick={(e) => e.stopPropagation()}>
                         <div className="bg-gray-50 px-3 py-2 border-b border-gray-100 rounded-t-lg flex justify-between items-center">
@@ -196,44 +188,68 @@ const OverviewPage: React.FC<OverviewPageProps> = ({ allUnits, allOwners, allVeh
         const currentPeriod = new Date().toISOString().slice(0, 7);
         const previousPeriod = getPreviousPeriod(currentPeriod);
         
-        // 1. Resident Stats
+        // 1. Optimized Data Structure (Map) for faster counting
+        const unitMap = new Map<string, Unit>(allUnits.map(u => [u.UnitID, u]));
         const totalUnits = allUnits.length;
-        const occupiedUnits = allUnits.filter(u => u.OwnerID).length;
-        const occupancyRate = totalUnits > 0 ? (occupiedUnits / totalUnits) * 100 : 0;
-        const residentBreakdown = allUnits.reduce((acc, unit) => { acc[unit.Status] = (acc[unit.Status] || 0) + 1; return acc; }, {} as Record<Unit['Status'], number>);
         
-        // 2. Finance Stats (Current Period)
+        // Count Resident Breakdown (O(n))
+        const residentBreakdown = { Owner: 0, Rent: 0, Business: 0 };
+        let occupiedUnits = 0;
+        for (const u of allUnits) {
+            if (u.OwnerID) occupiedUnits++;
+            residentBreakdown[u.Status]++;
+        }
+        const occupancyRate = totalUnits > 0 ? (occupiedUnits / totalUnits) * 100 : 0;
+        
+        // 2. Finance Stats (O(1) from Pre-aggregated MonthlyStat if available)
+        const currentMonthStat = monthlyStats.find(s => s.period === currentPeriod);
+        
+        let totalDue = currentMonthStat?.totalDue ?? 0;
+        let totalPaid = 0;
+
+        // Note: Paid amount is often volatile, so we still calculate it from current charges
+        // but we limit the scan to only the current month's charges (already filtered by parent usually)
         const currentCharges = charges.filter(c => c.Period === currentPeriod);
-        const totalPaid = currentCharges.reduce((sum, c) => sum + c.TotalPaid, 0);
-        const totalDue = currentCharges.reduce((sum, c) => sum + c.TotalDue, 0);
+        totalPaid = currentCharges.reduce((sum, c) => sum + c.TotalPaid, 0);
+        
+        // Fallback for totalDue if Stat doc is missing
+        if (totalDue === 0) totalDue = currentCharges.reduce((sum, c) => sum + c.TotalDue, 0);
+
         const totalDebt = totalDue - totalPaid;
         const collectionRate = totalDue > 0 ? (totalPaid / totalDue) * 100 : 0;
         
-        // 3. Vehicle Stats
-        const activeVehicles = allVehicles.filter(v => v.isActive);
-        const carSlotsUsed = activeVehicles.filter(v => v.Type === VehicleTier.CAR || v.Type === VehicleTier.CAR_A).length;
-        const motoCount = activeVehicles.filter(v => v.Type === VehicleTier.MOTORBIKE).length;
-        const ebikeCount = activeVehicles.filter(v => v.Type === VehicleTier.EBIKE).length;
-        const bicycleCount = activeVehicles.filter(v => v.Type === VehicleTier.BICYCLE).length;
-        const waitingCount = activeVehicles.filter(v => v.parkingStatus === 'Xếp lốt').length;
+        // 3. Vehicle Stats (O(n) scan)
+        let carSlotsUsed = 0, motoCount = 0, ebikeCount = 0, bicycleCount = 0, waitingCount = 0;
+        for (const v of allVehicles) {
+            if (!v.isActive) continue;
+            if (v.Type === VehicleTier.CAR || v.Type === VehicleTier.CAR_A) carSlotsUsed++;
+            else if (v.Type === VehicleTier.MOTORBIKE) motoCount++;
+            else if (v.Type === VehicleTier.EBIKE) ebikeCount++;
+            else if (v.Type === VehicleTier.BICYCLE) bicycleCount++;
+            
+            if (v.parkingStatus === 'Xếp lốt') waitingCount++;
+        }
         
-        // 4. Water Stats
-        const recordedCount = allWaterReadings.filter(r => r.Period === currentPeriod).length;
-        const totalConsumption = allWaterReadings.filter(r => r.Period === currentPeriod).reduce((sum, r) => sum + (r.consumption || 0), 0);
-        const prevTotalConsumption = allWaterReadings.filter(r => r.Period === previousPeriod).reduce((sum, r) => sum + (r.consumption || 0), 0);
+        // 4. Water Stats (O(n))
+        const currentWater = allWaterReadings.filter(r => r.Period === currentPeriod);
+        const recordedCount = currentWater.length;
+        const totalConsumption = currentWater.reduce((sum, r) => sum + (r.consumption || 0), 0);
+        
+        const prevTotalConsumption = allWaterReadings
+            .filter(r => r.Period === previousPeriod)
+            .reduce((sum, r) => sum + (r.consumption || 0), 0);
         const waterTrend = prevTotalConsumption > 0 ? ((totalConsumption - prevTotalConsumption) / prevTotalConsumption) * 100 : 0;
         
         // 5. Feedback Stats
         const newFeedbackCount = feedback.filter(f => f.status === 'Pending').length;
         const processingFeedbackCount = feedback.filter(f => f.status === 'Processing').length;
         
-        // 6. Revenue Chart Data (Optimized with MonthlyStats)
+        // 6. Optimized Chart Data (Using 12-month pre-aggregated stats)
         const revenueChartData = Array.from({ length: 6 }).map((_, i) => { 
             const d = new Date(); 
             d.setMonth(d.getMonth() - i); 
             const p = d.toISOString().slice(0, 7); 
             
-            // Try to find stats in the optimized collection first
             const stat = monthlyStats.find(s => s.period === p);
             
             if (stat) {
@@ -243,28 +259,19 @@ const OverviewPage: React.FC<OverviewPageProps> = ({ allUnits, allOwners, allVeh
                     'Gửi xe': stat.totalParking, 
                     'Nước': stat.totalWater
                 };
-            } else {
-                // Fallback to calculation from charges array (backward compatibility or missing stat)
-                // Note: 'charges' now only contains current month data in prod, so this is mainly for Mock Mode or recent data fallback
-                const chargesForP = charges.filter(c => c.Period === p); 
-                return { 
-                    name: `T${d.getMonth() + 1}`, 
-                    'Dịch vụ': chargesForP.reduce((s,c)=>s+c.ServiceFee_Total,0), 
-                    'Gửi xe': chargesForP.reduce((s,c)=>s+c.ParkingFee_Total,0), 
-                    'Nước': chargesForP.reduce((s,c)=>s+c.WaterFee_Total,0)
-                }; 
             }
+            return { name: `T${d.getMonth() + 1}`, 'Dịch vụ': 0, 'Gửi xe': 0, 'Nước': 0 };
         }).reverse();
 
         const unrecordedWaterCount = totalUnits - recordedCount;
         const alertItems = [
             unrecordedWaterCount > 0 && { text: `${unrecordedWaterCount} căn chưa chốt số nước`, icon: <WarningIcon className="w-5 h-5 text-red-500"/> }, 
             waitingCount > 0 && { text: `${waitingCount} xe đang trong danh sách chờ`, icon: <WarningIcon className="w-5 h-5 text-orange-500"/>}, 
-            { text: 'Thông báo cắt điện chưa gửi', icon: <WarningIcon className="w-5 h-5 text-blue-500"/> },
+            { text: 'Thông báo phí mới chưa phát hành', icon: <WarningIcon className="w-5 h-5 text-blue-500"/> },
         ].filter(Boolean);
 
         return { residentStats: { totalUnits, occupancyRate, breakdown: residentBreakdown }, financeStats: { totalRevenue: totalPaid, totalDebt, collectionRate }, vehicleStats: { carSlotsUsed, motoCount, ebikeCount, bicycleCount, waiting: waitingCount }, waterStats: { recorded: recordedCount, total: totalUnits, consumption: totalConsumption, trend: waterTrend }, feedbackStats: { new: newFeedbackCount, processing: processingFeedbackCount }, revenueChartData, alertItems, };
-    }, [allUnits, allOwners, allVehicles, allWaterReadings, charges, activityLogs, feedback, monthlyStats]);
+    }, [allUnits, allVehicles, allWaterReadings, charges, feedback, monthlyStats]);
 
     return (
         <div className="space-y-6 pb-16">

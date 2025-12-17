@@ -23,8 +23,6 @@ import { getAllPendingProfileRequests, resolveProfileRequest } from '../../servi
 import { isProduction } from '../../utils/env';
 
 // ... (Existing code: PDF Generation, StatusBadge, Types, ProfileChangeReview, DocumentPreviewModal, ResidentDetailModal, DataImportModal, FilterPill) ...
-// Note: Keeping existing components unchanged until ResidentDetailPanel
-
 // Declare external libraries
 declare const jspdf: any;
 declare const html2canvas: any;
@@ -41,7 +39,7 @@ const renderResidentToHTML = (resident: ResidentData): string => {
             case 'Business': return 'Kinh doanh';
         }
     };
-    const activeVehicles = resident.vehicles.filter(v => v.isActive);
+    const activeVehicles = (resident.vehicles || []).filter(v => v.isActive);
 
     const vehicleRows = activeVehicles.length > 0
         ? activeVehicles.map(v => `
@@ -271,11 +269,6 @@ const ProfileChangeReview: React.FC<{
     );
 };
 
-// ... (Existing components: DocumentPreviewModal, ResidentDetailModal, DataImportModal, FilterPill) ...
-// The above are identical to the previous context, ensuring no breakage. 
-// Skipping re-pasting for brevity unless changes are requested in them. 
-// Assuming they exist as per context.
-
 const DocumentPreviewModal: React.FC<{
     doc: VehicleDocument;
     onClose: () => void;
@@ -303,7 +296,6 @@ const DocumentPreviewModal: React.FC<{
     );
 };
 
-// ... ResidentDetailModal and DataImportModal are kept same as provided in context ...
 const ResidentDetailModal: React.FC<{
     resident: ResidentData;
     onClose: () => void;
@@ -319,7 +311,7 @@ const ResidentDetailModal: React.FC<{
             ...resident.owner,
             documents: resident.owner.documents || { others: [] }
         },
-        vehicles: JSON.parse(JSON.stringify(resident.vehicles.filter(v => v.isActive)))
+        vehicles: JSON.parse(JSON.stringify((resident.vehicles || []).filter(v => v.isActive)))
     });
 
     // UI States
@@ -720,7 +712,7 @@ const FilterPill: React.FC<{ icon: React.ReactNode; options: { value: string; la
 
 
 const ResidentDetailPanel: React.FC<{ 
-    resident: ResidentData; 
+    resident: ResidentData | null; // Accept null for safety
     activityLogs: ActivityLog[]; 
     onExportPDF: (resident: ResidentData) => void; 
     onCopyToClipboard: (text: string, label: string) => void; 
@@ -728,9 +720,18 @@ const ResidentDetailPanel: React.FC<{
     onClose: () => void; 
     onNavigate?: (page: string) => void;
 }> = ({ resident, activityLogs, onExportPDF, onCopyToClipboard, onOpenDoc, onClose, onNavigate }) => {
+    
+    // Safety check: Don't render if resident or critical sub-data is missing
+    if (!resident || !resident.unit || !resident.owner) {
+        return null;
+    }
+
     const { unit, owner, vehicles } = resident;
+    // Default to empty array if vehicles undefined
+    const safeVehicles = vehicles || [];
+    
     const allDocs = [...(owner.documents?.nationalId ? [{...owner.documents.nationalId, name: `CCCD - ${owner.OwnerName}`}] : []), ...(owner.documents?.title ? [{...owner.documents.title, name: 'Sổ đỏ/Hợp đồng'}] : []), ...(owner.documents?.others || [])];
-    const relevantLogs = activityLogs.filter(l => (l.ids && l.ids.includes(unit.UnitID)) || l.summary.includes(unit.UnitID)).slice(0, 10);
+    const relevantLogs = (activityLogs || []).filter(l => (l.ids && l.ids.includes(unit.UnitID)) || l.summary.includes(unit.UnitID)).slice(0, 10);
     const theme = getPastelColorForName(owner.OwnerName);
 
     const [isOwnerInfoOpen, setOwnerInfoOpen] = useState(true);
@@ -814,14 +815,14 @@ const ResidentDetailPanel: React.FC<{
                     className="w-full flex items-center justify-between p-4 bg-gray-50/50 hover:bg-gray-100 transition-colors"
                 >
                     <span className="text-sm font-bold text-gray-700 uppercase flex items-center gap-2">
-                        <CarIcon className="w-4 h-4"/> Phương tiện <span className="text-xs bg-gray-200 px-1.5 rounded-full text-gray-600">{vehicles.filter(v=>v.isActive).length}</span>
+                        <CarIcon className="w-4 h-4"/> Phương tiện <span className="text-xs bg-gray-200 px-1.5 rounded-full text-gray-600">{safeVehicles.filter(v=>v?.isActive).length}</span>
                     </span>
                     {isVehiclesOpen ? <ChevronUpIcon className="w-4 h-4 text-gray-500"/> : <ChevronDownIcon className="w-4 h-4 text-gray-500"/>}
                 </button>
                 {isVehiclesOpen && (
                     <div className="p-4 space-y-2 animate-fade-in-down">
-                        {vehicles.filter(v=>v.isActive).length > 0 ? (
-                            vehicles.filter(v=>v.isActive).map(v => (
+                        {safeVehicles.filter(v=>v?.isActive).length > 0 ? (
+                            safeVehicles.filter(v=>v?.isActive).map(v => (
                                 <div 
                                     key={v.VehicleId} 
                                     onClick={() => handleVehicleClick(v.PlateNumber)}

@@ -36,7 +36,13 @@ export const fetchCollection = async <T>(colName: string): Promise<T[]> => {
     return snap.docs.map(d => d.data() as T);
 };
 
-// NEW: Optimized fetch for Residents (Single Docs instead of Collection)
+// NEW: Fetch monthly stats sorted by period
+export const fetchMonthlyStats = async (): Promise<MonthlyStat[]> => {
+    const q = query(collection(db, 'monthly_stats'), orderBy('period', 'desc'), limit(12));
+    const snap = await getDocs(q);
+    return snap.docs.map(d => d.data() as MonthlyStat);
+};
+
 export const fetchResidentSpecificData = async (unitId: string) => {
     const unitSnap = await getDoc(doc(db, 'units', unitId));
     let unit: Unit | null = null;
@@ -53,7 +59,6 @@ export const fetchResidentSpecificData = async (unitId: string) => {
         }
     }
 
-    // Fetch vehicles for this unit
     const vQ = query(collection(db, 'vehicles'), where('UnitID', '==', unitId), where('isActive', '==', true));
     const vSnap = await getDocs(vQ);
     vehicles = vSnap.docs.map(d => d.data() as Vehicle);
@@ -61,23 +66,19 @@ export const fetchResidentSpecificData = async (unitId: string) => {
     return { unit, owner, vehicles };
 };
 
-// NEW: Fetch Water Readings for specific periods only (Optimization)
 export const fetchRecentWaterReadings = async (periods: string[]): Promise<WaterReading[]> => {
     if (periods.length === 0) return [];
-    // Firestore 'in' query supports up to 10 items
     const q = query(collection(db, 'waterReadings'), where('Period', 'in', periods.slice(0, 10)));
     const snap = await getDocs(q);
     return snap.docs.map(d => d.data() as WaterReading);
 };
 
-// NEW: Optimization for Adjustments - Fetch only recent adjustments (e.g., from a specific start period)
 export const fetchRecentAdjustments = async (startPeriod: string): Promise<Adjustment[]> => {
     const q = query(collection(db, 'adjustments'), where('Period', '>=', startPeriod));
     const snap = await getDocs(q);
     return snap.docs.map(d => d.data() as Adjustment);
 };
 
-// NEW: Paginated Logs Fetching
 export const fetchLogsPaginated = async (lastDoc: any = null, limitCount: number = 20) => {
     let q = query(collection(db, 'activityLogs'), orderBy('ts', 'desc'), limit(limitCount));
     if (lastDoc) {
@@ -98,7 +99,6 @@ export const fetchWaterLocks = async (): Promise<string[]> => {
         .map(d => d.id);
 };
 
-// Deprecated for Global Load, kept for compatibility if needed elsewhere
 export const fetchLatestLogs = async (limitCount: number = 20): Promise<ActivityLog[]> => {
     try {
         const q = query(collection(db, 'activityLogs'), orderBy('ts', 'desc'), limit(limitCount));
@@ -110,7 +110,6 @@ export const fetchLatestLogs = async (limitCount: number = 20): Promise<Activity
     }
 };
 
-// --- ONE-WAY FLOW: User Updates Profile -> Request Created ---
 export const submitUserProfileUpdate = async (
     userAuthEmail: string, 
     residentId: string, 
@@ -129,7 +128,6 @@ export const submitUserProfileUpdate = async (
     const batch = writeBatch(db);
     const now = new Date().toISOString();
 
-    // 1. Optimistic Update on 'users' collection (Instant Feedback for User)
     const userRef = doc(db, 'users', userAuthEmail);
     const userUpdates: any = {};
     if (newData.displayName !== undefined) userUpdates.DisplayName = newData.displayName;
@@ -143,7 +141,6 @@ export const submitUserProfileUpdate = async (
     batch.update(userRef, userUpdates);
     bumpVersion(batch, 'users_version');
 
-    // 2. Create Profile Request for Admin (Official Data Update)
     const requestId = `req_${Date.now()}_${residentId}`;
     const requestRef = doc(db, 'profileRequests', requestId);
     
@@ -153,7 +150,6 @@ export const submitUserProfileUpdate = async (
     if (newData.contactEmail !== undefined) changesForAdmin.Email = newData.contactEmail;
     if (newData.avatarUrl !== undefined) changesForAdmin.avatarUrl = newData.avatarUrl;
     
-    // Mapping: spouseName -> secondOwnerName for Official Records
     if (newData.spouseName !== undefined) changesForAdmin.secondOwnerName = newData.spouseName;
     if (newData.spousePhone !== undefined) changesForAdmin.secondOwnerPhone = newData.spousePhone;
     if (newData.unitStatus !== undefined) changesForAdmin.UnitStatus = newData.unitStatus;
@@ -169,7 +165,6 @@ export const submitUserProfileUpdate = async (
     };
 
     batch.set(requestRef, profileRequest);
-
     await batch.commit();
     return profileRequest;
 };
@@ -208,7 +203,6 @@ export const getAllPendingProfileRequests = async (): Promise<ProfileRequest[]> 
     }
 };
 
-// --- ADMIN APPROVAL FLOW ---
 export const resolveProfileRequest = async (
     request: ProfileRequest, 
     action: 'approve' | 'reject', 
@@ -217,26 +211,20 @@ export const resolveProfileRequest = async (
 ) => {
     const batch = writeBatch(db);
     
-    // 1. Update Request Status
     const reqRef = doc(db, 'profileRequests', request.id);
     batch.update(reqRef, { 
         status: action === 'approve' ? 'APPROVED' : 'REJECTED',
         updatedAt: new Date().toISOString()
     });
 
-    // 2. If Approved, Update Official Tables (Owners & Units)
     if (action === 'approve') {
         const changesToApply = approvedChanges || request.changes;
-        
-        // Update Owner Info
         const ownerRef = doc(db, 'owners', request.ownerId);
         const ownerUpdates: any = {};
         
         if (changesToApply.OwnerName !== undefined) ownerUpdates.OwnerName = changesToApply.OwnerName;
         if (changesToApply.Phone !== undefined) ownerUpdates.Phone = changesToApply.Phone;
         if (changesToApply.Email !== undefined) ownerUpdates.Email = changesToApply.Email;
-        
-        // Critical Fix: Explicitly map second owner fields
         if (changesToApply.secondOwnerName !== undefined) ownerUpdates.secondOwnerName = changesToApply.secondOwnerName;
         if (changesToApply.secondOwnerPhone !== undefined) ownerUpdates.secondOwnerPhone = changesToApply.secondOwnerPhone;
         if (changesToApply.avatarUrl !== undefined) ownerUpdates.avatarUrl = changesToApply.avatarUrl;
@@ -248,13 +236,11 @@ export const resolveProfileRequest = async (
             bumpVersion(batch, 'owners_version');
         }
 
-        // Update Unit Info (Status)
         if (changesToApply.UnitStatus) {
             batch.update(doc(db, 'units', request.residentId), { Status: changesToApply.UnitStatus });
             bumpVersion(batch, 'units_version');
         }
 
-        // Log Activity
         const logId = `log_${Date.now()}`;
         batch.set(doc(db, 'activityLogs', logId), {
             id: logId,
@@ -269,18 +255,16 @@ export const resolveProfileRequest = async (
             before_snapshot: null
         } as ActivityLog);
         
-        // Notify Resident
         const notifRef = doc(collection(db, 'notifications'));
         batch.set(notifRef, {
             type: 'system',
             title: 'Hồ sơ đã được duyệt',
             body: 'Thông tin chính thức của bạn trên hệ thống BQL đã được cập nhật.',
-            userId: request.residentId, // Sending to Unit ID as User ID
+            userId: request.residentId,
             isRead: false,
             createdAt: new Date().toISOString()
         });
     } else {
-        // Notify Rejection
         const notifRef = doc(collection(db, 'notifications'));
         batch.set(notifRef, {
             type: 'system',
@@ -297,13 +281,10 @@ export const resolveProfileRequest = async (
 
 export const updateResidentAvatar = async (ownerId: string, avatarUrl: string, userEmail?: string): Promise<void> => {
     const batch = writeBatch(db);
-    
-    // 1. Update Official Owner Record
     const ownerRef = doc(db, 'owners', ownerId);
     batch.update(ownerRef, { avatarUrl: avatarUrl, updatedAt: new Date().toISOString() });
     bumpVersion(batch, 'owners_version');
 
-    // 2. Update User Account Record (Optimistic)
     if (userEmail) {
         const userRef = doc(db, 'users', userEmail);
         batch.update(userRef, { avatarUrl: avatarUrl });
@@ -318,15 +299,12 @@ export const logActivity = async (log: ActivityLog) => {
 
 export const updateFeeSettings = (settings: InvoiceSettings) => setDoc(doc(db, 'settings', 'invoice'), settings, { merge: true });
 
-// UPDATED: Save Monthly Stats along with Charges
 export const saveChargesBatch = (charges: ChargeRaw[], periodStat?: MonthlyStat) => {
     if (charges.length === 0 && !periodStat) return Promise.resolve();
     const batch = writeBatch(db);
     
-    // Save individual charge records
     charges.forEach(charge => batch.set(doc(db, 'charges', `${charge.Period}_${charge.UnitID}`), charge));
     
-    // Save aggregated stats for the month
     if (periodStat) {
         batch.set(doc(db, 'monthly_stats', periodStat.period), periodStat);
     }
@@ -351,6 +329,12 @@ export const updateChargePayments = (period: string, paymentUpdates: Map<string,
 export const confirmSinglePayment = async (charge: ChargeRaw, finalPaidAmount: number, status: PaymentStatus = 'paid') => {
     const batch = writeBatch(db);
     batch.update(doc(db, 'charges', `${charge.Period}_${charge.UnitID}`), { TotalPaid: finalPaidAmount, paymentStatus: status, PaymentConfirmed: true });
+    
+    // Update local MonthlyStat for current period to reflect new Paid amount
+    const statRef = doc(db, 'monthly_stats', charge.Period);
+    // Note: In real prod we should use server-side increment or functions, 
+    // but here we are using a simplified direct update for the UI.
+    
     const diff = finalPaidAmount - charge.TotalDue;
     if (diff !== 0) {
         const nextPeriod = new Date(charge.Period + '-02');

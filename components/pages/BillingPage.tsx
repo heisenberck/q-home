@@ -23,7 +23,7 @@ import {
     ArrowDownTrayIcon, BanknotesIcon, ArrowUpTrayIcon,
     PaperAirplaneIcon, TrashIcon, PrinterIcon, EnvelopeIcon, ArrowUturnLeftIcon,
     ActionViewIcon, ChevronDownIcon, ChevronUpIcon, SaveIcon,
-    MagnifyingGlassIcon
+    MagnifyingGlassIcon, ArrowPathIcon
 } from '../ui/Icons';
 import { loadScript } from '../../utils/scriptLoader';
 import { formatCurrency, parseUnitCode, renderInvoiceHTMLForPdf, formatNumber } from '../../utils/helpers';
@@ -178,9 +178,10 @@ interface BillingPageProps {
     onUpdateAdjustments: (updater: React.SetStateAction<Adjustment[]>, logPayload?: LogPayload) => void;
     role: Role;
     invoiceSettings: InvoiceSettings;
+    onRefresh?: () => void; // New prop for manual refresh
 }
 
-const BillingPage: React.FC<BillingPageProps> = ({ charges, setCharges, allData, onUpdateAdjustments, role, invoiceSettings }) => {
+const BillingPage: React.FC<BillingPageProps> = ({ charges, setCharges, allData, onUpdateAdjustments, role, invoiceSettings, onRefresh }) => {
     const { showToast } = useNotification();
     const canCalculate = ['Admin', 'Accountant'].includes(role);
     const IS_PROD = isProduction();
@@ -862,6 +863,16 @@ const BillingPage: React.FC<BillingPageProps> = ({ charges, setCharges, allData,
 
                 {/* Action Buttons */}
                 <div className="flex items-center gap-2 border-l pl-3">
+                    {onRefresh && (
+                        <button 
+                            onClick={onRefresh}
+                            className="h-9 w-9 flex items-center justify-center rounded-lg hover:bg-gray-100 text-gray-600 border border-transparent hover:border-gray-200"
+                            title="Làm mới dữ liệu"
+                        >
+                            <ArrowPathIcon className="w-5 h-5" />
+                        </button>
+                    )}
+                    
                     <button 
                         onClick={handleCalculate}
                         disabled={isLoading || !canCalculate || (isFuturePeriod && !isBillingLocked) || isBillingLocked}
