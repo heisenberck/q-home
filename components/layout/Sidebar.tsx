@@ -1,4 +1,3 @@
-
 import React, { useState, useMemo } from 'react';
 import { 
     PieChartIcon, CalculatorIcon, UsersIcon, WaterIcon, ReceiptIcon, 
@@ -8,6 +7,7 @@ import {
 import type { Role, UserPermission } from '../../types';
 import { useSettings, useAuth } from '../../App';
 import { isProduction } from '../../utils/env';
+import InstallPWA from '../common/InstallPWA';
 
 type Page = 'overview' | 'billing' | 'residents' | 'vehicles' | 'water' | 'pricing' | 'users' | 'settings' | 'backup' | 'activityLog' | 'newsManagement' | 'feedbackManagement';
 
@@ -242,6 +242,9 @@ const Sidebar: React.FC<SidebarProps> = ({ activePage, setActivePage, role }) =>
 
       {/* Footer Toggle */}
       <div className="p-4 border-t border-gray-200 flex flex-col gap-2">
+        {/* PWA Install Button */}
+        {!isCollapsed && <InstallPWA />}
+        
         {!isCollapsed && (
             <div className={`p-2 rounded-lg border text-center ${themeClass}`}>
                 <p className="text-[10px] font-bold">{versionText}</p>

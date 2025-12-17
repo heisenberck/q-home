@@ -1,4 +1,3 @@
-
 import React from 'react';
 
 export const PieChartIcon: React.FC<{ className?: string }> = ({ className = "h-5 w-5" }) => (
@@ -243,7 +242,7 @@ export const CircularArrowRefreshIcon: React.FC<{ className?: string }> = ({ cla
 );
 export const CurrencyDollarIcon: React.FC<{ className?: string }> = ({ className = "h-5 w-5" }) => (
   <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" strokeWidth={1.5} stroke="currentColor" className={className}>
-    <path strokeLinecap="round" strokeLinejoin="round" d="M12 6v12m-3-2.818l.879.659c1.171.879 3.07.879 4.242 0 1.172-.879 1.172-2.303 0-3.182C13.536 12.219 12.768 12 12 12c-.725 0-1.45-.22-2.003-.659-1.106-.879-1.106-2.303 0-3.182s2.9-.879 4.006 0l.415.33M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
+    <path strokeLinecap="round" strokeLinejoin="round" d="M12 6v12m-3-2.818l.879.659c1.171.879 3.07.879 4.242 0 1.172-.879 1.172-2.303 0-3.182C13.536 12.219 12.768 12 12 12c-.725 0-1.45-.22-2.003-.659-1.106-.879-1.106-2.303 0-3.182s2.9-.879 4.006 0l.415.33M21 12a9 9 0 11-18 0 9 9 0 0 1 18 0z" />
   </svg>
 );
 export const EyeSlashIcon: React.FC<{ className?: string }> = ({ className = "h-5 w-5" }) => (
@@ -352,5 +351,15 @@ export const CarIcon: React.FC<{ className?: string }> = ({ className = "h-5 w-5
     <svg xmlns="http://www.w3.org/2000/svg" className={className} fill="none" viewBox="0 0 24 24" strokeWidth={1.5} stroke="currentColor">
         <path strokeLinecap="round" strokeLinejoin="round" d="M6.5 18a1.5 1.5 0 1 0-3 0 1.5 1.5 0 0 0 3 0Zm12 0a1.5 1.5 0 1 0-3 0 1.5 1.5 0 0 0 3 0Z" />
         <path strokeLinecap="round" strokeLinejoin="round" d="M4.018 14.996h15.964c.32 0 .59-.26.59-.59V10.8c0-.32-.26-.59-.59-.59H4.018c-.32 0-.59.26-.59.59v3.6c0 .33.27.6.6.6ZM4.608 10.21l1.9-3.81a.59.59 0 0 1 .53-.33h9.91a.59.59 0 0 1 .53.33l1.9 3.81" />
+    </svg>
+);
+export const SmartphoneIcon: React.FC<{ className?: string }> = ({ className = "h-5 w-5" }) => (
+    <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" strokeWidth={1.5} stroke="currentColor" className={className}>
+        <path strokeLinecap="round" strokeLinejoin="round" d="M10.5 1.5H8.25A2.25 2.25 0 0 0 6 3.75v16.5a2.25 2.25 0 0 0 2.25 2.25h7.5A2.25 2.25 0 0 0 18 20.25V3.75a2.25 2.25 0 0 0-2.25-2.25H13.5m-3 0V3h3V1.5m-3 0h3m-3 18.75h3" />
+    </svg>
+);
+export const CloudArrowDownIcon: React.FC<{ className?: string }> = ({ className = "h-5 w-5" }) => (
+    <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" strokeWidth={1.5} stroke="currentColor" className={className}>
+        <path strokeLinecap="round" strokeLinejoin="round" d="M12 9.75v6.75m0 0l-3-3m3 3l3-3m-8.25 6a4.5 4.5 0 01-1.41-8.775 5.25 5.25 0 0110.233-2.33 3 3 0 013.758 3.848A3.752 3.752 0 0118 19.5H6.75z" />
     </svg>
 );
