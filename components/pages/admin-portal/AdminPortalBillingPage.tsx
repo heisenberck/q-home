@@ -15,6 +15,7 @@ interface AdminPortalBillingPageProps {
 
 const AdminPortalBillingPage: React.FC<AdminPortalBillingPageProps> = ({ charges = [], units = [], owners = [] }) => {
     const [search, setSearch] = useState('');
+    const [showUnpaidOnly, setShowUnpaidOnly] = useState(false);
 
     // 1. Tự động xác định Kỳ (Period) hiển thị: Ưu tiên kỳ có dữ liệu mới nhất
     const displayPeriod = useMemo(() => {
@@ -28,7 +29,7 @@ const AdminPortalBillingPage: React.FC<AdminPortalBillingPageProps> = ({ charges
         return (charges || []).filter(c => c.Period === displayPeriod);
     }, [charges, displayPeriod]);
 
-    // 3. Logic Thống kê (Số tiền và Số lượng)
+    // 3. Logic Thống kê
     const stats = useMemo(() => {
         const totalDue = currentPeriodCharges.reduce((sum, c) => sum + (c.TotalDue || 0), 0);
         const totalPaid = currentPeriodCharges.reduce((sum, c) => sum + (c.TotalPaid || 0), 0);
@@ -43,13 +44,17 @@ const AdminPortalBillingPage: React.FC<AdminPortalBillingPageProps> = ({ charges
         return { totalDue, totalPaid, totalUnitsCount, paidUnitsCount, progressPercent };
     }, [currentPeriodCharges, units]);
 
-    // 4. Logic Tìm kiếm & Sắp xếp
+    // 4. Logic Tìm kiếm & Bộ lọc & Sắp xếp
     const filtered = useMemo(() => {
         const s = search.toLowerCase().trim();
         let result = currentPeriodCharges;
 
+        if (showUnpaidOnly) {
+            result = result.filter(c => !['paid', 'paid_tm', 'paid_ck'].includes(c.paymentStatus));
+        }
+
         if (s) {
-            result = currentPeriodCharges.filter(c => 
+            result = result.filter(c => 
                 c.UnitID.toLowerCase().includes(s) || 
                 (c.OwnerName || '').toLowerCase().includes(s)
             );
@@ -61,7 +66,7 @@ const AdminPortalBillingPage: React.FC<AdminPortalBillingPageProps> = ({ charges
             if (pa.floor !== pb.floor) return pa.floor - pb.floor;
             return pa.apt - pb.apt;
         });
-    }, [currentPeriodCharges, search]);
+    }, [currentPeriodCharges, search, showUnpaidOnly]);
 
     const getStatusInfo = (status: string) => {
         switch (status) {
@@ -78,10 +83,8 @@ const AdminPortalBillingPage: React.FC<AdminPortalBillingPageProps> = ({ charges
 
     return (
         <div className="flex flex-col h-full bg-slate-50">
-            {/* Header Stats */}
             <div className="p-4 grid grid-cols-1 gap-3 sticky top-0 bg-slate-50 z-20">
                 <div className="grid grid-cols-2 gap-3">
-                    {/* Thẻ 1: Đã thu / Tổng doanh thu */}
                     <div className="bg-white p-3.5 rounded-2xl shadow-sm border border-gray-100 flex flex-col justify-between">
                         <p className="text-[10px] font-bold text-gray-400 uppercase tracking-wider mb-2">Thực thu / Phải thu</p>
                         <div className="space-y-0.5">
@@ -93,25 +96,32 @@ const AdminPortalBillingPage: React.FC<AdminPortalBillingPageProps> = ({ charges
                         </div>
                     </div>
 
-                    {/* Thẻ 2: Tiến độ thu (Số lượng căn) */}
-                    <div className="bg-white p-3.5 rounded-2xl shadow-sm border border-gray-100 flex flex-col justify-between">
+                    <div 
+                        onClick={() => setShowUnpaidOnly(!showUnpaidOnly)}
+                        className={`p-3.5 rounded-2xl shadow-sm border transition-all active:scale-95 cursor-pointer flex flex-col justify-between ${
+                            showUnpaidOnly ? 'bg-primary border-primary ring-4 ring-primary/10' : 'bg-white border-gray-100'
+                        }`}
+                    >
                         <div className="flex justify-between items-center mb-2">
-                            <p className="text-[10px] font-bold text-gray-400 uppercase tracking-wider">Tiến độ thu</p>
-                            <p className="text-[10px] font-black text-primary bg-primary/10 px-1.5 py-0.5 rounded">{stats.paidUnitsCount}/{stats.totalUnitsCount}</p>
+                            <p className={`text-[10px] font-bold uppercase tracking-wider ${showUnpaidOnly ? 'text-white/80' : 'text-gray-400'}`}>Tiến độ thu</p>
+                            <p className={`text-[10px] font-black px-1.5 py-0.5 rounded ${showUnpaidOnly ? 'bg-white/20 text-white' : 'bg-primary/10 text-primary'}`}>
+                                {stats.paidUnitsCount}/{stats.totalUnitsCount}
+                            </p>
                         </div>
                         <div className="space-y-1.5">
-                            <div className="w-full bg-gray-100 h-2 rounded-full overflow-hidden">
+                            <div className={`w-full h-2 rounded-full overflow-hidden ${showUnpaidOnly ? 'bg-white/20' : 'bg-gray-100'}`}>
                                 <div 
-                                    className="bg-primary h-full transition-all duration-700 ease-out shadow-[0_0_8px_rgba(0,111,58,0.3)]" 
+                                    className={`h-full transition-all duration-700 ease-out ${showUnpaidOnly ? 'bg-white' : 'bg-primary shadow-[0_0_8px_rgba(0,111,58,0.3)]'}`} 
                                     style={{ width: `${stats.progressPercent}%` }}
                                 />
                             </div>
-                            <p className="text-[9px] text-gray-400 font-bold text-right">{Math.round(stats.progressPercent)}% căn hộ đã nộp</p>
+                            <p className={`text-[9px] font-bold text-right ${showUnpaidOnly ? 'text-white' : 'text-gray-400'}`}>
+                                {showUnpaidOnly ? 'Đang hiện Căn chưa nộp' : `${Math.round(stats.progressPercent)}% đã nộp`}
+                            </p>
                         </div>
                     </div>
                 </div>
 
-                {/* Thanh tìm kiếm */}
                 <div className="relative group mt-1">
                     <SearchIcon className="absolute left-4 top-1/2 -translate-y-1/2 text-gray-400 w-4 h-4 group-focus-within:text-primary transition-colors" />
                     <input 
@@ -122,25 +132,21 @@ const AdminPortalBillingPage: React.FC<AdminPortalBillingPageProps> = ({ charges
                         className="w-full pl-10 pr-10 py-3 bg-white border border-gray-200 rounded-xl focus:ring-2 focus:ring-primary/20 focus:border-primary outline-none text-sm shadow-sm transition-all"
                     />
                     {search && (
-                        <button 
-                            onClick={() => setSearch('')}
-                            className="absolute right-3 top-1/2 -translate-y-1/2 p-1 text-gray-400 hover:text-gray-600"
-                        >
+                        <button onClick={() => setSearch('')} className="absolute right-3 top-1/2 -translate-y-1/2 p-1 text-gray-400 hover:text-gray-600">
                             <XMarkIcon className="w-4 h-4" />
                         </button>
                     )}
                 </div>
             </div>
 
-            {/* Danh sách căn hộ dạng Card */}
             <div className="px-4 pb-24 space-y-3">
                 {filtered.length === 0 ? (
                     <div className="py-20 text-center flex flex-col items-center gap-3">
                         <div className="w-16 h-16 bg-white rounded-full flex items-center justify-center shadow-sm">
-                            <MagnifyingGlassIcon className="w-8 h-8 text-gray-200" />
+                            <XMarkIcon className="w-8 h-8 text-gray-200" />
                         </div>
                         <p className="text-gray-400 text-sm italic px-10">
-                            {search ? `Không tìm thấy căn hộ "${search}" trong kỳ phí T${displayPeriod.split('-')[1]}` : "Chưa có dữ liệu phí cho kỳ này."}
+                            {showUnpaidOnly ? "Tất cả các căn đã nộp phí!" : "Không tìm thấy dữ liệu."}
                         </p>
                     </div>
                 ) : (
@@ -154,11 +160,9 @@ const AdminPortalBillingPage: React.FC<AdminPortalBillingPageProps> = ({ charges
                                 className="bg-white p-4 rounded-2xl flex items-center justify-between border border-gray-100 shadow-sm active:scale-[0.98] transition-transform"
                             >
                                 <div className="flex items-center gap-4">
-                                    {/* Icon căn hộ */}
                                     <div className={`w-12 h-12 rounded-xl flex items-center justify-center font-black text-sm border-2 ${theme.bg} ${theme.text} ${theme.border} bg-white shadow-sm`}>
                                         {charge.UnitID}
                                     </div>
-                                    
                                     <div>
                                         <h4 className="text-sm font-bold text-gray-800 line-clamp-1">{charge.OwnerName}</h4>
                                         <div className="flex items-center gap-2 mt-0.5">
@@ -172,9 +176,6 @@ const AdminPortalBillingPage: React.FC<AdminPortalBillingPageProps> = ({ charges
                                     <span className={`px-2.5 py-1 rounded-full text-[9px] font-black uppercase border tracking-wider shadow-sm ${status.classes}`}>
                                         {status.label}
                                     </span>
-                                    {charge.paymentStatus.startsWith('paid') && (
-                                        <p className="text-[9px] text-gray-400 font-medium italic">Vừa xong</p>
-                                    )}
                                 </div>
                             </div>
                         );
