@@ -5,7 +5,7 @@ import { db } from '../firebaseConfig';
 import { isProduction } from '../utils/env';
 import { 
     Unit, Owner, Vehicle, WaterReading, 
-    TariffCollection, UserPermission, InvoiceSettings, Adjustment, ActivityLog, MonthlyStat, SystemMetadata 
+    TariffCollection, UserPermission, InvoiceSettings, Adjustment, ActivityLog, MonthlyStat, SystemMetadata, ChargeRaw
 } from '../types';
 import * as firebaseAPI from '../services/firebaseAPI'; 
 import { loadAllData as loadMockData } from '../services/mockAPI';
@@ -30,10 +30,14 @@ export const useSmartSystemData = (currentUser: UserPermission | null) => {
         activityLogs: ActivityLog[];
         monthlyStats: MonthlyStat[];
         lockedWaterPeriods: string[];
+        // ADDED: Include charges in the global state
+        charges: ChargeRaw[];
         hasLoaded: boolean;
     }>({
         units: [], owners: [], vehicles: [], tariffs: { service: [], parking: [], water: [] },
         users: [], invoiceSettings: null, adjustments: [], waterReadings: [], activityLogs: [], monthlyStats: [], lockedWaterPeriods: [],
+        // ADDED: Initial charges state
+        charges: [],
         hasLoaded: false
     });
 
@@ -54,7 +58,7 @@ export const useSmartSystemData = (currentUser: UserPermission | null) => {
         }
 
         try {
-            const isAdmin = currentUser?.Role !== 'Resident'; // Treat as non-admin if null (we handle null logic below)
+            const isAdmin = currentUser && currentUser.Role !== 'Resident';
             const residentId = currentUser?.residentId;
 
             // 1. Fetch Server Metadata (1 Read)
@@ -102,6 +106,7 @@ export const useSmartSystemData = (currentUser: UserPermission | null) => {
             let fetchedVehicles: Vehicle[] = [];
             let fetchedAdjustments: Adjustment[] = [];
             let fetchedWaterReadings: WaterReading[] = [];
+            let fetchedCharges: ChargeRaw[] = [];
 
             if (isAdmin) {
                 // --- ADMIN FLOW ---
@@ -117,31 +122,30 @@ export const useSmartSystemData = (currentUser: UserPermission | null) => {
                 promises.push(shouldFetchOwners ? firebaseAPI.fetchCollection<Owner>('owners') : Promise.resolve(cachedOwners));
                 promises.push(shouldFetchVehicles ? firebaseAPI.fetchCollection<Vehicle>('vehicles') : Promise.resolve(cachedVehicles));
                 
-                // OPTIMIZATION: Fetch only recent adjustments (last 6 months) instead of all history
+                // OPTIMIZATION: Fetch only recent adjustments (last 6 months)
                 const currentPeriod = new Date().toISOString().slice(0, 7);
                 const [year, month] = currentPeriod.split('-').map(Number);
-                
-                // Calculate 6 months ago for adjustments window
                 const sixMonthsAgoDate = new Date(year, month - 6, 1);
                 const startPeriod = `${sixMonthsAgoDate.getFullYear()}-${String(sixMonthsAgoDate.getMonth() + 1).padStart(2, '0')}`;
                 
                 promises.push(firebaseAPI.fetchRecentAdjustments(startPeriod)); 
-                
-                // Fetch recent water readings (2 months window for processing)
-                const prevDate = new Date(year, month - 2, 1);
-                const prevPeriod = `${prevDate.getFullYear()}-${String(prevDate.getMonth() + 1).padStart(2, '0')}`;
-                promises.push(firebaseAPI.fetchRecentWaterReadings([currentPeriod, prevPeriod]));
+                promises.push(firebaseAPI.fetchRecentWaterReadings([currentPeriod]));
+                // ADDED: Fetch all charges for admin (or limit if needed)
+                promises.push(firebaseAPI.fetchCollection<ChargeRaw>('charges'));
 
             } else {
                 // --- RESIDENT FLOW ---
                 if (residentId) {
                     promises.push(firebaseAPI.fetchResidentSpecificData(residentId));
-                    promises.push(Promise.resolve([])); // Owners placeholder
-                    promises.push(Promise.resolve([])); // Vehicles placeholder
-                    promises.push(Promise.resolve([])); // Adjustments placeholder
-                    promises.push(Promise.resolve([])); // Water placeholder
+                    promises.push(Promise.resolve([])); // Placeholder
+                    promises.push(Promise.resolve([])); // Placeholder
+                    promises.push(Promise.resolve([])); // Placeholder
+                    promises.push(Promise.resolve([])); // Placeholder
+                    // ADDED: Fetch resident's specific charges
+                    promises.push(firebaseAPI.fetchCollection<ChargeRaw>('charges').then(all => all.filter(c => c.UnitID === residentId)));
                 } else {
                     promises.push(Promise.resolve({ unit: null, owner: null, vehicles: [] }));
+                    promises.push(Promise.resolve([]));
                     promises.push(Promise.resolve([]));
                     promises.push(Promise.resolve([]));
                     promises.push(Promise.resolve([]));
@@ -162,6 +166,7 @@ export const useSmartSystemData = (currentUser: UserPermission | null) => {
                 fetchedVehicles = results[5] || [];
                 fetchedAdjustments = results[6] || [];
                 fetchedWaterReadings = results[7] || [];
+                fetchedCharges = results[8] || [];
 
                 // Update Cache for Admin
                 const cachePromises = [];
@@ -179,6 +184,7 @@ export const useSmartSystemData = (currentUser: UserPermission | null) => {
                     fetchedOwners = specificData.owner ? [specificData.owner] : [];
                     fetchedVehicles = specificData.vehicles;
                 }
+                fetchedCharges = results[8] || [];
             }
 
             setData({
@@ -193,6 +199,7 @@ export const useSmartSystemData = (currentUser: UserPermission | null) => {
                 activityLogs: [], 
                 monthlyStats, 
                 lockedWaterPeriods,
+                charges: fetchedCharges,
                 hasLoaded: true
             });
 
@@ -204,7 +211,6 @@ export const useSmartSystemData = (currentUser: UserPermission | null) => {
         }
     }, [currentUser]); 
 
-    // Trigger on mount or user change
     useEffect(() => { 
         refreshSystemData(false); 
     }, [currentUser, refreshSystemData]);

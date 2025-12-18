@@ -1,6 +1,8 @@
-// Fix: Manually define types to resolve "Cannot find type definition file" errors for vite and vite-plugin-pwa/client
-// These declarations satisfy the compiler when external type definition files are unreachable.
+// Fix: Removed references to 'vite/client' and 'vite-plugin-pwa/client' because the type definition files 
+// were not found in the environment, causing compilation errors. 
+// Manual declarations for ImportMeta and common asset types are provided below instead.
 
+// These declarations extend the standard Vite environment types.
 declare interface ImportMetaEnv {
   readonly [key: string]: any;
 }
@@ -9,20 +11,9 @@ declare interface ImportMeta {
   readonly env: ImportMetaEnv;
 }
 
-declare module 'virtual:pwa-register' {
-  export interface RegisterSWOptions {
-    immediate?: boolean;
-    onNeedRefresh?: () => void;
-    onOfflineReady?: () => void;
-    onRegistered?: (registration: ServiceWorkerRegistration | undefined) => void;
-    onRegisterError?: (error: any) => void;
-  }
-
-  export function registerSW(options?: RegisterSWOptions): (reloadPage?: boolean) => Promise<void>;
-}
-
+// Declaring modules for static assets to resolve import errors for image files
 declare module '*.svg' {
-  const content: string;
+  const content: any;
   export default content;
 }
 
@@ -37,11 +28,6 @@ declare module '*.jpg' {
 }
 
 declare module '*.jpeg' {
-  const content: string;
-  export default content;
-}
-
-declare module '*.gif' {
   const content: string;
   export default content;
 }

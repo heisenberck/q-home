@@ -1,15 +1,16 @@
+
 import { initializeApp } from "firebase/app";
 import { getFirestore } from "firebase/firestore";
 import { getAuth } from "firebase/auth";
 import { getMessaging, getToken, onMessage } from "firebase/messaging";
 
 const firebaseConfig = {
-    apiKey: "AIzaSyBQ1CO4ZzCVecXgN8Cn6Idvrmudm7y-lbA",
-    authDomain: "q-home2.firebaseapp.com",
-    projectId: "q-home2",
-    storageBucket: "q-home2.firebasestorage.app",
-    messagingSenderId: "761941461134",
-    appId: "1:761941461134:web:8ace84c20573a27700e1df"
+  apiKey: "AIzaSyBQ1CO4ZzCVecXgN8Cn6Idvrmudm7y-lbA",
+  authDomain: "q-home2.firebaseapp.com",
+  projectId: "q-home2",
+  storageBucket: "q-home2.firebasestorage.app",
+  messagingSenderId: "761941461134",
+  appId: "1:761941461134:web:8ace84c20573a27700e1df"
 };
 
 // 1. Initialize App
@@ -24,9 +25,11 @@ const auth = getAuth(app);
 // 4. Initialize Messaging
 let messaging: any = null;
 try {
-    messaging = getMessaging(app);
+    if (typeof window !== 'undefined' && 'serviceWorker' in navigator) {
+        messaging = getMessaging(app);
+    }
 } catch (err) {
-    console.warn("Firebase Messaging failed to initialize (likely due to unsupported browser environment):", err);
+    console.warn("Firebase Messaging failed to initialize:", err);
 }
 
 const VAPID_KEY = "BABQ1CfvtLt5ufsa-qOjtA5rGdfvlk8S7JwybGCMmnc2YR9FU44qz-oGXZdxBcLlzkExjPt5eR-2W6WVeV-juX58";
@@ -36,7 +39,6 @@ export const requestForToken = async () => {
     try {
         const currentToken = await getToken(messaging, { vapidKey: VAPID_KEY });
         if (currentToken) {
-            console.log('FCM Token:', currentToken);
             return currentToken;
         } else {
             console.log('No registration token available. Request permission to generate one.');

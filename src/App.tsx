@@ -1,23 +1,15 @@
 
-import React, { useState, useEffect, useCallback, createContext, useMemo } from 'react';
-import type { Role, UserPermission, Unit, Owner, Vehicle, WaterReading, ChargeRaw, TariffService, TariffParking, TariffWater, Adjustment, InvoiceSettings, ActivityLog, VehicleTier, TariffCollection, AllData, NewsItem, FeedbackItem, FeedbackReply, MonthlyStat } from './types';
-import { patchKiosAreas, MOCK_NEWS_ITEMS, MOCK_FEEDBACK_ITEMS, MOCK_USER_PERMISSIONS } from './constants';
-import { updateFeeSettings, updateResidentData, saveChargesBatch, saveVehicles, saveWaterReadings, saveTariffs, saveUsers, saveAdjustments, importResidentsBatch, wipeAllBusinessData, resetUserPassword } from './services';
-import { requestForToken, onMessageListener, db } from './firebaseConfig';
-import { collection, query, where, onSnapshot, orderBy, limit, getDocs } from 'firebase/firestore';
+import React, { createContext, useContext, useState, useEffect, useCallback } from 'react';
+import type { 
+    UserPermission, Unit, Owner, Vehicle, WaterReading, 
+    TariffCollection, InvoiceSettings, Adjustment, ChargeRaw, 
+    MonthlyStat, ActivityLog, NewsItem, FeedbackItem, Role 
+} from './types';
 import { useSmartSystemData } from './hooks/useSmartData';
-
-import Header from './components/layout/Header';
 import Sidebar from './components/layout/Sidebar';
-import ResidentLayout, { PortalPage } from './components/layout/ResidentLayout';
-import FooterToast, { type ToastMessage, type ToastType } from './components/ui/Toast';
+import Header from './components/layout/Header';
+import Footer from './components/layout/Footer';
 import LoginPage from './components/pages/LoginPage';
-import Spinner from './components/ui/Spinner';
-import ChangePasswordModal from './components/pages/ChangePasswordModal';
-import { isProduction } from './utils/env';
-import NotificationListener from './components/common/NotificationListener';
-
-// --- STATIC IMPORTS (NO LAZY LOADING) ---
 import OverviewPage from './components/pages/OverviewPage';
 import BillingPage from './components/pages/BillingPage';
 import ResidentsPage from './components/pages/ResidentsPage';
@@ -30,484 +22,337 @@ import BackupRestorePage from './components/pages/BackupRestorePage';
 import ActivityLogPage from './components/pages/ActivityLogPage';
 import NewsManagementPage from './components/pages/NewsManagementPage';
 import FeedbackManagementPage from './components/pages/FeedbackManagementPage';
+import ResidentLayout, { PortalPage } from './components/layout/ResidentLayout';
+import AdminMobileLayout, { AdminPortalPage } from './components/layout/AdminMobileLayout';
 import PortalHomePage from './components/pages/portal/PortalHomePage';
 import PortalNewsPage from './components/pages/portal/PortalNewsPage';
 import PortalBillingPage from './components/pages/portal/PortalBillingPage';
 import PortalContactPage from './components/pages/portal/PortalContactPage';
 import PortalProfilePage from './components/pages/portal/PortalProfilePage';
+import AdminPortalHomePage from './components/pages/admin-portal/AdminPortalHomePage';
+import AdminPortalResidentsPage from './components/pages/admin-portal/AdminPortalResidentsPage';
+import AdminPortalVehiclesPage from './components/pages/admin-portal/AdminPortalVehiclesPage';
+import AdminPortalBillingPage from './components/pages/admin-portal/AdminPortalBillingPage';
+import Toast, { ToastMessage, ToastType } from './components/ui/Toast';
+import { logActivity, deleteUsers, updateResidentData, importResidentsBatch, updateFeeSettings } from './services';
+import ChangePasswordModal from './components/pages/ChangePasswordModal';
+import NotificationListener from './components/common/NotificationListener';
 
-type AppData = {
-    units: Unit[]; owners: Owner[]; vehicles: Vehicle[]; waterReadings: WaterReading[];
-    charges: ChargeRaw[]; tariffs: TariffCollection; users: UserPermission[]; adjustments: Adjustment[];
-    invoiceSettings: InvoiceSettings; activityLogs: ActivityLog[]; lockedPeriods?: string[];
-};
-
-const initialInvoiceSettings: InvoiceSettings = {
-    logoUrl: 'data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNkYAAAAAYAAjCB0C8AAAAASUVORK5CYII=',
-    accountName: 'Công ty cổ phần cung cấp Dịch vụ và Giải pháp', accountNumber: '020704070042387', bankName: 'HDBank - Chi nhánh Hoàn Kiếm',
-    senderEmail: 'bqthud3linhdam@gmail.com', senderName: 'BQT HUD3 LINH DAM',
-    emailSubject: '[BQL HUD3] THONG BAO PHI DICH VU KY {{period}} CHO CAN HO {{unit_id}}',
-    emailBody: `Kinh gui Quy chu ho {{owner_name}},\n\nBan Quan ly (BQL) toa nha HUD3 Linh Dam tran trong thong bao phi dich vu ky {{period}} cua can ho {{unit_id}}.\n\nTong so tien can thanh toan la: {{total_due}}.\n\nVui long xem chi tiet phi dich vu ngay duoi day.\n\nTran trong,\nBQL Chung cu HUD3 Linh Dam.`,
-    appsScriptUrl: '', transferContentTemplate: 'HUD3 {{unitId}} T{{period}}',
-    footerHtml: `© {{YEAR}} BQL Chung cu HUD3 Linh Dam. Hotline: 0834.88.66.86`,
-    footerShowInPdf: true, footerShowInEmail: true, footerShowInViewer: true,
-    footerAlign: 'center', footerFontSize: 'sm',
-    buildingName: 'HUD3 Linh Đàm', loginBackgroundUrl: 'https://images.unsplash.com/photo-1545324418-cc1a3fa10c00?auto=format&fit=crop&q=80&w=1920',
-};
-
+// --- Types ---
+/**
+ * AdminPage defines available pages in the admin dashboard.
+ */
 export type AdminPage = 'overview' | 'billing' | 'residents' | 'vehicles' | 'water' | 'pricing' | 'users' | 'settings' | 'backup' | 'activityLog' | 'newsManagement' | 'feedbackManagement';
-type Page = AdminPage | PortalPage;
 
-const pageTitles: Record<AdminPage, string> = {
-    overview: 'Tổng quan', billing: 'Tính phí & Gửi phiếu', residents: 'Quản lý Cư dân',
-    vehicles: 'Quản lý Phương tiện', water: 'Quản lý Nước', pricing: 'Quản lý Đơn giá',
-    users: 'Quản lý Người dùng', settings: 'Cài đặt Phiếu báo & Thương hiệu', backup: 'Backup & Restore Dữ liệu',
-    activityLog: 'Nhật ký Hoạt động', newsManagement: 'Quản lý Tin tức', feedbackManagement: 'Quản lý Phản hồi',
-};
+/**
+ * LogPayload defines the structure for activity logging.
+ */
+export interface LogPayload {
+    module: 'Billing' | 'Residents' | 'Water' | 'Pricing' | 'Settings' | 'System' | 'Vehicles' | 'News' | 'Feedback';
+    action: string;
+    summary: string;
+    count?: number;
+    ids?: string[];
+    before_snapshot: any;
+}
 
-export type LogPayload = Omit<ActivityLog, 'id' | 'ts' | 'actor_email' | 'actor_role' | 'undone' | 'undo_token' | 'undo_until'>;
-
-interface AppContextType {
-    currentUser: UserPermission | null;
-    role: Role | null;
-    showToast: (message: string, type: ToastType, duration?: number) => void;
-    logAction: (payload: LogPayload) => void;
+// --- Contexts ---
+interface AuthContextType {
+    user: UserPermission | null;
+    login: (user: UserPermission, rememberMe: boolean) => void;
     logout: () => void;
-    updateUser: (updatedUser: UserPermission, oldEmail?: string) => void;
+    updateUser: (updatedUser: UserPermission, oldEmail: string) => void;
+    handleDeleteUsers: (usernames: string[]) => void;
+}
+
+const AuthContext = createContext<AuthContextType | undefined>(undefined);
+
+interface NotificationContextType {
+    showToast: (message: string, type: ToastType, duration?: number) => void;
+}
+
+const NotificationContext = createContext<NotificationContextType | undefined>(undefined);
+
+interface SettingsContextType {
     invoiceSettings: InvoiceSettings;
-    refreshData: () => void;
+    setInvoiceSettings: (settings: InvoiceSettings) => Promise<void>;
 }
 
-const AppContext = createContext<AppContextType | null>(null);
+const SettingsContext = createContext<SettingsContextType | undefined>(undefined);
 
+interface DataRefreshContextType {
+    refreshData: (force?: boolean) => void;
+}
+
+const DataRefreshContext = createContext<DataRefreshContextType | undefined>(undefined);
+
+// --- Hooks ---
 export const useAuth = () => {
-    const context = React.useContext(AppContext);
-    if (!context) throw new Error('useAuth must be used within an AppProvider');
-    return { user: context.currentUser as UserPermission, role: context.role as Role, logout: context.logout, updateUser: context.updateUser };
+    const context = useContext(AuthContext);
+    if (!context) throw new Error('useAuth must be used within an AuthProvider');
+    return context;
 };
+
 export const useNotification = () => {
-    const context = React.useContext(AppContext);
-    if (!context) throw new Error('useNotification must be used within an AppProvider');
-    return { showToast: context.showToast };
+    const context = useContext(NotificationContext);
+    if (!context) throw new Error('useNotification must be used within a NotificationProvider');
+    return context;
 };
-export const useLogger = () => {
-    const context = React.useContext(AppContext);
-    if (!context) throw new Error('useLogger must be used within an AppProvider');
-    return { logAction: context.logAction };
-};
+
 export const useSettings = () => {
-    const context = React.useContext(AppContext);
-    if (!context) throw new Error('useSettings must be used within an AppProvider');
-    return { invoiceSettings: context.invoiceSettings };
+    const context = useContext(SettingsContext);
+    if (!context) throw new Error('useSettings must be used within a SettingsProvider');
+    return context;
 };
+
 export const useDataRefresh = () => {
-    const context = React.useContext(AppContext);
-    if (!context) throw new Error('useDataRefresh must be used within an AppProvider');
-    return { refreshData: context.refreshData };
-}
+    const context = useContext(DataRefreshContext);
+    if (!context) throw new Error('useDataRefresh must be used within a DataRefreshProvider');
+    return context;
+};
 
-// --- APP CONTENT COMPONENT (Consumer) ---
-const AppContent: React.FC<{ 
-    setIsPasswordModalOpen: (v: boolean) => void;
-    isPasswordModalOpen: boolean;
-    resetInfo: any;
-}> = ({ setIsPasswordModalOpen, isPasswordModalOpen, resetInfo }) => {
-    const { user: currentUser, logout, updateUser } = useAuth() || {}; // Safe due to being inside Provider now
-    const { showToast, logAction } = { showToast: useNotification().showToast, logAction: useLogger().logAction };
-    
-    // --- Smart Data Hook ---
-    // UPDATED: Pass currentUser directly to break circular dependency
+export const useLogger = () => {
+    const { user } = useAuth();
+    const log = useCallback(async (payload: LogPayload) => {
+        if (!user) return;
+        const logEntry: ActivityLog = {
+            id: `log_${Date.now()}`,
+            ts: new Date().toISOString(),
+            actor_email: user.Email,
+            actor_role: user.Role,
+            ...payload,
+            undone: false,
+            undo_token: null,
+            undo_until: null,
+        };
+        await logActivity(logEntry);
+    }, [user]);
+    return log;
+};
+
+// --- App Component ---
+const App: React.FC = () => {
+    const [user, setUser] = useState<UserPermission | null>(null);
+    const [toasts, setToasts] = useState<ToastMessage[]>([]);
+    const [activePage, setActivePage] = useState<AdminPage | PortalPage | AdminPortalPage>('overview');
+    const [isChangePasswordModalOpen, setIsChangePasswordModalOpen] = useState(false);
+
+    // Initial check for remembered user
+    useEffect(() => {
+        const rememberedUserStr = localStorage.getItem('rememberedUserObject');
+        if (rememberedUserStr) {
+            try {
+                setUser(JSON.parse(rememberedUserStr));
+            } catch (e) {
+                localStorage.removeItem('rememberedUserObject');
+            }
+        }
+    }, []);
+
+    // Hooks for data fetching
     const { 
-        units, owners, vehicles, tariffs, users: smartUsers, 
-        invoiceSettings: smartInvoiceSettings, adjustments, waterReadings, activityLogs,
-        monthlyStats: loadedMonthlyStats, 
-        lockedWaterPeriods,
-        loading: smartLoading, hasLoaded: smartHasLoaded, refreshSystemData 
-    } = useSmartSystemData(currentUser || null);
+        units, owners, vehicles, waterReadings, charges, adjustments, users: fetchedUsers, 
+        invoiceSettings, tariffs, monthlyStats, lockedWaterPeriods,
+        refreshSystemData 
+    } = useSmartSystemData(user);
 
-    // Local state
-    const [charges, setCharges] = useState<ChargeRaw[]>([]);
-    const [news, setNews] = useState<NewsItem[]>(MOCK_NEWS_ITEMS);
-    const [feedback, setFeedback] = useState<FeedbackItem[]>(MOCK_FEEDBACK_ITEMS);
-    const [users, setUsers] = useState<UserPermission[]>([]);
-    const [invoiceSettings, setInvoiceSettings] = useState<InvoiceSettings>(initialInvoiceSettings);
-    const [monthlyStats, setMonthlyStats] = useState<MonthlyStat[]>([]);
-    const [currentOwner, setCurrentOwner] = useState<Owner | null>(null);
-    const [activePage, setActivePage] = useState<Page>('overview');
+    // Local state for managed entities to allow immediate UI updates
+    const [localUnits, setLocalUnits] = useState<Unit[]>([]);
+    const [localOwners, setLocalOwners] = useState<Owner[]>([]);
+    const [localVehicles, setLocalVehicles] = useState<Vehicle[]>([]);
+    const [localWaterReadings, setLocalWaterReadings] = useState<WaterReading[]>([]);
+    const [localCharges, setLocalCharges] = useState<ChargeRaw[]>([]);
+    const [localAdjustments, setLocalAdjustments] = useState<Adjustment[]>([]);
+    const [localUsers, setLocalUsers] = useState<UserPermission[]>([]);
+    const [localTariffs, setLocalTariffs] = useState<TariffCollection>({ service: [], parking: [], water: [] });
+    const [localFeedback, setLocalFeedback] = useState<FeedbackItem[]>([]);
+    const [localNews, setLocalNews] = useState<NewsItem[]>([]);
 
-    const [notifications, setNotifications] = useState({
+    useEffect(() => {
+        setLocalUnits(units);
+        setLocalOwners(owners);
+        setLocalVehicles(vehicles);
+        setLocalWaterReadings(waterReadings);
+        setLocalCharges(charges);
+        setLocalAdjustments(adjustments);
+        setLocalUsers(fetchedUsers);
+        setLocalTariffs(tariffs);
+    }, [units, owners, vehicles, waterReadings, charges, adjustments, fetchedUsers, tariffs]);
+
+    const showToast = useCallback((message: string, type: ToastType, duration: number = 3000) => {
+        const id = Date.now();
+        setToasts(prev => [...prev, { id, message, type, duration }]);
+    }, []);
+
+    const removeToast = (id: number) => {
+        setToasts(prev => prev.filter(t => t.id !== id));
+    };
+
+    const handleLogin = (loggedInUser: UserPermission, rememberMe: boolean) => {
+        setUser(loggedInUser);
+        if (rememberMe) {
+            localStorage.setItem('rememberedUserObject', JSON.stringify(loggedInUser));
+        } else {
+            localStorage.removeItem('rememberedUserObject');
+        }
+        
+        if (loggedInUser.Role === 'Resident') {
+            setActivePage('portalHome');
+        } else {
+            const isMobile = window.innerWidth < 768;
+            setActivePage(isMobile ? 'adminPortalHome' : 'overview');
+        }
+
+        if (loggedInUser.mustChangePassword) {
+            setIsChangePasswordModalOpen(true);
+        }
+    };
+
+    const handleLogout = () => {
+        setUser(null);
+        localStorage.removeItem('rememberedUserObject');
+        setActivePage('overview');
+    };
+
+    const handleUpdateUser = (updatedUser: UserPermission, oldEmail: string) => {
+        setLocalUsers(prev => prev.map(u => u.Email === oldEmail ? updatedUser : u));
+        if (user?.Email === oldEmail) {
+            setUser(updatedUser);
+        }
+    };
+
+    const handleDeleteUsersAction = (usernames: string[]) => {
+        const usernamesSet = new Set(usernames);
+        const emailsToDelete = localUsers.filter(u => usernamesSet.has(u.Username || '')).map(u => u.Email);
+        setLocalUsers(prev => prev.filter(u => !usernamesSet.has(u.Username || '')));
+        deleteUsers(emailsToDelete);
+    };
+
+    const handleSetInvoiceSettings = async (settings: InvoiceSettings) => {
+        await updateFeeSettings(settings);
+        refreshSystemData(true);
+    };
+
+    const handleSaveResident = async (data: { unit: Unit, owner: Owner, vehicles: Vehicle[] }, reason: string) => {
+        await updateResidentData(localUnits, localOwners, localVehicles, data);
+        refreshSystemData(true);
+    };
+
+    const handleImportResidents = (updates: any[]) => {
+        importResidentsBatch(localUnits, localOwners, localVehicles, updates).then(() => {
+            refreshSystemData(true);
+        });
+    };
+
+    const handleDeleteResidents = (unitIds: Set<string>) => {
+        // Implementation
+    };
+
+    const handleUndoLog = (logId: string) => {
+        // Implementation
+    };
+
+    const handleMarkNewsAsRead = () => { /* ... */ };
+    const handleMarkBellAsRead = () => { /* ... */ };
+
+    const notifications = {
         unreadNews: 0,
         hasUnpaidBill: false,
-        hasNewNotifications: false,
-    });
-
-    const IS_PROD = isProduction();
-
-    // 3. Sync Smart Data to Local State
-    useEffect(() => {
-        if (smartHasLoaded) {
-            if(smartUsers.length > 0) setUsers(smartUsers);
-            if (smartInvoiceSettings) setInvoiceSettings(smartInvoiceSettings);
-            if (loadedMonthlyStats) setMonthlyStats(loadedMonthlyStats);
-            patchKiosAreas(units);
-        }
-    }, [smartHasLoaded, smartUsers, smartInvoiceSettings, units, loadedMonthlyStats]);
-
-    // 4. Charges Data Strategy (Hybrid)
-    useEffect(() => {
-        if (!currentUser) return;
-
-        const loadCharges = async () => {
-            if (IS_PROD) {
-                if (charges.length === 0) {
-                    try {
-                        const today = new Date();
-                        today.setMonth(today.getMonth() - 2); 
-                        const recent = today.toISOString().slice(0, 7);
-
-                        let q;
-                        if (currentUser.Role === 'Resident' && currentUser.residentId) {
-                             q = query(collection(db, 'charges'), where('UnitID', '==', currentUser.residentId));
-                        } else {
-                             q = query(collection(db, 'charges'), where('Period', '>=', recent));
-                        }
-                        
-                        const snap = await getDocs(q);
-                        const initialCharges = snap.docs.map(d => d.data() as ChargeRaw);
-                        setCharges(initialCharges);
-                    } catch (e) {
-                        console.error("Error loading charges", e);
-                    }
-                }
-
-                // Realtime Listener
-                const currentPeriod = new Date().toISOString().slice(0, 7);
-                let q;
-                if (currentUser.Role === 'Resident' && currentUser.residentId) {
-                    q = query(collection(db, 'charges'), where('UnitID', '==', currentUser.residentId), where('Period', '==', currentPeriod));
-                } else {
-                    q = query(collection(db, 'charges'), where('Period', '==', currentPeriod));
-                }
-
-                const unsubscribe = onSnapshot(q, (snapshot) => {
-                    const currentMonthCharges = snapshot.docs.map(d => d.data() as ChargeRaw);
-                    setCharges(prev => {
-                        const others = prev.filter(c => c.Period !== currentPeriod);
-                        return [...others, ...currentMonthCharges];
-                    });
-                });
-
-                return () => unsubscribe();
-            }
-        };
-
-        loadCharges();
-    }, [currentUser, IS_PROD]); 
-
-    // --- Notification & Messaging ---
-    useEffect(() => {
-        if (currentUser) {
-            requestForToken();
-            onMessageListener()
-                .then((payload: any) => {
-                    const title = payload?.notification?.title || 'Thông báo mới';
-                    const body = payload?.notification?.body || '';
-                    showToast(`${title}: ${body}`, 'info', 6000);
-                })
-                .catch((err) => console.log('failed: ', err));
-        }
-    }, [currentUser, showToast]);
-
-    // Check notifications logic
-    useEffect(() => {
-        if (!currentUser) return;
-
-        let hasUnpaidBill = false;
-        if (currentUser.Role === 'Resident' && currentUser.residentId) {
-            hasUnpaidBill = charges.some(c => 
-                c.UnitID === currentUser.residentId && 
-                ['pending', 'unpaid', 'reconciling'].includes(c.paymentStatus) &&
-                c.TotalDue > c.TotalPaid
-            );
-        }
-
-        const lastViewedNewsTime = parseInt(localStorage.getItem('lastViewedNews') || '0', 10);
-        const lastViewedBellTime = parseInt(localStorage.getItem('lastViewedNotifications') || '0', 10);
-        const unreadNewsCount = news.filter(n => new Date(n.date).getTime() > lastViewedNewsTime).length;
-        const latestNewsTime = news.length > 0 ? Math.max(...news.map(n => new Date(n.date).getTime())) : 0;
-        const hasNewNotifications = latestNewsTime > lastViewedBellTime || notifications.hasNewNotifications;
-
-        setNotifications(prev => ({ unreadNews: unreadNewsCount, hasUnpaidBill, hasNewNotifications }));
-    }, [currentUser, charges, news, notifications.hasNewNotifications]);
-
-    // --- User Management Logic ---
-    useEffect(() => {
-        if (currentUser?.Role === 'Resident' && smartHasLoaded) {
-            const unit = units.find(u => u.UnitID === currentUser.residentId);
-            if (unit) {
-                const owner = owners.find(o => o.OwnerID === unit.OwnerID);
-                setCurrentOwner(owner || null);
-            }
-        }
-    }, [currentUser, units, owners, smartHasLoaded]);
-
-    const handleInitialLogin = (user: UserPermission, rememberMe: boolean) => {
-        // Handled by Context Login
-    };
-    
-    const handlePasswordChanged = (newPassword: string) => {
-        if (currentUser) {
-            const updatedUser = { ...currentUser, password: newPassword, mustChangePassword: false };
-            updateUser(updatedUser); // This updates the user in the list and current user in context
-            
-            // Optimistic update logs
-            handleSetUsers(prev => prev.map(u => u.Email === updatedUser.Email ? updatedUser : u), { module: 'System', action: 'CHANGE_PASSWORD', summary: 'Đổi mật khẩu', before_snapshot: users });
-            setIsPasswordModalOpen(false);
-            showToast('Mật khẩu đã được thay đổi thành công.', 'success');
-        }
+        hasNewNotifications: false
     };
 
-    const handleMarkNewsAsRead = useCallback(() => { 
-        localStorage.setItem('lastViewedNews', Date.now().toString()); 
-        setNotifications(prev => ({ ...prev, unreadNews: 0 })); 
-    }, []);
-
-    const handleMarkBellAsRead = useCallback(() => { 
-        localStorage.setItem('lastViewedNotifications', Date.now().toString()); 
-        setNotifications(prev => ({ ...prev, hasNewNotifications: false })); 
-    }, []);
-
-    const createDataHandler = <T,>(stateSetter: React.Dispatch<React.SetStateAction<T>>, saveFunction: (data: T) => Promise<any>) => useCallback(async (updater: React.SetStateAction<T>, logPayload?: LogPayload) => {
-        stateSetter(prevState => {
-            const newState = typeof updater === 'function' ? (updater as (prevState: T) => T)(prevState) : updater;
-            saveFunction(newState).then(() => { if (logPayload) logAction(logPayload); showToast('Dữ liệu đã được lưu.', 'success'); }).catch(error => { showToast('Lưu dữ liệu thất bại.', 'error'); stateSetter(prevState); });
-            return newState;
-        });
-    }, [logAction, showToast]);
-
-    const handleSetUsers = createDataHandler(setUsers, saveUsers);
-    const handleSetCharges = createDataHandler(setCharges, saveChargesBatch);
-    
-    const handleSetVehicles = useCallback(async (updater: React.SetStateAction<Vehicle[]>, logPayload?: LogPayload) => {
-        let newVehicles: Vehicle[];
-        if (typeof updater === 'function') {
-            newVehicles = (updater as (prevState: Vehicle[]) => Vehicle[])(vehicles);
-        } else {
-            newVehicles = updater;
-        }
-
-        try {
-            await saveVehicles(newVehicles);
-            if (logPayload) logAction(logPayload);
-            showToast('Dữ liệu đã được lưu.', 'success');
-            refreshSystemData(true);
-        } catch (error) {
-            console.error(error);
-            showToast('Lưu dữ liệu thất bại.', 'error');
-        }
-    }, [vehicles, saveVehicles, logAction, showToast, refreshSystemData]);
-
-    const handleSetWaterReadings = useCallback(async (updater: React.SetStateAction<WaterReading[]>, logPayload?: LogPayload) => {
-        let newReadings: WaterReading[];
-        if (typeof updater === 'function') {
-            newReadings = (updater as (prevState: WaterReading[]) => WaterReading[])(waterReadings);
-        } else {
-            newReadings = updater;
-        }
-
-        try {
-            await saveWaterReadings(newReadings);
-            if (logPayload) logAction(logPayload);
-            showToast('Dữ liệu nước đã được lưu.', 'success');
-            refreshSystemData(true); 
-        } catch (error) {
-            console.error(error);
-            showToast('Lưu dữ liệu thất bại.', 'error');
-        }
-    }, [waterReadings, saveWaterReadings, logAction, showToast, refreshSystemData]);
-
-    const handleSetTariffs = createDataHandler(() => {}, saveTariffs);
-    const handleSetAdjustments = createDataHandler(() => {}, saveAdjustments);
-    const handleSetNews = createDataHandler(setNews, async (d) => {});
-    const handleSetFeedback = createDataHandler(setFeedback, async (d) => {});
-
-    const handleSubmitFeedback = (item: FeedbackItem) => {
-        handleSetFeedback(prev => [item, ...prev], { module: 'Feedback', action: 'CREATE', summary: `Cư dân ${item.residentId} gửi phản hồi.`, before_snapshot: feedback });
-    };
-
-    const handleUpdateOwner = (updatedOwner: Owner) => {
-        setCurrentOwner(updatedOwner);
-        showToast('Cập nhật hồ sơ thành công (UI Only).', 'success');
-    };
-
-    const handleSaveResident = useCallback(async (updatedData: { unit: Unit; owner: Owner; vehicles: Vehicle[] }, reason: string) => {
-        try {
-            await updateResidentData(units, owners, vehicles, updatedData);
-            refreshSystemData(true); 
-            showToast('Cập nhật thông tin cư dân thành công!', 'success');
-        } catch (e: any) {
-            showToast(`Lỗi khi cập nhật: ${e.message}`, 'error');
-        }
-    }, [units, owners, vehicles, showToast, refreshSystemData]);
-
-    const handleRestoreAllData = useCallback(async (data: AppData) => { /* ... */ }, [showToast]);
-
-    const handleImportResidents = async (updates: any[]) => {
-        try {
-            const result = await importResidentsBatch(units, owners, vehicles, updates);
-            refreshSystemData(true);
-            showToast('Nhập dữ liệu thành công!', 'success');
-        } catch (e: any) {
-            showToast(`Lỗi khi nhập dữ liệu: ${e.message}`, 'error');
-        }
-    }
-
-    const renderAdminPage = () => {
-        const allDataForBilling: AllData = { units, owners, vehicles, waterReadings, tariffs, adjustments, activityLogs, monthlyStats, lockedWaterPeriods: lockedWaterPeriods || [] };
-        switch (activePage as AdminPage) {
-            case 'overview': return <OverviewPage allUnits={units} allOwners={owners} allVehicles={vehicles} allWaterReadings={waterReadings} charges={charges} activityLogs={activityLogs} feedback={feedback} onNavigate={setActivePage as (p: AdminPage) => void} monthlyStats={monthlyStats} />;
-            case 'billing': return <BillingPage charges={charges} setCharges={handleSetCharges} allData={allDataForBilling} onUpdateAdjustments={handleSetAdjustments} role={currentUser!.Role} invoiceSettings={invoiceSettings} />;
-            case 'residents': return <ResidentsPage units={units} owners={owners} vehicles={vehicles} activityLogs={activityLogs} onSaveResident={handleSaveResident} onImportData={handleImportResidents} onDeleteResidents={()=>{}} role={currentUser!.Role} currentUser={currentUser!} />;
-            case 'vehicles': return <VehiclesPage vehicles={vehicles} units={units} owners={owners} activityLogs={activityLogs} onSetVehicles={handleSetVehicles} role={currentUser!.Role} />;
-            case 'water': return <WaterPage waterReadings={waterReadings} setWaterReadings={handleSetWaterReadings} allUnits={units} role={currentUser!.Role} tariffs={tariffs} lockedPeriods={lockedWaterPeriods} refreshData={() => refreshSystemData(true)} />;
-            case 'pricing': return <PricingPage tariffs={tariffs} setTariffs={handleSetTariffs} role={currentUser!.Role} />;
-            case 'users': return <UsersPage users={users} setUsers={handleSetUsers} units={units} role={currentUser!.Role} />;
-            case 'settings': return <SettingsPage invoiceSettings={invoiceSettings} setInvoiceSettings={updateFeeSettings} role={currentUser!.Role} />;
-            case 'backup': return <BackupRestorePage allData={{ units, owners, vehicles, waterReadings, charges, tariffs, users, adjustments, invoiceSettings }} onRestore={handleRestoreAllData} role={currentUser!.Role} />;
-            case 'activityLog': return <ActivityLogPage logs={activityLogs} onUndo={() => {}} role={currentUser!.Role} />;
-            case 'newsManagement': return <NewsManagementPage news={news} setNews={handleSetNews} role={currentUser!.Role} users={users} />;
-            case 'feedbackManagement': return <FeedbackManagementPage feedback={feedback} setFeedback={handleSetFeedback} role={currentUser!.Role} />;
-            default: return <OverviewPage allUnits={units} allOwners={owners} allVehicles={vehicles} allWaterReadings={waterReadings} charges={charges} activityLogs={activityLogs} feedback={feedback} onNavigate={setActivePage as (p: AdminPage) => void} monthlyStats={monthlyStats} />;
-        }
-    };
-    
-    const renderPortalPage = () => {
-        switch (activePage as PortalPage) {
-            case 'portalHome': return <PortalHomePage user={currentUser!} owner={currentOwner} charges={charges} setActivePage={setActivePage as (p: PortalPage) => void} news={news} />;
-            case 'portalNews': return <PortalNewsPage news={news} />;
-            case 'portalBilling': return <PortalBillingPage charges={charges} user={currentUser!} />;
-            case 'portalContact': return <PortalContactPage hotline={invoiceSettings.footerHtml?.match(/(\d{8,})/)?.[0] || '0900000000'} onSubmitFeedback={handleSubmitFeedback} />;
-            case 'portalProfile': return <PortalProfilePage user={currentUser!} owner={currentOwner!} onUpdateOwner={handleUpdateOwner} onChangePassword={() => setIsPasswordModalOpen(true)} />;
-            default: return <PortalHomePage user={currentUser!} owner={currentOwner} charges={charges} setActivePage={setActivePage as (p: PortalPage) => void} news={news} />;
-        }
-    };
-
-    if (!smartHasLoaded) {
-        return <div className="flex h-screen w-screen items-center justify-center"><Spinner /></div>;
-    }
-
-    // Login View if no user
-    if (!currentUser) {
-        // Consume context to get `login` method. 
-        // Cast to any to access extended context properties defined in App.
-        const { login } = React.useContext(AppContext) as any; 
-
+    if (!user) {
         return (
-            <LoginPage 
-                users={users} 
-                onLogin={(u, rem) => login(u, rem)} 
-                allOwners={owners} 
-                allUnits={units} 
-                resetInfo={resetInfo} 
-            />
+            <NotificationContext.Provider value={{ showToast }}>
+                <LoginPage users={localUsers} onLogin={handleLogin} allOwners={localOwners} allUnits={localUnits} />
+                <Toast toasts={toasts} onClose={removeToast} onClearAll={() => setToasts([])} />
+            </NotificationContext.Provider>
         );
     }
 
-    return (
-        <>
-            {isPasswordModalOpen && <ChangePasswordModal onClose={() => setIsPasswordModalOpen(false)} onSave={handlePasswordChanged} />}
-            {currentUser && <NotificationListener userId={currentUser.Username || currentUser.residentId || ''} />}
-            {currentUser.Role === 'Resident' ? (
-                <ResidentLayout 
-                    activePage={activePage as PortalPage} 
-                    setActivePage={setActivePage as (p: PortalPage) => void}
-                    user={currentUser}
-                    owner={currentOwner}
-                    onUpdateOwner={handleUpdateOwner}
-                    onChangePassword={() => setIsPasswordModalOpen(true)}
-                    notifications={notifications}
-                    onMarkNewsAsRead={handleMarkNewsAsRead}
-                    onMarkBellAsRead={handleMarkBellAsRead}
-                >
-                    {renderPortalPage()}
-                </ResidentLayout>
-            ) : (
-                <div className="flex h-screen text-gray-900">
-                    <Sidebar activePage={activePage as AdminPage} setActivePage={setActivePage} role={currentUser.Role}/>
-                    <div className="flex flex-col flex-1 w-full overflow-hidden">
-                        <Header pageTitle={pageTitles[activePage as AdminPage]} onNavigate={setActivePage as (page: AdminPage) => void} />
-                        <main className="flex-1 p-6 overflow-y-auto">
-                            {renderAdminPage()}
-                        </main>
-                    </div>
-                </div>
-            )}
-        </>
-    );
-}
-
-// --- APP PROVIDER COMPONENT ---
-const App: React.FC = () => {
-    const [currentUser, setCurrentUser] = useState<UserPermission | null>(null);
-    const [toasts, setToasts] = useState<ToastMessage[]>([]);
-    const [isPasswordModalOpen, setIsPasswordModalOpen] = useState(false);
-    const [resetInfo, setResetInfo] = useState<{ email: string; pass: string } | null>(null);
-    const [invoiceSettings, setInvoiceSettings] = useState<InvoiceSettings>(initialInvoiceSettings);
-    
-    // --- Toast Logic ---
-    const showToast = useCallback((message: string, type: ToastType = 'info', duration?: number) => {
-        setToasts(prev => [...prev, { id: Date.now() + Math.random(), message, type, duration }]);
-    }, []);
-    const handleCloseToast = useCallback((id: number) => setToasts(prev => prev.filter(t => t.id !== id)), []);
-    const handleClearAllToasts = useCallback(() => setToasts([]), []);
-
-    const handleLogout = useCallback(() => { 
-        setCurrentUser(null); 
-        showToast('Đã đăng xuất.', 'info'); 
-    }, [showToast]);
-
-    const handleUpdateUser = useCallback((updatedUser: UserPermission, oldEmail?: string) => {
-        if (currentUser && (currentUser.Email === (oldEmail || updatedUser.Email))) {
-            setCurrentUser(updatedUser);
+    const renderAdminPage = () => {
+        switch (activePage as AdminPage) {
+            case 'overview': return <OverviewPage allUnits={localUnits} allOwners={localOwners} allVehicles={localVehicles} allWaterReadings={localWaterReadings} charges={localCharges} activityLogs={[]} feedback={localFeedback} onNavigate={(p) => setActivePage(p as AdminPage)} monthlyStats={monthlyStats} />;
+            case 'billing': return <BillingPage charges={localCharges} setCharges={setLocalCharges} allData={{ units: localUnits, owners: localOwners, vehicles: localVehicles, waterReadings: localWaterReadings, tariffs: localTariffs, adjustments: localAdjustments, activityLogs: [], monthlyStats, lockedWaterPeriods }} onUpdateAdjustments={setLocalAdjustments} role={user.Role} invoiceSettings={invoiceSettings!} onRefresh={() => refreshSystemData(true)} />;
+            case 'residents': return <ResidentsPage units={localUnits} owners={localOwners} vehicles={localVehicles} activityLogs={[]} onSaveResident={handleSaveResident} onImportData={handleImportResidents} onDeleteResidents={handleDeleteResidents} role={user.Role} currentUser={user} onNavigate={(p) => setActivePage(p as AdminPage)} />;
+            case 'vehicles': return <VehiclesPage vehicles={localVehicles} units={localUnits} owners={localOwners} activityLogs={[]} onSetVehicles={setLocalVehicles} role={user.Role} />;
+            case 'water': return <WaterPage waterReadings={localWaterReadings} setWaterReadings={setLocalWaterReadings} allUnits={localUnits} role={user.Role} tariffs={localTariffs} lockedPeriods={lockedWaterPeriods} refreshData={refreshSystemData} />;
+            case 'pricing': return <PricingPage tariffs={localTariffs} setTariffs={setLocalTariffs} role={user.Role} />;
+            case 'users': return <UsersPage users={localUsers} setUsers={setLocalUsers} units={localUnits} role={user.Role} />;
+            case 'settings': return <SettingsPage invoiceSettings={invoiceSettings!} setInvoiceSettings={handleSetInvoiceSettings} role={user.Role} />;
+            case 'backup': return <BackupRestorePage allData={{ units: localUnits, owners: localOwners, vehicles: localVehicles, waterReadings: localWaterReadings, charges: localCharges, adjustments: localAdjustments, users: localUsers, tariffs: localTariffs }} onRestore={(d) => refreshSystemData(true)} role={user.Role} />;
+            case 'activityLog': return <ActivityLogPage logs={[]} onUndo={handleUndoLog} role={user.Role} />;
+            case 'newsManagement': return <NewsManagementPage news={localNews} setNews={setLocalNews} role={user.Role} users={localUsers} />;
+            case 'feedbackManagement': return <FeedbackManagementPage feedback={localFeedback} setFeedback={setLocalFeedback} role={user.Role} />;
+            default: return <OverviewPage allUnits={localUnits} allOwners={localOwners} allVehicles={localVehicles} allWaterReadings={localWaterReadings} charges={localCharges} activityLogs={[]} feedback={localFeedback} onNavigate={(p) => setActivePage(p as AdminPage)} monthlyStats={monthlyStats} />;
         }
-    }, [currentUser]);
-
-    const logAction = useCallback((payload: LogPayload) => {
-        if (!currentUser) return;
-        console.log("Action Logged:", payload);
-    }, [currentUser]);
-
-    const handleLogin = (user: UserPermission, rememberMe: boolean) => {
-        if (rememberMe) localStorage.setItem('rememberedUser', user.Username || user.Email);
-        else localStorage.removeItem('rememberedUser');
-
-        setCurrentUser(user);
-        if (user.mustChangePassword) setTimeout(() => setIsPasswordModalOpen(true), 500);
-        showToast(`Chào mừng, ${user.Username || user.Email.split('@')[0]}!`, 'success');
     };
 
-    // Extended Context Value including `login` for the Login Page
-    const contextValue = useMemo(() => ({ 
-        currentUser, 
-        role: currentUser?.Role || null, 
-        showToast, 
-        logAction, 
-        logout: handleLogout, 
-        updateUser: handleUpdateUser, 
-        invoiceSettings,
-        refreshData: () => {}, 
-        login: handleLogin 
-    }), [currentUser, showToast, logAction, handleLogout, handleUpdateUser, invoiceSettings]);
+    const renderResidentPage = () => {
+        const owner = localOwners.find(o => o.OwnerID === localUnits.find(u => u.UnitID === user.residentId)?.OwnerID) || null;
+        switch (activePage as PortalPage) {
+            case 'portalHome': return <PortalHomePage user={user} owner={owner} charges={localCharges} news={localNews} setActivePage={setActivePage as (p: PortalPage) => void} />;
+            case 'portalNews': return <PortalNewsPage news={localNews} />;
+            case 'portalBilling': return <PortalBillingPage charges={localCharges} user={user} />;
+            case 'portalContact': return <PortalContactPage hotline={invoiceSettings?.HOTLINE || '0834.88.66.86'} onSubmitFeedback={(f) => setLocalFeedback([...localFeedback, f])} />;
+            case 'portalProfile': return <PortalProfilePage user={user} owner={owner!} onUpdateOwner={(o) => setLocalOwners(prev => prev.map(old => old.OwnerID === o.OwnerID ? o : old))} onChangePassword={() => setIsChangePasswordModalOpen(true)} />;
+            default: return <PortalHomePage user={user} owner={owner} charges={localCharges} news={localNews} setActivePage={setActivePage as (p: PortalPage) => void} />;
+        }
+    };
+
+    const renderAdminMobilePage = () => {
+        const props = { units: localUnits, vehicles: localVehicles, charges: localCharges, monthlyStats, news: localNews, owners: localOwners, activityLogs: [] };
+        switch (activePage as AdminPortalPage) {
+            case 'adminPortalHome': return <AdminPortalHomePage {...props} />;
+            case 'adminPortalBilling': return <AdminPortalBillingPage charges={localCharges} units={localUnits} owners={localOwners} />;
+            case 'adminPortalResidents': return <AdminPortalResidentsPage units={localUnits} owners={localOwners} vehicles={localVehicles} />;
+            case 'adminPortalVehicles': return <AdminPortalVehiclesPage vehicles={localVehicles} units={localUnits} owners={localOwners} />;
+            case 'adminPortalMore': return (
+                <div className="p-4 space-y-4">
+                    <button onClick={() => setActivePage('newsManagement')} className="w-full p-4 bg-white rounded-xl shadow-sm border flex justify-between items-center"><span className="font-bold">Quản lý Tin tức</span><span>→</span></button>
+                    <button onClick={() => setActivePage('feedbackManagement')} className="w-full p-4 bg-white rounded-xl shadow-sm border flex justify-between items-center"><span className="font-bold">Phản hồi Cư dân</span><span>→</span></button>
+                    <button onClick={() => handleLogout()} className="w-full p-4 bg-red-50 text-red-600 rounded-xl shadow-sm border flex justify-between items-center"><span className="font-bold">Đăng xuất</span><span>⏻</span></button>
+                </div>
+            );
+            default: return <AdminPortalHomePage {...props} />;
+        }
+    };
+
+    const isResident = user.Role === 'Resident';
+    const isMobile = window.innerWidth < 768;
 
     return (
-        <AppContext.Provider value={contextValue}> 
-            <AppContent 
-                setIsPasswordModalOpen={setIsPasswordModalOpen}
-                isPasswordModalOpen={isPasswordModalOpen}
-                resetInfo={resetInfo}
-            />
-            <FooterToast toasts={toasts} onClose={handleCloseToast} onClearAll={handleClearAllToasts} />
-        </AppContext.Provider>
+        <AuthContext.Provider value={{ user, login: handleLogin, logout: handleLogout, updateUser: handleUpdateUser, handleDeleteUsers: handleDeleteUsersAction }}>
+            <NotificationContext.Provider value={{ showToast }}>
+                <SettingsContext.Provider value={{ invoiceSettings: invoiceSettings!, setInvoiceSettings: handleSetInvoiceSettings }}>
+                    <DataRefreshContext.Provider value={{ refreshData: refreshSystemData }}>
+                        <NotificationListener userId={user.Username || user.Email} />
+                        {isResident ? (
+                            <ResidentLayout activePage={activePage as PortalPage} setActivePage={setActivePage as (p: PortalPage) => void} user={user} owner={localOwners.find(o => o.OwnerID === localUnits.find(u => u.UnitID === user.residentId)?.OwnerID) || null} onUpdateOwner={() => {}} onChangePassword={() => setIsChangePasswordModalOpen(true)} notifications={notifications} onMarkNewsAsRead={handleMarkNewsAsRead} onMarkBellAsRead={handleMarkBellAsRead}>
+                                {renderResidentPage()}
+                            </ResidentLayout>
+                        ) : isMobile ? (
+                            <AdminMobileLayout activePage={activePage as AdminPortalPage} setActivePage={setActivePage as (p: AdminPortalPage) => void} user={user}>
+                                {renderAdminMobilePage()}
+                            </AdminMobileLayout>
+                        ) : (
+                            <div className="flex h-screen bg-gray-50 overflow-hidden">
+                                <Sidebar activePage={activePage as AdminPage} setActivePage={(p) => setActivePage(p as AdminPage)} role={user.Role} />
+                                <div className="flex-1 flex flex-col min-w-0 overflow-hidden">
+                                    <Header pageTitle="" onNavigate={(p) => setActivePage(p as AdminPage)} />
+                                    <main className="flex-1 overflow-y-auto p-4 md:p-6 lg:p-8">
+                                        {renderAdminPage()}
+                                    </main>
+                                    <Footer />
+                                </div>
+                            </div>
+                        )}
+                        <Toast toasts={toasts} onClose={removeToast} onClearAll={() => setToasts([])} />
+                        {isChangePasswordModalOpen && <ChangePasswordModal onClose={() => setIsChangePasswordModalOpen(false)} onSave={(pw) => { setIsChangePasswordModalOpen(false); }} />}
+                    </DataRefreshContext.Provider>
+                </SettingsContext.Provider>
+            </NotificationContext.Provider>
+        </AuthContext.Provider>
     );
 };
 
