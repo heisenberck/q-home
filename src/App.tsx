@@ -39,14 +39,8 @@ import ChangePasswordModal from './components/pages/ChangePasswordModal';
 import NotificationListener from './components/common/NotificationListener';
 
 // --- Types ---
-/**
- * AdminPage defines available pages in the admin dashboard.
- */
 export type AdminPage = 'overview' | 'billing' | 'residents' | 'vehicles' | 'water' | 'pricing' | 'users' | 'settings' | 'backup' | 'activityLog' | 'newsManagement' | 'feedbackManagement';
 
-/**
- * LogPayload defines the structure for activity logging.
- */
 export interface LogPayload {
     module: 'Billing' | 'Residents' | 'Water' | 'Pricing' | 'Settings' | 'System' | 'Vehicles' | 'News' | 'Feedback';
     action: string;
@@ -134,15 +128,39 @@ export const useLogger = () => {
 const App: React.FC = () => {
     const [user, setUser] = useState<UserPermission | null>(null);
     const [toasts, setToasts] = useState<ToastMessage[]>([]);
+    
+    // Tối ưu nhận diện Mobile
+    const [isMobile, setIsMobile] = useState(window.innerWidth < 768);
+    
+    // Khởi tạo activePage thông minh hơn
     const [activePage, setActivePage] = useState<AdminPage | PortalPage | AdminPortalPage>('overview');
     const [isChangePasswordModalOpen, setIsChangePasswordModalOpen] = useState(false);
+
+    // Lắng nghe thay đổi kích thước màn hình (Reactive)
+    useEffect(() => {
+        const handleResize = () => {
+            const mobile = window.innerWidth < 768;
+            setIsMobile(mobile);
+        };
+        window.addEventListener('resize', handleResize);
+        return () => window.removeEventListener('resize', handleResize);
+    }, []);
 
     // Initial check for remembered user
     useEffect(() => {
         const rememberedUserStr = localStorage.getItem('rememberedUserObject');
         if (rememberedUserStr) {
             try {
-                setUser(JSON.parse(rememberedUserStr));
+                const parsed = JSON.parse(rememberedUserStr);
+                setUser(parsed);
+                // Sau khi khôi phục user, quyết định trang mặc định dựa trên role và thiết bị
+                if (parsed.Role === 'Resident') {
+                    setActivePage('portalHome');
+                } else if (window.innerWidth < 768) {
+                    setActivePage('adminPortalHome');
+                } else {
+                    setActivePage('overview');
+                }
             } catch (e) {
                 localStorage.removeItem('rememberedUserObject');
             }
@@ -156,7 +174,7 @@ const App: React.FC = () => {
         refreshSystemData 
     } = useSmartSystemData(user);
 
-    // Local state for managed entities to allow immediate UI updates
+    // Local state for managed entities
     const [localUnits, setLocalUnits] = useState<Unit[]>([]);
     const [localOwners, setLocalOwners] = useState<Owner[]>([]);
     const [localVehicles, setLocalVehicles] = useState<Vehicle[]>([]);
@@ -196,11 +214,13 @@ const App: React.FC = () => {
             localStorage.removeItem('rememberedUserObject');
         }
         
+        // Quyết định trang đích khi đăng nhập
         if (loggedInUser.Role === 'Resident') {
             setActivePage('portalHome');
+        } else if (window.innerWidth < 768) {
+            setActivePage('adminPortalHome');
         } else {
-            const isMobile = window.innerWidth < 768;
-            setActivePage(isMobile ? 'adminPortalHome' : 'overview');
+            setActivePage('overview');
         }
 
         if (loggedInUser.mustChangePassword) {
@@ -244,22 +264,10 @@ const App: React.FC = () => {
         });
     };
 
-    const handleDeleteResidents = (unitIds: Set<string>) => {
-        // Implementation
-    };
+    const handleMarkNewsAsRead = () => { /* Logic */ };
+    const handleMarkBellAsRead = () => { /* Logic */ };
 
-    const handleUndoLog = (logId: string) => {
-        // Implementation
-    };
-
-    const handleMarkNewsAsRead = () => { /* ... */ };
-    const handleMarkBellAsRead = () => { /* ... */ };
-
-    const notifications = {
-        unreadNews: 0,
-        hasUnpaidBill: false,
-        hasNewNotifications: false
-    };
+    const notifications = { unreadNews: 0, hasUnpaidBill: false, hasNewNotifications: false };
 
     if (!user) {
         return (
@@ -274,14 +282,14 @@ const App: React.FC = () => {
         switch (activePage as AdminPage) {
             case 'overview': return <OverviewPage allUnits={localUnits} allOwners={localOwners} allVehicles={localVehicles} allWaterReadings={localWaterReadings} charges={localCharges} activityLogs={[]} feedback={localFeedback} onNavigate={(p) => setActivePage(p as AdminPage)} monthlyStats={monthlyStats} />;
             case 'billing': return <BillingPage charges={localCharges} setCharges={setLocalCharges} allData={{ units: localUnits, owners: localOwners, vehicles: localVehicles, waterReadings: localWaterReadings, tariffs: localTariffs, adjustments: localAdjustments, activityLogs: [], monthlyStats, lockedWaterPeriods }} onUpdateAdjustments={setLocalAdjustments} role={user.Role} invoiceSettings={invoiceSettings!} onRefresh={() => refreshSystemData(true)} />;
-            case 'residents': return <ResidentsPage units={localUnits} owners={localOwners} vehicles={localVehicles} activityLogs={[]} onSaveResident={handleSaveResident} onImportData={handleImportResidents} onDeleteResidents={handleDeleteResidents} role={user.Role} currentUser={user} onNavigate={(p) => setActivePage(p as AdminPage)} />;
+            case 'residents': return <ResidentsPage units={localUnits} owners={localOwners} vehicles={localVehicles} activityLogs={[]} onSaveResident={handleSaveResident} onImportData={handleImportResidents} onDeleteResidents={()=>{}} role={user.Role} currentUser={user} onNavigate={(p) => setActivePage(p as AdminPage)} />;
             case 'vehicles': return <VehiclesPage vehicles={localVehicles} units={localUnits} owners={localOwners} activityLogs={[]} onSetVehicles={setLocalVehicles} role={user.Role} />;
             case 'water': return <WaterPage waterReadings={localWaterReadings} setWaterReadings={setLocalWaterReadings} allUnits={localUnits} role={user.Role} tariffs={localTariffs} lockedPeriods={lockedWaterPeriods} refreshData={refreshSystemData} />;
             case 'pricing': return <PricingPage tariffs={localTariffs} setTariffs={setLocalTariffs} role={user.Role} />;
             case 'users': return <UsersPage users={localUsers} setUsers={setLocalUsers} units={localUnits} role={user.Role} />;
             case 'settings': return <SettingsPage invoiceSettings={invoiceSettings!} setInvoiceSettings={handleSetInvoiceSettings} role={user.Role} />;
             case 'backup': return <BackupRestorePage allData={{ units: localUnits, owners: localOwners, vehicles: localVehicles, waterReadings: localWaterReadings, charges: localCharges, adjustments: localAdjustments, users: localUsers, tariffs: localTariffs }} onRestore={(d) => refreshSystemData(true)} role={user.Role} />;
-            case 'activityLog': return <ActivityLogPage logs={[]} onUndo={handleUndoLog} role={user.Role} />;
+            case 'activityLog': return <ActivityLogPage logs={[]} onUndo={()=>{}} role={user.Role} />;
             case 'newsManagement': return <NewsManagementPage news={localNews} setNews={setLocalNews} role={user.Role} users={localUsers} />;
             case 'feedbackManagement': return <FeedbackManagementPage feedback={localFeedback} setFeedback={setLocalFeedback} role={user.Role} />;
             default: return <OverviewPage allUnits={localUnits} allOwners={localOwners} allVehicles={localVehicles} allWaterReadings={localWaterReadings} charges={localCharges} activityLogs={[]} feedback={localFeedback} onNavigate={(p) => setActivePage(p as AdminPage)} monthlyStats={monthlyStats} />;
@@ -301,25 +309,24 @@ const App: React.FC = () => {
     };
 
     const renderAdminMobilePage = () => {
-        const props = { units: localUnits, vehicles: localVehicles, charges: localCharges, monthlyStats, news: localNews, owners: localOwners, activityLogs: [] };
+        const props = { units: localUnits, vehicles: localVehicles, charges: localCharges, monthlyStats, news: localNews, owners: localOwners };
         switch (activePage as AdminPortalPage) {
-            case 'adminPortalHome': return <AdminPortalHomePage {...props} />;
+            case 'adminPortalHome': return <AdminPortalHomePage {...props} onNavigate={(p) => setActivePage(p as AdminPortalPage)} />;
             case 'adminPortalBilling': return <AdminPortalBillingPage charges={localCharges} units={localUnits} owners={localOwners} />;
             case 'adminPortalResidents': return <AdminPortalResidentsPage units={localUnits} owners={localOwners} vehicles={localVehicles} />;
             case 'adminPortalVehicles': return <AdminPortalVehiclesPage vehicles={localVehicles} units={localUnits} owners={localOwners} />;
             case 'adminPortalMore': return (
                 <div className="p-4 space-y-4">
-                    <button onClick={() => setActivePage('newsManagement')} className="w-full p-4 bg-white rounded-xl shadow-sm border flex justify-between items-center"><span className="font-bold">Quản lý Tin tức</span><span>→</span></button>
-                    <button onClick={() => setActivePage('feedbackManagement')} className="w-full p-4 bg-white rounded-xl shadow-sm border flex justify-between items-center"><span className="font-bold">Phản hồi Cư dân</span><span>→</span></button>
-                    <button onClick={() => handleLogout()} className="w-full p-4 bg-red-50 text-red-600 rounded-xl shadow-sm border flex justify-between items-center"><span className="font-bold">Đăng xuất</span><span>⏻</span></button>
+                    <button onClick={() => setActivePage('newsManagement')} className="w-full p-4 bg-white rounded-xl shadow-sm border flex justify-between items-center font-bold text-gray-800">Quản lý Tin tức <span>→</span></button>
+                    <button onClick={() => setActivePage('feedbackManagement')} className="w-full p-4 bg-white rounded-xl shadow-sm border flex justify-between items-center font-bold text-gray-800">Phản hồi Cư dân <span>→</span></button>
+                    <button onClick={() => handleLogout()} className="w-full p-4 bg-red-50 text-red-600 rounded-xl shadow-sm border flex justify-between items-center font-black">Đăng xuất <span>⏻</span></button>
                 </div>
             );
-            default: return <AdminPortalHomePage {...props} />;
+            default: return <AdminPortalHomePage {...props} onNavigate={(p) => setActivePage(p as AdminPortalPage)} />;
         }
     };
 
     const isResident = user.Role === 'Resident';
-    const isMobile = window.innerWidth < 768;
 
     return (
         <AuthContext.Provider value={{ user, login: handleLogin, logout: handleLogout, updateUser: handleUpdateUser, handleDeleteUsers: handleDeleteUsersAction }}>
@@ -348,7 +355,7 @@ const App: React.FC = () => {
                             </div>
                         )}
                         <Toast toasts={toasts} onClose={removeToast} onClearAll={() => setToasts([])} />
-                        {isChangePasswordModalOpen && <ChangePasswordModal onClose={() => setIsChangePasswordModalOpen(false)} onSave={(pw) => { setIsChangePasswordModalOpen(false); }} />}
+                        {isChangePasswordModalOpen && <ChangePasswordModal onClose={() => setIsChangePasswordModalOpen(false)} onSave={() => setIsChangePasswordModalOpen(false)} />}
                     </DataRefreshContext.Provider>
                 </SettingsContext.Provider>
             </NotificationContext.Provider>
