@@ -11,17 +11,17 @@ import { useAuth } from '../../App';
 export type AdminPortalPage = 'adminPortalHome' | 'adminPortalResidents' | 'adminPortalVehicles' | 'adminPortalBilling' | 'adminPortalMore';
 
 const navItems = [
-  { id: 'adminPortalHome' as AdminPortalPage, label: 'Trang chủ', icon: <HomeIcon /> },
+  { id: 'adminPortalHome' as AdminPortalPage, label: 'Home', icon: <HomeIcon /> },
   { id: 'adminPortalResidents' as AdminPortalPage, label: 'Cư dân', icon: <UsersIcon /> },
   { id: 'adminPortalVehicles' as AdminPortalPage, label: 'Phương tiện', icon: <CarIcon /> },
-  { id: 'adminPortalBilling' as AdminPortalPage, label: 'Phí dịch vụ', icon: <BanknotesIcon /> },
+  { id: 'adminPortalBilling' as AdminPortalPage, label: 'Phí', icon: <BanknotesIcon /> },
   { id: 'adminPortalMore' as AdminPortalPage, label: 'Thêm', icon: <UserCircleIcon /> },
 ];
 
 const pageTitles: Record<AdminPortalPage, string> = {
     adminPortalHome: 'Admin Dashboard',
-    adminPortalResidents: 'Quản lý Cư dân',
-    adminPortalVehicles: 'Quản lý Phương tiện',
+    adminPortalResidents: 'Danh sách Cư dân',
+    adminPortalVehicles: 'Quản lý Xe',
     adminPortalBilling: 'Bảng tính phí',
     adminPortalMore: 'Menu Quản trị',
 };
@@ -49,8 +49,7 @@ const AdminMobileLayout: React.FC<AdminMobileLayoutProps> = ({ children, activeP
     
   return (
     <div className="flex flex-col h-screen bg-slate-50 overflow-hidden">
-        {/* Mobile Header - Branded for Home, Clean for Subpages */}
-        <header className={`sticky top-0 z-40 p-4 flex justify-between items-center h-16 shadow-md transition-colors duration-300 ${
+        <header className={`sticky top-0 z-40 p-4 flex justify-between items-center h-16 shadow-md transition-all duration-300 ${
             isHomePage ? 'bg-primary text-white' : 'bg-white text-gray-800 border-b border-gray-100'
         }`}>
             <div className="flex items-center gap-3">
@@ -100,13 +99,12 @@ const AdminMobileLayout: React.FC<AdminMobileLayoutProps> = ({ children, activeP
             </div>
         </header>
 
-      <main className="flex-1 overflow-y-auto pb-28">
-        <div className="max-w-md mx-auto h-full">
+      <main className="flex-1 overflow-y-auto pb-24">
+        <div className="max-w-md mx-auto">
             {children}
         </div>
       </main>
 
-      {/* Navigation Bar */}
       <nav className="fixed bottom-0 left-0 right-0 bg-white border-t border-gray-200 shadow-[0_-4px_20px_rgba(0,0,0,0.08)] z-40 pb-safe">
         <div className="grid grid-cols-5 max-w-md mx-auto">
           {navItems.map(item => {
@@ -120,8 +118,8 @@ const AdminMobileLayout: React.FC<AdminMobileLayoutProps> = ({ children, activeP
                 <div className={`transition-all duration-300 ${isActive ? 'scale-110 -translate-y-0.5' : ''}`}>
                   {React.cloneElement(item.icon, { className: 'w-6 h-6' })}
                 </div>
-                <span className={`text-[9px] mt-1 uppercase tracking-widest font-black ${isActive ? 'opacity-100' : 'opacity-50'}`}>{item.label}</span>
-                {isActive && <div className="w-4 h-1 bg-primary rounded-full mt-1 animate-pulse"></div>}
+                <span className={`text-[8px] mt-1 uppercase tracking-widest font-black ${isActive ? 'opacity-100' : 'opacity-50'}`}>{item.label}</span>
+                {isActive && <div className="w-1.5 h-1.5 bg-primary rounded-full mt-1 animate-pulse"></div>}
               </button>
             );
           })}

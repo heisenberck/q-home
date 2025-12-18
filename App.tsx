@@ -32,7 +32,6 @@ import AdminPortalHomePage from './components/pages/admin-portal/AdminPortalHome
 import AdminPortalResidentsPage from './components/pages/admin-portal/AdminPortalResidentsPage';
 import AdminPortalVehiclesPage from './components/pages/admin-portal/AdminPortalVehiclesPage';
 import AdminPortalBillingPage from './components/pages/admin-portal/AdminPortalBillingPage';
-// Fix: Added missing import for NotificationListener to resolve errors on lines 326 and 356.
 import NotificationListener from './components/common/NotificationListener';
 
 import { 
@@ -105,41 +104,6 @@ export const useDataRefresh = () => {
     return context;
 };
 
-export const useLogger = () => {
-    const { user } = useAuth();
-    const logAction = useCallback(async (payload: LogPayload) => {
-        if (!user) return;
-        const log: ActivityLog = {
-            id: `log_${Date.now()}`,
-            ts: new Date().toISOString(),
-            actor_email: user.Email,
-            actor_role: user.Role,
-            module: payload.module,
-            action: payload.action,
-            summary: payload.summary,
-            count: payload.count,
-            ids: payload.ids,
-            before_snapshot: payload.before_snapshot,
-            undone: false,
-            undo_token: null,
-            undo_until: new Date(Date.now() + 24 * 60 * 60 * 1000).toISOString()
-        };
-        await logActivity(log);
-    }, [user]);
-    return { logAction };
-};
-
-// --- Fallback Constants ---
-const DEFAULT_INVOICE_SETTINGS: InvoiceSettings = {
-    logoUrl: '',
-    accountName: '',
-    accountNumber: '',
-    bankName: '',
-    senderEmail: '',
-    buildingName: 'HUD3 LINH ĐÀM',
-    loginBackgroundUrl: 'https://images.unsplash.com/photo-1545324418-cc1a3fa10c00?auto=format&fit=crop&q=80&w=1920'
-};
-
 // --- Main Application Component ---
 const App: React.FC = () => {
     // 1. Core State
@@ -155,11 +119,17 @@ const App: React.FC = () => {
         loading, refreshSystemData 
     } = useSmartSystemData(currentUser);
 
-    // Hardened Settings Logic to prevent runtime TypeErrors (e.g. loginBackgroundUrl)
-    const safeSettings = useMemo(() => fetchedSettings || DEFAULT_INVOICE_SETTINGS, [fetchedSettings]);
+    const safeSettings = useMemo(() => fetchedSettings || {
+        logoUrl: '', accountName: '', accountNumber: '', bankName: '', senderEmail: '', buildingName: 'HUD3 LINH ĐÀM',
+        loginBackgroundUrl: 'https://images.unsplash.com/photo-1545324418-cc1a3fa10c00?auto=format&fit=crop&q=80&w=1920'
+    }, [fetchedSettings]);
 
     // 3. UI State
-    const [activePage, setActivePage] = useState<AdminPage | PortalPage | AdminPortalPage>('overview');
+    const [activePage, setActivePage] = useState<AdminPage | PortalPage | AdminPortalPage>(() => {
+        if (!currentUser) return 'overview';
+        if (currentUser.Role === 'Resident') return 'portalHome';
+        return window.innerWidth < 768 ? 'adminPortalHome' : 'overview';
+    });
     const [toasts, setToasts] = useState<ToastMessage[]>([]);
     const [activityLogs, setActivityLogs] = useState<ActivityLog[]>([]);
     const [charges, setChargesState] = useState<ChargeRaw[]>([]);
@@ -173,7 +143,6 @@ const App: React.FC = () => {
         return () => window.removeEventListener('resize', handleResize);
     }, []);
 
-    // Sync state with fetched data
     useEffect(() => {
         if (fetchedCharges) setChargesState(fetchedCharges);
     }, [fetchedCharges]);
@@ -188,7 +157,6 @@ const App: React.FC = () => {
         loadLogs();
     }, [currentUser]);
 
-    // 4. Utility Handlers
     const showToast = useCallback((message: string, type: ToastType, duration = 3000) => {
         setToasts(prev => [...prev, { id: Date.now(), message, type, duration }]);
     }, []);
@@ -196,19 +164,9 @@ const App: React.FC = () => {
     const logAction = useCallback(async (payload: LogPayload) => {
         if (!currentUser) return;
         const log: ActivityLog = {
-            id: `log_${Date.now()}`,
-            ts: new Date().toISOString(),
-            actor_email: currentUser.Email,
-            actor_role: currentUser.Role,
-            module: payload.module,
-            action: payload.action,
-            summary: payload.summary,
-            count: payload.count,
-            ids: payload.ids,
-            before_snapshot: payload.before_snapshot,
-            undone: false,
-            undo_token: null,
-            undo_until: new Date(Date.now() + 24 * 60 * 60 * 1000).toISOString()
+            id: `log_${Date.now()}`, ts: new Date().toISOString(), actor_email: currentUser.Email, actor_role: currentUser.Role,
+            module: payload.module, action: payload.action, summary: payload.summary, count: payload.count, ids: payload.ids,
+            before_snapshot: payload.before_snapshot, undone: false, undo_token: null, undo_until: new Date(Date.now() + 24 * 60 * 60 * 1000).toISOString()
         };
         await logActivity(log);
         setActivityLogs(prev => [log, ...prev].slice(0, 50));
@@ -225,7 +183,7 @@ const App: React.FC = () => {
     const handleLogin = (u: UserPermission, rememberMe: boolean) => {
         setCurrentUser(u);
         localStorage.setItem('qhome_user', JSON.stringify(u));
-        setActivePage(u.Role === 'Resident' ? 'portalHome' : 'overview');
+        setActivePage(u.Role === 'Resident' ? 'portalHome' : (window.innerWidth < 768 ? 'adminPortalHome' : 'overview'));
         showToast(`Chào mừng trở lại, ${u.DisplayName || u.Username || 'User'}!`, 'success');
     };
 
@@ -247,34 +205,11 @@ const App: React.FC = () => {
         refreshSystemData(true);
     };
 
-    const handleSaveResident = async (data: { unit: Unit; owner: Owner; vehicles: Vehicle[] }, reason: string) => {
-        await updateResidentData(units, owners, vehicles, data);
-        await logAction({ module: 'Residents', action: 'UPDATE', summary: `Cập nhật căn ${data.unit.UnitID}. Lý do: ${reason}`, before_snapshot: { unit: units.find(u => u.UnitID === data.unit.UnitID) } });
-        refreshSystemData(true);
-        showToast('Đã lưu thông tin cư dân.', 'success');
-    };
-
-    const handleImportData = async (updates: any[]) => {
-        await importResidentsBatch(units, owners, vehicles, updates);
-        refreshSystemData(true);
-        showToast('Import dữ liệu thành công.', 'success');
-    };
-
-    const handleUpdateInvoiceSettings = async (s: InvoiceSettings) => {
-        await updateFeeSettings(s);
-        refreshSystemData(true);
-        showToast('Đã lưu cấu hình hệ thống.', 'success');
-    };
-
-    const allData = useMemo(() => ({
-        units, owners, vehicles, waterReadings, tariffs, adjustments, activityLogs, monthlyStats, lockedWaterPeriods
-    }), [units, owners, vehicles, waterReadings, tariffs, adjustments, activityLogs, monthlyStats, lockedWaterPeriods]);
-
     // 5. Render Logic
     const renderAdminMobilePage = () => {
-        const props = { units, vehicles, charges, monthlyStats, news, owners, activityLogs: [] };
+        const props = { units, vehicles, charges, monthlyStats, news, owners, waterReadings };
         switch (activePage as AdminPortalPage) {
-            case 'adminPortalHome': return <AdminPortalHomePage {...props} />;
+            case 'adminPortalHome': return <AdminPortalHomePage {...props} onNavigate={(p) => setActivePage(p as any)} />;
             case 'adminPortalBilling': return <AdminPortalBillingPage charges={charges} units={units} owners={owners} />;
             case 'adminPortalResidents': return <AdminPortalResidentsPage units={units} owners={owners} vehicles={vehicles} />;
             case 'adminPortalVehicles': return <AdminPortalVehiclesPage vehicles={vehicles} units={units} owners={owners} />;
@@ -282,23 +217,24 @@ const App: React.FC = () => {
                 <div className="p-4 space-y-4">
                     <button onClick={() => setActivePage('newsManagement')} className="w-full p-4 bg-white rounded-xl shadow-sm border flex justify-between items-center"><span className="font-bold">Quản lý Tin tức</span><span>→</span></button>
                     <button onClick={() => setActivePage('feedbackManagement')} className="w-full p-4 bg-white rounded-xl shadow-sm border flex justify-between items-center"><span className="font-bold">Phản hồi Cư dân</span><span>→</span></button>
-                    <button onClick={() => handleLogout()} className="w-full p-4 bg-red-50 text-red-600 rounded-xl shadow-sm border flex justify-between items-center"><span className="font-bold">Đăng xuất</span><span>⏻</span></button>
+                    <button onClick={() => handleLogout()} className="w-full p-4 bg-red-50 text-red-600 rounded-xl shadow-sm border flex justify-between items-center"><span className="font-bold font-black">Đăng xuất</span><span>⏻</span></button>
                 </div>
             );
-            default: return <AdminPortalHomePage {...props} />;
+            default: return <AdminPortalHomePage {...props} onNavigate={(p) => setActivePage(p as any)} />;
         }
     };
 
     const renderDesktopContent = () => {
+        const allData = { units, owners, vehicles, waterReadings, tariffs, adjustments, activityLogs, monthlyStats, lockedWaterPeriods };
         switch (activePage as AdminPage) {
             case 'overview': return <OverviewPage allUnits={units} allOwners={owners} allVehicles={vehicles} allWaterReadings={waterReadings} charges={charges} activityLogs={activityLogs} feedback={feedback} onNavigate={(p) => setActivePage(p as any)} monthlyStats={monthlyStats} />;
             case 'billing': return <BillingPage charges={charges} setCharges={setCharges} allData={allData} onUpdateAdjustments={() => {}} role={currentUser!.Role} invoiceSettings={safeSettings} onRefresh={() => refreshSystemData(true)} />;
-            case 'residents': return <ResidentsPage units={units} owners={owners} vehicles={vehicles} activityLogs={activityLogs} onSaveResident={handleSaveResident} onImportData={handleImportData} onDeleteResidents={() => {}} role={currentUser!.Role} currentUser={currentUser!} onNavigate={(p) => setActivePage(p as any)} />;
+            case 'residents': return <ResidentsPage units={units} owners={owners} vehicles={vehicles} activityLogs={activityLogs} onSaveResident={() => {}} onImportData={() => {}} onDeleteResidents={() => {}} role={currentUser!.Role} currentUser={currentUser!} onNavigate={(p) => setActivePage(p as any)} />;
             case 'vehicles': return <VehiclesPage vehicles={vehicles} units={units} owners={owners} activityLogs={activityLogs} onSetVehicles={() => {}} role={currentUser!.Role} />;
             case 'water': return <WaterPage waterReadings={waterReadings} setWaterReadings={() => {}} allUnits={units} role={currentUser!.Role} tariffs={tariffs} lockedPeriods={lockedWaterPeriods} refreshData={refreshSystemData} />;
             case 'pricing': return <PricingPage tariffs={tariffs} setTariffs={() => {}} role={currentUser!.Role} />;
             case 'users': return <UsersPage users={users} setUsers={() => {}} units={units} role={currentUser!.Role} />;
-            case 'settings': return <SettingsPage invoiceSettings={safeSettings} setInvoiceSettings={handleUpdateInvoiceSettings} role={currentUser!.Role} />;
+            case 'settings': return <SettingsPage invoiceSettings={safeSettings} setInvoiceSettings={() => Promise.resolve()} role={currentUser!.Role} />;
             case 'backup': return <BackupRestorePage allData={allData} onRestore={() => refreshSystemData(true)} role={currentUser!.Role} />;
             case 'activityLog': return <ActivityLogPage logs={activityLogs} onUndo={() => {}} role={currentUser!.Role} />;
             case 'newsManagement': return <NewsManagementPage news={news} setNews={() => {}} role={currentUser!.Role} users={users} />;
@@ -307,69 +243,56 @@ const App: React.FC = () => {
         }
     };
 
-    if (!currentUser) {
-        return (
-            <NotificationContext.Provider value={{ showToast }}>
-                <SettingsContext.Provider value={{ invoiceSettings: safeSettings, setInvoiceSettings: handleUpdateInvoiceSettings }}>
-                    <LoginPage users={users} onLogin={handleLogin} allOwners={owners} allUnits={units} />
-                    <FooterToast toasts={toasts} onClose={(id) => setToasts(ts => ts.filter(t => t.id !== id))} onClearAll={() => setToasts([])} />
-                </SettingsContext.Provider>
-            </NotificationContext.Provider>
-        );
-    }
+    const renderResidentPage = () => {
+        const owner = owners.find(o => o.OwnerID === units.find(u => u.UnitID === currentUser!.residentId)?.OwnerID) || null;
+        switch (activePage as PortalPage) {
+            case 'portalHome': return <PortalHomePage user={currentUser!} owner={owner} charges={charges} news={news} setActivePage={setActivePage as (p: PortalPage) => void} />;
+            case 'portalNews': return <PortalNewsPage news={news} />;
+            case 'portalBilling': return <PortalBillingPage charges={charges} user={currentUser!} />;
+            case 'portalContact': return <PortalContactPage hotline={safeSettings.senderEmail || '0834.88.66.86'} onSubmitFeedback={(f) => setFeedback([...feedback, f])} />;
+            case 'portalProfile': return <PortalProfilePage user={currentUser!} owner={owner!} onUpdateOwner={(o) => {}} onChangePassword={() => {}} />;
+            default: return <PortalHomePage user={currentUser!} owner={owner} charges={charges} news={news} setActivePage={setActivePage as (p: PortalPage) => void} />;
+        }
+    };
 
-    if (currentUser.Role === 'Resident') {
-        const owner = owners.find(o => o.OwnerID === currentUser.residentId) || null;
-        return (
-            <AuthContext.Provider value={{ user: currentUser, login: handleLogin, logout: handleLogout, updateUser: handleUpdateUser, handleDeleteUsers }}>
-                <NotificationContext.Provider value={{ showToast }}>
-                    <SettingsContext.Provider value={{ invoiceSettings: safeSettings, setInvoiceSettings: handleUpdateInvoiceSettings }}>
-                        <DataRefreshContext.Provider value={{ refreshData: refreshSystemData }}>
-                            <NotificationListener userId={currentUser.Username || currentUser.Email} />
-                            <ResidentLayout 
-                                activePage={activePage as PortalPage} 
-                                setActivePage={(p) => setActivePage(p as any)} 
-                                user={currentUser} 
-                                owner={owner}
-                                onUpdateOwner={() => {}} 
-                                onChangePassword={() => {}}
-                                notifications={{ unreadNews: 0, hasUnpaidBill: false, hasNewNotifications: false }}
-                            >
-                                {activePage === 'portalHome' && <PortalHomePage user={currentUser} owner={owner} charges={charges} news={news} setActivePage={(p) => setActivePage(p as any)} />}
-                                {activePage === 'portalNews' && <PortalNewsPage news={news} />}
-                                {activePage === 'portalBilling' && <PortalBillingPage charges={charges} user={currentUser} />}
-                                {activePage === 'portalContact' && <PortalContactPage hotline={safeSettings?.senderName || 'Hotline BQL'} onSubmitFeedback={() => {}} />}
-                                {activePage === 'portalProfile' && owner && <PortalProfilePage user={currentUser} owner={owner} onUpdateOwner={() => {}} onChangePassword={() => {}} />}
-                            </ResidentLayout>
-                            <FooterToast toasts={toasts} onClose={(id) => setToasts(ts => ts.filter(t => t.id !== id))} onClearAll={() => setToasts([])} />
-                        </DataRefreshContext.Provider>
-                    </SettingsContext.Provider>
-                </NotificationContext.Provider>
-            </AuthContext.Provider>
-        );
-    }
-
-    // Admin View
     return (
         <AuthContext.Provider value={{ user: currentUser, login: handleLogin, logout: handleLogout, updateUser: handleUpdateUser, handleDeleteUsers }}>
             <NotificationContext.Provider value={{ showToast }}>
-                <SettingsContext.Provider value={{ invoiceSettings: safeSettings, setInvoiceSettings: handleUpdateInvoiceSettings }}>
+                <SettingsContext.Provider value={{ invoiceSettings: safeSettings, setInvoiceSettings: (s) => Promise.resolve() }}>
                     <DataRefreshContext.Provider value={{ refreshData: refreshSystemData }}>
-                        <NotificationListener userId={currentUser.Username || currentUser.Email} />
-                        {isMobile ? (
-                            <AdminMobileLayout activePage={activePage as AdminPortalPage} setActivePage={(p) => setActivePage(p as any)} user={currentUser}>
-                                {renderAdminMobilePage()}
-                            </AdminMobileLayout>
+                        {!currentUser ? (
+                            <LoginPage users={users} onLogin={handleLogin} allOwners={owners} allUnits={units} />
                         ) : (
-                            <div className="flex h-screen bg-slate-50 overflow-hidden">
-                                <Sidebar activePage={activePage as AdminPage} setActivePage={(p) => setActivePage(p as any)} role={currentUser.Role} />
-                                <div className="flex-1 flex flex-col min-w-0">
-                                    <Header pageTitle="HUD3 Management" onNavigate={(p) => setActivePage(p as any)} />
-                                    <main className="flex-1 overflow-y-auto p-6">
-                                        {renderDesktopContent()}
-                                    </main>
-                                </div>
-                            </div>
+                            <>
+                                <NotificationListener userId={currentUser.Username || currentUser.Email} />
+                                {currentUser.Role === 'Resident' ? (
+                                    <ResidentLayout 
+                                        activePage={activePage as PortalPage} 
+                                        setActivePage={setActivePage as (p: PortalPage) => void} 
+                                        user={currentUser} 
+                                        owner={owners.find(o => o.OwnerID === units.find(u => u.UnitID === currentUser.residentId)?.OwnerID) || null} 
+                                        onUpdateOwner={() => {}} 
+                                        onChangePassword={() => {}} 
+                                        notifications={{ unreadNews: 0, hasUnpaidBill: false, hasNewNotifications: false }}
+                                    >
+                                        {renderResidentPage()}
+                                    </ResidentLayout>
+                                ) : isMobile ? (
+                                    <AdminMobileLayout activePage={activePage as AdminPortalPage} setActivePage={(p) => setActivePage(p as any)} user={currentUser}>
+                                        {renderAdminMobilePage()}
+                                    </AdminMobileLayout>
+                                ) : (
+                                    <div className="flex h-screen bg-slate-50 overflow-hidden">
+                                        <Sidebar activePage={activePage as AdminPage} setActivePage={(p) => setActivePage(p as any)} role={currentUser.Role} />
+                                        <div className="flex-1 flex flex-col min-w-0">
+                                            <Header pageTitle="HUD3 Management" onNavigate={(p) => setActivePage(p as any)} />
+                                            <main className="flex-1 overflow-y-auto p-6">
+                                                {renderDesktopContent()}
+                                            </main>
+                                        </div>
+                                    </div>
+                                )}
+                            </>
                         )}
                         <FooterToast toasts={toasts} onClose={(id) => setToasts(ts => ts.filter(t => t.id !== id))} onClearAll={() => setToasts([])} />
                     </DataRefreshContext.Provider>

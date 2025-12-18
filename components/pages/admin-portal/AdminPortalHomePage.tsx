@@ -1,12 +1,16 @@
-import React, { useMemo } from 'react';
+
+import React, { useMemo, useState } from 'react';
 import { BarChart, Bar, XAxis, YAxis, CartesianGrid, ResponsiveContainer, Tooltip } from 'recharts';
 import { 
     BanknotesIcon, CarIcon, DropletsIcon, 
     MegaphoneIcon, WarningIcon, CheckCircleIcon, TrendingUpIcon,
-    MotorbikeIcon, ChevronRightIcon, ClockIcon
+    ChevronRightIcon, ClockIcon, SearchIcon, XMarkIcon,
+    UserIcon, PhoneArrowUpRightIcon, ChevronDownIcon, ChevronUpIcon,
+    MotorbikeIcon, BikeIcon, EBikeIcon, HomeIcon
 } from '../../ui/Icons';
-import { formatCurrency, formatNumber } from '../../../utils/helpers';
-import type { Unit, Vehicle, ChargeRaw, MonthlyStat, NewsItem, WaterReading } from '../../../types';
+import { formatCurrency, formatNumber, getPastelColorForName, translateVehicleType } from '../../../utils/helpers';
+import type { Unit, Vehicle, ChargeRaw, MonthlyStat, NewsItem, WaterReading, Owner } from '../../../types';
+import { AdminPortalPage } from '../../layout/AdminMobileLayout';
 
 interface AdminPortalHomePageProps {
     units?: Unit[];
@@ -15,6 +19,8 @@ interface AdminPortalHomePageProps {
     monthlyStats?: MonthlyStat[];
     news?: NewsItem[];
     waterReadings?: WaterReading[];
+    owners?: Owner[];
+    onNavigate?: (page: AdminPortalPage) => void;
 }
 
 const StatCard: React.FC<{ label: string; value: string | number; subValue?: string; icon: React.ReactNode; color: string; bgColor: string }> = ({ label, value, subValue, icon, color, bgColor }) => (
@@ -25,7 +31,7 @@ const StatCard: React.FC<{ label: string; value: string | number; subValue?: str
             </div>
             {subValue && (
                 <div className="flex flex-col items-end">
-                    <span className="text-[10px] font-black text-gray-400 bg-gray-50 px-1.5 py-0.5 rounded border border-gray-100">{subValue}</span>
+                    <span className="text-[9px] font-black text-gray-400 bg-gray-50 px-1.5 py-0.5 rounded border border-gray-100">{subValue}</span>
                 </div>
             )}
         </div>
@@ -42,160 +48,249 @@ const AdminPortalHomePage: React.FC<AdminPortalHomePageProps> = ({
     charges = [], 
     monthlyStats = [], 
     news = [], 
-    waterReadings = [] 
+    waterReadings = [],
+    owners = [],
+    onNavigate
 }) => {
+    const [searchQuery, setSearchQuery] = useState('');
+    const [expandedResultId, setExpandedResultId] = useState<string | null>(null);
     const currentPeriod = useMemo(() => new Date().toISOString().slice(0, 7), []);
     
+    // KPI Calculation - In-Memory
     const stats = useMemo(() => {
-        const periodCharges = (charges || []).filter(c => c.Period === currentPeriod);
+        const periodCharges = charges.filter(c => c.Period === currentPeriod);
         const totalDue = periodCharges.reduce((s, c) => s + (c.TotalDue || 0), 0);
         const totalPaid = periodCharges.reduce((s, c) => s + (c.TotalPaid || 0), 0);
-        
         const paidCount = periodCharges.filter(c => ['paid', 'paid_tm', 'paid_ck'].includes(c.paymentStatus)).length;
-        const totalUnits = (units && units.length > 0) ? units.length : 320;
-
-        const activeVehicles = (vehicles || []).filter(v => v.isActive);
+        const totalUnits = units.length || 320;
+        const activeVehicles = vehicles.filter(v => v.isActive);
         const cars = activeVehicles.filter(v => v.Type.includes('car')).length;
         const motos = activeVehicles.filter(v => v.Type === 'motorbike' || v.Type === 'ebike').length;
-
-        const waterConsumption = (waterReadings || [])
-            .filter(r => r.Period === currentPeriod)
-            .reduce((sum, r) => sum + (r.consumption || 0), 0);
-
+        const waterConsumption = waterReadings.filter(r => r.Period === currentPeriod).reduce((sum, r) => sum + (r.consumption || 0), 0);
         return { totalDue, totalPaid, paidCount, totalUnits, cars, motos, waterConsumption };
     }, [units, vehicles, charges, currentPeriod, waterReadings]);
 
+    // Global Search In-Memory
+    const searchResults = useMemo(() => {
+        if (searchQuery.length < 2) return [];
+        const q = searchQuery.toLowerCase();
+        
+        const results: any[] = [];
+        
+        // 1. Tìm theo Căn hộ / Chủ hộ
+        const matchedUnits = units.filter(u => {
+            const owner = owners.find(o => o.OwnerID === u.OwnerID);
+            return u.UnitID.toLowerCase().includes(q) || 
+                   (owner?.OwnerName || '').toLowerCase().includes(q) ||
+                   (owner?.Phone || '').includes(q);
+        });
+
+        matchedUnits.forEach(u => {
+            const owner = owners.find(o => o.OwnerID === u.OwnerID);
+            const unitVehicles = vehicles.filter(v => v.UnitID === u.UnitID && v.isActive);
+            results.push({
+                type: 'unit',
+                id: `unit_${u.UnitID}`,
+                targetId: u.UnitID,
+                owner,
+                unit: u,
+                vehicles: unitVehicles
+            });
+        });
+
+        // 2. Tìm theo Biển số xe
+        const matchedVehicles = vehicles.filter(v => 
+            v.isActive && 
+            v.PlateNumber.toLowerCase().replace(/[^a-zA-Z0-9]/g, '').includes(q.replace(/[^a-zA-Z0-9]/g, '')) &&
+            !matchedUnits.some(u => u.UnitID === v.UnitID)
+        );
+
+        matchedVehicles.forEach(v => {
+            const unit = units.find(u => u.UnitID === v.UnitID);
+            const owner = owners.find(o => o.OwnerID === unit?.OwnerID);
+            results.push({
+                type: 'vehicle',
+                id: `veh_${v.VehicleId}`,
+                targetId: v.VehicleId,
+                vehicle: v,
+                unit,
+                owner
+            });
+        });
+
+        return results.slice(0, 10);
+    }, [searchQuery, units, owners, vehicles]);
+
+    const handleJumpToDetail = (page: AdminPortalPage, targetId: string) => {
+        // Lưu ID mục tiêu vào localStorage để trang đích tự động mở rộng
+        localStorage.setItem('admin_portal_focus_id', targetId);
+        onNavigate?.(page);
+    };
+
     const chartData = useMemo(() => {
-        const last6 = (monthlyStats || []).slice(-6);
-        return last6.map(s => ({
+        return monthlyStats.slice(-6).map(s => ({
             name: s.period ? `T${s.period.split('-')[1]}` : '---',
             val: Math.round((s.totalDue || 0) / 1000000)
         }));
     }, [monthlyStats]);
 
-    const alerts = useMemo(() => {
-        const recordedCount = (waterReadings || []).filter(r => r.Period === currentPeriod).length;
-        const unrecordedWater = Math.max(0, stats.totalUnits - recordedCount);
-        return [
-            { text: `${unrecordedWater} căn hộ chưa chốt nước`, icon: <WarningIcon className="text-red-500"/>, type: 'critical' },
-            { text: `${(vehicles || []).filter(v => v.parkingStatus === 'Xếp lốt').length} xe đang chờ lốt`, icon: <ClockIcon className="text-orange-500"/>, type: 'info' },
-            { text: 'Phát hành thông báo phí mới', icon: <MegaphoneIcon className="text-blue-500"/>, type: 'action' }
-        ];
-    }, [stats, waterReadings, currentPeriod, vehicles]);
+    const alerts = useMemo(() => [
+        { text: `${Math.max(0, stats.totalUnits - waterReadings.filter(r => r.Period === currentPeriod).length)} căn chưa chốt nước`, icon: <WarningIcon className="text-red-500"/> },
+        { text: `${vehicles.filter(v => v.parkingStatus === 'Xếp lốt').length} xe đang chờ lốt`, icon: <ClockIcon className="text-orange-500"/> },
+        { text: 'Kiểm tra phản hồi mới từ cư dân', icon: <MegaphoneIcon className="text-blue-500"/> }
+    ], [stats, waterReadings, currentPeriod, vehicles]);
 
     return (
         <div className="p-4 space-y-5">
-            {/* 1. StatCards 2x2 */}
+            {/* 1. Stat Cards 2x2 */}
             <div className="grid grid-cols-2 gap-3 shrink-0">
-                <StatCard 
-                    label="Tài chính" 
-                    value={formatCurrency(stats.totalPaid)} 
-                    subValue={formatCurrency(stats.totalDue)}
-                    icon={<BanknotesIcon />} 
-                    color="text-emerald-600" 
-                    bgColor="bg-emerald-50" 
-                />
-                <StatCard 
-                    label="Tiến độ thu" 
-                    value={`${Math.round((stats.paidCount / (stats.totalUnits || 1)) * 100)}%`} 
-                    subValue={`${stats.paidCount}/${stats.totalUnits}`}
-                    icon={<CheckCircleIcon />} 
-                    color="text-primary" 
-                    bgColor="bg-primary/10" 
-                />
-                <StatCard 
-                    label="Xe Ôtô / Máy" 
-                    value={`${stats.cars} / ${stats.motos}`} 
-                    icon={<CarIcon />} 
-                    color="text-blue-600" 
-                    bgColor="bg-blue-50" 
-                />
-                <StatCard 
-                    label="Nước sạch" 
-                    value={`${formatNumber(stats.waterConsumption)} m³`} 
-                    icon={<DropletsIcon />} 
-                    color="text-cyan-600" 
-                    bgColor="bg-cyan-50" 
-                />
+                <StatCard label="Tài chính" value={formatCurrency(stats.totalPaid)} subValue={formatCurrency(stats.totalDue)} icon={<BanknotesIcon />} color="text-emerald-600" bgColor="bg-emerald-50" />
+                <StatCard label="Tiến độ thu" value={`${Math.round((stats.paidCount / (stats.totalUnits || 1)) * 100)}%`} subValue={`${stats.paidCount}/${stats.totalUnits}`} icon={<CheckCircleIcon />} color="text-primary" bgColor="bg-primary/10" />
+                <StatCard label="Xe Ôtô / Máy" value={`${stats.cars} / ${stats.motos}`} icon={<CarIcon />} color="text-blue-600" bgColor="bg-blue-50" />
+                <StatCard label="Nước sạch" value={`${formatNumber(stats.waterConsumption)} m³`} icon={<DropletsIcon />} color="text-cyan-600" bgColor="bg-cyan-50" />
             </div>
 
-            {/* 2. Revenue Chart (Sync with Desktop) */}
+            {/* 2. Revenue Chart */}
             <div className="bg-white p-5 rounded-2xl shadow-sm border border-gray-100">
-                <div className="flex justify-between items-center mb-5">
-                    <h3 className="font-black text-gray-800 text-[11px] uppercase tracking-widest flex items-center gap-2">
-                        <TrendingUpIcon className="w-4 h-4 text-emerald-500"/> Doanh thu 6 tháng (Tr. VNĐ)
-                    </h3>
-                </div>
-                <div className="h-44 w-full -ml-4">
+                <h3 className="font-black text-gray-800 text-[11px] uppercase tracking-widest flex items-center gap-2 mb-5">
+                    <TrendingUpIcon className="w-4 h-4 text-emerald-500"/> Doanh thu 6 tháng (Tr. VNĐ)
+                </h3>
+                <div className="h-40 w-full -ml-4">
                     <ResponsiveContainer width="100%" height="100%">
                         <BarChart data={chartData}>
                             <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#f1f5f9" />
-                            <XAxis 
-                                dataKey="name" 
-                                tick={{fontSize: 10, fontWeight: '900', fill: '#94a3b8'}} 
-                                axisLine={false} 
-                                tickLine={false}
-                                dy={10}
-                            />
+                            <XAxis dataKey="name" tick={{fontSize: 9, fontWeight: '900', fill: '#94a3b8'}} axisLine={false} tickLine={false} dy={5} />
                             <YAxis hide />
-                            <Tooltip 
-                                cursor={{fill: '#f8fafc', radius: 4}}
-                                content={({ active, payload }) => {
-                                    if (active && payload && payload.length) {
-                                        return (
-                                            <div className="bg-gray-900 text-white px-3 py-1.5 rounded-xl text-[10px] font-black shadow-xl ring-2 ring-white/10">
-                                                {payload[0].value} TRIỆU
-                                            </div>
-                                        );
-                                    }
-                                    return null;
-                                }}
-                            />
-                            <Bar dataKey="val" fill="#006f3a" radius={[6, 6, 0, 0]} barSize={28} />
+                            <Tooltip cursor={{fill: '#f8fafc', radius: 4}} content={({ active, payload }) => active && payload?.[0] ? <div className="bg-gray-900 text-white px-2 py-1 rounded-lg text-[9px] font-black shadow-xl">{payload[0].value} TRIỆU</div> : null} />
+                            <Bar dataKey="val" fill="#006f3a" radius={[4, 4, 0, 0]} barSize={24} />
                         </BarChart>
                     </ResponsiveContainer>
                 </div>
             </div>
 
-            {/* 3. Latest News */}
-            <div className="bg-white rounded-2xl shadow-sm border border-gray-100 overflow-hidden">
-                <div className="px-5 py-4 border-b border-gray-50 flex justify-between items-center bg-gray-50/50">
-                    <h3 className="font-black text-gray-800 text-[11px] uppercase tracking-widest">Tin tức quản trị mới</h3>
-                    <ChevronRightIcon className="w-4 h-4 text-gray-300" />
+            {/* 3. Global Search Card (Below Chart) */}
+            <div className="bg-white p-4 rounded-2xl shadow-sm border border-gray-100 overflow-hidden">
+                <div className="relative">
+                    <SearchIcon className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400 w-4 h-4" />
+                    <input 
+                        type="text" 
+                        placeholder="Tìm Căn hộ, Chủ hộ, Biển số xe..." 
+                        value={searchQuery}
+                        onChange={(e) => {
+                            setSearchQuery(e.target.value);
+                            setExpandedResultId(null);
+                        }}
+                        className="w-full pl-9 pr-9 py-2.5 bg-gray-50 border border-gray-100 rounded-xl focus:ring-2 focus:ring-primary/20 outline-none text-sm transition-all"
+                    />
+                    {searchQuery && (
+                        <button onClick={() => { setSearchQuery(''); setExpandedResultId(null); }} className="absolute right-3 top-1/2 -translate-y-1/2 text-gray-400">
+                            <XMarkIcon className="w-4 h-4" />
+                        </button>
+                    )}
                 </div>
-                <div className="divide-y divide-gray-50">
-                    {(news || []).slice(0, 2).map(n => (
-                        <div key={n.id} className="p-4 active:bg-gray-50 transition-colors">
-                            <p className="font-black text-sm text-gray-800 line-clamp-1">{n.title}</p>
-                            <div className="flex items-center gap-2 mt-2">
-                                <span className={`text-[9px] font-black px-2 py-0.5 rounded-full uppercase ${
-                                    n.priority === 'high' ? 'bg-red-50 text-red-600 border border-red-100' : 'bg-blue-50 text-blue-600 border border-blue-100'
-                                }`}>
-                                    {n.category}
-                                </span>
-                                <span className="text-[10px] text-gray-400 font-bold uppercase tracking-tighter italic">
-                                    {n.date ? new Date(n.date).toLocaleDateString('vi-VN') : '--'}
-                                </span>
-                            </div>
-                        </div>
-                    ))}
-                    {(news || []).length === 0 && <p className="p-8 text-center text-xs text-gray-400 italic">Chưa có bản tin mới.</p>}
-                </div>
+
+                {searchQuery.length >= 2 && (
+                    <div className="mt-3 divide-y divide-gray-50 border-t border-gray-50 -mx-4 -mb-4">
+                        {searchResults.length > 0 ? searchResults.map(res => {
+                            const isExpanded = expandedResultId === res.id;
+                            const theme = getPastelColorForName(res.targetId || 'HUD3');
+                            
+                            return (
+                                <div key={res.id} className={`transition-all ${isExpanded ? 'bg-slate-50 shadow-inner' : 'bg-white'}`}>
+                                    <button 
+                                        onClick={() => setExpandedResultId(isExpanded ? null : res.id)}
+                                        className="w-full flex items-center gap-3 p-4 text-left active:bg-gray-100 transition-colors"
+                                    >
+                                        <div className={`w-10 h-10 rounded-xl flex items-center justify-center font-black text-xs shrink-0 ${theme.bg} ${theme.text} ${theme.border}`}>
+                                            {res.type === 'unit' ? res.targetId : <CarIcon className="w-5 h-5" />}
+                                        </div>
+                                        <div className="flex-1 min-w-0">
+                                            <p className="text-sm font-black text-gray-800 truncate">
+                                                {res.type === 'unit' ? res.owner?.OwnerName : res.vehicle?.PlateNumber}
+                                            </p>
+                                            <p className="text-[10px] text-gray-400 font-bold uppercase tracking-tight">
+                                                {res.type === 'unit' ? `Căn hộ ${res.targetId}` : `${translateVehicleType(res.vehicle?.Type)} • Căn ${res.unit?.UnitID}`}
+                                            </p>
+                                        </div>
+                                        {isExpanded ? <ChevronUpIcon className="w-4 h-4 text-gray-300" /> : <ChevronDownIcon className="w-4 h-4 text-gray-300" />}
+                                    </button>
+
+                                    {isExpanded && (
+                                        <div className="px-4 pb-4 animate-fade-in-down">
+                                            {res.type === 'unit' ? (
+                                                <div className="space-y-4 pt-2">
+                                                    <div className="grid grid-cols-2 gap-2">
+                                                        <a href={`tel:${res.owner?.Phone}`} className="flex items-center gap-3 p-3 bg-white rounded-xl border border-gray-200 text-blue-600">
+                                                            <PhoneArrowUpRightIcon className="w-4 h-4" />
+                                                            <span className="text-xs font-black">{res.owner?.Phone || '---'}</span>
+                                                        </a>
+                                                        <div className="flex items-center gap-3 p-3 bg-white rounded-xl border border-gray-200 text-gray-700">
+                                                            <HomeIcon className="w-4 h-4" />
+                                                            <span className="text-xs font-black">{res.unit?.Status || '---'}</span>
+                                                        </div>
+                                                    </div>
+                                                    
+                                                    {res.vehicles.length > 0 && (
+                                                        <div className="space-y-2">
+                                                            <p className="text-[9px] font-black text-gray-400 uppercase tracking-widest">Xe tại căn</p>
+                                                            <div className="grid grid-cols-1 gap-1.5">
+                                                                {res.vehicles.map((v: Vehicle) => (
+                                                                    <div key={v.VehicleId} className="flex items-center justify-between p-2 bg-white rounded-lg border border-gray-100">
+                                                                        <div className="flex items-center gap-2">
+                                                                            {v.Type.includes('car') ? <CarIcon className="w-3.5 h-3.5 text-blue-500" /> : <MotorbikeIcon className="w-3.5 h-3.5 text-orange-500" />}
+                                                                            <span className="font-mono text-xs font-black text-gray-800">{v.PlateNumber}</span>
+                                                                        </div>
+                                                                    </div>
+                                                                ))}
+                                                            </div>
+                                                        </div>
+                                                    )}
+                                                </div>
+                                            ) : (
+                                                <div className="space-y-4 pt-2">
+                                                    <div className="p-3 bg-white rounded-xl border border-gray-200">
+                                                        <p className="text-[10px] font-bold text-gray-400 uppercase mb-1">Model xe</p>
+                                                        <p className="text-xs font-black text-gray-700">{res.vehicle?.VehicleName || 'Chưa cập nhật'}</p>
+                                                    </div>
+                                                    <div className="flex items-center gap-3 p-3 bg-white rounded-xl border border-gray-200">
+                                                        <div className="w-8 h-8 rounded-full bg-slate-50 flex items-center justify-center text-gray-400">
+                                                            <UserIcon className="w-4 h-4" />
+                                                        </div>
+                                                        <div>
+                                                            <p className="text-sm font-black text-gray-800 leading-tight">{res.owner?.OwnerName || 'N/A'}</p>
+                                                            <p className="text-[10px] text-gray-400 font-bold uppercase">Căn hộ {res.unit?.UnitID}</p>
+                                                        </div>
+                                                    </div>
+                                                </div>
+                                            )}
+                                            <button 
+                                                onClick={() => handleJumpToDetail(res.type === 'unit' ? 'adminPortalResidents' : 'adminPortalVehicles', res.targetId)}
+                                                className="w-full mt-4 py-2.5 bg-primary text-white text-[11px] font-black uppercase tracking-widest rounded-xl shadow-md active:bg-primary-focus transition-all flex items-center justify-center gap-2"
+                                            >
+                                                Quản lý chi tiết <ChevronRightIcon className="w-4 h-4" />
+                                            </button>
+                                        </div>
+                                    )}
+                                </div>
+                            );
+                        }) : <p className="text-xs text-gray-400 text-center py-8 italic">Không tìm thấy kết quả.</p>}
+                    </div>
+                )}
             </div>
 
-            {/* 4. Alerts & To-Do */}
+            {/* 4. To-Do Items */}
             <div className="bg-white rounded-2xl shadow-sm border border-gray-100 overflow-hidden">
                 <div className="px-5 py-4 border-b border-gray-50 bg-gray-50/50">
-                    <h3 className="font-black text-gray-800 text-[11px] uppercase tracking-widest">Cảnh báo & Việc cần làm</h3>
+                    <h3 className="font-black text-gray-800 text-[11px] uppercase tracking-widest">Việc cần xử lý</h3>
                 </div>
-                <div className="p-5 space-y-4">
+                <div className="p-4 space-y-4">
                     {alerts.map((alert, idx) => (
                         <div key={idx} className="flex items-center gap-4 group">
-                            <div className="shrink-0 w-8 h-8 bg-gray-50 rounded-xl flex items-center justify-center group-active:scale-90 transition-transform border border-gray-100">
-                                {React.cloneElement(alert.icon as React.ReactElement, { className: 'w-4.5 h-4.5' })}
+                            <div className="shrink-0 w-8 h-8 bg-gray-50 rounded-xl flex items-center justify-center border border-gray-100">
+                                {React.cloneElement(alert.icon as React.ReactElement, { className: 'w-4 h-4' })}
                             </div>
-                            <span className="text-sm font-bold text-gray-700 flex-1">{alert.text}</span>
-                            <ChevronRightIcon className="w-4 h-4 text-gray-200" />
+                            <span className="text-xs font-bold text-gray-700 flex-1">{alert.text}</span>
+                            <ChevronRightIcon className="w-3 h-3 text-gray-300" />
                         </div>
                     ))}
                 </div>

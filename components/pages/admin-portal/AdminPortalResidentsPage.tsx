@@ -1,5 +1,5 @@
 
-import React, { useMemo, useState } from 'react';
+import React, { useMemo, useState, useEffect } from 'react';
 import type { Unit, Owner, Vehicle, VehicleDocument } from '../../../types';
 import { 
     HomeIcon, UserIcon, SearchIcon, PhoneArrowUpRightIcon, 
@@ -32,6 +32,16 @@ const AdminPortalResidentsPage: React.FC<AdminPortalResidentsPageProps> = ({ uni
     const [search, setSearch] = useState('');
     const [expandedUnitId, setExpandedUnitId] = useState<string | null>(null);
     const [previewDoc, setPreviewDoc] = useState<VehicleDocument | null>(null);
+
+    // Deep-linking logic: Kiểm tra nếu được dẫn tới từ Search Home
+    useEffect(() => {
+        const targetId = localStorage.getItem('admin_portal_focus_id');
+        if (targetId && !targetId.includes('-')) { // UnitID thường không chứa gạch ngang như VehicleId
+            setExpandedUnitId(targetId);
+            localStorage.removeItem('admin_portal_focus_id');
+            // Scroll tới vị trí đó nếu cần (tùy chọn)
+        }
+    }, []);
     
     // Thống kê cư dân
     const stats = useMemo(() => {
@@ -117,7 +127,7 @@ const AdminPortalResidentsPage: React.FC<AdminPortalResidentsPageProps> = ({ uni
                     const unitTheme = getPastelColorForName(unit.UnitID);
 
                     return (
-                        <div key={unit.UnitID} className={`bg-white transition-all ${isExpanded ? 'ring-1 ring-primary/20 shadow-md my-2' : ''}`}>
+                        <div key={unit.UnitID} id={`unit-card-${unit.UnitID}`} className={`bg-white transition-all ${isExpanded ? 'ring-1 ring-primary/20 shadow-md my-2' : ''}`}>
                             <div 
                                 onClick={() => toggleExpand(unit.UnitID)}
                                 className={`p-4 flex items-center justify-between active:bg-gray-50 transition-colors ${isExpanded ? 'bg-primary/5' : ''}`}

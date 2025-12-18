@@ -1,7 +1,7 @@
-
 import React, { useState, useMemo, useRef, useEffect } from 'react';
 import type { FeedbackItem, FeedbackReply, Role } from '../../types';
-import { useNotification, useLogger, useAuth } from '../../App';
+// Removed useLogger as it is not exported from App.tsx and is unused in this file
+import { useNotification, useAuth } from '../../App';
 import Modal from '../ui/Modal';
 import { timeAgo, getPreviousPeriod } from '../../utils/helpers';
 import { 
@@ -85,7 +85,8 @@ const FeedbackDetailModal: React.FC<{
     const handleReply = () => {
         if (!replyContent.trim()) return;
         const newReply: FeedbackReply = {
-            author: user.Username || 'BQL',
+            /* Added optional chaining as user can be null according to AuthContextType */
+            author: user?.Username || user?.Email || 'BQL',
             content: replyContent.trim(),
             date: new Date().toISOString(),
         };

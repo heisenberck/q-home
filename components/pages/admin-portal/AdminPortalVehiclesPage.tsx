@@ -1,5 +1,5 @@
 
-import React, { useMemo, useState } from 'react';
+import React, { useMemo, useState, useEffect } from 'react';
 import type { Vehicle, Unit, Owner } from '../../../types';
 import { 
     SearchIcon, CarIcon, MotorbikeIcon, ChevronDownIcon, ChevronUpIcon,
@@ -29,6 +29,15 @@ const VehicleStatCard: React.FC<{ label: string; value: number; icon: React.Reac
 const AdminPortalVehiclesPage: React.FC<AdminPortalVehiclesPageProps> = ({ vehicles = [], units = [], owners = [] }) => {
     const [search, setSearch] = useState('');
     const [expandedVehicleId, setExpandedVehicleId] = useState<string | null>(null);
+
+    // Deep-linking logic: Kiểm tra nếu được dẫn tới từ Search Home
+    useEffect(() => {
+        const targetId = localStorage.getItem('admin_portal_focus_id');
+        if (targetId && targetId.includes('VEH')) { // Giả định VehicleId có chứa tiền tố VEH hoặc định dạng ID Firebase
+            setExpandedVehicleId(targetId);
+            localStorage.removeItem('admin_portal_focus_id');
+        }
+    }, []);
 
     const activeVehicles = useMemo(() => {
         return (vehicles || []).filter(v => v.isActive);
@@ -77,7 +86,10 @@ const AdminPortalVehiclesPage: React.FC<AdminPortalVehiclesPageProps> = ({ vehic
                         type="text" 
                         placeholder="Tìm biển số, căn hộ, chủ hộ..." 
                         value={search}
-                        onChange={(e) => setSearch(e.target.value)}
+                        onChange={(e) => {
+                            setSearch(e.target.value);
+                            setExpandedVehicleId(null);
+                        }}
                         className="w-full pl-9 pr-4 py-3 bg-white border border-gray-200 rounded-xl shadow-sm focus:ring-2 focus:ring-primary/20 focus:border-primary outline-none text-sm transition-all"
                     />
                 </div>
@@ -92,7 +104,7 @@ const AdminPortalVehiclesPage: React.FC<AdminPortalVehiclesPageProps> = ({ vehic
                     const unitTheme = getPastelColorForName(vehicle.UnitID);
 
                     return (
-                        <div key={vehicle.VehicleId} className={`bg-white transition-all ${isExpanded ? 'ring-1 ring-primary/20 shadow-md my-2' : ''}`}>
+                        <div key={vehicle.VehicleId} id={`vehicle-card-${vehicle.VehicleId}`} className={`bg-white transition-all ${isExpanded ? 'ring-1 ring-primary/20 shadow-md my-2' : ''}`}>
                             <div 
                                 onClick={() => toggleExpand(vehicle.VehicleId)}
                                 className={`p-4 flex items-center justify-between active:bg-gray-50 transition-colors ${isExpanded ? 'bg-primary/5' : ''}`}
