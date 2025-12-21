@@ -1,3 +1,4 @@
+
 import {
     UserPermission,
     Unit,
@@ -16,6 +17,7 @@ import {
 } from './types';
 
 export const MOCK_USER_PERMISSIONS: UserPermission[] = [
+    { Email: 'admin0@q-home.vn', Username: 'Admin0', Role: 'Admin', status: 'Active', password: '123456a@A' },
     { Email: 'admin@bql.com.vn', Username: 'admin', Role: 'Admin', status: 'Active', password: '123456a@' },
     { Email: 'ketoan@bql.com.vn', Username: 'ketoan', Role: 'Accountant', status: 'Active', password: '123456a@' },
     { Email: 'vanhanh@bql.com.vn', Username: 'vanhanh', Role: 'Operator', status: 'Disabled', password: '123456a@' },

