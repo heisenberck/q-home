@@ -1,6 +1,5 @@
-
 // services/mockAPI.ts
-import type { InvoiceSettings, Unit, Owner, Vehicle, WaterReading, ChargeRaw, Adjustment, UserPermission, ActivityLog, AllData, TariffCollection, PaymentStatus, MonthlyStat, SystemMetadata, ProfileRequest } from '../types';
+import type { InvoiceSettings, Unit, Owner, Vehicle, WaterReading, ChargeRaw, Adjustment, UserPermission, ActivityLog, AllData, TariffCollection, PaymentStatus, MonthlyStat, SystemMetadata, ProfileRequest, MiscRevenue } from '../types';
 import { MOCK_UNITS, MOCK_OWNERS, MOCK_VEHICLES, MOCK_WATER_READINGS, MOCK_TARIFFS_SERVICE, MOCK_TARIFFS_PARKING, MOCK_TARIFFS_WATER, MOCK_ADJUSTMENTS, MOCK_USER_PERMISSIONS, patchKiosAreas } from '../constants';
 import { UnitType, VehicleTier } from '../types';
 
@@ -40,6 +39,7 @@ let adjustments: Adjustment[] = loadFromStorage('adjustments', JSON.parse(JSON.s
 let users: UserPermission[] = loadFromStorage('users', JSON.parse(JSON.stringify(MOCK_USER_PERMISSIONS)));
 let activityLogs: ActivityLog[] = loadFromStorage('activityLogs', []);
 let profileRequests: ProfileRequest[] = loadFromStorage('profileRequests', []);
+let miscRevenues: MiscRevenue[] = loadFromStorage('miscRevenues', []);
 
 let monthlyStats: MonthlyStat[] = loadFromStorage('monthlyStats', [
     { period: '2024-06', totalService: 50000000, totalParking: 30000000, totalWater: 15000000, totalDue: 95000000, updatedAt: new Date().toISOString() },
@@ -245,9 +245,10 @@ export const wipeAllBusinessData = async (progressCallback: (message: string) =>
     adjustments = JSON.parse(JSON.stringify(MOCK_ADJUSTMENTS));
     activityLogs = [];
     monthlyStats = [];
+    miscRevenues = [];
     
     // Clear storage keys
-    const keysToRemove = ['units', 'owners', 'vehicles', 'waterReadings', 'charges', 'adjustments', 'activityLogs', 'monthlyStats', 'waterLocks', 'billingLocks', 'profileRequests'];
+    const keysToRemove = ['units', 'owners', 'vehicles', 'waterReadings', 'charges', 'adjustments', 'activityLogs', 'monthlyStats', 'waterLocks', 'billingLocks', 'profileRequests', 'miscRevenues'];
     keysToRemove.forEach(k => localStorage.removeItem(DB_PREFIX + k));
 
     await new Promise(r => setTimeout(r, 500));
@@ -575,5 +576,37 @@ export const resolveProfileRequest = async (
         
         saveToStorage('profileRequests', profileRequests);
     }
+    return Promise.resolve();
+};
+
+// MISC REVENUES MOCK
+export const addMiscRevenue = async (data: Omit<MiscRevenue, 'id' | 'createdAt'>): Promise<string> => {
+    const id = `misc_mock_${Date.now()}`;
+    const newItem: MiscRevenue = {
+        ...data,
+        id,
+        createdAt: new Date().toISOString()
+    };
+    miscRevenues = [newItem, ...miscRevenues];
+    saveToStorage('miscRevenues', miscRevenues);
+    return Promise.resolve(id);
+};
+
+export const getMiscRevenues = async (date: string): Promise<MiscRevenue[]> => {
+    return Promise.resolve(miscRevenues.filter(r => r.date === date));
+};
+
+/* Fix: Added getMonthlyMiscRevenues to support monthly reporting in VAS module */
+export const getMonthlyMiscRevenues = async (month: string): Promise<MiscRevenue[]> => {
+    return Promise.resolve(
+        miscRevenues
+            .filter(r => r.date.startsWith(month))
+            .sort((a, b) => b.date.localeCompare(a.date) || b.createdAt.localeCompare(a.createdAt))
+    );
+};
+
+export const deleteMiscRevenue = async (id: string): Promise<void> => {
+    miscRevenues = miscRevenues.filter(r => r.id !== id);
+    saveToStorage('miscRevenues', miscRevenues);
     return Promise.resolve();
 };

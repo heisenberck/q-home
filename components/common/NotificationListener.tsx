@@ -1,6 +1,6 @@
 
 import React, { useEffect, useRef } from 'react';
-import { collection, query, where, orderBy, limit, onSnapshot } from 'firebase/firestore';
+import { collection, query, where, onSnapshot } from 'firebase/firestore';
 import { db } from '../../firebaseConfig';
 import { useNotification } from '../../App';
 
@@ -13,59 +13,52 @@ const NotificationListener: React.FC<NotificationListenerProps> = ({ userId }) =
     const isFirstLoad = useRef(true);
 
     useEffect(() => {
-        // Guard clause: Don't subscribe if userId is empty/null
         if (!userId) return;
 
-        // OPTIMIZATION: Limit to 10 to prevent quota explosion
-        // Only fetch UNREAD notifications to keep the active set small
+        // Optimized: Query by userId only. 
+        // Adding where('isRead', '==', false) and orderBy('createdAt') requires a composite index.
+        // For reliability across all project tiers without manual setup, we handle filters in memory.
         const q = query(
             collection(db, 'notifications'),
-            where('userId', '==', userId),
-            where('isRead', '==', false),
-            orderBy('createdAt', 'desc'),
-            limit(10) 
+            where('userId', '==', userId)
         );
 
         console.log(`[NotificationListener] Subscribing for user: ${userId}`);
 
         const unsubscribe = onSnapshot(q, (snapshot) => {
-            // Handle first load to avoid spamming toasts for existing unread messages
             if (isFirstLoad.current) {
                 isFirstLoad.current = false;
                 return;
             }
 
             snapshot.docChanges().forEach((change) => {
+                // Only alert on newly added notifications that are unread
                 if (change.type === 'added') {
                     const data = change.doc.data();
                     
-                    // Customize message based on type
-                    let message = `🔔 ${data.title}`;
-                    if (data.type === 'bill') {
-                        // Special format for bills
-                        message = `🔔 ${data.title}: ${data.body}`;
-                    } else if (data.type === 'news') {
-                        message = `📰 Tin mới: ${data.title}`;
+                    if (data.isRead === false) {
+                        let message = `🔔 ${data.title}`;
+                        if (data.type === 'bill') {
+                            message = `🔔 ${data.title}: ${data.body}`;
+                        } else if (data.type === 'news') {
+                            message = `📰 Tin mới: ${data.title}`;
+                        }
+                        
+                        showToast(message, 'info', 6000);
                     }
-                    
-                    showToast(message, 'info', 6000);
                 }
             });
         }, (error) => {
             console.error("[NotificationListener] Error:", error);
-            if (error.message.includes("indexes")) {
-                console.warn("FIRESTORE INDEX MISSING: Click the link in the console error above to create the required composite index.");
-            }
         });
 
-        // CRITICAL: Cleanup function to prevent infinite loops and memory leaks
         return () => {
             console.log(`[NotificationListener] Unsubscribing for user: ${userId}`);
             unsubscribe();
         };
-    }, [userId, showToast]); // Strict dependency array
+    }, [userId, showToast]);
 
-    return null; // Headless component
+    return null;
 };
 
 export default NotificationListener;

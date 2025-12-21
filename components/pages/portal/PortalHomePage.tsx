@@ -1,41 +1,33 @@
 
 import React, { useState, useEffect, useMemo } from 'react';
 import type { UserPermission, NewsItem, ChargeRaw, Owner } from '../../../types';
-import { WarningIcon, CheckCircleIcon, SparklesIcon } from '../../ui/Icons';
+import { WarningIcon, CheckCircleIcon, SparklesIcon, ChevronRightIcon } from '../../ui/Icons';
 import { formatCurrency, timeAgo } from '../../../utils/helpers';
 import { PortalPage } from '../../layout/ResidentLayout';
-import { doc, onSnapshot, collection, query, where, limit } from 'firebase/firestore';
+import { collection, query, where, limit, onSnapshot } from 'firebase/firestore';
 import { db } from '../../../firebaseConfig';
+import { useNews } from '../../../hooks/useNews';
 import { isProduction } from '../../../utils/env';
 
 interface PortalHomePageProps {
   user: UserPermission;
   owner: Owner | null;
   charges: ChargeRaw[];
-  news: NewsItem[];
+  news: NewsItem[]; // Prop kept but listener prioritized
   setActivePage: (page: PortalPage) => void;
 }
 
-const PortalHomePage: React.FC<PortalHomePageProps> = ({ user, charges, news, setActivePage }) => {
-    // 1. Calculate Current Period (YYYY-MM)
+const PortalHomePage: React.FC<PortalHomePageProps> = ({ user, charges, setActivePage }) => {
     const currentPeriod = useMemo(() => new Date().toISOString().slice(0, 7), []);
     const IS_PROD = isProduction();
 
-    // 2. Real-time Charge State
     const [currentCharge, setCurrentCharge] = useState<ChargeRaw | null>(null);
-    const [loadingCharge, setLoadingCharge] = useState(false);
+    const { news, loading: newsLoading } = useNews(3); // Real-time fix
 
-    // 3. Listener for Current Month's Charge
     useEffect(() => {
         if (!user.residentId) return;
 
-        // Initial/Fallback data from props (static load)
-        const propCharge = charges.find(c => c.UnitID === user.residentId && c.Period === currentPeriod);
-        if (propCharge) setCurrentCharge(propCharge);
-
         if (IS_PROD) {
-            setLoadingCharge(true);
-            
             const q = query(
                 collection(db, 'charges'), 
                 where('UnitID', '==', user.residentId), 
@@ -45,31 +37,24 @@ const PortalHomePage: React.FC<PortalHomePageProps> = ({ user, charges, news, se
 
             const unsubscribe = onSnapshot(q, (snapshot) => {
                 if (!snapshot.empty) {
-                    const data = snapshot.docs[0].data() as ChargeRaw;
-                    setCurrentCharge(data);
+                    setCurrentCharge(snapshot.docs[0].data() as ChargeRaw);
                 } else {
                     setCurrentCharge(null);
                 }
-                setLoadingCharge(false);
-            }, (err) => {
-                console.error("Real-time charge fetch error", err);
-                setLoadingCharge(false);
             });
 
             return () => unsubscribe();
         }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-    }, [user.residentId, currentPeriod, IS_PROD]); // Removed 'charges' to prevent re-subscription loops
+    }, [user.residentId, currentPeriod, IS_PROD]);
 
-    // 4. Render Logic based on Real-time Data
     const renderBillStatus = () => {
         if (!currentCharge) {
              return (
-                <div className="bg-green-50 border border-green-200 p-4 rounded-xl flex items-center gap-4">
-                     <div className="p-2 bg-green-100 rounded-full"><CheckCircleIcon className="w-6 h-6 text-green-600"/></div>
+                <div className="bg-green-50 border border-green-200 p-5 rounded-2xl flex items-center gap-4 shadow-sm">
+                     <div className="p-3 bg-white rounded-xl shadow-sm"><CheckCircleIcon className="w-7 h-7 text-green-600"/></div>
                     <div>
-                        <p className="font-bold text-green-800">Thông báo phí</p>
-                        <p className="text-sm text-green-700">Chưa có thông báo phí cho kỳ {currentPeriod}.</p>
+                        <p className="font-bold text-green-800 text-base">Thông báo phí</p>
+                        <p className="text-sm text-green-700 font-medium">Chưa có thông báo mới tháng này.</p>
                     </div>
                 </div>
             );
@@ -79,49 +64,70 @@ const PortalHomePage: React.FC<PortalHomePageProps> = ({ user, charges, news, se
         
         if (isPaid) {
              return (
-                <div className="bg-green-50 border border-green-200 p-4 rounded-xl flex items-center gap-4">
-                     <div className="p-2 bg-green-100 rounded-full"><CheckCircleIcon className="w-6 h-6 text-green-600"/></div>
+                <div className="bg-emerald-600 p-5 rounded-2xl flex items-center gap-4 shadow-lg text-white">
+                     <div className="p-3 bg-white/20 rounded-xl backdrop-blur-sm"><CheckCircleIcon className="w-7 h-7 text-white"/></div>
                     <div>
-                        <p className="font-bold text-green-800">Đã thanh toán</p>
-                        <p className="text-sm text-green-700">Bạn đã thanh toán phí dịch vụ tháng này. Cảm ơn cư dân!</p>
+                        <p className="font-bold text-lg">Đã thanh toán</p>
+                        <p className="text-sm opacity-90 font-medium">Cảm ơn bạn đã nộp phí đúng hạn!</p>
                     </div>
                 </div>
             );
         }
 
-        // Pending / Unpaid
         return (
-            <div className="bg-red-50 border border-red-200 p-4 rounded-xl flex items-center gap-4 cursor-pointer hover:bg-red-100 transition-colors" onClick={() => setActivePage('portalBilling')}>
-                <div className="p-2 bg-red-100 rounded-full"><WarningIcon className="w-6 h-6 text-red-600"/></div>
-                <div>
-                    <p className="font-bold text-red-800">Thông báo phí T{currentPeriod.split('-')[1]}</p>
-                    <p className="text-sm text-red-700">
-                        Bạn có hóa đơn chưa thanh toán: <span className="font-bold">{formatCurrency(currentCharge.TotalDue)}</span>
+            <div className="bg-white p-5 rounded-2xl shadow-xl border-2 border-red-500/10 flex items-center gap-4 cursor-pointer hover:shadow-2xl transition-all active:scale-95" onClick={() => setActivePage('portalBilling')}>
+                <div className="p-3 bg-red-50 rounded-xl text-red-600"><WarningIcon className="w-7 h-7 animate-pulse"/></div>
+                <div className="flex-1">
+                    <p className="font-black text-gray-800 uppercase text-xs tracking-widest mb-1">Cần thanh toán</p>
+                    <p className="text-xl font-black text-red-600">
+                        {formatCurrency(currentCharge.TotalDue)}
                     </p>
+                    <p className="text-[10px] text-gray-400 font-bold mt-1">HẠN CHÓT: 20/{currentPeriod.split('-')[1]}/{currentPeriod.split('-')[0]}</p>
                 </div>
+                <ChevronRightIcon className="w-5 h-5 text-gray-300" />
             </div>
         );
     };
 
   return (
-    <div className="p-4 space-y-6">
-        {/* Render the dynamic bill card */}
+    <div className="p-5 space-y-6">
         {renderBillStatus()}
 
-        <div className="bg-white p-4 rounded-xl shadow-sm border space-y-3">
-            <div className="flex items-center gap-3 mb-2">
-                <div className="p-2 bg-purple-100 rounded-full">
-                    <SparklesIcon className="w-5 h-5 text-purple-600"/>
+        <div className="space-y-4">
+            <div className="flex items-center justify-between px-1">
+                <div className="flex items-center gap-2">
+                    <div className="p-2 bg-purple-100 rounded-lg"><SparklesIcon className="w-4 h-4 text-purple-600"/></div>
+                    <h3 className="font-black text-gray-800 text-sm uppercase tracking-wider">Tin tức mới</h3>
                 </div>
-                <h3 className="font-bold text-gray-800 text-lg">Tin tức mới nhất</h3>
+                <button onClick={() => setActivePage('portalNews')} className="text-xs font-bold text-primary hover:underline">Tất cả</button>
             </div>
 
-            {news.slice(0, 3).map(item => (
-                <div key={item.id} onClick={() => setActivePage('portalNews')} className="border-t pt-3 cursor-pointer group">
-                    <p className="font-semibold group-hover:text-primary transition-colors">{item.title}</p>
-                    <p className="text-xs text-gray-400 mt-1">{timeAgo(item.date)}</p>
-                </div>
-            ))}
+            <div className="space-y-3">
+                {newsLoading ? (
+                    [1,2].map(i => <div key={i} className="h-24 bg-gray-100 rounded-xl animate-pulse"></div>)
+                ) : news.length > 0 ? (
+                    news.map(item => (
+                        <div key={item.id} onClick={() => setActivePage('portalNews')} className="bg-white p-4 rounded-2xl shadow-sm border border-gray-100 active:bg-gray-50 transition-colors group">
+                            <div className="flex gap-3">
+                                <div className="flex-1 min-w-0">
+                                    <p className="font-bold text-gray-800 group-hover:text-primary transition-colors text-sm line-clamp-1">{item.title}</p>
+                                    <p className="text-[11px] text-gray-500 mt-1 line-clamp-2 leading-relaxed">{item.content.replace(/<[^>]*>?/gm, '')}</p>
+                                    <p className="text-[10px] text-gray-400 font-bold mt-2 uppercase tracking-tight">{timeAgo(item.date)}</p>
+                                </div>
+                                {item.imageUrl && (
+                                    <div className="w-16 h-16 bg-gray-100 rounded-xl overflow-hidden shrink-0">
+                                        <img src={item.imageUrl} className="w-full h-full object-cover" alt="" />
+                                    </div>
+                                )}
+                            </div>
+                        </div>
+                    ))
+                ) : (
+                    <div className="py-8 text-center text-gray-400 bg-white rounded-2xl border border-dashed">
+                        <p className="text-xs font-bold italic">Không có tin tức mới.</p>
+                    </div>
+                )}
+            </div>
         </div>
     </div>
   );

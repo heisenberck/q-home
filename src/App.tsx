@@ -22,6 +22,7 @@ import BackupRestorePage from './components/pages/BackupRestorePage';
 import ActivityLogPage from './components/pages/ActivityLogPage';
 import NewsManagementPage from './components/pages/NewsManagementPage';
 import FeedbackManagementPage from './components/pages/FeedbackManagementPage';
+import ValueAddedServicesPage from './components/pages/ValueAddedServicesPage';
 import ResidentLayout, { PortalPage } from './components/layout/ResidentLayout';
 import AdminMobileLayout, { AdminPortalPage } from './components/layout/AdminMobileLayout';
 import PortalHomePage from './components/pages/portal/PortalHomePage';
@@ -39,10 +40,27 @@ import ChangePasswordModal from './components/pages/ChangePasswordModal';
 import NotificationListener from './components/common/NotificationListener';
 
 // --- Types ---
-export type AdminPage = 'overview' | 'billing' | 'residents' | 'vehicles' | 'water' | 'pricing' | 'users' | 'settings' | 'backup' | 'activityLog' | 'newsManagement' | 'feedbackManagement';
+export type AdminPage = 'overview' | 'billing' | 'residents' | 'vehicles' | 'water' | 'pricing' | 'users' | 'settings' | 'backup' | 'activityLog' | 'newsManagement' | 'feedbackManagement' | 'vas';
+
+// Ánh xạ tiêu đề Tiếng Việt chuẩn cho các trang Admin
+const ADMIN_PAGE_TITLES: Record<AdminPage, string> = {
+    overview: 'Tổng quan',
+    billing: 'Quản lý tài chính',
+    residents: 'Quản lý cư dân',
+    vehicles: 'Quản lý phương tiện',
+    water: 'Quản lý nước',
+    pricing: 'Cấu hình đơn giá',
+    users: 'Quản lý người dùng',
+    settings: 'Cài đặt',
+    backup: 'Sao lưu & Phục hồi',
+    activityLog: 'Nhật ký hoạt động',
+    newsManagement: 'Quản lý tin tức',
+    feedbackManagement: 'Quản lý phản ánh',
+    vas: 'Quản lý dịch vụ/tiện ích'
+};
 
 export interface LogPayload {
-    module: 'Billing' | 'Residents' | 'Water' | 'Pricing' | 'Settings' | 'System' | 'Vehicles' | 'News' | 'Feedback';
+    module: 'Billing' | 'Residents' | 'Water' | 'Pricing' | 'Settings' | 'System' | 'Vehicles' | 'News' | 'Feedback' | 'Finance';
     action: string;
     summary: string;
     count?: number;
@@ -50,7 +68,8 @@ export interface LogPayload {
     before_snapshot: any;
 }
 
-// --- Contexts ---
+// ... rest of contexts and contexts logic ...
+
 interface AuthContextType {
     user: UserPermission | null;
     login: (user: UserPermission, rememberMe: boolean) => void;
@@ -124,6 +143,16 @@ export const useLogger = () => {
     return log;
 };
 
+// Default Settings to prevent crashes before data loads
+const DEFAULT_SETTINGS: InvoiceSettings = {
+    logoUrl: '',
+    accountName: '',
+    accountNumber: '',
+    bankName: '',
+    senderEmail: '',
+    buildingName: 'Q-Home Manager'
+};
+
 // --- App Component ---
 const App: React.FC = () => {
     const [user, setUser] = useState<UserPermission | null>(null);
@@ -153,7 +182,6 @@ const App: React.FC = () => {
             try {
                 const parsed = JSON.parse(rememberedUserStr);
                 setUser(parsed);
-                // Sau khi khôi phục user, quyết định trang mặc định dựa trên role và thiết bị
                 if (parsed.Role === 'Resident') {
                     setActivePage('portalHome');
                 } else if (window.innerWidth < 768) {
@@ -214,7 +242,6 @@ const App: React.FC = () => {
             localStorage.removeItem('rememberedUserObject');
         }
         
-        // Quyết định trang đích khi đăng nhập
         if (loggedInUser.Role === 'Resident') {
             setActivePage('portalHome');
         } else if (window.innerWidth < 768) {
@@ -269,42 +296,34 @@ const App: React.FC = () => {
 
     const notifications = { unreadNews: 0, hasUnpaidBill: false, hasNewNotifications: false };
 
-    if (!user) {
-        return (
-            <NotificationContext.Provider value={{ showToast }}>
-                <LoginPage users={localUsers} onLogin={handleLogin} allOwners={localOwners} allUnits={localUnits} />
-                <Toast toasts={toasts} onClose={removeToast} onClearAll={() => setToasts([])} />
-            </NotificationContext.Provider>
-        );
-    }
-
     const renderAdminPage = () => {
         switch (activePage as AdminPage) {
             case 'overview': return <OverviewPage allUnits={localUnits} allOwners={localOwners} allVehicles={localVehicles} allWaterReadings={localWaterReadings} charges={localCharges} activityLogs={[]} feedback={localFeedback} onNavigate={(p) => setActivePage(p as AdminPage)} monthlyStats={monthlyStats} />;
-            case 'billing': return <BillingPage charges={localCharges} setCharges={setLocalCharges} allData={{ units: localUnits, owners: localOwners, vehicles: localVehicles, waterReadings: localWaterReadings, tariffs: localTariffs, adjustments: localAdjustments, activityLogs: [], monthlyStats, lockedWaterPeriods }} onUpdateAdjustments={setLocalAdjustments} role={user.Role} invoiceSettings={invoiceSettings!} onRefresh={() => refreshSystemData(true)} />;
-            case 'residents': return <ResidentsPage units={localUnits} owners={localOwners} vehicles={localVehicles} activityLogs={[]} onSaveResident={handleSaveResident} onImportData={handleImportResidents} onDeleteResidents={()=>{}} role={user.Role} currentUser={user} onNavigate={(p) => setActivePage(p as AdminPage)} />;
-            case 'vehicles': return <VehiclesPage vehicles={localVehicles} units={localUnits} owners={localOwners} activityLogs={[]} onSetVehicles={setLocalVehicles} role={user.Role} />;
-            case 'water': return <WaterPage waterReadings={localWaterReadings} setWaterReadings={setLocalWaterReadings} allUnits={localUnits} role={user.Role} tariffs={localTariffs} lockedPeriods={lockedWaterPeriods} refreshData={refreshSystemData} />;
-            case 'pricing': return <PricingPage tariffs={localTariffs} setTariffs={setLocalTariffs} role={user.Role} />;
-            case 'users': return <UsersPage users={localUsers} setUsers={setLocalUsers} units={localUnits} role={user.Role} />;
-            case 'settings': return <SettingsPage invoiceSettings={invoiceSettings!} setInvoiceSettings={handleSetInvoiceSettings} role={user.Role} />;
-            case 'backup': return <BackupRestorePage allData={{ units: localUnits, owners: localOwners, vehicles: localVehicles, waterReadings: localWaterReadings, charges: localCharges, adjustments: localAdjustments, users: localUsers, tariffs: localTariffs }} onRestore={(d) => refreshSystemData(true)} role={user.Role} />;
-            case 'activityLog': return <ActivityLogPage logs={[]} onUndo={()=>{}} role={user.Role} />;
-            case 'newsManagement': return <NewsManagementPage news={localNews} setNews={setLocalNews} role={user.Role} users={localUsers} />;
-            case 'feedbackManagement': return <FeedbackManagementPage feedback={localFeedback} setFeedback={setLocalFeedback} role={user.Role} />;
+            case 'billing': return <BillingPage charges={localCharges} setCharges={setLocalCharges} allData={{ units: localUnits, owners: localOwners, vehicles: localVehicles, waterReadings: localWaterReadings, tariffs: localTariffs, adjustments: localAdjustments, activityLogs: [], monthlyStats, lockedWaterPeriods }} onUpdateAdjustments={setLocalAdjustments} role={user!.Role} invoiceSettings={invoiceSettings || DEFAULT_SETTINGS} onRefresh={() => refreshSystemData(true)} />;
+            case 'vas': return <ValueAddedServicesPage />;
+            case 'residents': return <ResidentsPage units={localUnits} owners={localOwners} vehicles={localVehicles} activityLogs={[]} onSaveResident={handleSaveResident} onImportData={handleImportResidents} onDeleteResidents={()=>{}} role={user!.Role} currentUser={user!} onNavigate={(p) => setActivePage(p as AdminPage)} />;
+            case 'vehicles': return <VehiclesPage vehicles={localVehicles} units={localUnits} owners={localOwners} activityLogs={[]} onSetVehicles={setLocalVehicles} role={user!.Role} />;
+            case 'water': return <WaterPage waterReadings={localWaterReadings} setWaterReadings={setLocalWaterReadings} allUnits={localUnits} role={user!.Role} tariffs={localTariffs} lockedPeriods={lockedWaterPeriods} refreshData={refreshSystemData} />;
+            case 'pricing': return <PricingPage tariffs={localTariffs} setTariffs={setLocalTariffs} role={user!.Role} />;
+            case 'users': return <UsersPage users={localUsers} setUsers={setLocalUsers} units={localUnits} role={user!.Role} />;
+            case 'settings': return <SettingsPage invoiceSettings={invoiceSettings || DEFAULT_SETTINGS} setInvoiceSettings={handleSetInvoiceSettings} role={user!.Role} />;
+            case 'backup': return <BackupRestorePage allData={{ units: localUnits, owners: localOwners, vehicles: localVehicles, waterReadings: localWaterReadings, charges: localCharges, adjustments: localAdjustments, users: localUsers, tariffs: localTariffs }} onRestore={(d) => refreshSystemData(true)} role={user!.Role} />;
+            case 'activityLog': return <ActivityLogPage logs={[]} onUndo={()=>{}} role={user!.Role} />;
+            case 'newsManagement': return <NewsManagementPage news={localNews} setNews={setLocalNews} role={user!.Role} users={localUsers} />;
+            case 'feedbackManagement': return <FeedbackManagementPage feedback={localFeedback} setFeedback={setLocalFeedback} role={user!.Role} />;
             default: return <OverviewPage allUnits={localUnits} allOwners={localOwners} allVehicles={localVehicles} allWaterReadings={localWaterReadings} charges={localCharges} activityLogs={[]} feedback={localFeedback} onNavigate={(p) => setActivePage(p as AdminPage)} monthlyStats={monthlyStats} />;
         }
     };
 
     const renderResidentPage = () => {
-        const owner = localOwners.find(o => o.OwnerID === localUnits.find(u => u.UnitID === user.residentId)?.OwnerID) || null;
+        const owner = localOwners.find(o => o.OwnerID === localUnits.find(u => u.UnitID === user!.residentId)?.OwnerID) || null;
         switch (activePage as PortalPage) {
-            case 'portalHome': return <PortalHomePage user={user} owner={owner} charges={localCharges} news={localNews} setActivePage={setActivePage as (p: PortalPage) => void} />;
+            case 'portalHome': return <PortalHomePage user={user!} owner={owner} charges={localCharges} news={localNews} setActivePage={setActivePage as (p: PortalPage) => void} />;
             case 'portalNews': return <PortalNewsPage news={localNews} />;
-            case 'portalBilling': return <PortalBillingPage charges={localCharges} user={user} />;
+            case 'portalBilling': return <PortalBillingPage charges={localCharges} user={user!} />;
             case 'portalContact': return <PortalContactPage hotline={invoiceSettings?.HOTLINE || '0834.88.66.86'} onSubmitFeedback={(f) => setLocalFeedback([...localFeedback, f])} />;
-            case 'portalProfile': return <PortalProfilePage user={user} owner={owner!} onUpdateOwner={(o) => setLocalOwners(prev => prev.map(old => old.OwnerID === o.OwnerID ? o : old))} onChangePassword={() => setIsChangePasswordModalOpen(true)} />;
-            default: return <PortalHomePage user={user} owner={owner} charges={localCharges} news={localNews} setActivePage={setActivePage as (p: PortalPage) => void} />;
+            case 'portalProfile': return <PortalProfilePage user={user!} owner={owner!} onUpdateOwner={(o) => setLocalOwners(prev => prev.map(old => old.OwnerID === o.OwnerID ? o : old))} onChangePassword={() => setIsChangePasswordModalOpen(true)} />;
+            default: return <PortalHomePage user={user!} owner={owner} charges={localCharges} news={localNews} setActivePage={setActivePage as (p: PortalPage) => void} />;
         }
     };
 
@@ -317,8 +336,8 @@ const App: React.FC = () => {
             case 'adminPortalVehicles': return <AdminPortalVehiclesPage vehicles={localVehicles} units={localUnits} owners={localOwners} />;
             case 'adminPortalMore': return (
                 <div className="p-4 space-y-4">
-                    <button onClick={() => setActivePage('newsManagement')} className="w-full p-4 bg-white rounded-xl shadow-sm border flex justify-between items-center font-bold text-gray-800">Quản lý Tin tức <span>→</span></button>
-                    <button onClick={() => setActivePage('feedbackManagement')} className="w-full p-4 bg-white rounded-xl shadow-sm border flex justify-between items-center font-bold text-gray-800">Phản hồi Cư dân <span>→</span></button>
+                    <button onClick={() => setActivePage('newsManagement')} className="w-full p-4 bg-white rounded-xl shadow-sm border flex justify-between items-center font-bold text-gray-800">Quản lý tin tức <span>→</span></button>
+                    <button onClick={() => setActivePage('feedbackManagement')} className="w-full p-4 bg-white rounded-xl shadow-sm border flex justify-between items-center font-bold text-gray-800">Quản lý phản ánh <span>→</span></button>
                     <button onClick={() => handleLogout()} className="w-full p-4 bg-red-50 text-red-600 rounded-xl shadow-sm border flex justify-between items-center font-black">Đăng xuất <span>⏻</span></button>
                 </div>
             );
@@ -326,36 +345,45 @@ const App: React.FC = () => {
         }
     };
 
-    const isResident = user.Role === 'Resident';
+    const isResident = user?.Role === 'Resident';
 
     return (
         <AuthContext.Provider value={{ user, login: handleLogin, logout: handleLogout, updateUser: handleUpdateUser, handleDeleteUsers: handleDeleteUsersAction }}>
             <NotificationContext.Provider value={{ showToast }}>
-                <SettingsContext.Provider value={{ invoiceSettings: invoiceSettings!, setInvoiceSettings: handleSetInvoiceSettings }}>
+                <SettingsContext.Provider value={{ invoiceSettings: invoiceSettings || DEFAULT_SETTINGS, setInvoiceSettings: handleSetInvoiceSettings }}>
                     <DataRefreshContext.Provider value={{ refreshData: refreshSystemData }}>
-                        <NotificationListener userId={user.Username || user.Email} />
-                        {isResident ? (
-                            <ResidentLayout activePage={activePage as PortalPage} setActivePage={setActivePage as (p: PortalPage) => void} user={user} owner={localOwners.find(o => o.OwnerID === localUnits.find(u => u.UnitID === user.residentId)?.OwnerID) || null} onUpdateOwner={() => {}} onChangePassword={() => setIsChangePasswordModalOpen(true)} notifications={notifications} onMarkNewsAsRead={handleMarkNewsAsRead} onMarkBellAsRead={handleMarkBellAsRead}>
-                                {renderResidentPage()}
-                            </ResidentLayout>
-                        ) : isMobile ? (
-                            <AdminMobileLayout activePage={activePage as AdminPortalPage} setActivePage={setActivePage as (p: AdminPortalPage) => void} user={user}>
-                                {renderAdminMobilePage()}
-                            </AdminMobileLayout>
+                        {!user ? (
+                            <>
+                                <LoginPage users={localUsers} onLogin={handleLogin} allOwners={localOwners} allUnits={localUnits} />
+                                <Toast toasts={toasts} onClose={removeToast} onClearAll={() => setToasts([])} />
+                            </>
                         ) : (
-                            <div className="flex h-screen bg-gray-50 overflow-hidden">
-                                <Sidebar activePage={activePage as AdminPage} setActivePage={(p) => setActivePage(p as AdminPage)} role={user.Role} />
-                                <div className="flex-1 flex flex-col min-w-0 overflow-hidden">
-                                    <Header pageTitle="" onNavigate={(p) => setActivePage(p as AdminPage)} />
-                                    <main className="flex-1 overflow-y-auto p-4 md:p-6 lg:p-8">
-                                        {renderAdminPage()}
-                                    </main>
-                                    <Footer />
-                                </div>
-                            </div>
+                            <>
+                                <NotificationListener userId={user.Username || user.Email} />
+                                {isResident ? (
+                                    <ResidentLayout activePage={activePage as PortalPage} setActivePage={setActivePage as (p: PortalPage) => void} user={user} owner={localOwners.find(o => o.OwnerID === localUnits.find(u => u.UnitID === user.residentId)?.OwnerID) || null} onUpdateOwner={() => {}} onChangePassword={() => setIsChangePasswordModalOpen(true)} notifications={notifications} onMarkNewsAsRead={handleMarkNewsAsRead} onMarkBellAsRead={handleMarkBellAsRead}>
+                                        {renderResidentPage()}
+                                    </ResidentLayout>
+                                ) : isMobile ? (
+                                    <AdminMobileLayout activePage={activePage as AdminPortalPage} setActivePage={setActivePage as (p: AdminPortalPage) => void} user={user}>
+                                        {renderAdminMobilePage()}
+                                    </AdminMobileLayout>
+                                ) : (
+                                    <div className="flex h-screen bg-gray-50 overflow-hidden">
+                                        <Sidebar activePage={activePage as AdminPage} setActivePage={(p) => setActivePage(p as AdminPage)} role={user.Role} />
+                                        <div className="flex-1 flex flex-col min-w-0 overflow-hidden">
+                                            <Header pageTitle={ADMIN_PAGE_TITLES[activePage as AdminPage] || 'Hệ thống Quản lý'} onNavigate={(p) => setActivePage(p as AdminPage)} />
+                                            <main className="flex-1 overflow-y-auto p-4 md:p-6 lg:p-8">
+                                                {renderAdminPage()}
+                                            </main>
+                                            <Footer />
+                                        </div>
+                                    </div>
+                                )}
+                                <Toast toasts={toasts} onClose={removeToast} onClearAll={() => setToasts([])} />
+                                {isChangePasswordModalOpen && <ChangePasswordModal onClose={() => setIsChangePasswordModalOpen(false)} onSave={() => setIsChangePasswordModalOpen(false)} />}
+                            </>
                         )}
-                        <Toast toasts={toasts} onClose={removeToast} onClearAll={() => setToasts([])} />
-                        {isChangePasswordModalOpen && <ChangePasswordModal onClose={() => setIsChangePasswordModalOpen(false)} onSave={() => setIsChangePasswordModalOpen(false)} />}
                     </DataRefreshContext.Provider>
                 </SettingsContext.Provider>
             </NotificationContext.Provider>

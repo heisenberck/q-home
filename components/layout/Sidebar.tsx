@@ -1,15 +1,24 @@
+
 import React, { useState, useMemo } from 'react';
 import { 
     PieChartIcon, CalculatorIcon, UsersIcon, WaterIcon, ReceiptIcon, 
     CarIcon, MegaphoneIcon, ChatBubbleLeftEllipsisIcon,
-    ChevronLeftIcon, ChevronRightIcon, ChevronDownIcon, ChevronUpIcon
+    ChevronLeftIcon, ChevronRightIcon, ChevronDownIcon, ChevronUpIcon,
+    PiggyBankIcon
 } from '../ui/Icons';
 import type { Role, UserPermission } from '../../types';
 import { useSettings, useAuth } from '../../App';
 import { isProduction } from '../../utils/env';
 import InstallPWA from '../common/InstallPWA';
 
-type Page = 'overview' | 'billing' | 'residents' | 'vehicles' | 'water' | 'pricing' | 'users' | 'settings' | 'backup' | 'activityLog' | 'newsManagement' | 'feedbackManagement';
+// Added local icon for Finance
+const BanknotesIconLocal: React.FC<{ className?: string }> = ({ className = "h-5 w-5" }) => (
+    <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" strokeWidth={1.5} stroke="currentColor" className={className}>
+        <path strokeLinecap="round" strokeLinejoin="round" d="M2.25 18.75a60.07 60.07 0 0 1 15.797 2.101c.727.198 1.453-.342 1.453-1.096V18.75M3.75 4.5v.75A.75.75 0 0 1 3 6h-.75m0 0v-.375c0-.621.504-1.125 1.125-1.125H20.25M2.25 6v9m18-10.5v.75c0 .414.336.75.75.75h.75m-1.5-1.5h.375c.621 0 1.125.504 1.125 1.125v9.75c0 .621-.504 1.125-1.125 1.125h-.375m1.5-1.5H21a.75.75 0 0 0-.75.75v.75m0 0H3.75m0 0h-.375a1.125 1.125 0 0 1-1.125-1.125V15m1.5 1.5v-.75A.75.75 0 0 0 3 15h-.75M15 10.5a3 3 0 1 1-6 0 3 3 0 0 1 6 0Z" />
+    </svg>
+);
+
+type Page = 'overview' | 'billing' | 'residents' | 'vehicles' | 'water' | 'pricing' | 'users' | 'settings' | 'backup' | 'activityLog' | 'newsManagement' | 'feedbackManagement' | 'vas';
 
 interface SidebarProps {
   activePage: Page;
@@ -33,7 +42,7 @@ const menuGroups: (MenuItem | MenuGroup)[] = [
     { id: 'overview', label: 'Tổng quan', icon: <PieChartIcon /> },
     {
         id: 'residents_group',
-        label: 'Quản lý Cư dân',
+        label: 'Quản lý cư dân',
         items: [
             { id: 'residents', label: 'Cư dân', icon: <UsersIcon /> },
             { id: 'vehicles', label: 'Phương tiện', icon: <CarIcon /> },
@@ -42,26 +51,24 @@ const menuGroups: (MenuItem | MenuGroup)[] = [
     },
     {
         id: 'finance_group',
-        label: 'Quản lý Tài chính',
+        label: 'Quản lý tài chính',
         items: [
             { id: 'billing', label: 'Bảng tính phí', icon: <CalculatorIcon /> },
-            { id: 'pricing', label: 'Quản lý Đơn giá', icon: <ReceiptIcon /> },
+            { id: 'vas', label: 'Dịch vụ GTGT', icon: <BanknotesIconLocal /> },
+            { id: 'pricing', label: 'Quản lý đơn giá', icon: <ReceiptIcon /> },
         ]
     },
     {
         id: 'comm_group',
         label: 'Thông báo',
         items: [
-            { id: 'newsManagement', label: 'Quản lý Tin tức', icon: <MegaphoneIcon /> },
-            { id: 'feedbackManagement', label: 'Quản lý Phản hồi', icon: <ChatBubbleLeftEllipsisIcon /> },
+            { id: 'newsManagement', label: 'Quản lý tin tức', icon: <MegaphoneIcon /> },
+            { id: 'feedbackManagement', label: 'Quản lý phản ánh', icon: <ChatBubbleLeftEllipsisIcon /> },
         ]
     }
 ];
 
-// Local extension for permissions
-interface ExtendedUser extends UserPermission {
-    permissions?: string[];
-}
+// ... rest of sidebar component logic ...
 
 const Sidebar: React.FC<SidebarProps> = ({ activePage, setActivePage, role }) => {
   const { invoiceSettings } = useSettings();
@@ -75,41 +82,33 @@ const Sidebar: React.FC<SidebarProps> = ({ activePage, setActivePage, role }) =>
     : 'border-emerald-500 bg-emerald-50 text-emerald-700';
   const versionText = isDev ? 'v2.1-DEV' : 'v2.1';
 
-  const extendedUser = user as ExtendedUser;
+  const extendedUser = user as any;
 
   // Filter Menu based on Permissions
   const filteredMenuGroups = useMemo(() => {
-      // 1. Admin sees everything
       if (role === 'Admin') return menuGroups;
 
-      // 2. Logic for Staff (Accountant, Operator, Viewer)
-      const userPermissions = new Set(extendedUser.permissions || []);
+      const userPermissions = new Set(extendedUser?.permissions || []);
 
       return menuGroups.map(group => {
           if ('items' in group) {
-              // It's a Group -> Filter items
               const visibleItems = group.items.filter(item => {
-                  // Map specific page IDs to permission keys if necessary
                   let permissionKey = item.id;
-                  
-                  // "pricing" page is controlled by "billing" permission
                   if (item.id === 'pricing') permissionKey = 'billing';
-
+                  if (item.id === 'vas') permissionKey = 'billing';
                   return userPermissions.has(permissionKey);
               });
 
-              // Only return group if it has visible items
               if (visibleItems.length > 0) {
                   return { ...group, items: visibleItems };
               }
               return null;
           } else {
-              // It's a Single Item (Overview) -> Always show Overview
               if (group.id === 'overview') return group;
               return null;
           }
-      }).filter(Boolean) as (MenuItem | MenuGroup)[]; // Remove nulls
-  }, [role, extendedUser.permissions]);
+      }).filter(Boolean) as (MenuItem | MenuGroup)[];
+  }, [role, extendedUser?.permissions]);
 
   const toggleGroup = (groupId: string) => {
       setExpandedGroups(prev => {
@@ -131,7 +130,6 @@ const Sidebar: React.FC<SidebarProps> = ({ activePage, setActivePage, role }) =>
 
   return (
     <aside className={`${isCollapsed ? 'w-20' : 'w-64'} bg-white flex-shrink-0 flex flex-col border-r border-gray-200 h-full transition-all duration-300 ease-in-out`}>
-      {/* Header */}
       <div className="p-4 border-b border-gray-200 flex items-center justify-between h-[88px]">
         {!isCollapsed && (
             <div className="flex items-center gap-3 overflow-hidden">
@@ -158,11 +156,9 @@ const Sidebar: React.FC<SidebarProps> = ({ activePage, setActivePage, role }) =>
         )}
       </div>
       
-      {/* Navigation */}
       <nav className="flex-1 p-2 space-y-2 overflow-y-auto overflow-x-hidden">
         {filteredMenuGroups.map((item) => {
             if ('items' in item) {
-                // Group
                 const isExpanded = expandedGroups.has(item.id);
                 const hasActiveChild = item.items.some(child => child.id === activePage);
                 
@@ -193,7 +189,6 @@ const Sidebar: React.FC<SidebarProps> = ({ activePage, setActivePage, role }) =>
                             )}
                         </button>
                         
-                        {/* Sub-menu */}
                         {(!isCollapsed && isExpanded) && (
                             <div className="mt-1 space-y-1 ml-1">
                                 {item.items.map(subItem => {
@@ -219,7 +214,6 @@ const Sidebar: React.FC<SidebarProps> = ({ activePage, setActivePage, role }) =>
                     </div>
                 );
             } else {
-                // Single Item (Dashboard)
                 const isActive = activePage === item.id;
                 return (
                     <a
@@ -240,9 +234,7 @@ const Sidebar: React.FC<SidebarProps> = ({ activePage, setActivePage, role }) =>
         })}
       </nav>
 
-      {/* Footer Toggle */}
       <div className="p-4 border-t border-gray-200 flex flex-col gap-2">
-        {/* PWA Install Button */}
         {!isCollapsed && <InstallPWA />}
         
         {!isCollapsed && (

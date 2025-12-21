@@ -270,7 +270,7 @@ export interface ActivityLog {
     ts: string; // ISO string
     actor_email: string;
     actor_role: Role;
-    module: 'Billing' | 'Residents' | 'Water' | 'Pricing' | 'Settings' | 'System' | 'Vehicles' | 'News' | 'Feedback';
+    module: 'Billing' | 'Residents' | 'Water' | 'Pricing' | 'Settings' | 'System' | 'Vehicles' | 'News' | 'Feedback' | 'Finance';
     action: string; // e.g., 'CALCULATE_CHARGES', 'IMPORT_RESIDENTS'
     summary: string;
     count?: number;
@@ -312,4 +312,17 @@ export interface FeedbackItem {
     status: 'Pending' | 'Processing' | 'Resolved';
     date: string; // ISO string
     replies: FeedbackReply[];
+}
+
+// NEW: Misc Revenue for Value Added Services (VAS)
+export type MiscRevenueType = 'PARKING' | 'KIOS' | 'VAT_SERVICE' | 'OTHER';
+
+export interface MiscRevenue {
+    id: string;
+    type: MiscRevenueType;
+    amount: number;
+    description: string;
+    date: string; // ISO String (Date only or Full TS)
+    createdAt: string; // Full TS
+    createdBy: string; // Admin Email
 }

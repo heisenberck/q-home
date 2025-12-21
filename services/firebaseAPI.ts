@@ -1,7 +1,11 @@
-
 import { doc, getDoc, setDoc, collection, getDocs, writeBatch, query, deleteDoc, updateDoc, limit, orderBy, where, serverTimestamp, startAfter } from 'firebase/firestore';
 import { db } from '../firebaseConfig';
-import type { InvoiceSettings, Unit, Owner, Vehicle, WaterReading, ChargeRaw, Adjustment, UserPermission, ActivityLog, AllData, PaymentStatus, MonthlyStat, SystemMetadata, ProfileRequest } from '../types';
+import type { 
+    InvoiceSettings, Unit, Owner, Vehicle, WaterReading, 
+    ChargeRaw, Adjustment, UserPermission, ActivityLog, 
+    AllData, PaymentStatus, MonthlyStat, SystemMetadata, 
+    ProfileRequest, MiscRevenue, TariffCollection 
+} from '../types';
 import { VehicleTier } from '../types';
 
 // --- METADATA HELPERS ---
@@ -24,6 +28,7 @@ const bumpVersion = (batch: any, field: keyof SystemMetadata) => {
 // --- READ OPERATIONS ---
 
 export const loadAllData = async (): Promise<any> => {
+    // Hàm này thường được gọi để load initial state, trả về object rỗng nếu chưa có logic cụ thể
     return {
         units: [], owners: [], vehicles: [], tariffs: { service: [], parking: [], water: [] },
         users: [], invoiceSettings: null, adjustments: [], waterReadings: [], activityLogs: [], monthlyStats: [], lockedWaterPeriods: [],
@@ -36,7 +41,6 @@ export const fetchCollection = async <T>(colName: string): Promise<T[]> => {
     return snap.docs.map(d => d.data() as T);
 };
 
-// NEW: Fetch monthly stats sorted by period
 export const fetchMonthlyStats = async (): Promise<MonthlyStat[]> => {
     const q = query(collection(db, 'monthly_stats'), orderBy('period', 'desc'), limit(12));
     const snap = await getDocs(q);
@@ -79,10 +83,10 @@ export const fetchRecentAdjustments = async (startPeriod: string): Promise<Adjus
     return snap.docs.map(d => d.data() as Adjustment);
 };
 
-export const fetchLogsPaginated = async (lastDoc: any = null, limitCount: number = 20) => {
+export const fetchLogsPaginated = async (lastDocParam: any = null, limitCount: number = 20) => {
     let q = query(collection(db, 'activityLogs'), orderBy('ts', 'desc'), limit(limitCount));
-    if (lastDoc) {
-        q = query(collection(db, 'activityLogs'), orderBy('ts', 'desc'), startAfter(lastDoc), limit(limitCount));
+    if (lastDocParam) {
+        q = query(collection(db, 'activityLogs'), orderBy('ts', 'desc'), startAfter(lastDocParam), limit(limitCount));
     }
     const snap = await getDocs(q);
     return {
@@ -109,6 +113,8 @@ export const fetchLatestLogs = async (limitCount: number = 20): Promise<Activity
         return [];
     }
 };
+
+// --- PROFILE REQUESTS ---
 
 export const submitUserProfileUpdate = async (
     userAuthEmail: string, 
@@ -293,11 +299,17 @@ export const updateResidentAvatar = async (ownerId: string, avatarUrl: string, u
     await batch.commit();
 };
 
+// --- LOGGING ---
+
 export const logActivity = async (log: ActivityLog) => {
     await setDoc(doc(db, 'activityLogs', log.id), log);
 };
 
+// --- SETTINGS ---
+
 export const updateFeeSettings = (settings: InvoiceSettings) => setDoc(doc(db, 'settings', 'invoice'), settings, { merge: true });
+
+// --- BILLING & CHARGES ---
 
 export const saveChargesBatch = (charges: ChargeRaw[], periodStat?: MonthlyStat) => {
     if (charges.length === 0 && !periodStat) return Promise.resolve();
@@ -330,11 +342,6 @@ export const confirmSinglePayment = async (charge: ChargeRaw, finalPaidAmount: n
     const batch = writeBatch(db);
     batch.update(doc(db, 'charges', `${charge.Period}_${charge.UnitID}`), { TotalPaid: finalPaidAmount, paymentStatus: status, PaymentConfirmed: true });
     
-    // Update local MonthlyStat for current period to reflect new Paid amount
-    const statRef = doc(db, 'monthly_stats', charge.Period);
-    // Note: In real prod we should use server-side increment or functions, 
-    // but here we are using a simplified direct update for the UI.
-    
     const diff = finalPaidAmount - charge.TotalDue;
     if (diff !== 0) {
         const nextPeriod = new Date(charge.Period + '-02');
@@ -356,6 +363,8 @@ export const updatePaymentStatusBatch = (period: string, unitIds: string[], stat
     });
     return batch.commit();
 };
+
+// --- DATA MANAGEMENT ---
 
 export const updateResidentData = async (
     currentUnits: Unit[], currentOwners: Owner[], currentVehicles: Vehicle[],
@@ -403,7 +412,7 @@ export const updateResidentData = async (
 };
 
 export const wipeAllBusinessData = async (progress: (msg: string) => void) => {
-    const collections = ['charges', 'waterReadings', 'vehicles', 'adjustments', 'owners', 'units', 'activityLogs', 'monthly_stats', 'billing_locks', 'water_locks', 'profileRequests'];
+    const collections = ['charges', 'waterReadings', 'vehicles', 'adjustments', 'owners', 'units', 'activityLogs', 'monthly_stats', 'billing_locks', 'water_locks', 'profileRequests', 'misc_revenues'];
     for (const name of collections) {
         progress(`Querying ${name}...`);
         const snapshot = await getDocs(collection(db, name));
@@ -413,16 +422,6 @@ export const wipeAllBusinessData = async (progress: (msg: string) => void) => {
         progress(`Deleting ${snapshot.size} docs from ${name}...`);
         await batch.commit();
     }
-};
-
-const saveBatch = (name: string, data: any[]) => {
-    if (data.length === 0) return Promise.resolve();
-    const batch = writeBatch(db);
-    data.forEach(item => {
-        const id = item.id ?? item.Email ?? item.UnitID ?? item.OwnerID ?? item.VehicleId ?? `${item.Period}_${item.UnitID}`;
-        batch.set(doc(db, name, id), item);
-    });
-    return batch.commit();
 };
 
 export const saveUsers = async (d: UserPermission[]) => {
@@ -440,7 +439,7 @@ export const deleteUsers = async (emails: string[]) => {
     return batch.commit();
 };
 
-export const saveTariffs = async (d: AllData['tariffs']) => {
+export const saveTariffs = async (d: TariffCollection) => {
     const batch = writeBatch(db);
     batch.set(doc(db, 'settings', 'tariffs'), d);
     bumpVersion(batch, 'tariffs_version');
@@ -452,6 +451,16 @@ export const saveVehicles = async (d: Vehicle[]) => {
     const batch = writeBatch(db);
     d.forEach(v => batch.set(doc(db, 'vehicles', v.VehicleId), v));
     bumpVersion(batch, 'vehicles_version');
+    return batch.commit();
+};
+
+const saveBatch = (name: string, data: any[]) => {
+    if (data.length === 0) return Promise.resolve();
+    const batch = writeBatch(db);
+    data.forEach(item => {
+        const id = item.id ?? item.Email ?? item.UnitID ?? item.OwnerID ?? item.VehicleId ?? `${item.Period}_${item.UnitID}`;
+        batch.set(doc(db, name, id), item);
+    });
     return batch.commit();
 };
 
@@ -545,6 +554,8 @@ export const importResidentsBatch = async (
     return { units: [], owners: [], vehicles: [], createdCount: created, updatedCount: updated, vehicleCount };
 };
 
+// --- LOCKING ---
+
 export const getLockStatus = async (month: string): Promise<boolean> => {
     const docRef = doc(db, 'water_locks', month);
     const docSnap = await getDoc(docRef);
@@ -570,4 +581,39 @@ export const setBillingLockStatus = async (period: string, status: boolean): Pro
 export const resetUserPassword = async (email: string): Promise<void> => {
     const userRef = doc(db, 'users', email);
     await updateDoc(userRef, { password: '123456', mustChangePassword: true });
+};
+
+// --- MISC REVENUES (VAS) ---
+
+export const addMiscRevenue = async (data: Omit<MiscRevenue, 'id' | 'createdAt'>): Promise<string> => {
+    const docRef = doc(collection(db, 'misc_revenues'));
+    const id = docRef.id;
+    await setDoc(docRef, {
+        ...data,
+        id,
+        createdAt: new Date().toISOString()
+    });
+    return id;
+};
+
+export const getMiscRevenues = async (date: string): Promise<MiscRevenue[]> => {
+    const q = query(collection(db, 'misc_revenues'), where('date', '==', date), orderBy('createdAt', 'desc'));
+    const snap = await getDocs(q);
+    return snap.docs.map(d => d.data() as MiscRevenue);
+};
+
+export const getMonthlyMiscRevenues = async (month: string): Promise<MiscRevenue[]> => {
+    const q = query(
+        collection(db, 'misc_revenues'), 
+        where('date', '>=', month), 
+        where('date', '<=', month + '\uf8ff'),
+        orderBy('date', 'desc'),
+        orderBy('createdAt', 'desc')
+    );
+    const snap = await getDocs(q);
+    return snap.docs.map(d => d.data() as MiscRevenue);
+};
+
+export const deleteMiscRevenue = async (id: string): Promise<void> => {
+    await deleteDoc(doc(db, 'misc_revenues', id));
 };
