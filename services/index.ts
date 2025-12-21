@@ -1,7 +1,6 @@
 // services/index.ts
 import * as firebaseAPI from './firebaseAPI';
 import * as mockAPI from './mockAPI';
-import * as vehicleService from './vehicleService';
 import { isProduction } from '../utils/env';
 
 const IS_PROD = isProduction();
@@ -32,18 +31,15 @@ export const {
     resetUserPassword,
     logActivity,
     fetchLatestLogs,
-    createProfileRequest,
-    submitUserProfileUpdate,
+    createProfileRequest, // Deprecated but kept for compatibility
+    submitUserProfileUpdate, // NEW: One-way flow handler
     getPendingProfileRequest, 
     getAllPendingProfileRequests, 
     resolveProfileRequest, 
     updateResidentAvatar,
-    fetchWaterLocks,
+    fetchWaterLocks, // EXPORTED NEW FUNCTION
     addMiscRevenue,
     getMiscRevenues,
-    getMonthlyMiscRevenues,
+    getMonthlyMiscRevenues, // Added this member
     deleteMiscRevenue,
 } = api;
-
-// Optimized services
-export const { fetchAllVehicles } = vehicleService;

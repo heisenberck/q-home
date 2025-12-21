@@ -3,7 +3,8 @@ import React, { useState, useEffect, useMemo, useRef } from 'react';
 import { 
     BanknotesIcon, CarIcon, StoreIcon, TrashIcon, 
     CalendarDaysIcon, PlusIcon, ClockIcon,
-    DocumentArrowDownIcon, ChevronUpIcon, ChevronDownIcon
+    DocumentArrowDownIcon, ChevronUpIcon, ChevronDownIcon,
+    ChevronLeftIcon, ChevronRightIcon
 } from '../ui/Icons';
 import { formatCurrency } from '../../utils/helpers';
 import { useNotification, useAuth } from '../../App';
@@ -38,8 +39,96 @@ const parseInputNumber = (val: string) => {
     return parseInt(val.replace(/\D/g, "")) || 0;
 };
 
-// --- Component ---
+// --- Custom Date Picker Popover ---
+const DatePickerPopover: React.FC<{
+    selectedDate: string;
+    onSelect: (date: string) => void;
+    onClose: () => void;
+}> = ({ selectedDate, onSelect, onClose }) => {
+    const popoverRef = useRef<HTMLDivElement>(null);
+    const date = new Date(selectedDate);
+    const [viewMonth, setViewMonth] = useState(date.getMonth());
+    const [viewYear, setViewYear] = useState(date.getFullYear());
 
+    useEffect(() => {
+        const handleClickOutside = (e: MouseEvent) => {
+            if (popoverRef.current && !popoverRef.current.contains(e.target as Node)) onClose();
+        };
+        document.addEventListener("mousedown", handleClickOutside);
+        return () => document.removeEventListener("mousedown", handleClickOutside);
+    }, [onClose]);
+
+    const daysInMonth = new Date(viewYear, viewMonth + 1, 0).getDate();
+    const firstDayOfMonth = new Date(viewYear, viewMonth, 1).getDay(); // 0 (Sun) to 6 (Sat)
+    
+    // Adjust for Monday start if desired, but 0-6 is standard. 
+    // We'll use a simple grid.
+    
+    const days = Array.from({ length: daysInMonth }, (_, i) => i + 1);
+    const blanks = Array.from({ length: firstDayOfMonth }, (_, i) => i);
+
+    const months = ["Tháng 1", "Tháng 2", "Tháng 3", "Tháng 4", "Tháng 5", "Tháng 6", "Tháng 7", "Tháng 8", "Tháng 9", "Tháng 10", "Tháng 11", "Tháng 12"];
+
+    const handleMonthNav = (dir: number) => {
+        let newMonth = viewMonth + dir;
+        let newYear = viewYear;
+        if (newMonth < 0) { newMonth = 11; newYear--; }
+        else if (newMonth > 11) { newMonth = 0; newYear++; }
+        setViewMonth(newMonth);
+        setViewYear(newYear);
+    };
+
+    return (
+        <div ref={popoverRef} className="absolute top-full mt-2 left-0 z-50 bg-white rounded-2xl shadow-2xl border border-gray-200 p-4 w-72 animate-fade-in-down">
+            <div className="flex items-center justify-between mb-4">
+                <button onClick={() => handleMonthNav(-1)} className="p-1 hover:bg-gray-100 rounded-full transition-colors"><ChevronLeftIcon className="w-4 h-4"/></button>
+                <div className="text-sm font-black text-gray-800 uppercase tracking-tight">
+                    {months[viewMonth]} {viewYear}
+                </div>
+                <button onClick={() => handleMonthNav(1)} className="p-1 hover:bg-gray-100 rounded-full transition-colors"><ChevronRightIcon className="w-4 h-4"/></button>
+            </div>
+            
+            <div className="grid grid-cols-7 gap-1 text-center mb-2">
+                {["CN", "T2", "T3", "T4", "T5", "T6", "T7"].map(d => (
+                    <span key={d} className="text-[10px] font-black text-gray-400">{d}</span>
+                ))}
+            </div>
+            
+            <div className="grid grid-cols-7 gap-1">
+                {blanks.map(b => <div key={`b-${b}`} />)}
+                {days.map(d => {
+                    const fullDateStr = `${viewYear}-${String(viewMonth + 1).padStart(2, '0')}-${String(d).padStart(2, '0')}`;
+                    const isSelected = fullDateStr === selectedDate;
+                    const isToday = fullDateStr === new Date().toISOString().split('T')[0];
+                    
+                    return (
+                        <button
+                            key={d}
+                            onClick={() => { onSelect(fullDateStr); onClose(); }}
+                            className={`h-8 w-8 rounded-lg text-xs font-bold transition-all flex items-center justify-center
+                                ${isSelected ? 'bg-primary text-white shadow-md shadow-primary/20 scale-110' : 
+                                  isToday ? 'bg-emerald-50 text-emerald-600 border border-emerald-200' : 'hover:bg-gray-100 text-gray-600'}
+                            `}
+                        >
+                            {d}
+                        </button>
+                    );
+                })}
+            </div>
+            
+            <div className="mt-4 pt-3 border-t border-gray-100 flex justify-center">
+                <button 
+                    onClick={() => { onSelect(new Date().toISOString().split('T')[0]); onClose(); }}
+                    className="text-[10px] font-black text-primary uppercase tracking-widest hover:underline"
+                >
+                    Quay về hôm nay
+                </button>
+            </div>
+        </div>
+    );
+};
+
+// --- Input Card Component ---
 const InputCard: React.FC<{
     title: string;
     icon: React.ReactNode;
@@ -99,8 +188,9 @@ const ValueAddedServicesPage: React.FC = () => {
     const [isLoading, setIsLoading] = useState(false);
     const [isSubmitting, setIsSubmitting] = useState<MiscRevenueType | 'PARKING_BTN' | null>(null);
     const [isManuallyCollapsed, setIsManuallyCollapsed] = useState(false);
+    const [isDatePickerOpen, setIsDatePickerOpen] = useState(false);
 
-    // Form States (Stored as formatted strings for UI)
+    // Form States
     const [parkingMoto, setParkingMoto] = useState('');
     const [parkingCar, setParkingCar] = useState('');
     const [kioskName, setKioskName] = useState('');
@@ -110,7 +200,6 @@ const ValueAddedServicesPage: React.FC = () => {
     const [otherName, setOtherName] = useState('');
     const [otherAmount, setOtherAmount] = useState('');
 
-    // Mapping nhãn phân loại (Vietnamese)
     const typeLabels: Record<MiscRevenueType, string> = {
         PARKING: 'Xe lượt',
         KIOS: 'Kios',
@@ -187,6 +276,12 @@ const ValueAddedServicesPage: React.FC = () => {
         } catch (error) { showToast('Lỗi.', 'error'); }
     };
 
+    const navigateDay = (direction: number) => {
+        const d = new Date(selectedDate);
+        d.setDate(d.getDate() + direction);
+        setSelectedDate(d.toISOString().split('T')[0]);
+    };
+
     const handleExport = () => {
         if (monthlyRevenues.length === 0) { showToast('Không có dữ liệu tháng này.', 'info'); return; }
 
@@ -194,7 +289,6 @@ const ValueAddedServicesPage: React.FC = () => {
             const wb = XLSX.utils.book_new();
             const monthLabel = selectedDate.substring(0, 7);
 
-            // 1. Sheet Tổng hợp
             const summaryData = monthlyRevenues.map((r, i) => ({
                 STT: i + 1,
                 'Ngày': r.date,
@@ -206,53 +300,6 @@ const ValueAddedServicesPage: React.FC = () => {
             }));
             const wsSummary = XLSX.utils.json_to_sheet(summaryData);
             XLSX.utils.book_append_sheet(wb, wsSummary, "Tổng hợp Tháng");
-
-            // 2. Sheet Xe lượt
-            const parkingData = monthlyRevenues.filter(r => r.type === 'PARKING').map((r, i) => {
-                const parts = r.description.split('|');
-                const motoVal = parseInt(parts[0]?.replace(/[^0-9]/g, '') || '0');
-                const carVal = parseInt(parts[1]?.replace(/[^0-9]/g, '') || '0');
-                return {
-                    STT: i + 1,
-                    'Ngày': r.date,
-                    'Tiền xe máy': motoVal,
-                    'Tiền ô tô': carVal,
-                    'Tổng cộng': r.amount,
-                    'Ghi chú': r.description
-                };
-            });
-            const wsParking = XLSX.utils.json_to_sheet(parkingData);
-            XLSX.utils.book_append_sheet(wb, wsParking, "Xe lượt");
-
-            // 3. Sheet Kios
-            const kiosData = monthlyRevenues.filter(r => r.type === 'KIOS').map((r, i) => ({
-                STT: i + 1,
-                'Ngày': r.date,
-                'Tên Kios': r.description,
-                'Số tiền': r.amount
-            }));
-            const wsKios = XLSX.utils.json_to_sheet(kiosData);
-            XLSX.utils.book_append_sheet(wb, wsKios, "Kios");
-
-            // 4. Sheet GTGT
-            const vatData = monthlyRevenues.filter(r => r.type === 'VAT_SERVICE').map((r, i) => ({
-                STT: i + 1,
-                'Ngày': r.date,
-                'Nội dung': r.description,
-                'Số tiền': r.amount
-            }));
-            const wsVat = XLSX.utils.json_to_sheet(vatData);
-            XLSX.utils.book_append_sheet(wb, wsVat, "GTGT");
-
-            // 5. Sheet Khác
-            const otherData = monthlyRevenues.filter(r => r.type === 'OTHER').map((r, i) => ({
-                STT: i + 1,
-                'Ngày': r.date,
-                'Nội dung': r.description,
-                'Số tiền': r.amount
-            }));
-            const wsOther = XLSX.utils.json_to_sheet(otherData);
-            XLSX.utils.book_append_sheet(wb, wsOther, "Khác");
 
             XLSX.writeFile(wb, `Bao_cao_VAS_Thang_${monthLabel}.xlsx`);
             showToast('Xuất báo cáo tháng thành công.', 'success');
@@ -268,34 +315,64 @@ const ValueAddedServicesPage: React.FC = () => {
     const inputStyle = "w-full px-2 py-1.5 bg-gray-50 border border-gray-200 rounded-lg outline-none text-xs font-semibold focus:bg-white focus:ring-1 focus:ring-primary";
     const labelStyle = "text-[9px] font-black text-gray-400 uppercase ml-1 block mb-0.5";
 
+    const formattedDate = useMemo(() => {
+        const d = new Date(selectedDate);
+        return d.toLocaleDateString('vi-VN', { day: '2-digit', month: '2-digit', year: 'numeric' });
+    }, [selectedDate]);
+
     return (
         <div className="flex flex-col h-full overflow-hidden bg-slate-50/30">
             {/* 1. FIXED TOOLBAR */}
             <div className="flex-none bg-white/90 backdrop-blur-md z-20 p-3 border-b border-gray-100 sticky top-0 shadow-sm">
                 <div className="max-w-7xl mx-auto flex items-center justify-between gap-4">
-                    {/* Left side: Date and refresh */}
-                    <div className="flex items-center gap-3">
+                    {/* Date Navigation & Dropdown Selection */}
+                    <div className="flex items-center gap-2 bg-gray-100 p-1 rounded-xl border border-gray-200 shadow-inner">
+                        <button 
+                            onClick={() => navigateDay(-1)}
+                            className="p-1.5 hover:bg-white hover:text-primary rounded-lg transition-all text-gray-500"
+                            title="Ngày trước"
+                        >
+                            <ChevronLeftIcon className="w-4 h-4" />
+                        </button>
+                        
                         <div className="relative">
-                            <CalendarDaysIcon className="absolute left-2.5 top-1/2 -translate-y-1/2 text-primary w-4 h-4" />
-                            <input 
-                                type="date" 
-                                value={selectedDate} 
-                                onChange={(e) => setSelectedDate(e.target.value)}
-                                className="pl-8 pr-2 py-1.5 bg-gray-50 border border-gray-200 rounded-xl text-xs font-bold text-gray-700 outline-none"
-                            />
+                            <button 
+                                onClick={() => setIsDatePickerOpen(!isDatePickerOpen)}
+                                className="flex items-center gap-2 pl-3 pr-2 py-1.5 bg-white border border-gray-200 rounded-lg text-xs font-black text-gray-800 outline-none hover:border-primary/30 transition-all min-w-[120px]"
+                            >
+                                <CalendarDaysIcon className="text-primary w-4 h-4" />
+                                {formattedDate}
+                                <ChevronDownIcon className={`w-3 h-3 ml-auto transition-transform ${isDatePickerOpen ? 'rotate-180' : ''}`} />
+                            </button>
+                            
+                            {isDatePickerOpen && (
+                                <DatePickerPopover 
+                                    selectedDate={selectedDate} 
+                                    onSelect={setSelectedDate} 
+                                    onClose={() => setIsDatePickerOpen(false)} 
+                                />
+                            )}
                         </div>
-                        <button onClick={() => fetchData(selectedDate)} className="p-1.5 bg-gray-50 border border-gray-200 text-gray-400 rounded-lg hover:text-primary transition-colors" title="Làm mới">
-                            <ClockIcon className="w-4 h-4" />
+
+                        <button 
+                            onClick={() => navigateDay(1)}
+                            className="p-1.5 hover:bg-white hover:text-primary rounded-lg transition-all text-gray-500"
+                            title="Ngày sau"
+                        >
+                            <ChevronRightIcon className="w-4 h-4" />
                         </button>
                     </div>
 
-                    {/* Right side: Export and Monthly Total */}
-                    <div className="flex items-center gap-2 ml-auto">
+                    <div className="flex items-center gap-2">
+                        <button onClick={() => fetchData(selectedDate)} className="p-2 bg-gray-50 border border-gray-200 text-gray-400 rounded-xl hover:text-primary hover:bg-white transition-all shadow-sm" title="Làm mới">
+                            <ClockIcon className="w-4 h-4" />
+                        </button>
+                        
                         <button 
                             onClick={handleExport}
-                            className="flex items-center gap-1.5 px-3 py-1.5 bg-white border border-gray-200 text-gray-600 font-bold text-[10px] rounded-xl hover:bg-gray-50 uppercase tracking-wider transition-all"
+                            className="flex items-center gap-1.5 px-3 py-2 bg-white border border-gray-200 text-gray-600 font-bold text-[10px] rounded-xl hover:bg-gray-50 uppercase tracking-wider transition-all shadow-sm"
                         >
-                            <DocumentArrowDownIcon className="w-3.5 h-3.5 opacity-60" /> Export
+                            <DocumentArrowDownIcon className="w-3.5 h-3.5 opacity-60" /> Export Tháng
                         </button>
 
                         <div className="bg-emerald-50 border border-emerald-100 px-3 py-1.5 rounded-xl flex items-center gap-2 shadow-inner">
@@ -320,7 +397,7 @@ const ValueAddedServicesPage: React.FC = () => {
                     
                     {/* INPUT SECTION HEADER */}
                     <div className="flex justify-between items-center px-1">
-                        <h2 className="text-[11px] font-black text-gray-400 uppercase tracking-[0.2em]">Nhập liệu doanh thu ngày {selectedDate.split('-').reverse().join('/')}</h2>
+                        <h2 className="text-[11px] font-black text-gray-400 uppercase tracking-[0.2em]">Nhập liệu doanh thu ngày {formattedDate}</h2>
                         <button 
                             onClick={() => setIsManuallyCollapsed(!isManuallyCollapsed)}
                             className="flex items-center gap-1.5 px-2 py-1 rounded-lg bg-gray-100 text-gray-500 hover:bg-gray-200 transition-all active:scale-95"
@@ -373,7 +450,7 @@ const ValueAddedServicesPage: React.FC = () => {
                                 {isLoading ? (
                                     <tr><td colSpan={5} className="py-20 text-center"><Spinner /></td></tr>
                                 ) : dailyRevenues.length === 0 ? (
-                                    <tr><td colSpan={5} className="py-32 text-center text-gray-300 font-bold uppercase tracking-widest text-[10px]">Chưa ghi nhận giao dịch ngày {selectedDate.split('-').reverse().join('/')}</td></tr>
+                                    <tr><td colSpan={5} className="py-32 text-center text-gray-300 font-bold uppercase tracking-widest text-[10px]">Chưa ghi nhận giao dịch ngày {formattedDate}</td></tr>
                                 ) : (
                                     <>
                                         {dailyRevenues.map(rev => {
@@ -407,7 +484,7 @@ const ValueAddedServicesPage: React.FC = () => {
                                             <td colSpan={3} className="px-5 py-6 text-[10px] font-black text-emerald-600 uppercase tracking-widest">
                                                 <div className="flex items-center gap-2">
                                                     <div className="w-1.5 h-1.5 bg-emerald-500 rounded-full animate-pulse"></div>
-                                                    Tổng thu ngày {selectedDate.split('-').reverse().join('/')}
+                                                    Tổng thu ngày {formattedDate}
                                                 </div>
                                             </td>
                                             <td className="px-5 py-6 text-right">

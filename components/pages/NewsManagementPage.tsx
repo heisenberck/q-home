@@ -217,44 +217,21 @@ const NewsEditorModal: React.FC<{
   );
 };
 
-const NewsManagementPage: React.FC<NewsManagementPageProps> = ({ news: initialNews, setNews, role, users }) => {
+const NewsManagementPage: React.FC<NewsManagementPageProps> = ({ news, setNews, role, users }) => {
   const { showToast } = useNotification();
   const canManage = role === 'Admin';
   const IS_PROD = isProduction();
 
-  const [localNews, setLocalNews] = useState<ExtendedNewsItem[]>(initialNews as ExtendedNewsItem[]);
   const [loading, setLoading] = useState(false);
   const [editingItem, setEditingItem] = useState<ExtendedNewsItem | null | undefined>(undefined);
   const [searchTerm, setSearchTerm] = useState('');
   const [categoryFilter, setCategoryFilter] = useState('all');
   const [currentPage, setCurrentPage] = useState(1);
-  const ITEMS_PER_PAGE = 6;
+  const ITEMS_PER_PAGE = 8;
 
-  // --- 1. Data Fetching ---
-  useEffect(() => {
-    const fetchNews = async () => {
-        if (!IS_PROD) {
-            setLocalNews(initialNews as ExtendedNewsItem[]);
-            return;
-        }
-        setLoading(true);
-        try {
-            const querySnapshot = await getDocs(collection(db, 'news'));
-            const fetchedNews = querySnapshot.docs.map(doc => ({ id: doc.id, ...doc.data() })) as ExtendedNewsItem[];
-            fetchedNews.sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime());
-            setLocalNews(fetchedNews);
-        } catch (error) {
-            showToast('Lỗi tải danh sách tin tức.', 'error');
-        } finally {
-            setLoading(false);
-        }
-    };
-    fetchNews();
-  }, [IS_PROD, initialNews, showToast]);
-
-  // --- 2. Filter & Sort ---
+  // --- Filter & Sort ---
   const filteredNews = useMemo(() => {
-    return localNews.filter(item => {
+    return (news as ExtendedNewsItem[]).filter(item => {
         if (searchTerm && !item.title.toLowerCase().includes(searchTerm.toLowerCase())) return false;
         if (categoryFilter !== 'all' && item.category !== categoryFilter) return false;
         return true;
@@ -263,7 +240,7 @@ const NewsManagementPage: React.FC<NewsManagementPageProps> = ({ news: initialNe
         if (a.isPinned !== b.isPinned) return a.isPinned ? -1 : 1;
         return new Date(b.date).getTime() - new Date(a.date).getTime();
     });
-  }, [localNews, searchTerm, categoryFilter]);
+  }, [news, searchTerm, categoryFilter]);
 
   const paginatedNews = useMemo(() => {
     const startIndex = (currentPage - 1) * ITEMS_PER_PAGE;
@@ -273,37 +250,39 @@ const NewsManagementPage: React.FC<NewsManagementPageProps> = ({ news: initialNe
   const totalPages = Math.ceil(filteredNews.length / ITEMS_PER_PAGE);
 
   const stats = useMemo(() => ({
-      total: localNews.length,
-      important: localNews.filter(n => n.priority === 'high').length,
-      pinned: localNews.filter(n => n.isPinned).length,
-      broadcasted: localNews.filter(n => n.isBroadcasted).length
-  }), [localNews]);
+      total: news.length,
+      important: news.filter(n => n.priority === 'high').length,
+      pinned: (news as ExtendedNewsItem[]).filter(n => n.isPinned).length,
+      broadcasted: news.filter(n => n.isBroadcasted).length
+  }), [news]);
 
-  // --- 3. Handlers ---
+  // --- Handlers ---
+  useEffect(() => { setCurrentPage(1); }, [searchTerm, categoryFilter]);
 
   const handleSave = async (item: ExtendedNewsItem) => {
     setLoading(true);
-    const isEdit = !!item.id;
+    const isEdit = !!item.id && !item.id.startsWith('news_mock');
     try {
         if (IS_PROD) {
             let newItemId = item.id;
-            // Remove 'id' from the doc payload to avoid redundancy
             const { id, ...docData } = item; 
 
-            if (isEdit && !item.id.startsWith('news_') && !item.id.startsWith('mock')) {
+            if (isEdit) {
                 await updateDoc(doc(db, 'news', item.id), docData);
             } else {
                 const docRef = await addDoc(collection(db, 'news'), docData);
                 newItemId = docRef.id;
             }
             const newItemWithId = { ...item, id: newItemId };
-            setLocalNews(prev => isEdit ? prev.map(n => n.id === item.id ? newItemWithId : n) : [newItemWithId, ...prev]);
+            
+            // Cập nhật state tổng thể của App
+            setNews(prev => isEdit ? prev.map(n => n.id === item.id ? newItemWithId : n) : [newItemWithId, ...prev]);
             showToast('Đã lưu tin tức thành công.', 'success');
         } else {
             // Dev Mode
             const mockId = isEdit ? item.id : `news_mock_${Date.now()}`;
             const newItem = { ...item, id: mockId };
-            setLocalNews(prev => isEdit ? prev.map(n => n.id === item.id ? newItem : n) : [newItem, ...prev]);
+            setNews(prev => isEdit ? prev.map(n => n.id === item.id ? newItem : n) : [newItem, ...prev]);
             showToast('[DEV] Lưu tin tức thành công (Local).', 'success');
         }
         setEditingItem(undefined);
@@ -321,7 +300,7 @@ const NewsManagementPage: React.FC<NewsManagementPageProps> = ({ news: initialNe
         if (IS_PROD) {
             await deleteDoc(doc(db, 'news', id));
         }
-        setLocalNews(prev => prev.filter(n => n.id !== id));
+        setNews(prev => prev.filter(n => n.id !== id));
         showToast('Đã xóa tin tức.', 'success');
     } catch (error: any) {
         showToast('Lỗi khi xóa: ' + error.message, 'error');
@@ -333,7 +312,7 @@ const NewsManagementPage: React.FC<NewsManagementPageProps> = ({ news: initialNe
   const handleBroadcast = async (item: NewsItem) => {
     if (!IS_PROD) {
         showToast("Dev Mode: Simulated Send", "info");
-        setLocalNews(prev => prev.map(n => n.id === item.id ? { ...n, isBroadcasted: true } : n));
+        setNews(prev => prev.map(n => n.id === item.id ? { ...n, isBroadcasted: true } : n));
         return;
     }
 
@@ -344,48 +323,38 @@ const NewsManagementPage: React.FC<NewsManagementPageProps> = ({ news: initialNe
     
     try {
         const batch = writeBatch(db);
-        
-        // 1. Resolve Document ID (Ref Check)
-        // If news.id starts with "mock" or "news_" (local ID), generate a NEW Firestore ID
-        const isMockId = !item.id || item.id.startsWith('mock') || item.id.startsWith('news_');
+        const isMockId = !item.id || item.id.startsWith('news_mock');
         const newsId = isMockId ? doc(collection(db, 'news')).id : item.id;
         
-        // 2. Upsert News (SET with MERGE)
-        // This ensures the news document exists in Firestore even if it was just created locally
         const newsRef = doc(db, 'news', newsId);
         const newsPayload = { 
             ...item, 
-            id: newsId, // Ensure ID is consistent
+            id: newsId,
             isBroadcasted: true, 
             broadcastTime 
         };
-        // Use batch.set with merge: true to effectively "upsert"
         batch.set(newsRef, newsPayload, { merge: true });
 
-        // 3. Create Notifications
         const residents = users.filter(u => u.Role === 'Resident');
         let count = 0;
         
-        // Batch limit is 500. Sending to first 450 to be safe.
         residents.slice(0, 450).forEach(res => {
             const notifRef = doc(collection(db, 'notifications'));
             batch.set(notifRef, {
-                userId: res.Username, // Targeting the user by Username (Unit ID)
+                userId: res.Username, 
                 title: item.title,
                 body: item.content.replace(/<[^>]*>?/gm, '').substring(0, 100) + '...',
                 isRead: false,
-                createdAt: serverTimestamp(), // Use server timestamp for ordering
+                createdAt: serverTimestamp(), 
                 type: 'news',
                 linkId: newsId
             });
             count++;
         });
 
-        // 4. Commit
         await batch.commit();
         
-        // Update local state with real ID
-        setLocalNews(prev => prev.map(n => n.id === item.id ? { ...n, id: newsId, isBroadcasted: true, broadcastTime } : n));
+        setNews(prev => prev.map(n => n.id === item.id ? { ...n, id: newsId, isBroadcasted: true, broadcastTime } : n));
         showToast(`Đã gửi thông báo tới ${count} cư dân.`, 'success');
 
     } catch (error: any) {
@@ -397,7 +366,7 @@ const NewsManagementPage: React.FC<NewsManagementPageProps> = ({ news: initialNe
   };
 
   return (
-    <div className="h-full flex flex-col space-y-6">
+    <div className="h-full flex flex-col space-y-6 overflow-hidden">
       {editingItem !== undefined && <NewsEditorModal newsItem={editingItem} onSave={handleSave} onClose={() => setEditingItem(undefined)} loading={loading} />}
 
       <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
@@ -430,7 +399,7 @@ const NewsManagementPage: React.FC<NewsManagementPageProps> = ({ news: initialNe
                     {item.imageUrl ? (<img src={item.imageUrl} alt="" className="w-full h-full object-cover" />) : (<div className="w-full h-full flex items-center justify-center text-gray-400"><NewspaperIcon className="w-10 h-10" /></div>)}
                     {item.isPinned && (<div className="absolute top-2 left-2 bg-orange-500 text-white p-1 rounded-full shadow-md"><PinIcon className="w-4 h-4" filled /></div>)}
                 </div>
-                <div className="flex-grow p-4 flex flex-col justify-between">
+                <div className="flex-grow p-4 flex flex-col justify-between min-w-0">
                     <div>
                         <div className="flex flex-wrap items-center gap-2 mb-2">
                             {item.isBroadcasted && <span className="px-2 py-0.5 rounded text-xs font-bold bg-green-100 text-green-700 flex items-center gap-1"><CheckCircleIcon className="w-3 h-3"/> Đã gửi TB</span>}
@@ -456,16 +425,37 @@ const NewsManagementPage: React.FC<NewsManagementPageProps> = ({ news: initialNe
                 )}
             </div>
         ))}
-      </div>
-      {totalPages > 1 && (
-        <div className="flex justify-between items-center pt-2 border-t border-gray-200">
-            <span className="text-sm text-gray-500">Trang {currentPage} / {totalPages}</span>
-            <div className="flex gap-2">
-                <button onClick={() => setCurrentPage(p => Math.max(1, p - 1))} disabled={currentPage === 1} className="p-2 border rounded-md hover:bg-gray-50 disabled:opacity-50 bg-white"><ChevronLeftIcon className="w-4 h-4"/></button>
-                <button onClick={() => setCurrentPage(p => Math.min(totalPages, p + 1))} disabled={currentPage === totalPages} className="p-2 border rounded-md hover:bg-gray-50 disabled:opacity-50 bg-white"><ChevronRightIcon className="w-4 h-4"/></button>
+        {filteredNews.length === 0 && (
+            <div className="flex flex-col items-center justify-center py-20 text-gray-400">
+                <MegaphoneIcon className="w-16 h-16 opacity-10 mb-4" />
+                <p className="font-medium">Không tìm thấy tin tức nào.</p>
             </div>
-        </div>
-      )}
+        )}
+      </div>
+
+      {/* Floating Pagination Footer Overlay */}
+      <div className="fixed bottom-0 right-0 z-50 h-7 flex items-center gap-4 px-6 bg-white border-t border-l border-gray-200 shadow-none">
+          <span className="text-[10px] font-bold text-gray-400 uppercase tracking-widest leading-none">
+              Trang {currentPage} / {totalPages || 1}
+          </span>
+          
+          <div className="flex gap-1 h-full items-center">
+              <button 
+                  disabled={currentPage === 1 || loading}
+                  onClick={() => setCurrentPage(p => p - 1)}
+                  className="p-1 rounded-md hover:bg-gray-100 disabled:opacity-30 transition-colors"
+              >
+                  <ChevronLeftIcon className="w-4 h-4 text-gray-500" />
+              </button>
+              <button 
+                  disabled={currentPage === totalPages || totalPages === 0 || loading}
+                  onClick={() => setCurrentPage(p => p + 1)}
+                  className="p-1 rounded-md hover:bg-gray-100 disabled:opacity-30 transition-colors"
+              >
+                  <ChevronRightIcon className="w-4 h-4 text-gray-500" />
+              </button>
+          </div>
+      </div>
     </div>
   );
 };

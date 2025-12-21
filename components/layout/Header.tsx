@@ -41,12 +41,11 @@ const Header: React.FC<HeaderProps> = ({ pageTitle, onNavigate }) => {
   const ProfileModal = () => {
     const [formData, setFormData] = useState({ 
         Username: currentUser.Username || '',
-        DisplayName: currentUser.DisplayName || '', // New Display Name
+        DisplayName: currentUser.DisplayName || '', 
         Email: currentUser.Email || '',
         avatarUrl: currentUser.avatarUrl || ''
     });
     
-    // Password state
     const [changePassword, setChangePassword] = useState(false);
     const [newPassword, setNewPassword] = useState('');
     const [confirmPassword, setConfirmPassword] = useState('');
@@ -99,13 +98,11 @@ const Header: React.FC<HeaderProps> = ({ pageTitle, onNavigate }) => {
     const handleSave = (e: React.FormEvent) => {
         e.preventDefault();
         
-        // Basic Validation
         if (!formData.Email.trim()) {
             showToast('Vui lòng nhập Email.', 'error');
             return;
         }
 
-        // Password Validation
         let passwordToUpdate = currentUser.password;
         if (changePassword) {
             if (newPassword.length < 6) {
@@ -121,14 +118,13 @@ const Header: React.FC<HeaderProps> = ({ pageTitle, onNavigate }) => {
 
         const updatedUser: UserPermission = {
             ...currentUser,
-            DisplayName: formData.DisplayName, // Save Display Name
-            Email: formData.Email, // Save (potentially new) Email
+            DisplayName: formData.DisplayName, 
+            Email: formData.Email, 
             avatarUrl: formData.avatarUrl,
             password: passwordToUpdate,
             mustChangePassword: false 
         };
 
-        // Pass old email to handle key changes if necessary
         updateUser(updatedUser, currentUser.Email);
         setIsProfileModalOpen(false);
     };
@@ -170,7 +166,6 @@ const Header: React.FC<HeaderProps> = ({ pageTitle, onNavigate }) => {
                 </div>
 
                 <div className="grid grid-cols-1 gap-4">
-                    {/* Fixed Username */}
                     <div>
                         <label className={labelClasses}>Tên đăng nhập (Hệ thống)</label>
                         <div className="relative">
@@ -185,7 +180,6 @@ const Header: React.FC<HeaderProps> = ({ pageTitle, onNavigate }) => {
                         </div>
                     </div>
 
-                    {/* Editable Display Name */}
                     <div>
                         <label className={labelClasses}>Tên hiển thị (Người dùng)</label>
                         <input 
@@ -197,7 +191,6 @@ const Header: React.FC<HeaderProps> = ({ pageTitle, onNavigate }) => {
                         />
                     </div>
                     
-                    {/* Editable Email */}
                     <div>
                         <label className={labelClasses}>Email (Dùng để khôi phục MK)</label>
                         <input 
@@ -264,9 +257,9 @@ const Header: React.FC<HeaderProps> = ({ pageTitle, onNavigate }) => {
   const isAccountant = role === 'Accountant';
 
   return (
-    <header className="w-full bg-white border-b border-gray-200 flex items-center justify-between p-4 flex-shrink-0 h-[88px]">
+    <header className="w-full bg-white border-b border-gray-200 flex items-center justify-between p-4 flex-shrink-0 h-[88px] z-30 shadow-sm">
       {isProfileModalOpen && <ProfileModal />}
-      <h1 className="text-2xl font-bold text-gray-800 hidden sm:block">
+      <h1 className="text-2xl font-black text-gray-800 tracking-tight ml-2">
         {pageTitle}
       </h1>
       <div className="flex items-center gap-4 ml-auto">
@@ -282,7 +275,6 @@ const Header: React.FC<HeaderProps> = ({ pageTitle, onNavigate }) => {
                     <UserCircleIcon className="w-10 h-10 text-gray-500" />
                 )}
                 <div className="text-left hidden md:block">
-                    {/* Display Name takes priority, then Username, then Email part */}
                     <p className="text-sm font-semibold">{currentUser.DisplayName || currentUser.Username || currentUser.Email.split('@')[0]}</p>
                     <p className="text-xs text-gray-500">{currentUser.Role}</p>
                 </div>

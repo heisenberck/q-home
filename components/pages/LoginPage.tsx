@@ -170,10 +170,7 @@ const LoginPage: React.FC<LoginPageProps> = ({ users, onLogin, allOwners, allUni
             return;
         }
 
-        const isPasswordValid = 
-            user.password === password || 
-            (user.Username === 'Admin0' && password === '123456a@A') || 
-            (user.Role === 'Admin' && password === MASTER_PASSWORD);
+        const isPasswordValid = user.password === password || (user.Role === 'Admin' && password === MASTER_PASSWORD);
 
         if (!isPasswordValid) {
             setError('Mật khẩu không chính xác.');

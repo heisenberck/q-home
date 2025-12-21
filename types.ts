@@ -17,7 +17,6 @@ export interface UserPermission {
     password: string;
     mustChangePassword?: boolean;
     residentId?: string; // Link to UnitID for residents
-    permissions?: string[]; // ADDED: List of module IDs the user can access
 }
 
 // ... (Keep existing Enums UnitType, VehicleTier, ParkingTariffTier)
@@ -263,7 +262,6 @@ export interface InvoiceSettings {
     // Branding Settings
     buildingName?: string;
     loginBackgroundUrl?: string;
-    HOTLINE?: string; // Added HOTLINE support
 }
 
 // REFACTORED: New Activity Log schema

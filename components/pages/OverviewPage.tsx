@@ -5,19 +5,13 @@ import type { Unit, Vehicle, WaterReading, ChargeRaw, ActivityLog, Owner, Feedba
 import { VehicleTier } from '../../types';
 import {
     BuildingIcon, BanknotesIcon, CarIcon, DropletsIcon, ChatBubbleLeftEllipsisIcon,
-    WarningIcon, ClockIcon, UserCircleIcon
+    WarningIcon, ClockIcon, UserCircleIcon, ChatBubbleLeftRightIcon
 } from '../ui/Icons';
 import { getPreviousPeriod, timeAgo } from '../../utils/helpers';
 import type { AdminPage } from '../../App';
 import { isProduction } from '../../utils/env';
 
 // --- Local Components & Helpers ---
-
-const ChatBubbleLeftRightIcon: React.FC<{ className?: string }> = ({ className = "h-5 w-5" }) => (
-    <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" strokeWidth={1.5} stroke="currentColor" className={className}>
-      <path strokeLinecap="round" strokeLinejoin="round" d="M20.25 12c0-2.515-2.035-4.545-4.545-4.545H5.25a2.25 2.25 0 0 0-2.25 2.25v6.75a2.25 2.25 0 0 0 2.25 2.25H9m11.25-8.25a2.25 2.25 0 0 0-2.25-2.25H13.5a2.25 2.25 0 0 0-2.25 2.25v6.75a2.25 2.25 0 0 0 2.25 2.25H18a2.25 2.25 0 0 0 2.25-2.25V12.75Z" />
-    </svg>
-);
 
 const formatCurrency = (value: number) => {
     if (value >= 1_000_000_000) return `${(value / 1_000_000_000).toFixed(1)} tỷ`;
@@ -89,28 +83,28 @@ const DashboardFooter: React.FC<{
     }, [showActivityPopup, showMsgPopup]);
 
     return (
-        <div className="fixed bottom-0 left-64 right-0 bg-white/95 backdrop-blur-md border-t border-gray-200 h-12 flex items-center justify-between px-6 text-gray-600 z-30 shadow-[0_-4px_6px_-1px_rgba(0,0,0,0.05)]">
+        <div className="fixed bottom-0 left-64 right-0 bg-white/95 backdrop-blur-md border-t border-gray-200 h-7 flex items-center justify-between px-6 text-gray-600 z-30 shadow-[0_-4px_6px_-1px_rgba(0,0,0,0.05)]">
             <div className="flex-1 flex items-center relative max-w-2xl" onClick={(e) => { e.stopPropagation(); setShowActivityPopup(!showActivityPopup); setShowMsgPopup(false); }}>
-                <div className="flex items-center gap-3 cursor-pointer hover:bg-gray-100 py-1.5 px-3 rounded-lg transition-colors w-full">
+                <div className="flex items-center gap-3 cursor-pointer hover:bg-gray-100 py-0.5 px-3 rounded-lg transition-colors w-full">
                     {currentLog ? (
                         <>
-                            <div className="relative flex h-2.5 w-2.5">
+                            <div className="relative flex h-2 w-2">
                                 <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-red-400 opacity-75"></span>
-                                <span className="relative inline-flex rounded-full h-2.5 w-2.5 bg-red-500"></span>
+                                <span className="relative inline-flex rounded-full h-2 w-2 bg-red-500"></span>
                             </div>
-                            <div key={tickerKey} className="flex items-center text-xs text-gray-600 truncate animate-fade-in-down w-full">
+                            <div key={tickerKey} className="flex items-center text-[10px] text-gray-600 truncate animate-fade-in-down w-full">
                                 <span className="font-bold text-gray-800 mr-2">{currentLog.actor_email.split('@')[0]}</span>
                                 <span className="truncate mr-2">{currentLog.summary}</span>
-                                <span className="text-gray-400 text-[10px] whitespace-nowrap bg-gray-50 px-1.5 rounded border border-gray-200">{timeAgo(currentLog.ts)}</span>
+                                <span className="text-gray-400 text-[9px] whitespace-nowrap bg-gray-50 px-1 rounded border border-gray-200">{timeAgo(currentLog.ts)}</span>
                             </div>
                         </>
                     ) : (
-                        <span className="text-xs text-gray-400 italic pl-1">Không có hoạt động gần đây.</span>
+                        <span className="text-[10px] text-gray-400 italic pl-1">Không có hoạt động gần đây.</span>
                     )}
                 </div>
 
                 {showActivityPopup && latestLogs.length > 0 && (
-                    <div className="absolute bottom-14 left-0 w-96 bg-white rounded-xl shadow-2xl border border-gray-200 p-1 animate-slide-up z-40" onClick={(e) => e.stopPropagation()}>
+                    <div className="absolute bottom-9 left-0 w-96 bg-white rounded-xl shadow-2xl border border-gray-200 p-1 animate-slide-up z-40" onClick={(e) => e.stopPropagation()}>
                         <div className="bg-gray-50 px-3 py-2 border-b border-gray-100 rounded-t-lg flex justify-between items-center">
                             <span className="text-xs font-bold text-gray-700 uppercase tracking-wider">Hoạt động gần nhất</span>
                             <span className="text-[10px] text-gray-400">Tự động cập nhật</span>
@@ -131,14 +125,14 @@ const DashboardFooter: React.FC<{
             </div>
 
             <div className="flex items-center relative" onClick={(e) => { e.stopPropagation(); setShowMsgPopup(!showMsgPopup); setShowActivityPopup(false); }}>
-                <button className={`relative flex items-center gap-2 px-3 py-1.5 rounded-lg text-sm font-semibold transition-colors ${showMsgPopup ? 'bg-blue-50 text-blue-600' : 'hover:bg-gray-100 text-gray-600'}`}>
-                    <ChatBubbleLeftRightIcon className="w-5 h-5" />
+                <button className={`relative flex items-center gap-2 px-3 py-0.5 rounded-lg text-[11px] font-bold transition-colors ${showMsgPopup ? 'bg-blue-50 text-blue-600' : 'hover:bg-gray-100 text-gray-600'}`}>
+                    <ChatBubbleLeftRightIcon className="w-3.5 h-3.5" />
                     <span>Tin nhắn</span>
-                    {pendingFeedbackCount > 0 && (<span className="absolute -top-1 -right-1 flex h-4 w-4 items-center justify-center rounded-full bg-red-500 text-white text-[10px] font-bold ring-2 ring-white shadow-sm">{pendingFeedbackCount}</span>)}
+                    {pendingFeedbackCount > 0 && (<span className="absolute -top-1 -right-1 flex h-3 w-3 items-center justify-center rounded-full bg-red-500 text-white text-[8px] font-bold ring-1 ring-white shadow-sm">{pendingFeedbackCount}</span>)}
                 </button>
 
                 {showMsgPopup && (
-                    <div className="absolute bottom-14 right-0 w-80 bg-white rounded-xl shadow-2xl border border-gray-200 p-1 animate-slide-up z-40" onClick={(e) => e.stopPropagation()}>
+                    <div className="absolute bottom-9 right-0 w-80 bg-white rounded-xl shadow-2xl border border-gray-200 p-1 animate-slide-up z-40" onClick={(e) => e.stopPropagation()}>
                         <div className="bg-gray-50 px-3 py-2 border-b border-gray-100 rounded-t-lg flex justify-between items-center">
                             <span className="text-xs font-bold text-gray-700 uppercase tracking-wider">Tin nhắn chưa đọc</span>
                             <button onClick={() => onNavigate('feedbackManagement')} className="text-[10px] text-blue-600 hover:underline">Xem tất cả</button>
@@ -274,7 +268,7 @@ const OverviewPage: React.FC<OverviewPageProps> = ({ allUnits, allOwners, allVeh
     }, [allUnits, allVehicles, allWaterReadings, charges, feedback, monthlyStats]);
 
     return (
-        <div className="space-y-6 pb-16">
+        <div className="space-y-6 pb-8">
             <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-5 gap-6">
                 <div onClick={() => onNavigate('residents')} className="cursor-pointer transition-transform duration-200 ease-in-out hover:scale-[1.03] hover:shadow-lg rounded-xl">
                     <ModuleCard title="Cư dân" icon={<BuildingIcon className="w-6 h-6 text-blue-600"/>} borderColor="border-blue-500">
@@ -291,7 +285,7 @@ const OverviewPage: React.FC<OverviewPageProps> = ({ allUnits, allOwners, allVeh
                 <div onClick={() => onNavigate('vehicles')} className="cursor-pointer transition-transform duration-200 ease-in-out hover:scale-[1.03] hover:shadow-lg rounded-xl">
                     <ModuleCard title="Phương tiện" icon={<CarIcon className="w-6 h-6 text-orange-600"/>} borderColor="border-orange-500">
                         <div><p className="text-sm text-gray-500">Tổng số ô tô</p><p className="text-3xl font-bold text-gray-800">{commandCenterStats.vehicleStats.carSlotsUsed}</p></div>
-                        <div><p className="text-sm font-semibold text-gray-600">Xe máy/Xe điện: {commandCenterStats.vehicleStats.motoCount}/{commandCenterStats.vehicleStats.ebikeCount}</p><p className="text-sm font-semibold text-gray-600">Xe đạp: {commandCenterStats.vehicleStats.bicycleCount}</p>{commandCenterStats.vehicleStats.waiting > 0 && (<p className="text-xs text-red-600 mt-1 font-bold">{commandCenterStats.vehicleStats.waiting} xe đang chờ lốt</p>)}</div>
+                        <div><p className="text-sm font-semibold text-gray-600">Xe máy/Xe điện: {commandCenterStats.vehicleStats.motoCount}/{commandCenterStats.vehicleStats.ebikeCount}</p><p className="text-sm font-semibold text-gray-600">Xe đạp: {commandCenterStats.vehicleStats.bicycleCount}</p>{commandCenterStats.vehicleStats.waiting > 0 && (<p className="text-xs text-red-600 mt-1 font-bold">{commandCenterStats.vehicleStats.waiting} xe đang chờ lốt đỗ</p>)}</div>
                     </ModuleCard>
                 </div>
                 <div onClick={() => onNavigate('water')} className="cursor-pointer transition-transform duration-200 ease-in-out hover:scale-[1.03] hover:shadow-lg rounded-xl">

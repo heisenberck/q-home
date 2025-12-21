@@ -42,21 +42,21 @@ import NotificationListener from './components/common/NotificationListener';
 // --- Types ---
 export type AdminPage = 'overview' | 'billing' | 'residents' | 'vehicles' | 'water' | 'pricing' | 'users' | 'settings' | 'backup' | 'activityLog' | 'newsManagement' | 'feedbackManagement' | 'vas';
 
-// Ánh xạ tiêu đề Tiếng Việt chuẩn cho các trang Admin
+// Ánh xạ tiêu đề Tiếng Việt cho các trang Admin
 const ADMIN_PAGE_TITLES: Record<AdminPage, string> = {
-    overview: 'Tổng quan',
-    billing: 'Quản lý tài chính',
-    residents: 'Quản lý cư dân',
-    vehicles: 'Quản lý phương tiện',
-    water: 'Quản lý nước',
-    pricing: 'Cấu hình đơn giá',
-    users: 'Quản lý người dùng',
-    settings: 'Cài đặt',
+    overview: 'Tổng quan hệ thống',
+    billing: 'Bảng tính phí dịch vụ',
+    residents: 'Quản lý Cư dân & Căn hộ',
+    vehicles: 'Quản lý Phương tiện',
+    water: 'Quản lý Chỉ số Nước',
+    pricing: 'Cấu hình Đơn giá',
+    users: 'Quản lý Người dùng',
+    settings: 'Cài đặt Hệ thống',
     backup: 'Sao lưu & Phục hồi',
-    activityLog: 'Nhật ký hoạt động',
-    newsManagement: 'Quản lý tin tức',
-    feedbackManagement: 'Quản lý phản ánh',
-    vas: 'Quản lý dịch vụ/tiện ích'
+    activityLog: 'Nhật ký Hoạt động',
+    newsManagement: 'Quản lý Tin tức',
+    feedbackManagement: 'Phản hồi Cư dân',
+    vas: 'Dịch vụ Gia tăng (VAS)'
 };
 
 export interface LogPayload {
@@ -68,8 +68,7 @@ export interface LogPayload {
     before_snapshot: any;
 }
 
-// ... rest of contexts and contexts logic ...
-
+// --- Contexts ---
 interface AuthContextType {
     user: UserPermission | null;
     login: (user: UserPermission, rememberMe: boolean) => void;
@@ -336,8 +335,8 @@ const App: React.FC = () => {
             case 'adminPortalVehicles': return <AdminPortalVehiclesPage vehicles={localVehicles} units={localUnits} owners={localOwners} />;
             case 'adminPortalMore': return (
                 <div className="p-4 space-y-4">
-                    <button onClick={() => setActivePage('newsManagement')} className="w-full p-4 bg-white rounded-xl shadow-sm border flex justify-between items-center font-bold text-gray-800">Quản lý tin tức <span>→</span></button>
-                    <button onClick={() => setActivePage('feedbackManagement')} className="w-full p-4 bg-white rounded-xl shadow-sm border flex justify-between items-center font-bold text-gray-800">Quản lý phản ánh <span>→</span></button>
+                    <button onClick={() => setActivePage('newsManagement')} className="w-full p-4 bg-white rounded-xl shadow-sm border flex justify-between items-center font-bold text-gray-800">Quản lý Tin tức <span>→</span></button>
+                    <button onClick={() => setActivePage('feedbackManagement')} className="w-full p-4 bg-white rounded-xl shadow-sm border flex justify-between items-center font-bold text-gray-800">Phản hồi Cư dân <span>→</span></button>
                     <button onClick={() => handleLogout()} className="w-full p-4 bg-red-50 text-red-600 rounded-xl shadow-sm border flex justify-between items-center font-black">Đăng xuất <span>⏻</span></button>
                 </div>
             );

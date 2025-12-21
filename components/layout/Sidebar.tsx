@@ -4,7 +4,7 @@ import {
     PieChartIcon, CalculatorIcon, UsersIcon, WaterIcon, ReceiptIcon, 
     CarIcon, MegaphoneIcon, ChatBubbleLeftEllipsisIcon,
     ChevronLeftIcon, ChevronRightIcon, ChevronDownIcon, ChevronUpIcon,
-    PiggyBankIcon
+    ArrowPathIcon
 } from '../ui/Icons';
 import type { Role, UserPermission } from '../../types';
 import { useSettings, useAuth } from '../../App';
@@ -42,7 +42,7 @@ const menuGroups: (MenuItem | MenuGroup)[] = [
     { id: 'overview', label: 'Tổng quan', icon: <PieChartIcon /> },
     {
         id: 'residents_group',
-        label: 'Quản lý cư dân',
+        label: 'Quản lý Cư dân',
         items: [
             { id: 'residents', label: 'Cư dân', icon: <UsersIcon /> },
             { id: 'vehicles', label: 'Phương tiện', icon: <CarIcon /> },
@@ -51,24 +51,27 @@ const menuGroups: (MenuItem | MenuGroup)[] = [
     },
     {
         id: 'finance_group',
-        label: 'Quản lý tài chính',
+        label: 'Quản lý Tài chính',
         items: [
             { id: 'billing', label: 'Bảng tính phí', icon: <CalculatorIcon /> },
             { id: 'vas', label: 'Dịch vụ GTGT', icon: <BanknotesIconLocal /> },
-            { id: 'pricing', label: 'Quản lý đơn giá', icon: <ReceiptIcon /> },
+            { id: 'pricing', label: 'Quản lý Đơn giá', icon: <ReceiptIcon /> },
         ]
     },
     {
         id: 'comm_group',
         label: 'Thông báo',
         items: [
-            { id: 'newsManagement', label: 'Quản lý tin tức', icon: <MegaphoneIcon /> },
-            { id: 'feedbackManagement', label: 'Quản lý phản ánh', icon: <ChatBubbleLeftEllipsisIcon /> },
+            { id: 'newsManagement', label: 'Quản lý Tin tức', icon: <MegaphoneIcon /> },
+            { id: 'feedbackManagement', label: 'Quản lý Phản hồi', icon: <ChatBubbleLeftEllipsisIcon /> },
         ]
     }
 ];
 
-// ... rest of sidebar component logic ...
+// Local extension for permissions
+interface ExtendedUser extends UserPermission {
+    permissions?: string[];
+}
 
 const Sidebar: React.FC<SidebarProps> = ({ activePage, setActivePage, role }) => {
   const { invoiceSettings } = useSettings();
@@ -76,39 +79,42 @@ const Sidebar: React.FC<SidebarProps> = ({ activePage, setActivePage, role }) =>
   const [isCollapsed, setIsCollapsed] = useState(false);
   const [expandedGroups, setExpandedGroups] = useState<Set<string>>(new Set(['residents_group', 'finance_group', 'comm_group']));
 
-  const isDev = !isProduction();
-  const themeClass = isDev 
-    ? 'border-red-500 bg-red-50 text-red-700' 
-    : 'border-emerald-500 bg-emerald-50 text-emerald-700';
-  const versionText = isDev ? 'v2.1-DEV' : 'v2.1';
-
-  const extendedUser = user as any;
+  const extendedUser = user as ExtendedUser;
 
   // Filter Menu based on Permissions
   const filteredMenuGroups = useMemo(() => {
+      // 1. Admin sees everything
       if (role === 'Admin') return menuGroups;
 
-      const userPermissions = new Set(extendedUser?.permissions || []);
+      // 2. Logic for Staff (Accountant, Operator, Viewer)
+      const userPermissions = new Set(extendedUser.permissions || []);
 
       return menuGroups.map(group => {
           if ('items' in group) {
+              // It's a Group -> Filter items
               const visibleItems = group.items.filter(item => {
+                  // Map specific page IDs to permission keys if necessary
                   let permissionKey = item.id;
+                  
+                  // "pricing" page is controlled by "billing" permission
                   if (item.id === 'pricing') permissionKey = 'billing';
                   if (item.id === 'vas') permissionKey = 'billing';
+
                   return userPermissions.has(permissionKey);
               });
 
+              // Only return group if it has visible items
               if (visibleItems.length > 0) {
                   return { ...group, items: visibleItems };
               }
               return null;
           } else {
+              // It's a Single Item (Overview) -> Always show Overview
               if (group.id === 'overview') return group;
               return null;
           }
-      }).filter(Boolean) as (MenuItem | MenuGroup)[];
-  }, [role, extendedUser?.permissions]);
+      }).filter(Boolean) as (MenuItem | MenuGroup)[]; // Remove nulls
+  }, [role, extendedUser.permissions]);
 
   const toggleGroup = (groupId: string) => {
       setExpandedGroups(prev => {
@@ -128,8 +134,13 @@ const Sidebar: React.FC<SidebarProps> = ({ activePage, setActivePage, role }) =>
       }
   };
 
+  const handleGlobalRefresh = () => {
+      window.dispatchEvent(new CustomEvent('REFRESH_RESIDENTS'));
+  };
+
   return (
     <aside className={`${isCollapsed ? 'w-20' : 'w-64'} bg-white flex-shrink-0 flex flex-col border-r border-gray-200 h-full transition-all duration-300 ease-in-out`}>
+      {/* Header */}
       <div className="p-4 border-b border-gray-200 flex items-center justify-between h-[88px]">
         {!isCollapsed && (
             <div className="flex items-center gap-3 overflow-hidden">
@@ -156,9 +167,11 @@ const Sidebar: React.FC<SidebarProps> = ({ activePage, setActivePage, role }) =>
         )}
       </div>
       
+      {/* Navigation */}
       <nav className="flex-1 p-2 space-y-2 overflow-y-auto overflow-x-hidden">
         {filteredMenuGroups.map((item) => {
             if ('items' in item) {
+                // Group
                 const isExpanded = expandedGroups.has(item.id);
                 const hasActiveChild = item.items.some(child => child.id === activePage);
                 
@@ -189,6 +202,7 @@ const Sidebar: React.FC<SidebarProps> = ({ activePage, setActivePage, role }) =>
                             )}
                         </button>
                         
+                        {/* Sub-menu */}
                         {(!isCollapsed && isExpanded) && (
                             <div className="mt-1 space-y-1 ml-1">
                                 {item.items.map(subItem => {
@@ -214,6 +228,7 @@ const Sidebar: React.FC<SidebarProps> = ({ activePage, setActivePage, role }) =>
                     </div>
                 );
             } else {
+                // Single Item (Dashboard)
                 const isActive = activePage === item.id;
                 return (
                     <a
@@ -234,14 +249,21 @@ const Sidebar: React.FC<SidebarProps> = ({ activePage, setActivePage, role }) =>
         })}
       </nav>
 
+      {/* Footer Toggle */}
       <div className="p-4 border-t border-gray-200 flex flex-col gap-2">
+        {!isCollapsed && (
+            <button 
+                onClick={handleGlobalRefresh}
+                className="w-full flex items-center justify-center gap-2 px-3 py-2 bg-emerald-50 text-emerald-700 border border-emerald-200 rounded-lg hover:bg-emerald-100 transition-all font-bold text-xs active:scale-95"
+            >
+                <ArrowPathIcon className="w-4 h-4" />
+                Làm mới dữ liệu
+            </button>
+        )}
+        
+        {/* PWA Install Button */}
         {!isCollapsed && <InstallPWA />}
         
-        {!isCollapsed && (
-            <div className={`p-2 rounded-lg border text-center ${themeClass}`}>
-                <p className="text-[10px] font-bold">{versionText}</p>
-            </div>
-        )}
         <button 
             onClick={() => setIsCollapsed(!isCollapsed)} 
             className="w-full flex items-center justify-center p-2 rounded-lg hover:bg-gray-100 text-gray-500 transition-colors"

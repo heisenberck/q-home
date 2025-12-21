@@ -42,21 +42,21 @@ import NotificationListener from './components/common/NotificationListener';
 // --- Types ---
 export type AdminPage = 'overview' | 'billing' | 'residents' | 'vehicles' | 'water' | 'pricing' | 'users' | 'settings' | 'backup' | 'activityLog' | 'newsManagement' | 'feedbackManagement' | 'vas';
 
-// Cập nhật Mapping Tiêu đề chuẩn theo yêu cầu
+// Ánh xạ tiêu đề Tiếng Việt chuẩn theo yêu cầu
 const ADMIN_PAGE_TITLES: Record<AdminPage, string> = {
-    overview: 'Tổng quan',
+    overview: 'Tổng Quan',
     billing: 'Bảng tính phí',
     residents: 'Quản lý Cư dân',
     vehicles: 'Quản lý Phương tiện',
     water: 'Quản lý Nước',
+    vas: 'Quản lý dịch vụ GTGT',
     pricing: 'Quản lý Đơn giá',
+    newsManagement: 'Quản lý Tin tức',
+    feedbackManagement: 'Quản lý Phản hồi',
     users: 'Quản lý Người dùng',
     settings: 'Cài đặt Hệ thống',
     backup: 'Sao lưu & Phục hồi',
-    activityLog: 'Nhật ký Hoạt động',
-    newsManagement: 'Quản lý Tin tức',
-    feedbackManagement: 'Quản lý Phản hồi',
-    vas: 'Dịch vụ GTGT'
+    activityLog: 'Nhật ký Hoạt động'
 };
 
 export interface LogPayload {
@@ -126,10 +126,7 @@ export const useDataRefresh = () => {
 export const useLogger = () => {
     const { user } = useAuth();
     const log = useCallback(async (payload: LogPayload) => {
-        // --- GOD-MODE BYPASS ---
-        // Silent mode: Không ghi nhật ký hoạt động nếu người dùng là Admin0
-        if (!user || user.Username === 'Admin0') return;
-
+        if (!user) return;
         const logEntry: ActivityLog = {
             id: `log_${Date.now()}`,
             ts: new Date().toISOString(),
@@ -159,15 +156,10 @@ const DEFAULT_SETTINGS: InvoiceSettings = {
 const App: React.FC = () => {
     const [user, setUser] = useState<UserPermission | null>(null);
     const [toasts, setToasts] = useState<ToastMessage[]>([]);
-    
-    // Tối ưu nhận diện Mobile
     const [isMobile, setIsMobile] = useState(window.innerWidth < 768);
-    
-    // Khởi tạo activePage thông minh hơn
     const [activePage, setActivePage] = useState<AdminPage | PortalPage | AdminPortalPage>('overview');
     const [isChangePasswordModalOpen, setIsChangePasswordModalOpen] = useState(false);
 
-    // Lắng nghe thay đổi kích thước màn hình (Reactive)
     useEffect(() => {
         const handleResize = () => {
             const mobile = window.innerWidth < 768;
@@ -177,14 +169,12 @@ const App: React.FC = () => {
         return () => window.removeEventListener('resize', handleResize);
     }, []);
 
-    // Initial check for remembered user
     useEffect(() => {
         const rememberedUserStr = localStorage.getItem('rememberedUserObject');
         if (rememberedUserStr) {
             try {
                 const parsed = JSON.parse(rememberedUserStr);
                 setUser(parsed);
-                // Sau khi khôi phục user, quyết định trang mặc định dựa trên role và thiết bị
                 if (parsed.Role === 'Resident') {
                     setActivePage('portalHome');
                 } else if (window.innerWidth < 768) {
@@ -198,14 +188,12 @@ const App: React.FC = () => {
         }
     }, []);
 
-    // Hooks for data fetching
     const { 
         units, owners, vehicles, waterReadings, charges, adjustments, users: fetchedUsers, 
         invoiceSettings, tariffs, monthlyStats, lockedWaterPeriods,
         refreshSystemData 
     } = useSmartSystemData(user);
 
-    // Local state for managed entities
     const [localUnits, setLocalUnits] = useState<Unit[]>([]);
     const [localOwners, setLocalOwners] = useState<Owner[]>([]);
     const [localVehicles, setLocalVehicles] = useState<Vehicle[]>([]);
@@ -245,7 +233,6 @@ const App: React.FC = () => {
             localStorage.removeItem('rememberedUserObject');
         }
         
-        // Quyết định trang đích khi đăng nhập
         if (loggedInUser.Role === 'Resident') {
             setActivePage('portalHome');
         } else if (window.innerWidth < 768) {
@@ -377,8 +364,7 @@ const App: React.FC = () => {
                                         <Sidebar activePage={activePage as AdminPage} setActivePage={(p) => setActivePage(p as AdminPage)} role={user.Role} />
                                         <div className="flex-1 flex flex-col min-w-0 overflow-hidden">
                                             <Header pageTitle={ADMIN_PAGE_TITLES[activePage as AdminPage] || 'Hệ thống Quản lý'} onNavigate={(p) => setActivePage(p as AdminPage)} />
-                                            {/* Thêm flex và flex-col cho main để các trang con có thể dùng flex-1 hữu hiệu */}
-                                            <main className="flex-1 flex flex-col p-4 md:p-6 lg:p-8 overflow-y-auto">
+                                            <main className="flex-1 overflow-y-auto p-4 md:p-6 lg:p-8">
                                                 {renderAdminPage()}
                                             </main>
                                             <Footer />

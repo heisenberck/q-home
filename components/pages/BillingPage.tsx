@@ -10,12 +10,12 @@ import {
     saveChargesBatch, 
     updateChargeStatuses,
     updatePaymentStatusBatch,
-    getBillingLockStatus,
-    setBillingLockStatus 
+    getBillingLockStatus, // NEW
+    setBillingLockStatus  // NEW
 } from '../../services';
 import { calculateChargesBatch } from '../../services/feeService';
 import NoticePreviewModal from '../NoticePreviewModal';
-import VerificationModal from '../VerificationModal';
+import VerificationModal from '../VerificationModal'; // NEW IMPORT
 import Spinner from '../ui/Spinner';
 import { 
     SearchIcon, ChevronLeftIcon, ChevronRightIcon, 
@@ -36,8 +36,6 @@ declare const jspdf: any;
 declare const html2canvas: any;
 declare const JSZip: any;
 declare const XLSX: any;
-
-const ITEMS_PER_PAGE = 16;
 
 // Extend ChargeRaw locally to support sentCount
 type ExtendedCharge = ChargeRaw & { sentCount?: number };
@@ -180,7 +178,7 @@ interface BillingPageProps {
     onUpdateAdjustments: (updater: React.SetStateAction<Adjustment[]>, logPayload?: LogPayload) => void;
     role: Role;
     invoiceSettings: InvoiceSettings;
-    onRefresh?: () => void;
+    onRefresh?: () => void; // New prop for manual refresh
 }
 
 const BillingPage: React.FC<BillingPageProps> = ({ charges, setCharges, allData, onUpdateAdjustments, role, invoiceSettings, onRefresh }) => {
@@ -190,7 +188,7 @@ const BillingPage: React.FC<BillingPageProps> = ({ charges, setCharges, allData,
 
     // State
     const [period, setPeriod] = useState(new Date().toISOString().slice(0, 7));
-    const [isBillingLocked, setIsBillingLocked] = useState(false);
+    const [isBillingLocked, setIsBillingLocked] = useState(false); // New Billing Lock State
     
     const [isLoading, setIsLoading] = useState(false);
     const [selectedUnits, setSelectedUnits] = useState<Set<string>>(new Set());
@@ -201,10 +199,9 @@ const BillingPage: React.FC<BillingPageProps> = ({ charges, setCharges, allData,
     const [editedPayments, setEditedPayments] = useState<Record<string, number>>({});
     
     // UI State
-    const [isStatsVisible, setIsStatsVisible] = useState(true);
+    const [showStats, setShowStats] = useState(true);
     const [isMonthPickerOpen, setIsMonthPickerOpen] = useState(false);
     const [verifyCharge, setVerifyCharge] = useState<ChargeRaw | null>(null);
-    const [currentPage, setCurrentPage] = useState(1);
     
     // Refs
     const fileInputRef = useRef<HTMLInputElement>(null);
@@ -222,11 +219,8 @@ const BillingPage: React.FC<BillingPageProps> = ({ charges, setCharges, allData,
         };
         fetchLock();
     }, [period]);
-
-    useEffect(() => {
-        setCurrentPage(1);
-    }, [period, searchTerm, statusFilter, floorFilter]);
     
+    // Logic: Disable calculation for future periods
     const currentMonthStr = new Date().toISOString().slice(0, 7);
     const isFuturePeriod = period > currentMonthStr;
 
@@ -271,13 +265,6 @@ const BillingPage: React.FC<BillingPageProps> = ({ charges, setCharges, allData,
         });
     }, [charges, period, searchTerm, statusFilter, floorFilter]);
 
-    // Pagination Calculations
-    const totalItems = filteredCharges.length;
-    const indexOfLastItem = currentPage * ITEMS_PER_PAGE;
-    const indexOfFirstItem = indexOfLastItem - ITEMS_PER_PAGE;
-    const paginatedCharges = filteredCharges.slice(indexOfFirstItem, indexOfLastItem);
-    const totalPages = Math.ceil(totalItems / ITEMS_PER_PAGE);
-
     // Stats
     const stats = useMemo(() => {
         const currentCharges = charges.filter(c => c.Period === period);
@@ -298,6 +285,7 @@ const BillingPage: React.FC<BillingPageProps> = ({ charges, setCharges, allData,
     }, [charges, period]);
 
     // --- Logic: Calculation ---
+
     const handleCalculate = async () => {
         if (isBillingLocked) {
             showToast('Kỳ này đã chốt sổ. Không thể tính toán lại.', 'error');
@@ -313,8 +301,12 @@ const BillingPage: React.FC<BillingPageProps> = ({ charges, setCharges, allData,
 
         try {
             const freshData = allData;
+            
+            // 2. Separate existing PAID charges (Preserve them)
             const existingPaid = charges.filter(c => c.Period === period && ['paid', 'paid_tm', 'paid_ck', 'reconciling'].includes(c.paymentStatus));
             const paidUnitIds = new Set(existingPaid.map(c => c.UnitID));
+
+            // 3. Identify units needing calculation
             const unitsToCalc = freshData.units.filter(u => !paidUnitIds.has(u.UnitID));
             
             const inputs = unitsToCalc.map(unit => ({ 
@@ -324,19 +316,24 @@ const BillingPage: React.FC<BillingPageProps> = ({ charges, setCharges, allData,
                 adjustments: freshData.adjustments.filter(a => a.UnitID === unit.UnitID && a.Period === period) 
             }));
 
+            // 4. Calculate
             const newCharges = await calculateChargesBatch(period, inputs, freshData);
+            
+            // 5. Enhance with Meta
             const finalNewCharges = newCharges.map(c => ({
                 ...c,
                 CreatedAt: new Date().toISOString(),
                 Locked: false,
                 paymentStatus: 'pending' as PaymentStatus,
                 PaymentConfirmed: false,
-                TotalPaid: c.TotalDue,
+                TotalPaid: c.TotalDue, // Auto-fill Input
                 isPrinted: false,
                 isSent: false,
                 sentCount: 0 
             }));
 
+            // 6. AGGREGATE STATS (NEW OPTIMIZATION)
+            // Combine newly calculated charges with existing paid charges to get full month totals
             const allChargesForPeriod = [...existingPaid, ...finalNewCharges];
             const monthlyStat: MonthlyStat = {
                 period: period,
@@ -347,14 +344,17 @@ const BillingPage: React.FC<BillingPageProps> = ({ charges, setCharges, allData,
                 updatedAt: new Date().toISOString()
             };
 
+            // 7. Save Charges AND Stats using updated API
             await saveChargesBatch(finalNewCharges, monthlyStat);
 
+            // 8. Update State
             setCharges(prev => {
                 const otherPeriodCharges = prev.filter(c => c.Period !== period);
                 return [...otherPeriodCharges, ...allChargesForPeriod];
             });
 
             showToast(`Đã tính xong phí kỳ ${period}. Thống kê đã được cập nhật.`, 'success');
+
         } catch (e: any) {
             showToast(`Lỗi: ${e.message}`, 'error');
         } finally {
@@ -362,9 +362,12 @@ const BillingPage: React.FC<BillingPageProps> = ({ charges, setCharges, allData,
         }
     };
 
+    // --- Logic: Billing Lock (Hard Lock) ---
     const handleToggleLock = async () => {
         if (!canCalculate) return;
+
         if (isBillingLocked) {
+            // Unlock logic (Double click required)
             const now = Date.now();
             if (now - lastClickTime.current < 350) {
                 try {
@@ -379,6 +382,7 @@ const BillingPage: React.FC<BillingPageProps> = ({ charges, setCharges, allData,
             }
             lastClickTime.current = now;
         } else {
+            // Lock logic (Save/Finalize)
             if (window.confirm(`Xác nhận chốt sổ kỳ ${period}? Sau khi chốt, dữ liệu sẽ không thể chỉnh sửa.`)) {
                 try {
                     await setBillingLockStatus(period, true);
@@ -391,6 +395,7 @@ const BillingPage: React.FC<BillingPageProps> = ({ charges, setCharges, allData,
         }
     };
 
+    // --- Logic: Bank Import ---
     const handleStatementFileChange = async (event: React.ChangeEvent<HTMLInputElement>) => {
         const file = event.target.files?.[0];
         if (!file) return;
@@ -408,7 +413,9 @@ const BillingPage: React.FC<BillingPageProps> = ({ charges, setCharges, allData,
                 for (let i = 0; i < Math.min(20, json.length); i++) {
                     const rowArray = json[i] as any[];
                     if (!Array.isArray(rowArray)) continue;
+                    
                     const row: string[] = rowArray.map((c: any) => String(c ?? "").toLowerCase());
+                    
                     if (row.some(c => c.includes('credit') || c.includes('ghi co') || c.includes('số tiền')) && row.some(c => c.includes('noi dung') || c.includes('desc') || c.includes('diễn giải'))) {
                         headerIndex = i;
                         colCredit = row.findIndex(c => c.includes('credit') || c.includes('ghi co') || c.includes('số tiền'));
@@ -461,20 +468,25 @@ const BillingPage: React.FC<BillingPageProps> = ({ charges, setCharges, allData,
         reader.readAsArrayBuffer(file);
     };
 
+    // --- Logic: Print PDF ---
     const handleDownloadPDFs = async () => {
         const targets = charges.filter(c => c.Period === period && selectedUnits.has(c.UnitID));
         if (targets.length === 0) return;
+
         setIsLoading(true);
         showToast('Đang tạo PDF...', 'info');
+
         try {
             await Promise.all([loadScript('jspdf'), loadScript('html2canvas'), loadScript('jszip')]);
             const { jsPDF } = jspdf;
             const JSZip = (window as any).JSZip;
+            
             const container = document.createElement('div');
             container.style.position = 'absolute';
             container.style.left = '-9999px';
             container.style.top = '0';
             document.body.appendChild(container);
+
             if (targets.length === 1) {
                 const charge = targets[0];
                 container.innerHTML = renderInvoiceHTMLForPdf(charge, allData, invoiceSettings);
@@ -503,47 +515,78 @@ const BillingPage: React.FC<BillingPageProps> = ({ charges, setCharges, allData,
                 link.click();
                 showToast('Tải xuống ZIP hoàn tất.', 'success');
             }
+
             document.body.removeChild(container);
             setSelectedUnits(new Set());
         } catch (e) {
+            console.error(e);
             showToast('Lỗi tạo PDF.', 'error');
         } finally {
             setIsLoading(false);
         }
     };
 
+    // --- Logic: Broadcast (App Notification) ---
     const handleBroadcastNotification = async (singleCharge?: ExtendedCharge) => {
         let targets: ExtendedCharge[] = [];
-        if (singleCharge) targets = [singleCharge];
-        else targets = (charges as ExtendedCharge[]).filter(c => c.Period === period && selectedUnits.has(c.UnitID));
+        if (singleCharge) {
+            targets = [singleCharge];
+        } else {
+            targets = (charges as ExtendedCharge[]).filter(c => c.Period === period && selectedUnits.has(c.UnitID));
+        }
+
         if (targets.length === 0) return;
+        
         if (!singleCharge && !window.confirm(`Gửi thông báo phí qua App cho ${targets.length} căn hộ?`)) return;
+
         setIsLoading(true);
+
         try {
             if (IS_PROD) {
                 const chunkSize = 400;
                 for (let i = 0; i < targets.length; i += chunkSize) {
                     const chunk = targets.slice(i, i + chunkSize);
                     const batch = writeBatch(db);
+                    
                     chunk.forEach(c => {
                         const chargeId = `${c.Period}_${c.UnitID}`;
                         const notifRef = doc(collection(db, 'notifications'));
-                        batch.set(notifRef, { type: 'bill', title: `Thông báo phí T${c.Period.split('-')[1]}`, body: `Tổng: ${formatCurrency(c.TotalDue)}. Vui lòng thanh toán.`, userId: c.UnitID, isRead: false, createdAt: serverTimestamp(), link: 'portalBilling', chargeId: chargeId });
+                        batch.set(notifRef, {
+                            type: 'bill',
+                            title: `Thông báo phí T${c.Period.split('-')[1]}`,
+                            body: `Tổng: ${formatCurrency(c.TotalDue)}. Vui lòng thanh toán.`,
+                            userId: c.UnitID, 
+                            isRead: false,
+                            createdAt: serverTimestamp(),
+                            link: 'portalBilling',
+                            chargeId: chargeId
+                        });
                         const chargeRef = doc(db, 'charges', chargeId);
-                        batch.update(chargeRef, { isSent: true, sentCount: increment(1) });
+                        batch.update(chargeRef, {
+                            isSent: true,
+                            sentCount: increment(1)
+                        });
                     });
+                    
                     await batch.commit();
                 }
             }
+
             const targetedUnitIds = new Set(targets.map(t => t.UnitID));
             setCharges(prev => prev.map(c => {
                 if (c.Period === period && targetedUnitIds.has(c.UnitID)) {
-                    return { ...c, isSent: true, sentCount: ((c as ExtendedCharge).sentCount || 0) + 1 };
+                    return { 
+                        ...c, 
+                        isSent: true,
+                        sentCount: ((c as ExtendedCharge).sentCount || 0) + 1 
+                    };
                 }
                 return c;
             }));
+
             showToast(`Đã gửi thông báo cho ${targets.length} căn hộ.`, 'success');
         } catch (e: any) {
+            console.error("Broadcast Error:", e);
             showToast('Lỗi gửi thông báo: ' + e.message, 'error');
         } finally {
             setIsLoading(false);
@@ -551,48 +594,66 @@ const BillingPage: React.FC<BillingPageProps> = ({ charges, setCharges, allData,
         }
     };
 
+    // --- Logic: Send Email (Original) ---
     const handleBulkSendEmail = async (singleUnitId?: string) => {
         let targets = [];
-        if (singleUnitId) targets = charges.filter(c => c.Period === period && c.UnitID === singleUnitId);
-        else targets = charges.filter(c => c.Period === period && selectedUnits.has(c.UnitID));
+        if (singleUnitId) {
+            targets = charges.filter(c => c.Period === period && c.UnitID === singleUnitId);
+        } else {
+            targets = charges.filter(c => c.Period === period && selectedUnits.has(c.UnitID));
+        }
+
         if (targets.length === 0) return;
         if (!invoiceSettings.appsScriptUrl) { showToast('Chưa cấu hình Email Server.', 'error'); return; }
+
         if (!singleUnitId && !window.confirm(`Gửi email cho ${targets.length} căn hộ?`)) return;
+
         setIsLoading(true);
         let successCount = 0;
+
         try {
             await Promise.all([loadScript('jspdf'), loadScript('html2canvas')]);
             const { jsPDF } = jspdf;
             const container = document.createElement('div');
             container.style.position = 'absolute'; container.style.left = '-9999px';
             document.body.appendChild(container);
+
             for (const charge of targets) {
                 if (!charge.Email) continue;
+
                 container.innerHTML = renderInvoiceHTMLForPdf(charge, allData, invoiceSettings);
                 const element = container.firstElementChild as HTMLElement;
                 const canvas = await html2canvas(element, { scale: 2, useCORS: true });
                 const pdf = new jsPDF('l', 'mm', 'a5');
                 pdf.addImage(canvas.toDataURL('image/jpeg', 0.95), 'JPEG', 0, 0, 210, 148);
                 const pdfBlob = pdf.output('blob');
+
                 const reader = new FileReader();
                 const base64Promise = new Promise<string>((resolve) => {
                     reader.onloadend = () => resolve((reader.result as string).split(',')[1]);
                     reader.readAsDataURL(pdfBlob);
                 });
                 const base64 = await base64Promise;
+
                 const subject = (invoiceSettings.emailSubject || 'THONG BAO PHI').replace('{{period}}', period).replace('{{unit_id}}', charge.UnitID);
                 const body = (invoiceSettings.emailBody || '').replace('{{owner_name}}', charge.OwnerName).replace('{{unit_id}}', charge.UnitID).replace('{{period}}', period).replace('{{total_due}}', formatCurrency(charge.TotalDue));
+                
                 const res = await sendEmailAPI(charge.Email, subject, body, invoiceSettings, base64, `PhieuThu_${charge.UnitID}.pdf`);
                 if (res.success) successCount++;
             }
             document.body.removeChild(container);
+            
             if (IS_PROD) {
                 const batch = writeBatch(db);
-                targets.forEach(c => { if (c.Email) batch.update(doc(db, 'charges', `${c.Period}_${c.UnitID}`), { isSent: true }); });
+                targets.forEach(c => {
+                    if (c.Email) batch.update(doc(db, 'charges', `${c.Period}_${c.UnitID}`), { isSent: true });
+                });
                 await batch.commit();
             }
+            
             setCharges(prev => prev.map(c => targets.find(t => t.UnitID === c.UnitID) && c.Email ? { ...c, isSent: true } : c));
             showToast(singleUnitId ? 'Đã gửi email.' : `Đã gửi thành công ${successCount}/${targets.length} email.`, 'success');
+
         } catch (e: any) {
             showToast('Lỗi gửi email: ' + e.message, 'error');
         } finally {
@@ -601,24 +662,53 @@ const BillingPage: React.FC<BillingPageProps> = ({ charges, setCharges, allData,
         }
     };
 
+    // --- Logic: CSV Export (FULL REPORT) ---
     const handleExportReport = () => {
         const targets = filteredCharges;
-        if (targets.length === 0) { showToast('Không có dữ liệu để xuất.', 'warn'); return; }
+        if (targets.length === 0) {
+            showToast('Không có dữ liệu để xuất.', 'warn');
+            return;
+        }
+        
         const header = "Kỳ,Căn hộ,Chủ hộ,Diện tích,Phí DV,SL Ô tô,SL Xe máy,Phí Gửi xe,Tiêu thụ nước,Tiền nước,Điều chỉnh,Tổng phải thu,Đã nộp,Còn nợ,Trạng thái\n";
+        
         const rows = targets.map(c => {
             const debt = c.TotalDue - c.TotalPaid;
             const carCount = c['#CAR'] + c['#CAR_A'];
             const motoCount = c['#MOTORBIKE'];
+            
             const escape = (val: string | number) => `"${String(val).replace(/"/g, '""')}"`;
-            return [c.Period, c.UnitID, escape(c.OwnerName), c.Area_m2, c.ServiceFee_Total, carCount, motoCount, c.ParkingFee_Total, c.Water_m3, c.WaterFee_Total, c.Adjustments, c.TotalDue, c.TotalPaid, debt, c.paymentStatus].join(',');
+
+            return [
+                c.Period,
+                c.UnitID,
+                escape(c.OwnerName),
+                c.Area_m2,
+                c.ServiceFee_Total,
+                carCount,
+                motoCount,
+                c.ParkingFee_Total,
+                c.Water_m3,
+                c.WaterFee_Total,
+                c.Adjustments,
+                c.TotalDue,
+                c.TotalPaid,
+                debt,
+                c.paymentStatus
+            ].join(',');
         }).join('\n');
+
         const blob = new Blob(["\uFEFF" + header + rows], { type: 'text/csv;charset=utf-8;' });
         const url = URL.createObjectURL(blob);
         const link = document.createElement("a");
-        link.href = url; link.setAttribute("download", `Bao_cao_phi_ky_${period}.csv`);
-        document.body.appendChild(link); link.click(); document.body.removeChild(link);
+        link.href = url;
+        link.setAttribute("download", `Bao_cao_phi_ky_${period}.csv`);
+        document.body.appendChild(link);
+        link.click();
+        document.body.removeChild(link);
     };
 
+    // --- Actions ---
     const handleDeleteBulk = async () => {
         if (isBillingLocked) return;
         if (!window.confirm("Bạn có chắc muốn xóa các dòng phí đã chọn?")) return;
@@ -637,19 +727,30 @@ const BillingPage: React.FC<BillingPageProps> = ({ charges, setCharges, allData,
         if (isBillingLocked) return;
         const targets = charges.filter(c => c.Period === period && selectedUnits.has(c.UnitID));
         if (targets.length === 0) return;
+        
         setIsLoading(true);
         try {
             if (IS_PROD) {
                 const batch = writeBatch(db);
                 targets.forEach(c => {
-                    const update = { paymentStatus: method, PaymentConfirmed: method !== 'pending', TotalPaid: method === 'pending' ? 0 : c.TotalDue };
+                    const update = {
+                        paymentStatus: method,
+                        PaymentConfirmed: method !== 'pending',
+                        TotalPaid: method === 'pending' ? 0 : c.TotalDue
+                    };
                     batch.update(doc(db, 'charges', `${period}_${c.UnitID}`), update);
                 });
                 await batch.commit();
             }
+            
             setCharges(prev => prev.map(c => {
                 if (c.Period === period && selectedUnits.has(c.UnitID)) {
-                    return { ...c, paymentStatus: method as PaymentStatus, PaymentConfirmed: method !== 'pending', TotalPaid: method === 'pending' ? 0 : c.TotalDue };
+                    return {
+                        ...c,
+                        paymentStatus: method as PaymentStatus,
+                        PaymentConfirmed: method !== 'pending',
+                        TotalPaid: method === 'pending' ? 0 : c.TotalDue
+                    };
                 }
                 return c;
             }));
@@ -660,11 +761,16 @@ const BillingPage: React.FC<BillingPageProps> = ({ charges, setCharges, allData,
         }
     };
 
+    // Intercept payment to check for verification flow
     const handleSinglePayment = async (charge: ChargeRaw, method: 'paid_tm' | 'paid_ck') => {
         if (isBillingLocked) return;
+        
+        // INTERCEPT: If reconcilation needed or proof image exists, show verification modal
         if (method === 'paid_ck' && (charge.paymentStatus === 'reconciling' || charge.proofImage)) {
-            setVerifyCharge(charge); return;
+            setVerifyCharge(charge);
+            return;
         }
+
         const amount = editedPayments[charge.UnitID] ?? charge.TotalPaid;
         await confirmSinglePayment(charge, amount, method);
         setCharges(prev => prev.map(c => c.UnitID === charge.UnitID && c.Period === period ? { ...c, paymentStatus: method, PaymentConfirmed: true, TotalPaid: amount } : c));
@@ -684,13 +790,21 @@ const BillingPage: React.FC<BillingPageProps> = ({ charges, setCharges, allData,
         <div className="space-y-4 h-full flex flex-col relative">
             <input type="file" ref={fileInputRef} onChange={handleStatementFileChange} accept=".xlsx, .xls, .csv" className="hidden" />
             
-            {/* 1. StatCards (Toggleable Overlay) */}
-            <div className="relative group">
-                <div className={`transition-all duration-300 ease-in-out ${isStatsVisible ? 'opacity-100 max-h-[500px] mb-4' : 'opacity-0 max-h-0 overflow-hidden mb-0'}`}>
-                    <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
+            {/* 1. StatCards (Toggleable) */}
+            <div className="relative">
+                <button 
+                    onClick={() => setShowStats(!showStats)} 
+                    className="absolute right-0 -top-8 text-gray-400 hover:text-gray-600 flex items-center gap-1 text-xs font-semibold z-10"
+                >
+                    {showStats ? <><ChevronUpIcon className="w-4 h-4" /> Thu gọn</> : <><ChevronDownIcon className="w-4 h-4" /> Mở rộng</>}
+                </button>
+                
+                {showStats && (
+                    <div className="grid grid-cols-2 lg:grid-cols-4 gap-4 animate-fade-in-down mb-4">
                         <MinimalStatCard label="Doanh thu dự kiến" value={formatCurrency(stats.totalDue)} colorClass="border-blue-500" onClick={() => setStatusFilter('all')} />
                         <MinimalStatCard label="Thực thu" value={formatCurrency(stats.totalPaid)} colorClass="border-emerald-500" onClick={() => setStatusFilter('paid')} />
                         <MinimalStatCard label="Công nợ" value={formatCurrency(stats.debt)} colorClass="border-red-500" onClick={() => setStatusFilter('debt')} />
+                        
                         <div className="bg-white rounded-xl shadow-sm border-l-4 border-purple-500 p-4 hover:shadow-md transition-shadow">
                             <p className="text-xs font-bold text-gray-400 uppercase tracking-wider">Tiến độ thu</p>
                             <div className="flex justify-between items-end mt-1">
@@ -698,38 +812,45 @@ const BillingPage: React.FC<BillingPageProps> = ({ charges, setCharges, allData,
                                 <p className="text-xs text-gray-500 font-medium mb-1">{stats.paidCount}/{stats.count} căn</p>
                             </div>
                             <div className="w-full bg-gray-200 rounded-full h-2 mt-2 overflow-hidden">
-                                <div className="bg-purple-600 h-2 rounded-full transition-all duration-500 ease-out" style={{ width: `${stats.progress}%` }}></div>
+                                <div 
+                                    className="bg-purple-600 h-2 rounded-full transition-all duration-500 ease-out" 
+                                    style={{ width: `${stats.progress}%` }}
+                                ></div>
                             </div>
                         </div>
                     </div>
-                </div>
-
-                <button
-                    onClick={() => setIsStatsVisible(!isStatsVisible)}
-                    className={`absolute bottom-2 right-2 z-10 p-1.5 bg-white/80 hover:bg-white backdrop-blur-sm rounded-md shadow-sm border border-gray-200 text-gray-400 hover:text-primary transition-all`}
-                    title={isStatsVisible ? "Thu gọn" : "Mở rộng"}
-                >
-                    {isStatsVisible ? <ChevronUpIcon className="w-4 h-4" /> : <ChevronDownIcon className="w-4 h-4" />}
-                </button>
+                )}
             </div>
 
             {/* 2. Toolbar */}
             <div className="bg-white p-3 rounded-xl shadow-sm border border-gray-200 flex flex-col md:flex-row items-center gap-3">
+                
+                {/* Month Picker */}
                 <div className="relative flex items-center gap-1 bg-gray-100 p-1 rounded-lg">
                     <button onClick={() => setPeriod(p => { const d=new Date(p+'-02'); d.setMonth(d.getMonth()-1); return d.toISOString().slice(0,7); })} className="p-1.5 hover:bg-gray-200 rounded"><ChevronLeftIcon /></button>
-                    <button onClick={() => setIsMonthPickerOpen(!isMonthPickerOpen)} className="px-3 font-bold text-gray-800 text-sm w-24 text-center hover:bg-gray-200 rounded py-1.5">
+                    <button 
+                        onClick={() => setIsMonthPickerOpen(!isMonthPickerOpen)}
+                        className="px-3 font-bold text-gray-800 text-sm w-24 text-center hover:bg-gray-200 rounded py-1.5"
+                    >
                         {formatPeriod(period)}
                     </button>
-                    {isMonthPickerOpen && <MonthPickerPopover currentPeriod={period} onSelectPeriod={setPeriod} onClose={() => setIsMonthPickerOpen(false)} />}
+                    {isMonthPickerOpen && (
+                        <MonthPickerPopover currentPeriod={period} onSelectPeriod={setPeriod} onClose={() => setIsMonthPickerOpen(false)} />
+                    )}
                     <button onClick={() => setPeriod(p => { const d=new Date(p+'-02'); d.setMonth(d.getMonth()+1); return d.toISOString().slice(0,7); })} className="p-1.5 hover:bg-gray-200 rounded"><ChevronRightIcon /></button>
                 </div>
+
+                {/* Search */}
                 <div className="relative flex-grow min-w-[200px]">
                     <SearchIcon className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-gray-400" />
                     <input type="text" placeholder="Tìm căn hộ..." value={searchTerm} onChange={e => setSearchTerm(e.target.value)} className="w-full h-9 pl-9 pr-3 text-sm border border-gray-300 rounded-lg focus:ring-2 focus:ring-primary outline-none bg-white text-gray-900" />
                 </div>
+
+                {/* Filters */}
                 <select value={floorFilter} onChange={e => setFloorFilter(e.target.value)} className="h-9 px-2 text-sm border border-gray-300 rounded-lg bg-white text-gray-900 outline-none">
                     {floors.map(f => <option key={f.value} value={f.value}>{f.label}</option>)}
                 </select>
+
                 <select value={statusFilter} onChange={e => setStatusFilter(e.target.value)} className="h-9 px-2 text-sm border border-gray-300 rounded-lg bg-white text-gray-900 outline-none">
                     <option value="all">Tất cả trạng thái</option>
                     <option value="pending">Đang chờ</option>
@@ -739,18 +860,62 @@ const BillingPage: React.FC<BillingPageProps> = ({ charges, setCharges, allData,
                     <option value="paid_ck">Đã thu (CK)</option>
                     <option value="debt">Còn nợ</option>
                 </select>
+
+                {/* Action Buttons */}
                 <div className="flex items-center gap-2 border-l pl-3">
                     {onRefresh && (
-                        <button onClick={onRefresh} className="h-9 w-9 flex items-center justify-center rounded-lg hover:bg-gray-100 text-gray-600 border border-transparent hover:border-gray-200" title="Làm mới dữ liệu"><ArrowPathIcon className="w-5 h-5" /></button>
+                        <button 
+                            onClick={onRefresh}
+                            className="h-9 w-9 flex items-center justify-center rounded-lg hover:bg-gray-100 text-gray-600 border border-transparent hover:border-gray-200"
+                            title="Làm mới dữ liệu"
+                        >
+                            <ArrowPathIcon className="w-5 h-5" />
+                        </button>
                     )}
-                    <button onClick={handleCalculate} disabled={isLoading || !canCalculate || (isFuturePeriod && !isBillingLocked) || isBillingLocked} title={isBillingLocked ? "Đã khóa sổ" : "Tính lại phí"} className={`h-9 px-4 rounded-lg font-bold text-sm flex items-center gap-2 text-white shadow-sm transition-colors ${isBillingLocked ? 'bg-gray-400 cursor-not-allowed' : isFuturePeriod ? 'bg-gray-300 cursor-not-allowed' : 'bg-[#006f3a] hover:bg-[#005a2f]'}`}>
+                    
+                    <button 
+                        onClick={handleCalculate}
+                        disabled={isLoading || !canCalculate || (isFuturePeriod && !isBillingLocked) || isBillingLocked}
+                        title={isBillingLocked ? "Đã khóa sổ" : "Tính lại phí"}
+                        className={`h-9 px-4 rounded-lg font-bold text-sm flex items-center gap-2 text-white shadow-sm transition-colors ${
+                            isBillingLocked ? 'bg-gray-400 cursor-not-allowed' : 
+                            isFuturePeriod ? 'bg-gray-300 cursor-not-allowed' :
+                            'bg-[#006f3a] hover:bg-[#005a2f]'
+                        }`}
+                    >
                         {isLoading ? <Spinner /> : <CalculatorIcon2 className="w-4 h-4"/>}
                         {isBillingLocked ? "Đã tính" : "Tính phí"}
                     </button>
-                    <button onClick={() => fileInputRef.current?.click()} disabled={isBillingLocked} title="Nhập sao kê để đối soát" className={`h-9 px-3 border border-gray-300 font-semibold rounded-lg flex items-center gap-1 text-sm ${isBillingLocked ? 'bg-gray-100 text-gray-400 cursor-not-allowed' : 'bg-white text-gray-700 hover:bg-gray-50'}`}><ArrowUpTrayIcon className="w-4 h-4"/> Import</button>
-                    <button onClick={handleExportReport} className="h-9 px-3 border border-gray-300 font-semibold rounded-lg flex items-center gap-1 text-sm bg-white text-gray-700 hover:bg-gray-50" title="Xuất báo cáo chi tiết (CSV)"><ArrowDownTrayIcon className="w-4 h-4"/> Export</button>
+                    
+                    <button 
+                        onClick={() => fileInputRef.current?.click()} 
+                        disabled={isBillingLocked}
+                        title="Nhập sao kê để đối soát"
+                        className={`h-9 px-3 border border-gray-300 font-semibold rounded-lg flex items-center gap-1 text-sm ${isBillingLocked ? 'bg-gray-100 text-gray-400 cursor-not-allowed' : 'bg-white text-gray-700 hover:bg-gray-50'}`}
+                    >
+                        <ArrowUpTrayIcon className="w-4 h-4"/> Import
+                    </button>
+
+                    <button 
+                        onClick={handleExportReport} 
+                        className="h-9 px-3 border border-gray-300 font-semibold rounded-lg flex items-center gap-1 text-sm bg-white text-gray-700 hover:bg-gray-50"
+                        title="Xuất báo cáo chi tiết (CSV)"
+                    >
+                        <ArrowDownTrayIcon className="w-4 h-4"/> Export
+                    </button>
+                    
+                    {/* NEW LOCK/SAVE BUTTON */}
                     <div className="ml-2 border-l pl-3">
-                        <button onClick={handleToggleLock} disabled={!canCalculate} className={`h-9 px-4 rounded-lg font-bold text-sm flex items-center gap-2 shadow-sm transition-colors ${isBillingLocked ? 'bg-gray-600 text-white hover:bg-gray-700 border-gray-600' : 'bg-blue-600 text-white hover:bg-blue-700 border-blue-600'}`} title={isBillingLocked ? "Đã chốt sổ. Nhấn đúp để mở khóa" : "Chốt sổ (Khóa dữ liệu)"}>
+                        <button
+                            onClick={handleToggleLock}
+                            disabled={!canCalculate}
+                            className={`h-9 px-4 rounded-lg font-bold text-sm flex items-center gap-2 shadow-sm transition-colors ${
+                                isBillingLocked 
+                                ? 'bg-gray-600 text-white hover:bg-gray-700 border-gray-600' 
+                                : 'bg-blue-600 text-white hover:bg-blue-700 border-blue-600'
+                            }`}
+                            title={isBillingLocked ? "Đã chốt sổ. Nhấn đúp để mở khóa" : "Chốt sổ (Khóa dữ liệu)"}
+                        >
                             {isBillingLocked ? <LockClosedIcon className="w-4 h-4" /> : <SaveIcon className="w-4 h-4" />}
                             {isBillingLocked ? "Đã chốt" : "Chốt sổ"}
                         </button>
@@ -759,7 +924,7 @@ const BillingPage: React.FC<BillingPageProps> = ({ charges, setCharges, allData,
             </div>
 
             {/* 3. Table */}
-            <div className="bg-white rounded-xl shadow-sm border border-gray-200 flex-1 flex flex-col overflow-hidden relative mb-12">
+            <div className="bg-white rounded-xl shadow-sm border border-gray-200 flex-1 flex flex-col overflow-hidden relative">
                 <div className="overflow-y-auto">
                     <table className="min-w-full text-sm">
                         <thead className="bg-gray-50 sticky top-0 z-10 border-b border-gray-200">
@@ -775,34 +940,72 @@ const BillingPage: React.FC<BillingPageProps> = ({ charges, setCharges, allData,
                             </tr>
                         </thead>
                         <tbody className="divide-y divide-gray-200">
-                            {paginatedCharges.length === 0 ? (
+                            {filteredCharges.length === 0 ? (
                                 <tr><td colSpan={8} className="p-8 text-center text-gray-500">Chưa có dữ liệu.</td></tr>
                             ) : (
-                                (paginatedCharges as ExtendedCharge[]).map(charge => {
+                                (filteredCharges as ExtendedCharge[]).map(charge => {
                                     const finalPaid = editedPayments[charge.UnitID] ?? charge.TotalPaid;
                                     const diff = finalPaid - charge.TotalDue;
                                     const isPaid = ['paid', 'paid_tm', 'paid_ck'].includes(charge.paymentStatus);
+                                    
                                     let statusBadge;
-                                    if (charge.paymentStatus === 'paid_tm') statusBadge = <span className="px-2 py-0.5 text-xs font-bold rounded-full bg-green-100 text-green-800 border border-green-200">Đã thu (TM)</span>;
-                                    else if (charge.paymentStatus === 'paid_ck' || charge.paymentStatus === 'paid') statusBadge = <span className="px-2 py-0.5 text-xs font-bold rounded-full bg-blue-100 text-blue-800 border border-blue-200">Đã thu (CK)</span>;
-                                    else if (charge.paymentStatus === 'reconciling') statusBadge = <span className="px-2 py-0.5 text-xs font-bold rounded-full bg-yellow-100 text-yellow-800 border border-yellow-200 flex items-center gap-1 justify-center"><MagnifyingGlassIcon className="w-3 h-3"/> Chờ đối soát</span>;
-                                    else if (charge.sentCount && charge.sentCount > 0) { const color = charge.sentCount > 1 ? 'text-blue-800 bg-blue-100 border-blue-200' : 'text-cyan-800 bg-cyan-100 border-cyan-200'; statusBadge = <span className={`px-2 py-0.5 text-xs font-bold rounded-full border ${color}`}>Đã gửi - {charge.sentCount}</span>; }
-                                    else statusBadge = <span className="px-2 py-0.5 text-xs font-bold rounded-full bg-orange-100 text-orange-800 border border-orange-200">Đang chờ</span>;
-                                    const inputClass = isPaid ? "w-full text-right p-1.5 text-sm border border-green-200 rounded-md bg-green-50 text-green-700 font-bold focus:outline-none" : "w-full text-right p-1.5 text-sm border border-gray-300 rounded-md bg-white text-gray-900 focus:ring-2 focus:ring-[#006f3a] focus:border-transparent outline-none";
+                                    if (charge.paymentStatus === 'paid_tm') {
+                                        statusBadge = <span className="px-2 py-0.5 text-xs font-bold rounded-full bg-green-100 text-green-800 border border-green-200">Đã thu (TM)</span>;
+                                    } else if (charge.paymentStatus === 'paid_ck' || charge.paymentStatus === 'paid') {
+                                        statusBadge = <span className="px-2 py-0.5 text-xs font-bold rounded-full bg-blue-100 text-blue-800 border border-blue-200">Đã thu (CK)</span>;
+                                    } else if (charge.paymentStatus === 'reconciling') {
+                                        statusBadge = <span className="px-2 py-0.5 text-xs font-bold rounded-full bg-yellow-100 text-yellow-800 border border-yellow-200 flex items-center gap-1 justify-center"><MagnifyingGlassIcon className="w-3 h-3"/> Chờ đối soát</span>;
+                                    } else if (charge.sentCount && charge.sentCount > 0) {
+                                        const color = charge.sentCount > 1 ? 'text-blue-800 bg-blue-100 border-blue-200' : 'text-cyan-800 bg-cyan-100 border-cyan-200';
+                                        statusBadge = <span className={`px-2 py-0.5 text-xs font-bold rounded-full border ${color}`}>Đã gửi - {charge.sentCount}</span>;
+                                    } else {
+                                        statusBadge = <span className="px-2 py-0.5 text-xs font-bold rounded-full bg-orange-100 text-orange-800 border border-orange-200">Đang chờ</span>;
+                                    }
+
+                                    const inputClass = isPaid
+                                        ? "w-full text-right p-1.5 text-sm border border-green-200 rounded-md bg-green-50 text-green-700 font-bold focus:outline-none"
+                                        : "w-full text-right p-1.5 text-sm border border-gray-300 rounded-md bg-white text-gray-900 focus:ring-2 focus:ring-[#006f3a] focus:border-transparent outline-none";
+
                                     return (
                                         <tr key={charge.UnitID} className={`hover:bg-gray-50 transition-colors ${selectedUnits.has(charge.UnitID) ? 'bg-blue-50' : ''}`}>
                                             <td className="px-4 py-3 text-center"><input type="checkbox" checked={selectedUnits.has(charge.UnitID)} onChange={() => setSelectedUnits(p => { const n = new Set(p); if(n.has(charge.UnitID)) n.delete(charge.UnitID); else n.add(charge.UnitID); return n; })} className="w-4 h-4 rounded text-primary focus:ring-primary cursor-pointer"/></td>
                                             <td className="px-4 py-3 font-bold text-gray-900">{charge.UnitID}</td>
-                                            <td className="px-4 py-3 text-gray-700 flex items-center gap-2">{charge.paymentStatus === 'reconciling' && <div className="w-2 h-2 rounded-full bg-blue-500 animate-pulse" title="Có biên lai cần duyệt"></div>}{charge.OwnerName}</td>
+                                            <td className="px-4 py-3 text-gray-700 flex items-center gap-2">
+                                                {charge.paymentStatus === 'reconciling' && <div className="w-2 h-2 rounded-full bg-blue-500 animate-pulse" title="Có biên lai cần duyệt"></div>}
+                                                {charge.OwnerName}
+                                            </td>
                                             <td className="px-4 py-3 text-right font-medium text-gray-900">{formatNumber(charge.TotalDue)}</td>
-                                            <td className="px-4 py-3 text-right"><input type="text" value={formatNumber(finalPaid)} onChange={e => { if (!isPaid && !isBillingLocked) { const val = parseInt(e.target.value.replace(/\D/g, '') || '0', 10); setEditedPayments(prev => ({ ...prev, [charge.UnitID]: val })); } }} readOnly={isPaid || isBillingLocked} className={inputClass} /></td>
+                                            <td className="px-4 py-3 text-right">
+                                                <input 
+                                                    type="text" 
+                                                    value={formatNumber(finalPaid)} 
+                                                    onChange={e => { 
+                                                        if (!isPaid && !isBillingLocked) {
+                                                            const val = parseInt(e.target.value.replace(/\D/g, '') || '0', 10); 
+                                                            setEditedPayments(prev => ({ ...prev, [charge.UnitID]: val })); 
+                                                        }
+                                                    }}
+                                                    readOnly={isPaid || isBillingLocked}
+                                                    className={inputClass}
+                                                />
+                                            </td>
                                             <td className={`px-4 py-3 text-right font-bold ${diff === 0 ? 'text-gray-300' : diff > 0 ? 'text-blue-600' : 'text-red-500'}`}>{diff === 0 ? '-' : formatNumber(diff)}</td>
-                                            <td className="px-4 py-3 text-center">{statusBadge}</td>
+                                            <td className="px-4 py-3 text-center">
+                                                {statusBadge}
+                                            </td>
                                             <td className="px-4 py-3 text-center">
                                                 <div className="flex justify-center gap-1">
                                                     <button onClick={() => setPreviewCharge(charge)} title="Xem chi tiết" className="p-1.5 rounded hover:bg-gray-200 text-gray-500 hover:text-gray-700"><ActionViewIcon className="w-4 h-4"/></button>
                                                     <button onClick={() => handleBroadcastNotification(charge)} disabled={isBillingLocked} title="Gửi App Notification" className={`p-1.5 rounded hover:bg-blue-50 text-blue-500 hover:text-blue-700 ${isBillingLocked ? 'opacity-50 cursor-not-allowed' : ''}`}><PaperAirplaneIcon className="w-4 h-4"/></button>
-                                                    <QuickActionMenu onSelect={(m) => handleSinglePayment(charge, m)} disabled={role === 'Operator' || isBillingLocked} trigger={<button title="Xác nhận thu" className={`p-1.5 rounded hover:bg-green-50 text-green-500 hover:text-green-700 ${isBillingLocked ? 'opacity-50 cursor-not-allowed' : ''}`}>{charge.paymentStatus === 'reconciling' ? <MagnifyingGlassIcon className="w-4 h-4 text-purple-600"/> : <CheckCircleIcon className="w-4 h-4"/>}</button>} />
+                                                    <QuickActionMenu 
+                                                        onSelect={(m) => handleSinglePayment(charge, m)} 
+                                                        disabled={role === 'Operator' || isBillingLocked} 
+                                                        trigger={
+                                                            <button title="Xác nhận thu" className={`p-1.5 rounded hover:bg-green-50 text-green-500 hover:text-green-700 ${isBillingLocked ? 'opacity-50 cursor-not-allowed' : ''}`}>
+                                                                {charge.paymentStatus === 'reconciling' ? <MagnifyingGlassIcon className="w-4 h-4 text-purple-600"/> : <CheckCircleIcon className="w-4 h-4"/>}
+                                                            </button>
+                                                        }
+                                                    />
                                                 </div>
                                             </td>
                                         </tr>
@@ -814,25 +1017,9 @@ const BillingPage: React.FC<BillingPageProps> = ({ charges, setCharges, allData,
                 </div>
             </div>
 
-            {/* Seamless Footer Pagination Overlay */}
-            <div className="fixed bottom-0 right-0 z-50 h-14 flex items-center gap-4 px-6 bg-white border-t border-l border-gray-200 shadow-none">
-                <span className="text-xs text-gray-500 font-medium">
-                    Hiển thị {indexOfFirstItem + 1}-{Math.min(indexOfLastItem, totalItems)} / {totalItems}
-                </span>
-                <div className="flex items-center gap-1">
-                    <button onClick={() => setCurrentPage(p => Math.max(1, p - 1))} disabled={currentPage === 1} className="p-1.5 hover:bg-gray-100 rounded disabled:opacity-30 text-gray-600">
-                        <ChevronLeftIcon className="w-4 h-4" />
-                    </button>
-                    <span className="text-xs font-bold text-gray-900 min-w-[24px] text-center">{currentPage}</span>
-                    <button onClick={() => setCurrentPage(p => Math.min(totalPages, p + 1))} disabled={currentPage === totalPages} className="p-1.5 hover:bg-gray-100 rounded disabled:opacity-30 text-gray-600">
-                        <ChevronRightIcon className="w-4 h-4" />
-                    </button>
-                </div>
-            </div>
-
-            {/* Floating Action Bar */}
+            {/* 4. Floating Action Bar */}
             {selectedUnits.size > 0 && (
-                <div className="fixed bottom-16 left-1/2 transform -translate-x-1/2 bg-white rounded-full shadow-2xl border border-gray-200 p-2 flex items-center gap-4 z-50 animate-fade-in-down">
+                <div className="fixed bottom-6 left-1/2 transform -translate-x-1/2 bg-white rounded-full shadow-2xl border border-gray-200 p-2 flex items-center gap-4 z-50 animate-fade-in-down">
                     <div className="pl-4 pr-3 border-r border-gray-200 flex items-center gap-2">
                         <span className="text-sm font-bold text-gray-800">{selectedUnits.size}</span>
                         <button onClick={() => setSelectedUnits(new Set())} className="text-xs text-red-500 hover:underline">Bỏ chọn</button>

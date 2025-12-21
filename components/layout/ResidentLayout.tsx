@@ -1,13 +1,7 @@
 
-import React, { useState } from 'react';
-import { 
-    HomeIcon, ReceiptIcon, ChatBubbleLeftEllipsisIcon, 
-    MegaphoneIcon, UserCircleIcon, ChevronLeftIcon, 
-    BellIcon, XMarkIcon, ClockIcon 
-} from '../ui/Icons';
+import React from 'react';
+import { HomeIcon, ReceiptIcon, ChatBubbleLeftEllipsisIcon, MegaphoneIcon, UserCircleIcon, ChevronLeftIcon, BellIcon } from '../ui/Icons';
 import type { UserPermission, Owner } from '../../types';
-import { useNotifications, NotificationItem } from '../../hooks/useNotifications';
-import { timeAgo } from '../../utils/helpers';
 
 export type PortalPage = 'portalHome' | 'portalNews' | 'portalBilling' | 'portalContact' | 'portalProfile';
 
@@ -19,7 +13,11 @@ interface ResidentLayoutProps {
   owner: Owner | null;
   onUpdateOwner: (updatedOwner: Owner) => void;
   onChangePassword: () => void;
-  notifications?: any; // Kept for interface compatibility but overwritten internally
+  notifications: {
+    unreadNews: number;
+    hasUnpaidBill: boolean;
+    hasNewNotifications: boolean;
+  };
   onMarkNewsAsRead?: () => void;
   onMarkBellAsRead?: () => void;
 }
@@ -40,64 +38,13 @@ const pageTitles: Record<PortalPage, string> = {
     portalProfile: 'Hồ sơ cá nhân',
 };
 
-const ResidentLayout: React.FC<ResidentLayoutProps> = ({ children, activePage, setActivePage, user, owner }) => {
-  const [isNotifOpen, setIsNotifOpen] = useState(false);
-  const { notifications, unreadCount, markAsRead } = useNotifications(user.Username || user.Email);
-
+const ResidentLayout: React.FC<ResidentLayoutProps> = ({ children, activePage, setActivePage, user, owner, notifications, onMarkNewsAsRead, onMarkBellAsRead }) => {
   const greetingName = owner ? `${owner.title || ''} ${owner.OwnerName.split(' ').pop()}` : `Cư dân`;
   const apartmentName = user.residentId ? `Căn hộ ${user.residentId}` : '';
   const isHomePage = activePage === 'portalHome';
-
-  const handleNotifClick = (notif: NotificationItem) => {
-      markAsRead(notif.id);
-      if (notif.link) {
-          setActivePage(notif.link as PortalPage);
-      }
-      setIsNotifOpen(false);
-  };
     
   return (
-    <div className="flex flex-col h-screen bg-light-bg overflow-hidden">
-        {/* NOTIFICATION OVERLAY */}
-        {isNotifOpen && (
-            <div className="fixed inset-0 z-[100] bg-black/40 backdrop-blur-sm animate-fade-in flex justify-end">
-                <div className="w-full max-w-sm bg-white h-full shadow-2xl flex flex-col animate-slide-left">
-                    <div className="p-4 border-b flex justify-between items-center bg-primary text-white">
-                        <h3 className="font-bold text-lg">Thông báo của bạn</h3>
-                        <button onClick={() => setIsNotifOpen(false)} className="p-1 hover:bg-white/20 rounded-full">
-                            <XMarkIcon className="w-6 h-6" />
-                        </button>
-                    </div>
-                    <div className="flex-1 overflow-y-auto">
-                        {notifications.length > 0 ? (
-                            <div className="divide-y divide-gray-100">
-                                {notifications.map(notif => (
-                                    <div 
-                                        key={notif.id} 
-                                        onClick={() => handleNotifClick(notif)}
-                                        className={`p-4 cursor-pointer hover:bg-gray-50 transition-colors relative ${!notif.isRead ? 'bg-blue-50/50' : ''}`}
-                                    >
-                                        {!notif.isRead && <div className="absolute top-4 right-4 w-2 h-2 bg-blue-500 rounded-full"></div>}
-                                        <h4 className={`text-sm font-bold ${!notif.isRead ? 'text-blue-900' : 'text-gray-800'}`}>{notif.title}</h4>
-                                        <p className="text-xs text-gray-500 mt-1 line-clamp-2">{notif.body}</p>
-                                        <div className="flex items-center gap-1 mt-2 text-[10px] text-gray-400 font-medium">
-                                            <ClockIcon className="w-3 h-3" />
-                                            {timeAgo(notif.createdAt?.toDate ? notif.createdAt.toDate().toISOString() : notif.createdAt)}
-                                        </div>
-                                    </div>
-                                ))}
-                            </div>
-                        ) : (
-                            <div className="p-12 text-center text-gray-400">
-                                <BellIcon className="w-12 h-12 mx-auto mb-3 opacity-20" />
-                                <p className="text-sm">Bạn chưa có thông báo nào.</p>
-                            </div>
-                        )}
-                    </div>
-                </div>
-            </div>
-        )}
-
+    <div className="flex flex-col h-screen bg-light-bg">
         {isHomePage ? (
             <header className="sticky top-0 z-40 bg-primary text-white shadow-md p-4 flex justify-between items-center h-20">
                 <div>
@@ -106,14 +53,12 @@ const ResidentLayout: React.FC<ResidentLayoutProps> = ({ children, activePage, s
                 </div>
                 <div className="flex items-center gap-4">
                     <button 
-                        className="relative p-2 rounded-full hover:bg-white/10 transition-colors"
-                        onClick={() => setIsNotifOpen(true)}
+                        className="relative p-1 rounded-full hover:bg-white/10"
+                        onClick={onMarkBellAsRead}
                     >
                         <BellIcon className="w-6 h-6" />
-                        {unreadCount > 0 && (
-                             <span className="absolute top-1.5 right-1.5 block h-4 w-4 rounded-full bg-red-500 text-[10px] font-black flex items-center justify-center ring-2 ring-primary">
-                                 {unreadCount > 9 ? '9+' : unreadCount}
-                             </span>
+                        {notifications.hasNewNotifications && (
+                             <span className="absolute top-0 right-0 block h-2.5 w-2.5 rounded-full bg-red-500 ring-2 ring-primary"></span>
                         )}
                     </button>
                     <button onClick={() => setActivePage('portalProfile')} className="w-11 h-11 rounded-full bg-white/20 flex items-center justify-center ring-2 ring-white/30 flex-shrink-0">
@@ -122,15 +67,15 @@ const ResidentLayout: React.FC<ResidentLayoutProps> = ({ children, activePage, s
                 </div>
             </header>
         ) : (
-             <header className="sticky top-0 z-40 bg-white text-gray-800 shadow-sm p-4 flex items-center h-16">
-                 <button onClick={() => setActivePage('portalHome')} className="p-2 rounded-full hover:bg-gray-100">
+             <header className="sticky top-0 z-40 bg-white text-gray-800 shadow-sm p-4 flex items-center justify-center h-16 relative">
+                 <button onClick={() => setActivePage('portalHome')} className="absolute left-4 p-2 rounded-full hover:bg-gray-100">
                     <ChevronLeftIcon className="w-6 h-6" />
                 </button>
-                <h1 className="text-lg font-bold flex-1 text-center pr-10">{pageTitles[activePage]}</h1>
+                <h1 className="text-lg font-bold mx-auto">{pageTitles[activePage]}</h1>
             </header>
         )}
 
-      <main className="flex-1 overflow-y-auto pb-24">
+      <main className="flex-1 overflow-y-auto pb-20">
         <div className="max-w-lg mx-auto">
             {children}
         </div>
@@ -143,16 +88,24 @@ const ResidentLayout: React.FC<ResidentLayoutProps> = ({ children, activePage, s
             return (
               <button
                 key={item.id}
-                onClick={() => setActivePage(item.id)}
+                onClick={() => {
+                    if (item.id === 'portalNews' && onMarkNewsAsRead) {
+                        onMarkNewsAsRead();
+                    }
+                    setActivePage(item.id);
+                }}
                 className={`flex flex-col items-center justify-center w-full pt-3 pb-2 transition-colors ${isActive ? 'text-primary' : 'text-light-text-secondary'}`}
               >
                 <div className="relative">
                   {React.cloneElement(item.icon, { className: 'w-6 h-6' })}
-                  {item.id === 'portalBilling' && notifications?.some((n: any) => !n.isRead && n.type === 'bill') && (
-                    <span className="absolute -top-1 -right-1 block h-2.5 w-2.5 rounded-full bg-red-500 ring-2 ring-white"></span>
+                  {item.id === 'portalNews' && notifications.unreadNews > 0 && (
+                    <span className="absolute top-0 right-0 block h-2 w-2 rounded-full bg-red-500 ring-2 ring-white"></span>
+                  )}
+                  {item.id === 'portalBilling' && notifications.hasUnpaidBill && (
+                    <span className="absolute top-0 right-0 block h-2 w-2 rounded-full bg-red-500 ring-2 ring-white"></span>
                   )}
                 </div>
-                <span className={`text-[10px] mt-1 uppercase tracking-tighter ${isActive ? 'font-black' : 'font-bold opacity-60'}`}>{item.label}</span>
+                <span className={`text-xs mt-1 ${isActive ? 'font-bold' : 'font-medium'}`}>{item.label}</span>
               </button>
             );
           })}
