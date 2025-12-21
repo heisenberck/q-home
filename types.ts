@@ -1,54 +1,25 @@
 
-// types.ts
-
 export type Role = 'Admin' | 'Accountant' | 'Operator' | 'Viewer' | 'Resident';
 
-// UPDATED: Added specific payment method statuses
-export type PaymentStatus = 'pending' | 'unpaid' | 'paid' | 'reconciling' | 'paid_tm' | 'paid_ck';
-
-export interface UserPermission {
-    Email: string; // System Auth Email (Used as ID in Firebase Auth)
-    contact_email?: string; // NEW: The actual contact email for the user
-    Username?: string; // Login ID / System Username (Fixed for system users)
-    DisplayName?: string; // Editable display name (e.g., "Nguyễn Văn A")
-    avatarUrl?: string; // Added Avatar URL (Base64)
-    Role: Role;
-    status: 'Active' | 'Disabled' | 'Pending';
-    password: string;
-    mustChangePassword?: boolean;
-    residentId?: string; // Link to UnitID for residents
-}
-
-// ... (Keep existing Enums UnitType, VehicleTier, ParkingTariffTier)
 export enum UnitType {
     APARTMENT = 'Apartment',
-    KIOS = 'KIOS',
-}
-
-export enum VehicleTier {
-    CAR = 'car',
-    CAR_A = 'car_a',
-    MOTORBIKE = 'motorbike',
-    EBIKE = 'ebike', // Note: For billing, this is grouped with MOTORBIKE
-    BICYCLE = 'bicycle',
-}
-
-export enum ParkingTariffTier {
-    CAR = 'Car',
-    CAR_A = 'Car-A',
-    MOTO12 = 'Moto12',
-    MOTO34 = 'Moto34',
-    BICYCLE = 'Bicycle',
+    KIOS = 'KIOS'
 }
 
 export interface Unit {
-    UnitID: string; // e.g., 'A101'
+    UnitID: string;
     OwnerID: string;
     UnitType: UnitType;
     Area_m2: number;
-    Status: 'Owner' | 'Rent' | 'Business'; // Trạng thái căn hộ
-    // NEW: Added for CSV import and display logic
-    displayStatus?: 'Normal' | 'Missing data' | 'Locked';
+    Status: 'Owner' | 'Rent' | 'Business';
+}
+
+export interface VehicleDocument {
+    fileId: string;
+    name: string;
+    url: string;
+    type: string;
+    uploadedAt: string;
 }
 
 export interface Owner {
@@ -56,101 +27,83 @@ export interface Owner {
     OwnerName: string;
     Phone: string;
     Email: string;
-    title?: 'Anh' | 'Chị' | 'Ông' | 'Bà'; // NEW: Title for greetings
-    // NEW: Fields for resident detail panel
-    avatarUrl?: string;
+    title?: 'Anh' | 'Chị' | 'Ông' | 'Bà';
+    updatedAt?: string;
     secondOwnerName?: string;
     secondOwnerPhone?: string;
-    updatedAt?: string; // ISO string for tracking updates
+    avatarUrl?: string;
     documents?: {
-        nationalId?: VehicleDocument; // CCCD
-        title?: VehicleDocument;      // Sổ đỏ / Hợp đồng
-        others?: VehicleDocument[];   // Other documents
+        nationalId?: VehicleDocument;
+        title?: VehicleDocument;
+        others?: VehicleDocument[];
     };
 }
 
-// NEW: Profile Request for Approval Workflow
-export interface ProfileRequest {
-    id: string;
-    residentId: string; // UnitID
-    ownerId: string;
-    status: 'PENDING' | 'APPROVED' | 'REJECTED';
-    changes: {
-        title?: string;
-        OwnerName?: string;
-        Phone?: string;
-        Email?: string;
-        secondOwnerName?: string;
-        secondOwnerPhone?: string;
-        // Apartment Status is special as it lives on Unit table
-        UnitStatus?: 'Owner' | 'Rent' | 'Business';
-        avatarUrl?: string;
-    };
-    createdAt: string; // ISO String
-    updatedAt: string; // ISO String
+export enum VehicleTier {
+    CAR = 'car',
+    CAR_A = 'car_a',
+    MOTORBIKE = 'motorbike',
+    EBIKE = 'ebike',
+    BICYCLE = 'bicycle'
 }
 
-// NEW: Vehicle Document Interface
-export interface VehicleDocument {
-    fileId: string;
-    name: string;
-    url: string; // Base64 or URL
-    type: string; // MIME type
-    uploadedAt: string;
-}
-
-// UPDATED: Vehicle interface to match permanent storage schema
 export interface Vehicle {
     VehicleId: string;
     UnitID: string;
     Type: VehicleTier;
-    VehicleName: string;
+    VehicleName?: string;
     PlateNumber: string;
     StartDate: string;
     isActive: boolean;
     updatedAt?: string;
+    log?: string | null;
     parkingStatus?: 'Lốt chính' | 'Lốt tạm' | 'Xếp lốt' | null;
-    log?: string;
-    // NEW: Documents attachment
     documents?: {
-        registration?: VehicleDocument; // Đăng ký xe
-        vehiclePhoto?: VehicleDocument; // Ảnh chụp xe
+        registration?: VehicleDocument;
+        vehiclePhoto?: VehicleDocument;
     };
 }
 
-
 export interface WaterReading {
     UnitID: string;
-    Period: string; // 'YYYY-MM'
+    Period: string; // YYYY-MM
     PrevIndex: number;
     CurrIndex: number;
-    Rollover: boolean; // Indicates if the meter has reset
-    consumption: number; // ADDED: Persisted consumption value (CurrIndex - PrevIndex)
+    Rollover: boolean;
+    consumption: number;
 }
 
 export interface TariffService {
     LoaiHinh: string;
     ServiceFee_per_m2: number;
     VAT_percent: number;
-    ValidFrom: string; // 'YYYY-MM-DD'
-    ValidTo: string | null; // 'YYYY-MM-DD'
+    ValidFrom: string;
+    ValidTo: string | null;
+}
+
+export enum ParkingTariffTier {
+    CAR = 'Car',
+    CAR_A = 'Car_A',
+    MOTO12 = 'Moto12',
+    MOTO34 = 'Moto34',
+    BICYCLE = 'Bicycle'
 }
 
 export interface TariffParking {
-    Tier: ParkingTariffTier; // Uses the specific pricing tier
+    Tier: ParkingTariffTier;
     Price_per_unit: number;
     VAT_percent: number;
-    ValidFrom: string; // 'YYYY-MM-DD'
-    ValidTo: string | null; // 'YYYY-MM-DD'
+    ValidFrom: string;
+    ValidTo: string | null;
 }
 
 export interface TariffWater {
     From_m3: number;
-    To_m3: number | null; // null for the last tier
+    To_m3: number | null;
     UnitPrice: number;
     VAT_percent: number;
-    ValidFrom: string; // 'YYYY-MM-DD'
-    ValidTo: string | null; // 'YYYY-MM-DD'
+    ValidFrom: string;
+    ValidTo: string | null;
 }
 
 export interface TariffCollection {
@@ -161,14 +114,16 @@ export interface TariffCollection {
 
 export interface Adjustment {
     UnitID: string;
-    Period: string; // 'YYYY-MM'
+    Period: string;
     Amount: number;
     Description: string;
     SourcePeriod?: string;
 }
 
+export type PaymentStatus = 'pending' | 'reconciling' | 'paid' | 'paid_tm' | 'paid_ck' | 'unpaid';
+
 export interface ChargeRaw {
-    Period: string; // 'YYYY-MM'
+    Period: string;
     UnitID: string;
     OwnerName: string;
     Phone: string;
@@ -192,26 +147,18 @@ export interface ChargeRaw {
     TotalDue: number;
     TotalPaid: number;
     PaymentConfirmed: boolean;
-    CreatedAt: string; // ISO 8601
-    Locked: boolean;
     paymentStatus: PaymentStatus;
-    // NEW: Added for delivery status tracking
-    isPrinted?: boolean;
-    isSent?: boolean;
-    sentCount?: number;
-    // NEW: Payment Proof & OCR
+    CreatedAt: string;
+    Locked: boolean;
+    isPrinted: boolean;
+    isSent: boolean;
     proofImage?: string;
-    ocrResult?: {
-        scannedAmount: number;
-        isMatch: boolean;
-        rawText?: string;
-    };
+    ocrResult?: any;
     submittedAt?: string;
 }
 
-// NEW: Aggregated Statistics for Charts (Optimization)
 export interface MonthlyStat {
-    period: string; // YYYY-MM
+    period: string;
     totalService: number;
     totalParking: number;
     totalWater: number;
@@ -219,14 +166,87 @@ export interface MonthlyStat {
     updatedAt: string;
 }
 
-// NEW: System Metadata for Version Checking
-export interface SystemMetadata {
-    units_version: number;
-    owners_version: number;
-    vehicles_version: number;
-    tariffs_version: number;
-    users_version: number;
-    // Cold data like charges/logs don't need strict versioning as they are time-based or appended
+export interface ActivityLog {
+    id: string;
+    ts: string;
+    actor_email: string;
+    actor_role: Role;
+    module: string;
+    action: string;
+    summary: string;
+    count?: number;
+    ids?: string[];
+    undone: boolean;
+    undo_token: string | null;
+    undo_until: string | null;
+    before_snapshot?: any;
+}
+
+export interface NewsItem {
+    id: string;
+    title: string;
+    content: string;
+    date: string;
+    priority: 'normal' | 'high';
+    category: 'notification' | 'plan' | 'event';
+    imageUrl?: string;
+    sender?: string;
+    isBroadcasted: boolean;
+    broadcastTime?: string;
+    isArchived: boolean;
+}
+
+export interface FeedbackReply {
+    author: string;
+    content: string;
+    date: string;
+}
+
+export interface FeedbackItem {
+    id: string;
+    residentId: string;
+    subject: string;
+    category: 'general' | 'maintenance' | 'billing' | 'other';
+    content: string;
+    date: string;
+    status: 'Pending' | 'Processing' | 'Resolved';
+    replies: FeedbackReply[];
+    imageUrl?: string;
+}
+
+export interface UserPermission {
+    Email: string;
+    Username?: string;
+    Role: Role;
+    status: 'Active' | 'Disabled' | 'Pending';
+    password?: string;
+    mustChangePassword?: boolean;
+    residentId?: string;
+    DisplayName?: string;
+    avatarUrl?: string;
+    contact_email?: string;
+}
+
+export interface InvoiceSettings {
+    logoUrl: string;
+    accountName: string;
+    accountNumber: string;
+    bankName: string;
+    senderEmail: string;
+    buildingName: string;
+    appsScriptUrl?: string;
+    senderName?: string;
+    emailSubject?: string;
+    emailBody?: string;
+    footerHtml?: string;
+    footerShowInPdf?: boolean;
+    footerShowInEmail?: boolean;
+    footerShowInViewer?: boolean;
+    footerAlign?: 'left' | 'center' | 'right';
+    footerFontSize?: 'sm' | 'md' | 'lg';
+    loginBackgroundUrl?: string;
+    HOTLINE?: string;
+    transferContentTemplate?: string;
 }
 
 export interface AllData {
@@ -238,83 +258,36 @@ export interface AllData {
     adjustments: Adjustment[];
     activityLogs: ActivityLog[];
     monthlyStats: MonthlyStat[];
-    lockedWaterPeriods: string[]; // NEW: Cached list of locked months
+    lockedWaterPeriods: string[];
 }
 
-export interface InvoiceSettings {
-    logoUrl: string;
-    accountName: string;
-    accountNumber: string;
-    bankName: string;
-    senderEmail: string;
-    senderName?: string;
-    emailSubject?: string;
-    emailBody?: string;
-    appsScriptUrl?: string;
-    transferContentTemplate?: string; // NEW: Added for customizable transfer content
-    // Footer Settings
-    footerHtml?: string;
-    footerShowInPdf?: boolean;
-    footerShowInEmail?: boolean;
-    footerShowInViewer?: boolean;
-    footerAlign?: 'left' | 'center' | 'right';
-    footerFontSize?: 'sm' | 'md' | 'lg';
-    // Branding Settings
-    buildingName?: string;
-    loginBackgroundUrl?: string;
+export interface SystemMetadata {
+    units_version: number;
+    owners_version: number;
+    vehicles_version: number;
+    tariffs_version: number;
+    users_version: number;
 }
 
-// REFACTORED: New Activity Log schema
-export interface ActivityLog {
+export interface ProfileRequest {
     id: string;
-    ts: string; // ISO string
-    actor_email: string;
-    actor_role: Role;
-    module: 'Billing' | 'Residents' | 'Water' | 'Pricing' | 'Settings' | 'System' | 'Vehicles' | 'News' | 'Feedback' | 'Finance';
-    action: string; // e.g., 'CALCULATE_CHARGES', 'IMPORT_RESIDENTS'
-    summary: string;
-    count?: number;
-    ids?: string[];
-    before_snapshot: any; // The state *before* the action for undo
-    undone: boolean;
-    undo_token: string | null; // ID of the log itself if undoable
-    undo_until: string | null; // ISO string, 24h from creation
+    residentId: string;
+    ownerId: string;
+    status: 'PENDING' | 'APPROVED' | 'REJECTED';
+    changes: {
+        title?: string;
+        OwnerName?: string;
+        Phone?: string;
+        Email?: string;
+        secondOwnerName?: string;
+        secondOwnerPhone?: string;
+        UnitStatus?: string;
+        avatarUrl?: string;
+    };
+    createdAt: string;
+    updatedAt: string;
 }
 
-// NEW: News and Feedback types
-export interface NewsItem {
-    id: string;
-    title: string;
-    content: string;
-    date: string; // ISO string
-    priority: 'high' | 'normal';
-    category: 'notification' | 'plan' | 'event';
-    imageUrl?: string;
-    sender?: 'BQT' | 'BQLVH';
-    isBroadcasted?: boolean;
-    broadcastTime?: string;
-    isArchived?: boolean;
-}
-
-export interface FeedbackReply {
-    author: string; // e.g., "BQL" or user's name
-    content: string;
-    date: string; // ISO string
-}
-
-export interface FeedbackItem {
-    id: string;
-    residentId: string; // UnitID
-    subject: string;
-    category: 'general' | 'maintenance' | 'billing' | 'other';
-    content: string;
-    imageUrl?: string; // Base64
-    status: 'Pending' | 'Processing' | 'Resolved';
-    date: string; // ISO string
-    replies: FeedbackReply[];
-}
-
-// NEW: Misc Revenue for Value Added Services (VAS)
 export type MiscRevenueType = 'PARKING' | 'KIOS' | 'VAT_SERVICE' | 'OTHER';
 
 export interface MiscRevenue {
@@ -322,7 +295,17 @@ export interface MiscRevenue {
     type: MiscRevenueType;
     amount: number;
     description: string;
-    date: string; // ISO String (Date only or Full TS)
-    createdAt: string; // Full TS
-    createdBy: string; // Admin Email
+    date: string;
+    createdAt: string;
+    createdBy: string;
+}
+
+export interface AdminNotification {
+    id: string;
+    type: 'system' | 'request' | 'message' | 'alert';
+    title: string;
+    message: string;
+    isRead: boolean;
+    createdAt: any; // Firestore Timestamp
+    linkTo?: string;
 }

@@ -8,16 +8,15 @@ interface NotificationListenerProps {
     userId: string;
 }
 
+// FIX: Added React import to resolve "Cannot find namespace 'React'" error
 const NotificationListener: React.FC<NotificationListenerProps> = ({ userId }) => {
     const { showToast } = useNotification();
     const isFirstLoad = useRef(true);
 
     useEffect(() => {
-        // Guard clause: Don't subscribe if userId is empty/null
         if (!userId) return;
 
-        // OPTIMIZATION: Limit to 10 to prevent quota explosion
-        // Only fetch UNREAD notifications to keep the active set small
+        // Truy vấn này yêu cầu Composite Index: userId (ASC), isRead (ASC), createdAt (DESC)
         const q = query(
             collection(db, 'notifications'),
             where('userId', '==', userId),
@@ -26,10 +25,7 @@ const NotificationListener: React.FC<NotificationListenerProps> = ({ userId }) =
             limit(10) 
         );
 
-        console.log(`[NotificationListener] Subscribing for user: ${userId}`);
-
         const unsubscribe = onSnapshot(q, (snapshot) => {
-            // Handle first load to avoid spamming toasts for existing unread messages
             if (isFirstLoad.current) {
                 isFirstLoad.current = false;
                 return;
@@ -38,34 +34,28 @@ const NotificationListener: React.FC<NotificationListenerProps> = ({ userId }) =
             snapshot.docChanges().forEach((change) => {
                 if (change.type === 'added') {
                     const data = change.doc.data();
-                    
-                    // Customize message based on type
                     let message = `🔔 ${data.title}`;
                     if (data.type === 'bill') {
-                        // Special format for bills
                         message = `🔔 ${data.title}: ${data.body}`;
                     } else if (data.type === 'news') {
                         message = `📰 Tin mới: ${data.title}`;
                     }
-                    
                     showToast(message, 'info', 6000);
                 }
             });
         }, (error) => {
-            console.error("[NotificationListener] Error:", error);
-            if (error.message.includes("indexes")) {
-                console.warn("FIRESTORE INDEX MISSING: Click the link in the console error above to create the required composite index.");
+            console.error("[NotificationListener] Firestore Error:", error);
+            if (error.message.includes("requires an index")) {
+                console.warn(
+                    "NOTICE: Hệ thống thông báo Cư dân yêu cầu chỉ mục Firestore. Click vào link trong lỗi console để tạo."
+                );
             }
         });
 
-        // CRITICAL: Cleanup function to prevent infinite loops and memory leaks
-        return () => {
-            console.log(`[NotificationListener] Unsubscribing for user: ${userId}`);
-            unsubscribe();
-        };
-    }, [userId, showToast]); // Strict dependency array
+        return () => unsubscribe();
+    }, [userId, showToast]);
 
-    return null; // Headless component
+    return null;
 };
 
 export default NotificationListener;
