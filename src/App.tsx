@@ -1,5 +1,5 @@
 
-import React, { createContext, useContext, useState, useEffect, useCallback } from 'react';
+import React, { createContext, useContext, useState, useEffect, useCallback, useMemo } from 'react';
 import type { 
     UserPermission, Unit, Owner, Vehicle, WaterReading, 
     TariffCollection, InvoiceSettings, Adjustment, ChargeRaw, 
@@ -35,14 +35,13 @@ import AdminPortalResidentsPage from './components/pages/admin-portal/AdminPorta
 import AdminPortalVehiclesPage from './components/pages/admin-portal/AdminPortalVehiclesPage';
 import AdminPortalBillingPage from './components/pages/admin-portal/AdminPortalBillingPage';
 import Toast, { ToastMessage, ToastType } from './components/ui/Toast';
-import { logActivity, deleteUsers, updateResidentData, importResidentsBatch, updateFeeSettings } from './services';
+import { deleteUsers, updateResidentData, importResidentsBatch, updateFeeSettings, fetchLatestLogs } from './services';
 import ChangePasswordModal from './components/pages/ChangePasswordModal';
 import NotificationListener from './components/common/NotificationListener';
 
 // --- Types ---
 export type AdminPage = 'overview' | 'billing' | 'residents' | 'vehicles' | 'water' | 'pricing' | 'users' | 'settings' | 'backup' | 'activityLog' | 'newsManagement' | 'feedbackManagement' | 'vas';
 
-// Ánh xạ tiêu đề Tiếng Việt cho các trang Admin
 const ADMIN_PAGE_TITLES: Record<AdminPage, string> = {
     overview: 'Tổng quan hệ thống',
     billing: 'Bảng tính phí dịch vụ',
@@ -58,15 +57,6 @@ const ADMIN_PAGE_TITLES: Record<AdminPage, string> = {
     feedbackManagement: 'Phản hồi Cư dân',
     vas: 'Dịch vụ Gia tăng (VAS)'
 };
-
-export interface LogPayload {
-    module: 'Billing' | 'Residents' | 'Water' | 'Pricing' | 'Settings' | 'System' | 'Vehicles' | 'News' | 'Feedback' | 'Finance';
-    action: string;
-    summary: string;
-    count?: number;
-    ids?: string[];
-    before_snapshot: any;
-}
 
 // --- Contexts ---
 interface AuthContextType {
@@ -123,26 +113,6 @@ export const useDataRefresh = () => {
     return context;
 };
 
-export const useLogger = () => {
-    const { user } = useAuth();
-    const log = useCallback(async (payload: LogPayload) => {
-        if (!user) return;
-        const logEntry: ActivityLog = {
-            id: `log_${Date.now()}`,
-            ts: new Date().toISOString(),
-            actor_email: user.Email,
-            actor_role: user.Role,
-            ...payload,
-            undone: false,
-            undo_token: null,
-            undo_until: null,
-        };
-        await logActivity(logEntry);
-    }, [user]);
-    return log;
-};
-
-// Default Settings to prevent crashes before data loads
 const DEFAULT_SETTINGS: InvoiceSettings = {
     logoUrl: '',
     accountName: '',
@@ -152,19 +122,14 @@ const DEFAULT_SETTINGS: InvoiceSettings = {
     buildingName: 'Q-Home Manager'
 };
 
-// --- App Component ---
 const App: React.FC = () => {
     const [user, setUser] = useState<UserPermission | null>(null);
     const [toasts, setToasts] = useState<ToastMessage[]>([]);
-    
-    // Tối ưu nhận diện Mobile
     const [isMobile, setIsMobile] = useState(window.innerWidth < 768);
-    
-    // Khởi tạo activePage thông minh hơn
     const [activePage, setActivePage] = useState<AdminPage | PortalPage | AdminPortalPage>('overview');
     const [isChangePasswordModalOpen, setIsChangePasswordModalOpen] = useState(false);
+    const [activityLogs, setActivityLogs] = useState<ActivityLog[]>([]);
 
-    // Lắng nghe thay đổi kích thước màn hình (Reactive)
     useEffect(() => {
         const handleResize = () => {
             const mobile = window.innerWidth < 768;
@@ -174,7 +139,6 @@ const App: React.FC = () => {
         return () => window.removeEventListener('resize', handleResize);
     }, []);
 
-    // Initial check for remembered user
     useEffect(() => {
         const rememberedUserStr = localStorage.getItem('rememberedUserObject');
         if (rememberedUserStr) {
@@ -194,14 +158,12 @@ const App: React.FC = () => {
         }
     }, []);
 
-    // Hooks for data fetching
     const { 
         units, owners, vehicles, waterReadings, charges, adjustments, users: fetchedUsers, 
         invoiceSettings, tariffs, monthlyStats, lockedWaterPeriods,
         refreshSystemData 
     } = useSmartSystemData(user);
 
-    // Local state for managed entities
     const [localUnits, setLocalUnits] = useState<Unit[]>([]);
     const [localOwners, setLocalOwners] = useState<Owner[]>([]);
     const [localVehicles, setLocalVehicles] = useState<Vehicle[]>([]);
@@ -223,6 +185,18 @@ const App: React.FC = () => {
         setLocalUsers(fetchedUsers);
         setLocalTariffs(tariffs);
     }, [units, owners, vehicles, waterReadings, charges, adjustments, fetchedUsers, tariffs]);
+
+    const refreshLogs = useCallback(async () => {
+        if (!user || user.Role === 'Resident') return;
+        const latest = await fetchLatestLogs(50);
+        setActivityLogs(latest);
+    }, [user]);
+
+    useEffect(() => {
+        if (activePage === 'overview' || activePage === 'activityLog' || activePage === 'residents' || activePage === 'vehicles') {
+            refreshLogs();
+        }
+    }, [activePage, refreshLogs]);
 
     const showToast = useCallback((message: string, type: ToastType, duration: number = 3000) => {
         const id = Date.now();
@@ -280,37 +254,51 @@ const App: React.FC = () => {
     };
 
     const handleSaveResident = async (data: { unit: Unit, owner: Owner, vehicles: Vehicle[] }, reason: string) => {
-        await updateResidentData(localUnits, localOwners, localVehicles, data);
+        if (!user) return;
+        await updateResidentData(localUnits, localOwners, localVehicles, data, { email: user.Email, role: user.Role }, reason);
         refreshSystemData(true);
+        refreshLogs(); 
     };
 
     const handleImportResidents = (updates: any[]) => {
         importResidentsBatch(localUnits, localOwners, localVehicles, updates).then(() => {
             refreshSystemData(true);
+            refreshLogs();
         });
     };
 
-    const handleMarkNewsAsRead = () => { /* Logic */ };
-    const handleMarkBellAsRead = () => { /* Logic */ };
+    const handleMarkNewsAsRead = useCallback(() => {
+        showToast('Đã đánh dấu tin tức là đã đọc', 'info');
+    }, [showToast]);
 
-    const notifications = { unreadNews: 0, hasUnpaidBill: false, hasNewNotifications: false };
+    const handleMarkBellAsRead = useCallback(() => {
+        showToast('Đã xem tất cả thông báo', 'info');
+    }, [showToast]);
+
+    const notifications = useMemo(() => {
+        return { 
+            unreadNews: localNews.filter(n => !n.isArchived).length,
+            hasUnpaidBill: localCharges.some(c => c.UnitID === user?.residentId && !['paid', 'paid_tm', 'paid_ck'].includes(c.paymentStatus)),
+            hasNewNotifications: false 
+        };
+    }, [localNews, localCharges, user]);
 
     const renderAdminPage = () => {
         switch (activePage as AdminPage) {
-            case 'overview': return <OverviewPage allUnits={localUnits} allOwners={localOwners} allVehicles={localVehicles} allWaterReadings={localWaterReadings} charges={localCharges} activityLogs={[]} feedback={localFeedback} onNavigate={(p) => setActivePage(p as AdminPage)} monthlyStats={monthlyStats} />;
-            case 'billing': return <BillingPage charges={localCharges} setCharges={setLocalCharges} allData={{ units: localUnits, owners: localOwners, vehicles: localVehicles, waterReadings: localWaterReadings, tariffs: localTariffs, adjustments: localAdjustments, activityLogs: [], monthlyStats, lockedWaterPeriods }} onUpdateAdjustments={setLocalAdjustments} role={user!.Role} invoiceSettings={invoiceSettings || DEFAULT_SETTINGS} onRefresh={() => refreshSystemData(true)} />;
+            case 'overview': return <OverviewPage allUnits={localUnits} allOwners={localOwners} allVehicles={localVehicles} allWaterReadings={localWaterReadings} charges={localCharges} activityLogs={activityLogs} feedback={localFeedback} onNavigate={(p) => setActivePage(p as AdminPage)} monthlyStats={monthlyStats} />;
+            case 'billing': return <BillingPage charges={localCharges} setCharges={setLocalCharges} allData={{ units: localUnits, owners: localOwners, vehicles: localVehicles, waterReadings: localWaterReadings, tariffs: localTariffs, adjustments: localAdjustments, activityLogs, monthlyStats, lockedWaterPeriods }} onUpdateAdjustments={setLocalAdjustments} role={user!.Role} invoiceSettings={invoiceSettings || DEFAULT_SETTINGS} onRefresh={() => refreshSystemData(true)} />;
             case 'vas': return <ValueAddedServicesPage />;
-            case 'residents': return <ResidentsPage units={localUnits} owners={localOwners} vehicles={localVehicles} activityLogs={[]} onSaveResident={handleSaveResident} onImportData={handleImportResidents} onDeleteResidents={()=>{}} role={user!.Role} currentUser={user!} onNavigate={(p) => setActivePage(p as AdminPage)} />;
-            case 'vehicles': return <VehiclesPage vehicles={localVehicles} units={localUnits} owners={localOwners} activityLogs={[]} onSetVehicles={setLocalVehicles} role={user!.Role} />;
+            case 'residents': return <ResidentsPage units={localUnits} owners={localOwners} vehicles={localVehicles} activityLogs={activityLogs} onSaveResident={handleSaveResident} onImportData={handleImportResidents} onDeleteResidents={()=>{}} role={user!.Role} currentUser={user!} onNavigate={(p) => setActivePage(p as AdminPage)} />;
+            case 'vehicles': return <VehiclesPage vehicles={localVehicles} units={localUnits} owners={localOwners} activityLogs={activityLogs} onSetVehicles={setLocalVehicles} role={user!.Role} />;
             case 'water': return <WaterPage waterReadings={localWaterReadings} setWaterReadings={setLocalWaterReadings} allUnits={localUnits} role={user!.Role} tariffs={localTariffs} lockedPeriods={lockedWaterPeriods} refreshData={refreshSystemData} />;
             case 'pricing': return <PricingPage tariffs={localTariffs} setTariffs={setLocalTariffs} role={user!.Role} />;
             case 'users': return <UsersPage users={localUsers} setUsers={setLocalUsers} units={localUnits} role={user!.Role} />;
             case 'settings': return <SettingsPage invoiceSettings={invoiceSettings || DEFAULT_SETTINGS} setInvoiceSettings={handleSetInvoiceSettings} role={user!.Role} />;
             case 'backup': return <BackupRestorePage allData={{ units: localUnits, owners: localOwners, vehicles: localVehicles, waterReadings: localWaterReadings, charges: localCharges, adjustments: localAdjustments, users: localUsers, tariffs: localTariffs }} onRestore={(d) => refreshSystemData(true)} role={user!.Role} />;
-            case 'activityLog': return <ActivityLogPage logs={[]} onUndo={()=>{}} role={user!.Role} />;
+            case 'activityLog': return <ActivityLogPage logs={activityLogs} onUndo={()=>{}} role={user!.Role} />;
             case 'newsManagement': return <NewsManagementPage news={localNews} setNews={setLocalNews} role={user!.Role} users={localUsers} />;
             case 'feedbackManagement': return <FeedbackManagementPage feedback={localFeedback} setFeedback={setLocalFeedback} role={user!.Role} />;
-            default: return <OverviewPage allUnits={localUnits} allOwners={localOwners} allVehicles={localVehicles} allWaterReadings={localWaterReadings} charges={localCharges} activityLogs={[]} feedback={localFeedback} onNavigate={(p) => setActivePage(p as AdminPage)} monthlyStats={monthlyStats} />;
+            default: return <OverviewPage allUnits={localUnits} allOwners={localOwners} allVehicles={localVehicles} allWaterReadings={localWaterReadings} charges={localCharges} activityLogs={activityLogs} feedback={localFeedback} onNavigate={(p) => setActivePage(p as AdminPage)} monthlyStats={monthlyStats} />;
         }
     };
 

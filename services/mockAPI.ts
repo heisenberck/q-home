@@ -92,7 +92,20 @@ export const fetchLatestLogs = async (limitCount: number = 20): Promise<Activity
     return Promise.resolve([...activityLogs].sort((a,b) => new Date(b.ts).getTime() - new Date(a.ts).getTime()).slice(0, limitCount));
 };
 
-export const logActivity = async (log: ActivityLog) => {
+// Fix: Updated logActivity signature to match logService.ts for API consistency
+export const logActivity = async (actionType: any, module: string, description: string) => {
+    const log: ActivityLog = {
+        id: `log_${Date.now()}_${Math.random().toString(36).substr(2, 5)}`,
+        ts: new Date().toISOString(),
+        actor_email: 'mock-admin@hud3.vn',
+        actor_role: 'Admin',
+        module,
+        action: String(actionType),
+        summary: description,
+        undone: false,
+        undo_token: null,
+        undo_until: null
+    };
     activityLogs = [log, ...activityLogs];
     saveToStorage('activityLogs', activityLogs);
     return Promise.resolve();
