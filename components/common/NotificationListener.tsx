@@ -3,20 +3,21 @@ import React, { useEffect, useRef } from 'react';
 import { collection, query, where, orderBy, limit, onSnapshot } from 'firebase/firestore';
 import { db } from '../../firebaseConfig';
 import { useNotification } from '../../App';
+import { isProduction } from '../../utils/env';
 
 interface NotificationListenerProps {
     userId: string;
 }
 
-// FIX: Added React import to resolve "Cannot find namespace 'React'" error
 const NotificationListener: React.FC<NotificationListenerProps> = ({ userId }) => {
     const { showToast } = useNotification();
     const isFirstLoad = useRef(true);
+    const IS_PROD = isProduction();
 
     useEffect(() => {
-        if (!userId) return;
+        if (!userId || !IS_PROD) return;
 
-        // Truy vấn này yêu cầu Composite Index: userId (ASC), isRead (ASC), createdAt (DESC)
+        // Truy vấn này chỉ chạy trên Production
         const q = query(
             collection(db, 'notifications'),
             where('userId', '==', userId),
@@ -34,26 +35,17 @@ const NotificationListener: React.FC<NotificationListenerProps> = ({ userId }) =
             snapshot.docChanges().forEach((change) => {
                 if (change.type === 'added') {
                     const data = change.doc.data();
-                    let message = `🔔 ${data.title}`;
-                    if (data.type === 'bill') {
-                        message = `🔔 ${data.title}: ${data.body}`;
-                    } else if (data.type === 'news') {
-                        message = `📰 Tin mới: ${data.title}`;
-                    }
-                    showToast(message, 'info', 6000);
+                    showToast(`🔔 ${data.title}`, 'info', 6000);
                 }
             });
         }, (error) => {
-            console.error("[NotificationListener] Firestore Error:", error);
-            if (error.message.includes("requires an index")) {
-                console.warn(
-                    "NOTICE: Hệ thống thông báo Cư dân yêu cầu chỉ mục Firestore. Click vào link trong lỗi console để tạo."
-                );
+            if (error.message.includes("index")) {
+                console.warn("[Production] Thiếu Index cho thông báo cư dân.");
             }
         });
 
         return () => unsubscribe();
-    }, [userId, showToast]);
+    }, [userId, showToast, IS_PROD]);
 
     return null;
 };

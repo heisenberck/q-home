@@ -155,19 +155,41 @@ export const updateResidentData = async (
     currentUnits: Unit[], currentOwners: Owner[], currentVehicles: Vehicle[],
     updatedData: { unit: Unit; owner: Owner; vehicles: Vehicle[] }
 ) => {
-    const { unit, owner, vehicles: draftVehicles } = updatedData;
+    const { unit, owner, vehicles: incomingVehicles } = updatedData;
+    
+    // 1. Cập nhật Units & Owners
     units = currentUnits.map(u => u.UnitID === unit.UnitID ? unit : u);
     owners = currentOwners.map(o => o.OwnerID === owner.OwnerID ? owner : o);
     
-    draftVehicles.forEach(updatedV => {
-        const existingIdx = vehicles.findIndex(v => v.VehicleId === updatedV.VehicleId);
-        if (existingIdx > -1) vehicles[existingIdx] = { ...updatedV, updatedAt: new Date().toISOString() };
-        else vehicles.push({ ...updatedV, updatedAt: new Date().toISOString(), VehicleId: `VEH_MOCK_${Date.now()}` });
+    // 2. Cập nhật Vehicles
+    const activeIds = new Set<string>();
+    const newVehiclesList = [...vehicles];
+
+    incomingVehicles.forEach(updatedV => {
+        const existingIdx = newVehiclesList.findIndex(v => v.VehicleId === updatedV.VehicleId);
+        if (existingIdx > -1) {
+            newVehiclesList[existingIdx] = { ...updatedV, isActive: true, updatedAt: new Date().toISOString() };
+            activeIds.add(updatedV.VehicleId);
+        } else {
+            const newId = updatedV.VehicleId.startsWith('VEH_NEW_') ? `VEH_MOCK_${Date.now()}_${Math.random().toString(36).substr(2, 5)}` : updatedV.VehicleId;
+            const newV = { ...updatedV, VehicleId: newId, isActive: true, updatedAt: new Date().toISOString() };
+            newVehiclesList.push(newV);
+            activeIds.add(newId);
+        }
+    });
+
+    // Phát hiện và vô hiệu hóa xe bị xóa khỏi Modal
+    vehicles = newVehiclesList.map(v => {
+        if (v.UnitID === unit.UnitID && v.isActive && !activeIds.has(v.VehicleId)) {
+            return { ...v, isActive: false, updatedAt: new Date().toISOString() };
+        }
+        return v;
     });
     
     saveToStorage('units', units);
     saveToStorage('owners', owners);
     saveToStorage('vehicles', vehicles);
+    
     return Promise.resolve({ units, owners, vehicles });
 };
 

@@ -1,3 +1,4 @@
+
 import { doc, getDoc, setDoc, collection, getDocs, writeBatch, query, deleteDoc, updateDoc, limit, orderBy, where, serverTimestamp, startAfter } from 'firebase/firestore';
 import { db } from '../firebaseConfig';
 import type { 
@@ -371,10 +372,15 @@ export const updateResidentData = async (
     data: { unit: Unit; owner: Owner; vehicles: Vehicle[] }
 ) => {
     const batch = writeBatch(db);
+    
+    // 1. Cập nhật Unit & Owner
     batch.set(doc(db, 'units', data.unit.UnitID), data.unit);
     batch.set(doc(db, 'owners', data.owner.OwnerID), data.owner);
 
+    // 2. Xử lý Phương tiện
     const activeIds = new Set<string>();
+    
+    // Tìm max index cho biển số xe đạp/điện tự sinh
     let maxIndex = currentVehicles
         .filter(v => v.UnitID === data.unit.UnitID && v.PlateNumber.startsWith(`${data.unit.UnitID}-XD`))
         .reduce((max, veh) => {
@@ -382,26 +388,39 @@ export const updateResidentData = async (
             return match ? Math.max(max, parseInt(match[1], 10)) : max;
         }, 0);
 
+    // Lưu các xe hiện có hoặc mới
     data.vehicles.forEach(v => {
-        let id = v.VehicleId;
-        let vehicleToSave = { ...v };
-        if (vehicleToSave.Type === VehicleTier.BICYCLE && id.startsWith('VEH_NEW_') && !vehicleToSave.PlateNumber) {
+        let vehicleId = v.VehicleId;
+        let vehicleToSave = { ...v, isActive: true, updatedAt: new Date().toISOString() };
+        
+        // Sinh biển số cho xe đạp mới nếu chưa có
+        if (v.Type === VehicleTier.BICYCLE && vehicleId.startsWith('VEH_NEW_') && !v.PlateNumber) {
             maxIndex++;
             vehicleToSave.PlateNumber = `${data.unit.UnitID}-XD${maxIndex}`;
         }
-        if (id.startsWith('VEH_NEW_')) {
+
+        if (vehicleId.startsWith('VEH_NEW_')) {
             const newRef = doc(collection(db, 'vehicles'));
-            id = newRef.id;
-            batch.set(newRef, { ...vehicleToSave, VehicleId: id, updatedAt: new Date().toISOString() });
+            const finalId = newRef.id;
+            vehicleToSave.VehicleId = finalId;
+            batch.set(newRef, vehicleToSave);
+            activeIds.add(finalId);
         } else {
-            batch.set(doc(db, 'vehicles', id), { ...vehicleToSave, updatedAt: new Date().toISOString() });
+            batch.set(doc(db, 'vehicles', vehicleId), vehicleToSave);
+            activeIds.add(vehicleId);
         }
-        activeIds.add(id);
     });
 
-    currentVehicles.filter(v => v.UnitID === data.unit.UnitID && !activeIds.has(v.VehicleId)).forEach(v => {
-        batch.update(doc(db, 'vehicles', v.VehicleId), { isActive: false, updatedAt: new Date().toISOString() });
-    });
+    // Vô hiệu hóa các xe không còn trong danh sách (Xóa)
+    currentVehicles
+        .filter(v => v.UnitID === data.unit.UnitID && v.isActive && !activeIds.has(v.VehicleId))
+        .forEach(v => {
+            batch.update(doc(db, 'vehicles', v.VehicleId), { 
+                isActive: false, 
+                updatedAt: new Date().toISOString(),
+                log: `Deactivated by Admin in Resident Modal on ${new Date().toISOString()}`
+            });
+        });
 
     bumpVersion(batch, 'units_version');
     bumpVersion(batch, 'owners_version');

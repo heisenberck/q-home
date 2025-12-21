@@ -32,13 +32,11 @@ const Header: React.FC<HeaderProps> = ({ pageTitle, onNavigate }) => {
       return () => document.removeEventListener("mousedown", handleClickOutside);
   }, []);
 
-  // FIX: Added missing handleMenuNavigation logic
   const handleMenuNavigation = (page: AdminPage) => {
     setIsMenuOpen(false);
     onNavigate(page);
   };
 
-  // FIX: Added missing ProfileModal logic
   const ProfileModal = () => {
     const [name, setName] = useState(currentUser?.DisplayName || '');
     const [avatar, setAvatar] = useState(currentUser?.avatarUrl || '');
