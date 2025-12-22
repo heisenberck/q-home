@@ -1,6 +1,6 @@
 
 import React, { useEffect, useRef } from 'react';
-import { collection, query, where, orderBy, limit, onSnapshot } from 'firebase/firestore';
+import { collection, query, where, onSnapshot } from 'firebase/firestore';
 import { db } from '../../firebaseConfig';
 import { useNotification } from '../../App';
 import { isProduction } from '../../utils/env';
@@ -18,21 +18,23 @@ const NotificationListener: React.FC<NotificationListenerProps> = ({ userId, onN
     useEffect(() => {
         if (!userId || !IS_PROD) return;
 
+        // FIX: Gỡ bỏ orderBy và limit để tránh lỗi Firestore Index.
+        // Chỉ lắng nghe các tin chưa đọc của đúng userId này.
         const q = query(
             collection(db, 'notifications'),
             where('userId', '==', userId),
-            where('isRead', '==', false),
-            orderBy('createdAt', 'desc'),
-            limit(10) 
+            where('isRead', '==', false)
         );
 
         const unsubscribe = onSnapshot(q, (snapshot) => {
+            // Lần đầu load bỏ qua để tránh hiện toast cũ
             if (isFirstLoad.current) {
                 isFirstLoad.current = false;
                 return;
             }
 
             snapshot.docChanges().forEach((change) => {
+                // Chỉ xử lý khi có doc mới được thêm vào Firestore
                 if (change.type === 'added') {
                     const data = change.doc.data();
                     if (onNewNotification) {
@@ -43,9 +45,7 @@ const NotificationListener: React.FC<NotificationListenerProps> = ({ userId, onN
                 }
             });
         }, (error) => {
-            if (error.message.includes("index")) {
-                console.warn("[Production] Thiếu Index cho thông báo cư dân.");
-            }
+            console.error("[NotificationListener] Error:", error);
         });
 
         return () => unsubscribe();
