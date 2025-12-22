@@ -109,6 +109,10 @@ const App: React.FC = () => {
     const [isChangePasswordModalOpen, setIsChangePasswordModalOpen] = useState(false);
     const [activityLogs, setActivityLogs] = useState<ActivityLog[]>([]);
     const [unreadResidentNotifCount, setUnreadResidentNotifCount] = useState(0);
+    const [readNewsIds, setReadNewsIds] = useState<string[]>(() => {
+        const stored = localStorage.getItem('portal_read_news_ids');
+        return stored ? JSON.parse(stored) : [];
+    });
 
     useEffect(() => {
         const handleResize = () => setIsMobile(window.innerWidth < 768);
@@ -212,18 +216,17 @@ const App: React.FC = () => {
     };
 
     const handleMarkNewsAsRead = useCallback(() => {
-        // News themselves are handled by localNews filtering archived
-        showToast('Đã xem tin tức', 'info');
-    }, [showToast]);
+        const allIds = localNews.filter(n => !n.isArchived).map(n => n.id);
+        setReadNewsIds(allIds);
+        localStorage.setItem('portal_read_news_ids', JSON.stringify(allIds));
+    }, [localNews]);
 
     const handleMarkBellAsRead = useCallback(() => {
         setUnreadResidentNotifCount(0);
-        showToast('Đã xem tất cả thông báo', 'info');
-    }, [showToast]);
+    }, []);
 
     const handleNewResidentNotification = useCallback((data: any) => {
         setUnreadResidentNotifCount(prev => prev + 1);
-        // We can optionally still show a toast if the user is not looking at the bell
     }, []);
 
     const renderAdminPage = () => {
@@ -249,7 +252,7 @@ const App: React.FC = () => {
         const owner = localOwners.find(o => o.OwnerID === localUnits.find(u => u.UnitID === user!.residentId)?.OwnerID) || null;
         switch (activePage as PortalPage) {
             case 'portalHome': return <PortalHomePage user={user!} owner={owner} charges={localCharges} news={localNews} setActivePage={setActivePage as (p: PortalPage) => void} />;
-            case 'portalNews': return <PortalNewsPage news={localNews} />;
+            case 'portalNews': return <PortalNewsPage news={localNews} onAllRead={handleMarkNewsAsRead} />;
             case 'portalBilling': return <PortalBillingPage charges={localCharges} user={user!} />;
             case 'portalContact': return <PortalContactPage hotline={invoiceSettings?.HOTLINE || '0834.88.66.86'} onSubmitFeedback={(f) => setLocalFeedback([...localFeedback, f])} />;
             case 'portalProfile': return <PortalProfilePage user={user!} owner={owner!} onUpdateOwner={(o) => setLocalOwners(prev => prev.map(old => old.OwnerID === o.OwnerID ? o : old))} onChangePassword={() => setIsChangePasswordModalOpen(true)} />;
@@ -278,12 +281,15 @@ const App: React.FC = () => {
     const isResident = user?.Role === 'Resident';
 
     const portalNotifications = useMemo(() => {
+        const readSet = new Set(readNewsIds);
+        const unreadNewsCount = localNews.filter(n => !n.isArchived && !readSet.has(n.id)).length;
+        
         return { 
-            unreadNews: localNews.filter(n => !n.isArchived).length,
+            unreadNews: unreadNewsCount,
             hasUnpaidBill: localCharges.some(c => c.UnitID === user?.residentId && !['paid', 'paid_tm', 'paid_ck'].includes(c.paymentStatus)),
             hasNewNotifications: unreadResidentNotifCount > 0 
         };
-    }, [localNews, localCharges, user, unreadResidentNotifCount]);
+    }, [localNews, localCharges, user, unreadResidentNotifCount, readNewsIds]);
 
     return (
         <AuthContext.Provider value={{ user, login: handleLogin, logout: handleLogout, updateUser: handleUpdateUser, handleDeleteUsers: handleDeleteUsersAction }}>

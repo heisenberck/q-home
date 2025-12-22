@@ -3,11 +3,13 @@ import React, { useState, useRef, useMemo, useEffect } from 'react';
 import type { NewsItem, Role, UserPermission } from '../../types';
 import { useNotification } from '../../App';
 import Modal from '../ui/Modal';
+import StatCard from '../ui/StatCard';
 import { 
-    PencilSquareIcon, TrashIcon, UploadIcon, MegaphoneIcon, 
-    CheckCircleIcon, SearchIcon, ChevronLeftIcon, ChevronRightIcon,
-    ClockIcon, PlusIcon, PaperAirplaneIcon, PinIcon, StarIcon,
-    CalendarDaysIcon, SparklesIcon, UserCircleIcon
+    PencilSquareIcon, TrashIcon, MegaphoneIcon, 
+    SearchIcon, ChevronLeftIcon, ChevronRightIcon,
+    ClockIcon, PlusIcon, PaperAirplaneIcon, PinIcon,
+    CalendarDaysIcon, SparklesIcon, UserCircleIcon,
+    ClipboardDocumentListIcon, CheckCircleIcon
 } from '../ui/Icons';
 import { timeAgo } from '../../utils/helpers';
 import { isProduction } from '../../utils/env';
@@ -27,7 +29,6 @@ interface NewsManagementPageProps {
   users: UserPermission[];
 }
 
-// Cấu hình hiển thị cho từng loại tin tức
 const CATEGORY_CONFIG: Record<NewsItem['category'], { label: string, icon: React.ReactNode, color: string }> = {
     notification: { 
         label: 'Thông báo', 
@@ -185,6 +186,13 @@ const NewsManagementPage: React.FC<NewsManagementPageProps> = ({ news, setNews, 
   const ITEMS_PER_PAGE = 8;
   const IS_PROD = isProduction();
 
+  const stats = useMemo(() => ({
+    total: news.length,
+    notification: news.filter(n => n.category === 'notification').length,
+    plan: news.filter(n => n.category === 'plan').length,
+    event: news.filter(n => n.category === 'event').length,
+  }), [news]);
+
   const filteredNews = useMemo(() => {
     return (news as ExtendedNewsItem[]).filter(item => {
         if (searchTerm && !item.title.toLowerCase().includes(searchTerm.toLowerCase())) return false;
@@ -209,7 +217,6 @@ const NewsManagementPage: React.FC<NewsManagementPageProps> = ({ news, setNews, 
         const savedId = await saveNewsItem(item);
         const savedItem = { ...item, id: savedId };
         
-        // Cập nhật state App tức thì
         setNews(prev => {
             const exists = prev.some(n => n.id === item.id);
             return exists ? prev.map(n => n.id === item.id ? savedItem : n) : [savedItem, ...prev];
@@ -260,11 +267,50 @@ const NewsManagementPage: React.FC<NewsManagementPageProps> = ({ news, setNews, 
     } finally { setLoading(false); }
   };
 
+  const handleToggleFilter = (cat: string) => {
+      setCategoryFilter(prev => prev === cat ? 'all' : cat);
+  };
+
   return (
     <div className="h-full flex flex-col space-y-6 overflow-hidden">
       {editingItem !== undefined && <NewsEditorModal newsItem={editingItem} onSave={handleSave} onClose={() => setEditingItem(undefined)} loading={loading} />}
 
-      <div className="bg-white p-3 rounded-lg shadow-sm border border-gray-200 flex flex-col md:flex-row items-center gap-3">
+      {/* Stat Cards Section with Filtering */}
+      <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
+          <StatCard 
+            label="Tổng bản tin" 
+            value={stats.total} 
+            icon={<ClipboardDocumentListIcon className="w-6 h-6 text-gray-500" />} 
+            className={`border-l-4 border-gray-400 cursor-pointer transition-all ${categoryFilter === 'all' ? 'ring-2 ring-primary bg-primary/5' : ''}`}
+            onClick={() => setCategoryFilter('all')}
+          />
+          <StatCard 
+            label="Thông báo" 
+            value={stats.notification} 
+            icon={<MegaphoneIcon className="w-6 h-6 text-blue-600" />} 
+            iconBgClass="bg-blue-100"
+            className={`border-l-4 border-blue-500 cursor-pointer transition-all ${categoryFilter === 'notification' ? 'ring-2 ring-blue-500 bg-blue-50' : ''}`}
+            onClick={() => handleToggleFilter('notification')}
+          />
+          <StatCard 
+            label="Kế hoạch" 
+            value={stats.plan} 
+            icon={<CalendarDaysIcon className="w-6 h-6 text-orange-600" />} 
+            iconBgClass="bg-orange-100"
+            className={`border-l-4 border-orange-500 cursor-pointer transition-all ${categoryFilter === 'plan' ? 'ring-2 ring-orange-500 bg-orange-50' : ''}`}
+            onClick={() => handleToggleFilter('plan')}
+          />
+          <StatCard 
+            label="Sự kiện" 
+            value={stats.event} 
+            icon={<SparklesIcon className="w-6 h-6 text-purple-600" />} 
+            iconBgClass="bg-purple-100"
+            className={`border-l-4 border-purple-500 cursor-pointer transition-all ${categoryFilter === 'event' ? 'ring-2 ring-purple-500 bg-purple-50' : ''}`}
+            onClick={() => handleToggleFilter('event')}
+          />
+      </div>
+
+      <div className="bg-white p-3 rounded-xl shadow-sm border border-gray-200 flex flex-col md:flex-row items-center gap-3">
         <div className="relative flex-grow">
             <SearchIcon className="absolute left-3 top-1/2 -translate-y-1/2 h-5 w-5 text-gray-400" />
             <input type="text" placeholder="Tìm tiêu đề..." value={searchTerm} onChange={e => setSearchTerm(e.target.value)} className="w-full h-10 pl-10 pr-3 border rounded-lg outline-none focus:ring-1 focus:ring-primary"/>
@@ -276,21 +322,23 @@ const NewsManagementPage: React.FC<NewsManagementPageProps> = ({ news, setNews, 
             <option value="event">Sự kiện</option>
         </select>
         <button onClick={() => setEditingItem(null)} className="h-10 px-5 bg-primary text-white font-bold rounded-lg flex items-center gap-2">
-            <PlusIcon className="w-5 h-5" /> Tin mới
+            <PlusIcon className="w-5 h-5" /> Soạn tin
         </button>
       </div>
 
-      <div className="flex-1 overflow-y-auto space-y-4">
+      <div className="flex-1 overflow-y-auto space-y-4 pr-1">
         {paginatedNews.map(item => {
             const config = CATEGORY_CONFIG[item.category];
+            const isSent = item.isBroadcasted;
+
             return (
-                <div key={item.id} className="flex bg-white border rounded-lg overflow-hidden shadow-sm hover:shadow-md transition-shadow">
-                    <div className="w-48 h-32 bg-gray-100 shrink-0 border-r relative">
+                <div key={item.id} className="flex bg-white border rounded-xl overflow-hidden shadow-sm hover:shadow-md transition-all group">
+                    <div className="w-48 h-32 bg-gray-100 shrink-0 border-r relative overflow-hidden">
                         {item.imageUrl ? (
-                            <img src={item.imageUrl} className="w-full h-full object-cover" />
+                            <img src={item.imageUrl} className="w-full h-full object-cover transition-transform group-hover:scale-110 duration-500" alt="" />
                         ) : (
                             <div className="w-full h-full flex items-center justify-center text-gray-300">
-                                <ClockIcon className="w-10 h-10"/>
+                                <ClockIcon className="w-10 h-10 opacity-20"/>
                             </div>
                         )}
                         {item.isPinned && (
@@ -302,38 +350,56 @@ const NewsManagementPage: React.FC<NewsManagementPageProps> = ({ news, setNews, 
                     <div className="flex-grow p-4 min-w-0 flex flex-col justify-between">
                         <div>
                             <div className="flex items-center gap-2 mb-2">
-                                <span className={`flex items-center gap-1.5 px-2.5 py-0.5 rounded-full text-[10px] font-black uppercase tracking-wider border ${config.color}`}>
+                                <span className={`flex items-center gap-1.5 px-2.5 py-0.5 rounded-full text-[9px] font-black uppercase tracking-wider border ${config.color}`}>
                                     {config.icon}
                                     {config.label}
                                 </span>
                                 {item.priority === 'high' && (
-                                    <span className="flex items-center gap-1 px-2.5 py-0.5 rounded-full text-[10px] font-black uppercase tracking-wider bg-red-100 text-red-600 border border-red-200">
+                                    <span className="flex items-center gap-1 px-2.5 py-0.5 rounded-full text-[9px] font-black uppercase tracking-wider bg-red-100 text-red-600 border border-red-200 animate-pulse">
                                         Khẩn
                                     </span>
                                 )}
                             </div>
-                            <h3 className="font-bold text-gray-900 text-base line-clamp-1">{item.title}</h3>
+                            <h3 className="font-bold text-gray-900 text-base line-clamp-1 group-hover:text-primary transition-colors">{item.title}</h3>
                         </div>
                         <div className="flex items-center gap-4 text-[10px] text-gray-400 font-bold uppercase tracking-widest">
                             <span className="flex items-center gap-1"><ClockIcon className="w-3 h-3"/>{new Date(item.date).toLocaleDateString('vi-VN')}</span>
                             <span className="flex items-center gap-1"><UserCircleIcon className="w-3 h-3"/>{item.sender || 'BQLVH'}</span>
+                            {/* Fix: CheckCircleIcon used here requires import from ui/Icons */}
+                            {isSent && <span className="text-emerald-600 font-black flex items-center gap-1"><CheckCircleIcon className="w-3 h-3"/> ĐÃ PHÁT APP</span>}
                         </div>
                     </div>
-                    <div className="p-2 flex flex-col gap-2 border-l bg-gray-50/50">
-                        <button onClick={() => setEditingItem(item)} className="p-2 text-blue-600 hover:bg-blue-100 rounded-lg transition-colors" title="Chỉnh sửa"><PencilSquareIcon className="w-5 h-5"/></button>
-                        <button onClick={() => handleBroadcast(item)} disabled={item.isBroadcasted} className={`p-2 rounded-lg transition-colors ${item.isBroadcasted ? 'text-green-600' : 'text-gray-400 hover:bg-green-100 hover:text-green-600'}`} title="Phát thông báo đẩy"><PaperAirplaneIcon className="w-5 h-5"/></button>
-                        <button onClick={() => handleDelete(item.id)} className="p-2 text-red-600 hover:bg-red-100 rounded-lg transition-colors" title="Xóa"><TrashIcon className="w-5 h-5"/></button>
+                    <div className="p-2 flex flex-col gap-2 border-l bg-gray-50/30">
+                        <button onClick={() => setEditingItem(item)} className="p-2 text-blue-600 hover:bg-blue-100 rounded-lg transition-colors shadow-sm bg-white" title="Chỉnh sửa"><PencilSquareIcon className="w-5 h-5"/></button>
+                        
+                        <button 
+                            onClick={() => handleBroadcast(item)} 
+                            disabled={isSent || loading}
+                            className={`p-2 rounded-lg transition-all border shadow-sm flex items-center justify-center ${
+                                isSent 
+                                    ? 'text-gray-400 bg-gray-100 border-gray-200 cursor-not-allowed opacity-60' 
+                                    : 'text-emerald-600 bg-emerald-50 border-emerald-200 hover:bg-emerald-100 shadow-[0_0_15px_rgba(16,185,129,0.3)] animate-pulse scale-105 ring-2 ring-emerald-500/20'
+                            }`} 
+                            title={isSent ? "Đã gửi thông báo" : "Phát thông báo đẩy tới cư dân ngay"}
+                        >
+                            <PaperAirplaneIcon className={`w-5 h-5 ${!isSent ? 'rotate-[-20deg]' : ''}`}/>
+                        </button>
+
+                        <button onClick={() => handleDelete(item.id)} className="p-2 text-red-600 hover:bg-red-100 rounded-lg transition-colors shadow-sm bg-white" title="Xóa tin"><TrashIcon className="w-5 h-5"/></button>
                     </div>
                 </div>
             );
         })}
+        {filteredNews.length === 0 && (
+            <div className="py-20 text-center text-gray-400 italic">Không tìm thấy bản tin nào.</div>
+        )}
       </div>
 
-      <div className="fixed bottom-0 right-0 z-50 h-7 flex items-center gap-4 px-6 bg-white border-t border-l border-gray-200">
-          <span className="text-[10px] font-bold text-gray-400">Trang {currentPage} / {totalPages || 1}</span>
-          <div className="flex gap-1">
-              <button disabled={currentPage === 1} onClick={() => setCurrentPage(p => p - 1)} className="p-1 hover:bg-gray-100 disabled:opacity-30"><ChevronLeftIcon className="w-4 h-4" /></button>
-              <button disabled={currentPage === totalPages} onClick={() => setCurrentPage(p => p + 1)} className="p-1 hover:bg-gray-100 disabled:opacity-30"><ChevronRightIcon className="w-4 h-4" /></button>
+      <div className="fixed bottom-0 right-0 z-50 h-7 flex items-center gap-4 px-6 bg-white border-t border-l border-gray-200 shadow-none">
+          <span className="text-[10px] font-bold text-gray-400 uppercase tracking-widest leading-none">Trang {currentPage} / {totalPages || 1}</span>
+          <div className="flex gap-1 items-center h-full">
+              <button disabled={currentPage === 1} onClick={() => setCurrentPage(p => p - 1)} className="p-1 rounded-md hover:bg-gray-100 disabled:opacity-30 transition-colors"><ChevronLeftIcon className="w-4 h-4 text-gray-500" /></button>
+              <button disabled={currentPage === totalPages} onClick={() => setCurrentPage(p => p + 1)} className="p-1 rounded-md hover:bg-gray-100 disabled:opacity-30 transition-colors"><ChevronRightIcon className="w-4 h-4 text-gray-500" /></button>
           </div>
       </div>
     </div>

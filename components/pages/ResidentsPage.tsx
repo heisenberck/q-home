@@ -521,8 +521,8 @@ const ResidentDetailModal: React.FC<{
                                         <option value="Business">Kinh doanh</option>
                                     </select>
                                 </div>
-                                <div><label className={labelStyle}>Tên Vợ/Chồng (Optional)</label><input name="secondOwnerName" value={formData.owner.secondOwnerName || ''} onChange={handleOwnerChange} className={formElementStyle} /></div>
-                                <div><label className={labelStyle}>SĐT Vợ/Chồng (Optional)</label><input name="secondOwnerPhone" value={formData.owner.secondOwnerPhone || ''} onChange={handleOwnerChange} className={formElementStyle} /></div>
+                                <div><label className={labelStyle}>Họ tên vợ/chồng/người thuê</label><input name="secondOwnerName" value={formData.owner.secondOwnerName || ''} onChange={handleOwnerChange} className={formElementStyle} placeholder="Nhập tên..." /></div>
+                                <div><label className={labelStyle}>SĐT vợ/chồng/người thuê</label><input name="secondOwnerPhone" value={formData.owner.secondOwnerPhone || ''} onChange={handleOwnerChange} className={formElementStyle} placeholder="Nhập số điện thoại..." /></div>
                             </div>
                         </section>
                     )}
@@ -760,7 +760,7 @@ const ResidentDetailPanel: React.FC<{
                             safeVehicles.filter(v=>v?.isActive).map(v => (
                                 <div key={v.VehicleId} onClick={() => handleVehicleClick(v.PlateNumber)} className="group flex items-center gap-3 p-3 rounded-lg border border-gray-200 bg-white hover:border-blue-400 hover:shadow-md cursor-pointer transition-all">
                                     <div className="w-10 h-10 rounded-full bg-gray-100 flex items-center justify-center text-gray-500 group-hover:bg-blue-50 group-hover:text-blue-600 transition-colors border border-gray-200">{v.Type.includes('car') ? <CarIcon className="w-5 h-5"/> : v.Type === 'motorbike' ? <MotorbikeIcon className="w-5 h-5"/> : v.Type === 'ebike' ? <EBikeIcon className="w-5 h-5"/> : <BikeIcon className="w-5 h-5"/>}</div>
-                                    <div className="flex-1 min-w-0"><div className="flex justify-between items-center"><p className="font-bold text-gray-900 font-mono truncate">{v.PlateNumber}</p><ChevronRightIcon className="w-4 h-4 text-gray-300 group-hover:text-blue-500"/></div><p className="text-xs text-gray-500 truncate mt-0.5">{v.VehicleName || translateVehicleType(v.Type)} • <span className={v.parkingStatus === 'Lốt chính' ? 'text-green-600 font-semibold' : ''}>{v.parkingStatus || 'Chưa có lốt'}</span></p></div>
+                                    <div className="flex-1 min-w-0"><div className="flex justify-between items-center"><p className="font-bold text-gray-900 font-mono truncate">{v.PlateNumber}</p><ChevronRightIcon className="w-4 h-4 text-gray-300 group-hover:text-blue-500"/></div><p className="text-xs text-gray-500 truncate mt-0.5">{v.VehicleName || translateVehicleType(v.Type)} • <span className={v.parkingStatus === 'Lốt chính' ? 'text-green-600' : ''}>{v.parkingStatus || 'Chưa có lốt'}</span></p></div>
                                 </div>
                             ))
                         ) : (

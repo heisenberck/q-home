@@ -1,5 +1,5 @@
 
-import React, { useState, useMemo } from 'react';
+import React, { useState, useMemo, useEffect } from 'react';
 import type { NewsItem } from '../../../types';
 import Modal from '../../ui/Modal';
 import { timeAgo } from '../../../utils/helpers';
@@ -8,6 +8,7 @@ import { ClipboardDocumentListIcon, BellIcon, CalendarDaysIcon, SparklesIcon, Me
 
 interface PortalNewsPageProps {
   news: NewsItem[];
+  onAllRead?: () => void;
 }
 
 const NewsDetailPage: React.FC<{ item: NewsItem, onClose: () => void }> = ({ item, onClose }) => {
@@ -32,8 +33,12 @@ const NewsCategoryIcon: React.FC<{ category: NewsItem['category'] }> = ({ catego
 };
 
 
-const PortalNewsPage: React.FC<PortalNewsPageProps> = ({ news }) => {
+const PortalNewsPage: React.FC<PortalNewsPageProps> = ({ news, onAllRead }) => {
   const [selectedNews, setSelectedNews] = useState<NewsItem | null>(null);
+
+  useEffect(() => {
+      if (onAllRead) onAllRead();
+  }, [onAllRead]);
 
   const activeNews = useMemo(() => {
       return [...news]
