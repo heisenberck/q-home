@@ -35,14 +35,24 @@ import AdminPortalResidentsPage from './components/pages/admin-portal/AdminPorta
 import AdminPortalVehiclesPage from './components/pages/admin-portal/AdminPortalVehiclesPage';
 import AdminPortalBillingPage from './components/pages/admin-portal/AdminPortalBillingPage';
 import Toast, { ToastMessage, ToastType } from './components/ui/Toast';
-import { deleteUsers, updateResidentData, importResidentsBatch, updateFeeSettings, fetchLatestLogs } from './services';
+import { deleteUsers, updateResidentData, importResidentsBatch, updateFeeSettings, fetchLatestLogs, updateUserProfile } from './services';
 import ChangePasswordModal from './components/pages/ChangePasswordModal';
 import NotificationListener from './components/common/NotificationListener';
 
 // --- Types ---
 export type AdminPage = 'overview' | 'billing' | 'residents' | 'vehicles' | 'water' | 'pricing' | 'users' | 'settings' | 'backup' | 'activityLog' | 'newsManagement' | 'feedbackManagement' | 'vas';
 
-// Ánh xạ tiêu đề Tiếng Việt chuẩn theo yêu cầu
+// Add LogPayload interface to fix import error in components/pages/BillingPage.tsx
+export interface LogPayload {
+    module: string;
+    action: string;
+    summary: string;
+    before_snapshot?: any;
+    count?: number;
+    ids?: string[];
+}
+
+// --- ADMIN_PAGE_TITLES ---
 const ADMIN_PAGE_TITLES: Record<AdminPage, string> = {
     overview: 'Tổng quan hệ thống',
     billing: 'Bảng tính phí dịch vụ',
@@ -59,21 +69,12 @@ const ADMIN_PAGE_TITLES: Record<AdminPage, string> = {
     vas: 'Dịch vụ Gia tăng (VAS)'
 };
 
-export interface LogPayload {
-    module: 'Billing' | 'Residents' | 'Water' | 'Pricing' | 'Settings' | 'System' | 'Vehicles' | 'News' | 'Feedback' | 'Finance';
-    action: string;
-    summary: string;
-    count?: number;
-    ids?: string[];
-    before_snapshot: any;
-}
-
 // --- Contexts ---
 interface AuthContextType {
     user: UserPermission | null;
     login: (user: UserPermission, rememberMe: boolean) => void;
     logout: () => void;
-    updateUser: (updatedUser: UserPermission, oldEmail: string) => void;
+    updateUser: (updatedUser: UserPermission, oldEmail: string) => Promise<void>;
     handleDeleteUsers: (usernames: string[]) => void;
 }
 
@@ -123,7 +124,6 @@ export const useDataRefresh = () => {
     return context;
 };
 
-// Default Settings to prevent crashes before data loads
 const DEFAULT_SETTINGS: InvoiceSettings = {
     logoUrl: '',
     accountName: '',
@@ -133,7 +133,6 @@ const DEFAULT_SETTINGS: InvoiceSettings = {
     buildingName: 'Q-Home Manager'
 };
 
-// --- App Component ---
 const App: React.FC = () => {
     const [user, setUser] = useState<UserPermission | null>(null);
     const [toasts, setToasts] = useState<ToastMessage[]>([]);
@@ -198,7 +197,6 @@ const App: React.FC = () => {
         setLocalTariffs(tariffs);
     }, [units, owners, vehicles, waterReadings, charges, adjustments, fetchedUsers, tariffs]);
 
-    // Tải log thủ công khi cần để tiết kiệm Quota
     const refreshLogs = useCallback(async () => {
         if (!user || user.Role === 'Resident') return;
         const latest = await fetchLatestLogs(50);
@@ -206,7 +204,7 @@ const App: React.FC = () => {
     }, [user]);
 
     useEffect(() => {
-        if (activePage === 'overview' || activePage === 'activityLog') {
+        if (activePage === 'overview' || activePage === 'activityLog' || activePage === 'residents' || activePage === 'vehicles') {
             refreshLogs();
         }
     }, [activePage, refreshLogs]);
@@ -227,7 +225,6 @@ const App: React.FC = () => {
         } else {
             localStorage.removeItem('rememberedUserObject');
         }
-        
         if (loggedInUser.Role === 'Resident') {
             setActivePage('portalHome');
         } else if (window.innerWidth < 768) {
@@ -235,7 +232,6 @@ const App: React.FC = () => {
         } else {
             setActivePage('overview');
         }
-
         if (loggedInUser.mustChangePassword) {
             setIsChangePasswordModalOpen(true);
         }
@@ -247,10 +243,18 @@ const App: React.FC = () => {
         setActivePage('overview');
     };
 
-    const handleUpdateUser = (updatedUser: UserPermission, oldEmail: string) => {
+    const handleUpdateUser = async (updatedUser: UserPermission, oldEmail: string) => {
+        // Persist to DB
+        await updateUserProfile(oldEmail, updatedUser);
+        // Update Local State
         setLocalUsers(prev => prev.map(u => u.Email === oldEmail ? updatedUser : u));
         if (user?.Email === oldEmail) {
             setUser(updatedUser);
+            // Update localStorage if remembered
+            const remembered = localStorage.getItem('rememberedUserObject');
+            if (remembered) {
+                localStorage.setItem('rememberedUserObject', JSON.stringify(updatedUser));
+            }
         }
     };
 
@@ -268,10 +272,9 @@ const App: React.FC = () => {
 
     const handleSaveResident = async (data: { unit: Unit, owner: Owner, vehicles: Vehicle[] }, reason: string) => {
         if (!user) return;
-        // Bổ sung reason và actor để log được ghi đầy đủ
         await updateResidentData(localUnits, localOwners, localVehicles, data, { email: user.Email, role: user.Role }, reason);
         refreshSystemData(true);
-        refreshLogs(); // Chủ động tải lại nhật ký để UI hiển thị dòng mới ngay lập tức
+        refreshLogs(); 
     };
 
     const handleImportResidents = (updates: any[]) => {

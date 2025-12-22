@@ -1,5 +1,5 @@
 
-import { doc, getDoc, setDoc, collection, getDocs, writeBatch, query, deleteDoc, updateDoc, limit, orderBy, where, serverTimestamp, startAfter } from 'firebase/firestore';
+import { doc, getDoc, setDoc, collection, getDocs, writeBatch, query, deleteDoc, updateDoc, limit, orderBy, where, serverTimestamp, startAfter, addDoc } from 'firebase/firestore';
 import { db } from '../firebaseConfig';
 export { logActivity } from './logService';
 import { logActivity } from './logService';
@@ -29,36 +29,44 @@ const bumpVersion = (batch: any, field: keyof SystemMetadata) => {
     batch.set(metaRef, { [field]: Date.now() }, { merge: true });
 };
 
-// Cải tiến hàm injectLog để nhận diện UnitID và ghi nội dung chi tiết
-const injectLogAndNotif = (batch: any, log: Partial<ActivityLog>) => {
+/**
+ * Ghi log vào activity_logs và gửi thông báo vào admin_notifications
+ */
+const injectLogAndNotif = (batch: any, log: any) => {
     const logId = `log_${Date.now()}_${Math.random().toString(36).substr(2, 5)}`;
-    const logRef = doc(db, 'activityLogs', logId);
+    const logRef = doc(db, 'activity_logs', logId);
     
-    const logData: ActivityLog = {
+    const logData = {
         id: logId,
-        ts: new Date().toISOString(),
-        undone: false,
-        undo_token: null,
-        undo_until: null,
-        actor_email: log.actor_email || 'system',
-        actor_role: log.actor_role || 'Admin',
+        actionType: log.action || 'UPDATE',
         module: log.module || 'System',
-        action: log.action || 'UPDATE',
-        summary: log.summary || '',
-        ids: log.ids || [] // Danh sách UnitID hoặc VehicleID để truy vấn lịch sử
+        description: log.summary || '',
+        timestamp: serverTimestamp(),
+        performedBy: {
+            email: log.actor_email || 'system',
+            name: log.actor_name || 'Quản trị viên',
+            uid: 'system'
+        }
     };
     batch.set(logRef, logData);
 
+    // Ghi thông báo chuông
     const notifRef = doc(collection(db, 'admin_notifications'));
     const notifData: AdminNotification = {
         id: notifRef.id,
-        type: 'system',
-        title: log.module === 'Residents' ? `Cập nhật Căn ${log.ids?.[0]}` : 'Cập nhật Hệ thống',
+        type: log.type || 'system',
+        title: log.title || 'Cập nhật hệ thống',
         message: log.summary || '',
         isRead: false,
         createdAt: serverTimestamp()
     };
     batch.set(notifRef, notifData);
+};
+
+// --- NEW: Update User Profile ---
+export const updateUserProfile = async (email: string, updates: Partial<UserPermission>) => {
+    const userRef = doc(db, 'users', email);
+    await updateDoc(userRef, updates);
 };
 
 export const updateResidentData = async (
@@ -68,12 +76,8 @@ export const updateResidentData = async (
     reason?: string
 ) => {
     const batch = writeBatch(db);
-    
-    // 1. Cập nhật thông tin căn hộ và chủ hộ
     batch.set(doc(db, 'units', data.unit.UnitID), data.unit);
     batch.set(doc(db, 'owners', data.owner.OwnerID), data.owner);
-
-    // 2. Xử lý danh sách phương tiện (Thêm mới/Cập nhật)
     const activeIds = new Set<string>();
     data.vehicles.forEach(v => {
         let vehicleId = v.VehicleId;
@@ -88,58 +92,41 @@ export const updateResidentData = async (
             activeIds.add(vehicleId);
         }
     });
-
-    // 3. Xoá (vô hiệu hoá) các xe không còn trong danh sách gửi lên
     currentVehicles
         .filter(v => v.UnitID === data.unit.UnitID && v.isActive && !activeIds.has(v.VehicleId))
         .forEach(v => {
             batch.update(doc(db, 'vehicles', v.VehicleId), { isActive: false });
         });
-
-    // 4. Ghi Nhật ký chi tiết bao gồm lý do điều chỉnh
-    const logSummary = reason ? `Điều chỉnh hồ sơ: ${reason}` : `Cập nhật thông tin căn hộ ${data.unit.UnitID}`;
-    
+    const logSummary = reason ? `Lý do: ${reason}` : `Cập nhật thông tin căn hộ ${data.unit.UnitID}`;
     injectLogAndNotif(batch, {
         actor_email: actor?.email,
-        actor_role: actor?.role,
-        module: 'Residents',
-        action: 'UPDATE_RESIDENT',
-        summary: logSummary,
-        ids: [data.unit.UnitID] // Quan trọng: Để hiển thị trong "Lịch sử thay đổi" của căn hộ
+        module: 'Cư dân',
+        action: 'UPDATE',
+        title: `Cập nhật Căn ${data.unit.UnitID}`,
+        summary: `Chỉnh sửa hồ sơ. ${logSummary}`,
+        type: 'request'
     });
-
-    // Đồng thời ghi vào log hệ thống tập trung
-    logActivity('UPDATE', 'Cư dân', `${logSummary} (Căn ${data.unit.UnitID})`);
-
     bumpVersion(batch, 'units_version');
     bumpVersion(batch, 'owners_version');
     bumpVersion(batch, 'vehicles_version');
-    
     await batch.commit();
     return true; 
 };
 
-export const saveVehicles = async (d: Vehicle[], actor?: { email: string, role: Role }, customSummary?: string) => {
+export const saveVehicles = async (d: Vehicle[], actor?: { email: string, role: Role }, reason?: string) => {
     if (d.length === 0) return;
     const batch = writeBatch(db);
-    const unitIds = new Set<string>();
-
-    d.forEach(v => {
-        batch.set(doc(db, 'vehicles', v.VehicleId), v);
-        unitIds.add(v.UnitID);
-    });
-    
+    const unitId = d[0].UnitID;
+    d.forEach(v => { batch.set(doc(db, 'vehicles', v.VehicleId), v); });
+    const summary = reason ? `Cập nhật phương tiện. Lý do: ${reason}` : `Cập nhật ${d.length} phương tiện`;
     injectLogAndNotif(batch, {
         actor_email: actor?.email,
-        actor_role: actor?.role,
-        module: 'Vehicles',
-        action: 'UPDATE_VEHICLE',
-        summary: customSummary || `Cập nhật thông tin ${d.length} phương tiện`,
-        ids: Array.from(unitIds) // Gắn tag UnitID vào log để căn hộ đó thấy lịch sử
+        module: 'Phương tiện',
+        action: 'UPDATE',
+        title: `Cập nhật Căn ${unitId}`,
+        summary: summary,
+        type: 'system'
     });
-
-    logActivity('UPDATE', 'Phương tiện', customSummary || `Cập nhật ${d.length} phương tiện`);
-
     bumpVersion(batch, 'vehicles_version');
     return batch.commit();
 };
@@ -150,19 +137,29 @@ export const fetchCollection = async <T>(colName: string): Promise<T[]> => {
 };
 
 export const fetchLatestLogs = async (limitCount: number = 20): Promise<ActivityLog[]> => {
-    const q = query(collection(db, 'activityLogs'), orderBy('ts', 'desc'), limit(limitCount));
+    const q = query(collection(db, 'activity_logs'), orderBy('timestamp', 'desc'), limit(limitCount));
     const snap = await getDocs(q);
-    return snap.docs.map(d => d.data() as ActivityLog);
+    return snap.docs.map(d => {
+        const data = d.data();
+        return {
+            id: d.id,
+            ts: data.timestamp?.toDate?.()?.toISOString() || new Date().toISOString(),
+            actor_email: data.performedBy?.email || 'system',
+            summary: data.description,
+            module: data.module,
+            action: data.actionType
+        } as any;
+    });
 };
 
 export const fetchLogsPaginated = async (lastDocParam: any = null, limitCount: number = 20) => {
-    let q = query(collection(db, 'activityLogs'), orderBy('ts', 'desc'), limit(limitCount));
+    let q = query(collection(db, 'activity_logs'), orderBy('timestamp', 'desc'), limit(limitCount));
     if (lastDocParam) {
-        q = query(collection(db, 'activityLogs'), orderBy('ts', 'desc'), startAfter(lastDocParam), limit(limitCount));
+        q = query(collection(db, 'activity_logs'), orderBy('timestamp', 'desc'), startAfter(lastDocParam), limit(limitCount));
     }
     const snap = await getDocs(q);
     return {
-        data: snap.docs.map(d => d.data() as ActivityLog),
+        data: snap.docs.map(d => ({ id: d.id, ...d.data() })),
         lastDoc: snap.docs[snap.docs.length - 1] || null,
         hasMore: snap.docs.length === limitCount
     };
@@ -184,7 +181,7 @@ export const loadAllData = async (): Promise<AllData & { hasData: boolean }> => 
         fetchCollection<MonthlyStat>('monthly_stats'),
         fetchWaterLocks()
     ]);
-    const activityLogs = await fetchLatestLogs(100); // Tăng limit để tra cứu lịch sử tốt hơn
+    const activityLogs = await fetchLatestLogs(100);
     const tariffs = tariffsDoc.exists() ? tariffsDoc.data() as TariffCollection : { service: [], parking: [], water: [] };
     return { units, owners, vehicles, waterReadings, tariffs, adjustments, activityLogs, monthlyStats, lockedWaterPeriods, hasData: units.length > 0 };
 };
@@ -214,14 +211,23 @@ export const fetchResidentSpecificData = async (residentId: string) => {
     return { unit, owner, vehicles };
 };
 
-export const logActivityAction = async (log: ActivityLog) => { await setDoc(doc(db, 'activityLogs', log.id), log); };
+export const logActivityAction = async (log: ActivityLog) => { 
+    await addDoc(collection(db, 'activity_logs'), {
+        actionType: log.action,
+        module: log.module,
+        description: log.summary,
+        timestamp: serverTimestamp(),
+        performedBy: { email: log.actor_email, uid: 'system' }
+    }); 
+};
+
 export const updateFeeSettings = (settings: InvoiceSettings) => setDoc(doc(db, 'settings', 'invoice'), settings, { merge: true });
 export const saveChargesBatch = (charges: ChargeRaw[], periodStat?: MonthlyStat) => { if (charges.length === 0 && !periodStat) return Promise.resolve(); const batch = writeBatch(db); charges.forEach(charge => batch.set(doc(db, 'charges', `${charge.Period}_${charge.UnitID}`), charge)); if (periodStat) { batch.set(doc(db, 'monthly_stats', periodStat.period), periodStat); } return batch.commit(); };
 export const updateChargeStatuses = (period: string, unitIds: string[], updates: { isPrinted?: boolean; isSent?: boolean }) => { if (unitIds.length === 0) return Promise.resolve(); const batch = writeBatch(db); unitIds.forEach(id => batch.update(doc(db, 'charges', `${period}_${id}`), updates)); return batch.commit(); };
 export const updateChargePayments = (period: string, paymentUpdates: Map<string, number>) => { if (paymentUpdates.size === 0) return Promise.resolve(); const batch = writeBatch(db); paymentUpdates.forEach((amount, id) => batch.update(doc(db, 'charges', `${period}_${id}`), { TotalPaid: amount, paymentStatus: 'reconciling', PaymentConfirmed: false })); return batch.commit(); };
 export const confirmSinglePayment = async (charge: ChargeRaw, finalPaidAmount: number, status: PaymentStatus = 'paid') => { const batch = writeBatch(db); batch.update(doc(db, 'charges', `${charge.Period}_${charge.UnitID}`), { TotalPaid: finalPaidAmount, paymentStatus: status, PaymentConfirmed: true }); const diff = finalPaidAmount - charge.TotalDue; if (diff !== 0) { const nextPeriod = new Date(charge.Period + '-02'); nextPeriod.setMonth(nextPeriod.getMonth() + 1); const nextPeriodStr = nextPeriod.toISOString().slice(0, 7); const adj: Adjustment = { UnitID: charge.UnitID, Period: nextPeriodStr, Amount: -diff, Description: 'Công nợ kỳ trước', SourcePeriod: charge.Period }; batch.set(doc(db, 'adjustments', `ADJ_${nextPeriodStr}_${charge.UnitID}`), adj, { merge: true }); } return batch.commit(); };
 export const updatePaymentStatusBatch = (period: string, unitIds: string[], status: 'paid' | 'unpaid', charges: ChargeRaw[]) => { if (unitIds.length === 0) return Promise.resolve(); const batch = writeBatch(db); const chargesMap = new Map(charges.map(c => [c.UnitID, c])); unitIds.forEach(id => { const update = { paymentStatus: status, PaymentConfirmed: status === 'paid', TotalPaid: status === 'paid' ? (chargesMap.get(id)?.TotalDue ?? 0) : 0 }; batch.update(doc(db, 'charges', `${period}_${id}`), update); }); return batch.commit(); };
-export const wipeAllBusinessData = async (progress: (msg: string) => void) => { const collections = ['charges', 'waterReadings', 'vehicles', 'adjustments', 'owners', 'units', 'activityLogs', 'monthly_stats', 'billing_locks', 'water_locks', 'profileRequests', 'misc_revenues', 'activity_logs']; for (const name of collections) { progress(`Querying ${name}...`); const snapshot = await getDocs(collection(db, name)); if (snapshot.empty) continue; const batch = writeBatch(db); snapshot.docs.forEach(d => batch.delete(d.ref)); progress(`Deleting ${snapshot.size} docs from ${name}...`); await batch.commit(); } };
+export const wipeAllBusinessData = async (progress: (msg: string) => void) => { const collections = ['charges', 'waterReadings', 'vehicles', 'adjustments', 'owners', 'units', 'activity_logs', 'monthly_stats', 'billing_locks', 'water_locks', 'profileRequests', 'misc_revenues', 'admin_notifications']; for (const name of collections) { progress(`Querying ${name}...`); const snapshot = await getDocs(collection(db, name)); if (snapshot.empty) continue; const batch = writeBatch(db); snapshot.docs.forEach(d => batch.delete(d.ref)); progress(`Deleting ${snapshot.size} docs from ${name}...`); await batch.commit(); } };
 export const saveUsers = async (d: UserPermission[]) => { const batch = writeBatch(db); d.forEach(u => batch.set(doc(db, 'users', u.Email), u)); bumpVersion(batch, 'users_version'); return batch.commit(); };
 export const deleteUsers = async (emails: string[]) => { if (emails.length === 0) return Promise.resolve(); const batch = writeBatch(db); emails.forEach(email => batch.delete(doc(db, 'users', email))); bumpVersion(batch, 'users_version'); return batch.commit(); };
 export const saveTariffs = async (d: TariffCollection) => { const batch = writeBatch(db); batch.set(doc(db, 'settings', 'tariffs'), d); bumpVersion(batch, 'tariffs_version'); return batch.commit(); };

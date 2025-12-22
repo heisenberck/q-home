@@ -80,6 +80,13 @@ export const loadAllData = async () => {
     });
 };
 
+// --- NEW: Update User Profile ---
+export const updateUserProfile = async (email: string, updates: Partial<UserPermission>) => {
+    users = users.map(u => u.Email === email ? { ...u, ...updates } : u);
+    saveToStorage('users', users);
+    return Promise.resolve();
+};
+
 export const fetchWaterLocks = async (): Promise<string[]> => {
     return Promise.resolve(
         Array.from(waterLocks.entries())
@@ -171,13 +178,10 @@ export const updateResidentData = async (
     reason?: string
 ) => {
     const { unit, owner, vehicles: incomingVehicles } = updatedData;
-    
     units = currentUnits.map(u => u.UnitID === unit.UnitID ? unit : u);
     owners = currentOwners.map(o => o.OwnerID === owner.OwnerID ? owner : o);
-    
     const activeIds = new Set<string>();
     const newVehiclesList = [...vehicles];
-
     incomingVehicles.forEach(updatedV => {
         const existingIdx = newVehiclesList.findIndex(v => v.VehicleId === updatedV.VehicleId);
         if (existingIdx > -1) {
@@ -190,21 +194,17 @@ export const updateResidentData = async (
             activeIds.add(newId);
         }
     });
-
     vehicles = newVehiclesList.map(v => {
         if (v.UnitID === unit.UnitID && v.isActive && !activeIds.has(v.VehicleId)) {
             return { ...v, isActive: false, updatedAt: new Date().toISOString() };
         }
         return v;
     });
-    
     saveToStorage('units', units);
     saveToStorage('owners', owners);
     saveToStorage('vehicles', vehicles);
-    
     const logSummary = reason ? `[Mock] Điều chỉnh hồ sơ: ${reason}` : `[Mock] Cập nhật căn hộ ${unit.UnitID}`;
     logActivity('UPDATE', 'Residents', logSummary, [unit.UnitID]);
-
     return Promise.resolve({ units, owners, vehicles });
 };
 

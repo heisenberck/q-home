@@ -1,3 +1,4 @@
+
 // services/index.ts
 import * as firebaseAPI from './firebaseAPI';
 import * as mockAPI from './mockAPI';
@@ -31,15 +32,16 @@ export const {
     resetUserPassword,
     logActivity,
     fetchLatestLogs,
-    createProfileRequest, // Deprecated but kept for compatibility
-    submitUserProfileUpdate, // NEW: One-way flow handler
+    createProfileRequest,
+    submitUserProfileUpdate,
     getPendingProfileRequest, 
     getAllPendingProfileRequests, 
     resolveProfileRequest, 
     updateResidentAvatar,
-    fetchWaterLocks, // EXPORTED NEW FUNCTION
+    fetchWaterLocks,
     addMiscRevenue,
     getMiscRevenues,
-    getMonthlyMiscRevenues, // Added this member
+    getMonthlyMiscRevenues,
     deleteMiscRevenue,
+    updateUserProfile, // NEW
 } = api;

@@ -1,7 +1,8 @@
 
 import React, { useState, useMemo, useEffect } from 'react';
 import type { Vehicle, Unit, Owner, Role, ActivityLog, VehicleTier, VehicleDocument } from '../../types';
-import { useNotification } from '../../App';
+// Fix: Added missing useAuth import
+import { useNotification, useAuth } from '../../App';
 import Modal from '../ui/Modal';
 import { 
     CarIcon, SearchIcon, PencilSquareIcon, WarningIcon, UploadIcon, 
@@ -12,6 +13,7 @@ import {
     SparklesIcon, PaperclipIcon, ArrowUturnLeftIcon, EyeIcon,
     ChevronLeftIcon, ChevronRightIcon
 } from '../ui/Icons';
+// Fix: Corrected import path for helpers from '../../helpers' to '../../utils/helpers'
 import { translateVehicleType, vehicleTypeLabels, compressImageToWebP, timeAgo, getPastelColorForName, parseUnitCode } from '../../utils/helpers';
 import { isProduction } from '../../utils/env';
 import { saveVehicles } from '../../services'; // Import service để lưu DB
@@ -216,7 +218,7 @@ const DuplicateManager: React.FC<{
                     </div>
                 ) : (
                     groups.map(group => (
-                        <div key={group.normalizedPlate} className="bg-white rounded-xl shadow-sm border border-gray-200 overflow-hidden">
+                        <div key={group.normalizedPlate} className="bg-white rounded-xl shadow-sm border border-gray-100 overflow-hidden">
                             <div className="bg-gray-100 px-4 py-2 border-b border-gray-200 flex justify-between items-center">
                                 <span className="font-mono font-bold text-lg text-gray-800 tracking-wider">
                                     {group.items[0].PlateNumber} 
@@ -493,7 +495,7 @@ const VehicleDetailPanel: React.FC<{
             <div className={`p-6 ${theme.bg} relative`}>
                 <button onClick={onClose} className="absolute top-4 right-4 p-2 rounded-full bg-white/40 hover:bg-white/70 text-gray-700"><XMarkIcon className="w-5 h-5" /></button>
                 <div className="flex flex-col items-center">
-                    <div className="w-20 h-20 bg-white rounded-full flex items-center justify-center text-4xl shadow-sm mb-3 border-4 border-white">{vehicle.Type.includes('car') ? '🚗' : '🛵'}</div>
+                    <div className="w-20 h-20 bg-white rounded-full flex items-center justify-center text-4xl shadow-sm mb-3 border-4 border-white">{vehicle.Type.includes('car') ? '🚗' : <MotorbikeIcon className="w-12 h-12 text-orange-600" />}</div>
                     <h2 className="text-2xl font-mono font-bold text-gray-900 tracking-wider">{vehicle.PlateNumber}</h2>
                     <p className="text-sm font-medium text-gray-600 mt-1">{vehicle.VehicleName}</p>
                     <div className="mt-3"><StatusBadge status={vehicle.parkingStatus} priority={vehicle.waitingPriority} /></div>
@@ -559,6 +561,8 @@ const VehicleDetailPanel: React.FC<{
 
 const VehiclesPage: React.FC<VehiclesPageProps> = ({ vehicles, units, owners, activityLogs, onSetVehicles, role }) => {
     const { showToast } = useNotification();
+    // Fix: Correctly imported useAuth to resolve Error 2
+    const { user } = useAuth();
     const canEdit = ['Admin', 'Accountant', 'Operator'].includes(role);
 
     const [searchTerm, setSearchTerm] = useState('');
@@ -577,7 +581,7 @@ const VehiclesPage: React.FC<VehiclesPageProps> = ({ vehicles, units, owners, ac
         if (storedSearch) { setSearchTerm(storedSearch); localStorage.removeItem('vehicle_search_term'); }
     }, []);
 
-    const ownersMap = useMemo(() => new Map(owners.map(o => [o.OwnerID, o])), [owners]);
+    const ownersMap = new Map(owners.map(o => [o.OwnerID, o]));
 
     const waitingListMap = useMemo(() => {
         const waiting = vehicles.filter(v => v.isActive && v.parkingStatus === 'Xếp lốt').sort((a, b) => a.StartDate.localeCompare(b.StartDate));
@@ -600,11 +604,16 @@ const VehiclesPage: React.FC<VehiclesPageProps> = ({ vehicles, units, owners, ac
             if (!v.isActive) return false;
             const s = searchTerm.toLowerCase();
             if (s && !(v.PlateNumber.toLowerCase().includes(s) || v.UnitID.toLowerCase().includes(s) || v.ownerName.toLowerCase().includes(s))) return false;
+            
             if (typeFilter !== 'all' && v.Type !== typeFilter) return false;
+
             if (statusFilter !== 'all') {
-                if (statusFilter === 'assigned' && !['Lốt chính', 'Lốt tạm'].includes(v.parkingStatus || '')) return false;
+                if (statusFilter === 'primary' && v.parkingStatus !== 'Lốt chính') return false;
+                if (statusFilter === 'secondary' && v.parkingStatus !== 'Lốt tạm') return false;
                 if (statusFilter === 'waiting' && v.parkingStatus !== 'Xếp lốt') return false;
+                if (statusFilter === 'assigned' && !['Lốt chính', 'Lốt tạm'].includes(v.parkingStatus || '')) return false;
             }
+
             if (kpiFilter === 'cars' && !(v.Type === 'car' || v.Type === 'car_a')) return false;
             if (kpiFilter === 'motos' && !(v.Type === 'motorbike' || v.Type === 'ebike')) return false;
             if (kpiFilter === 'assigned' && !['Lốt chính', 'Lốt tạm'].includes(v.parkingStatus || '')) return false;
@@ -635,23 +644,18 @@ const VehiclesPage: React.FC<VehiclesPageProps> = ({ vehicles, units, owners, ac
         };
     }, [enhancedVehicles]);
 
-    // FIX: Bổ sung gọi API lưu vào Database khi cập nhật xe
     const handleSave = async (updatedVehicle: Vehicle, reason: string) => {
         setIsLoading(true);
         try {
-            // 1. Lưu xuống Firestore (Service Layer)
             if (isProduction()) {
-                await saveVehicles([updatedVehicle]);
+                await saveVehicles([updatedVehicle], { email: user?.Email || 'system', role: user?.Role || 'Admin' }, reason);
             }
-
-            // 2. Cập nhật Local State (UI) và Ghi nhật ký
             onSetVehicles(prev => prev.map(v => v.VehicleId === updatedVehicle.VehicleId ? updatedVehicle : v), {
                 module: 'Vehicles', 
                 action: 'UPDATE', 
                 summary: `Cập nhật xe ${updatedVehicle.PlateNumber}. Lý do: ${reason}`, 
-                ids: [updatedVehicle.VehicleId]
+                ids: [updatedVehicle.VehicleId, updatedVehicle.UnitID]
             });
-
             showToast('Cập nhật thành công.', 'success');
             setEditingVehicle(null);
             if (selectedVehicle?.VehicleId === updatedVehicle.VehicleId) {
@@ -666,27 +670,22 @@ const VehiclesPage: React.FC<VehiclesPageProps> = ({ vehicles, units, owners, ac
         }
     };
 
-    // FIX: Bổ sung gọi API lưu vào Database khi xóa xe
     const handleDelete = async (vehicle: Vehicle) => {
         if (!window.confirm(`Bạn chắc chắn muốn xóa xe ${vehicle.PlateNumber}?`)) return;
         const reason = prompt("Nhập lý do xóa (Bắt buộc):");
         if (!reason) return;
-
         setIsLoading(true);
         try {
             const deactiveVehicle = { ...vehicle, isActive: false, updatedAt: new Date().toISOString() };
-            
             if (isProduction()) {
-                await saveVehicles([deactiveVehicle]);
+                await saveVehicles([deactiveVehicle], { email: user?.Email || 'system', role: user?.Role || 'Admin' }, `Xóa xe: ${reason}`);
             }
-
             onSetVehicles(prev => prev.map(v => v.VehicleId === vehicle.VehicleId ? deactiveVehicle : v), {
                 module: 'Vehicles', 
                 action: 'DELETE', 
                 summary: `Xóa xe ${vehicle.PlateNumber}. Lý do: ${reason}`, 
-                ids: [vehicle.VehicleId]
+                ids: [vehicle.VehicleId, vehicle.UnitID]
             });
-
             showToast('Đã xóa xe khỏi hệ thống.', 'success');
             setSelectedVehicle(null);
         } catch (error: any) {
@@ -696,17 +695,14 @@ const VehiclesPage: React.FC<VehiclesPageProps> = ({ vehicles, units, owners, ac
         }
     };
 
-    // FIX: Bổ sung gọi API lưu vào Database khi xóa hàng loạt trùng lặp
     const handleBatchDelete = async (idsToDelete: string[]) => {
         setIsLoading(true);
         try {
             const targetVehicles = vehicles.filter(v => idsToDelete.includes(v.VehicleId));
             const deactiveUpdates = targetVehicles.map(v => ({ ...v, isActive: false, updatedAt: new Date().toISOString() }));
-
             if (isProduction()) {
-                await saveVehicles(deactiveUpdates);
+                await saveVehicles(deactiveUpdates, { email: user?.Email || 'system', role: user?.Role || 'Admin' }, 'Xóa hàng loạt xe trùng lặp');
             }
-
             onSetVehicles(prev => prev.map(v => idsToDelete.includes(v.VehicleId) ? { ...v, isActive: false, updatedAt: new Date().toISOString() } : v), {
                 module: 'Vehicles',
                 action: 'BATCH_DELETE_DUPLICATES',
@@ -714,7 +710,6 @@ const VehiclesPage: React.FC<VehiclesPageProps> = ({ vehicles, units, owners, ac
                 count: idsToDelete.length,
                 ids: idsToDelete
             });
-
             showToast(`Đã xóa ${idsToDelete.length} xe trùng lặp.`, 'success');
             setIsDuplicateMode(false);
         } catch (error: any) {
@@ -724,13 +719,11 @@ const VehiclesPage: React.FC<VehiclesPageProps> = ({ vehicles, units, owners, ac
         }
     };
 
-    // --- NEW: Added handleExport function to fix compilation error ---
     const handleExport = () => {
         if (filteredVehicles.length === 0) {
             showToast('Không có dữ liệu để xuất.', 'info');
             return;
         }
-
         try {
             const dataToExport = filteredVehicles.map(v => ({
                 'Căn hộ': v.UnitID,
@@ -743,7 +736,6 @@ const VehiclesPage: React.FC<VehiclesPageProps> = ({ vehicles, units, owners, ac
                 'Ngày đăng ký': new Date(v.StartDate).toLocaleDateString('vi-VN'),
                 'Tính phí': v.isBillable ? 'Có' : 'Không'
             }));
-
             const worksheet = XLSX.utils.json_to_sheet(dataToExport);
             const workbook = XLSX.utils.book_new();
             XLSX.utils.book_append_sheet(workbook, worksheet, "Danh sách xe");
@@ -768,18 +760,24 @@ const VehiclesPage: React.FC<VehiclesPageProps> = ({ vehicles, units, owners, ac
                     <div className={`flex flex-col gap-6 min-w-0 transition-all duration-300 ${selectedVehicle ? 'w-2/3' : 'w-full'}`}>
                         <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
                             <div onClick={() => setKpiFilter(kpiFilter === 'cars' ? 'all' : 'cars')} className={`bg-white p-4 rounded-xl shadow-sm border-l-4 border-blue-500 cursor-pointer hover:bg-gray-50 transition-colors ${kpiFilter === 'cars' ? 'ring-2 ring-blue-500' : ''}`}><div className="flex items-center gap-4"><div className="p-3 bg-blue-50 rounded-full text-blue-600"><CarIcon className="w-6 h-6"/></div><div><p className="text-sm text-gray-500">Ô tô / A</p><p className="text-2xl font-bold text-gray-800">{stats.cars}</p></div></div></div>
-                            <div onClick={() => setKpiFilter(kpiFilter === 'motos' ? 'all' : 'motos')} className={`bg-white p-4 rounded-xl shadow-sm border-l-4 border-orange-500 cursor-pointer hover:bg-gray-50 transition-colors ${kpiFilter === 'motos' ? 'ring-2 ring-orange-500' : ''}`}><div className="flex items-center gap-4"><div className="p-3 bg-orange-50 rounded-full text-orange-600"><MotorbikeIcon className="w-6 h-6"/></div><div><p className="text-sm text-gray-500">Xe máy / Điện</p><p className="text-2xl font-bold text-gray-800">{stats.motos}</p></div></div></div>
+                            <div onClick={() => setKpiFilter(kpiFilter === 'motos' ? 'all' : 'motos')} className={`bg-white p-4 rounded-xl shadow-sm border-l-4 border-orange-500 cursor-pointer hover:bg-gray-50 transition-colors ${kpiFilter === 'motos' ? 'ring-2 ring-orange-500' : ''}`}><div className="flex items-center gap-4"><div className="p-3 bg-orange-50 rounded-full text-orange-600"><MotorbikeIcon className="w-6 h-6" /></div><div><p className="text-sm text-gray-500">Xe máy / Điện</p><p className="text-2xl font-bold text-gray-800">{stats.motos}</p></div></div></div>
                             <div onClick={() => setKpiFilter(kpiFilter === 'assigned' ? 'all' : 'assigned')} className={`bg-white p-4 rounded-xl shadow-sm border-l-4 border-green-500 cursor-pointer hover:bg-gray-50 transition-colors ${kpiFilter === 'assigned' ? 'ring-2 ring-green-500' : ''}`}><div className="flex items-center gap-4"><div className="p-3 bg-green-50 rounded-full text-green-600"><ShieldCheckIcon className="w-6 h-6"/></div><div><p className="text-sm text-gray-500">Đã cấp lốt</p><p className="text-2xl font-bold text-gray-800">{stats.assigned}</p></div></div></div>
                             <div onClick={() => setKpiFilter(kpiFilter === 'waiting' ? 'all' : 'waiting')} className={`bg-white p-4 rounded-xl shadow-sm border-l-4 border-red-500 cursor-pointer hover:bg-gray-50 transition-colors ${kpiFilter === 'waiting' ? 'ring-2 ring-red-500' : ''}`}><div className="flex items-center gap-4"><div className="p-3 bg-red-50 rounded-full text-red-600"><ClockIcon className="w-6 h-6"/></div><div><p className="text-sm text-gray-500">Đang chờ lốt</p><p className="text-2xl font-bold text-gray-800">{stats.waiting}</p></div></div></div>
                         </div>
                         <div className="bg-white p-4 rounded-xl shadow-sm flex items-center gap-4">
                             <div className="relative flex-grow"><SearchIcon className="absolute left-3 top-1/2 -translate-y-1/2 h-5 w-5 text-gray-400" /><input type="text" placeholder="Tìm biển số, căn hộ, chủ hộ..." value={searchTerm} onChange={e => setSearchTerm(e.target.value)} className="w-full h-10 pl-10 pr-4 border rounded-lg bg-gray-50 border-gray-200 focus:bg-white focus:ring-2 focus:ring-primary focus:border-transparent outline-none transition-all"/></div>
-                            <select value={statusFilter} onChange={e => setStatusFilter(e.target.value)} className="h-10 px-4 bg-gray-50 border border-gray-200 rounded-lg text-sm font-medium focus:ring-2 focus:ring-primary outline-none"><option value="all">Tất cả trạng thái</option><option value="assigned">Đã cấp lốt</option><option value="waiting">Đang chờ</option></select>
+                            <select value={statusFilter} onChange={e => setStatusFilter(e.target.value)} className="h-10 px-4 bg-gray-50 border border-gray-200 rounded-lg text-sm font-medium focus:ring-2 focus:ring-primary outline-none">
+                                <option value="all">Tất cả trạng thái đỗ</option>
+                                <option value="primary">Lốt chính</option>
+                                <option value="secondary">Lốt phụ (tạm)</option>
+                                <option value="waiting">Đang chờ (Waitlist)</option>
+                                <option value="assigned">Đã gán (Chính + Phụ)</option>
+                            </select>
                             <select value={typeFilter} onChange={e => setTypeFilter(e.target.value)} className="h-10 px-4 bg-gray-50 border border-gray-200 rounded-lg text-sm font-medium focus:ring-2 focus:ring-primary outline-none"><option value="all">Tất cả loại xe</option><option value="car">{vehicleTypeLabels['car']}</option><option value="car_a">{vehicleTypeLabels['car_a']}</option><option value="motorbike">{vehicleTypeLabels['motorbike']}</option><option value="ebike">{vehicleTypeLabels['ebike']}</option><option value="bicycle">{vehicleTypeLabels['bicycle']}</option></select>
                             {(role === 'Admin') && (<button onClick={() => setIsDuplicateMode(true)} className="h-10 px-4 bg-white border border-red-200 text-red-600 font-semibold rounded-lg hover:bg-red-50 flex items-center gap-2 transition-colors whitespace-nowrap"><SparklesIcon className="w-5 h-5"/> Quét xe trùng</button>)}
                             <button onClick={handleExport} className="h-10 px-4 bg-white border border-gray-200 text-gray-700 font-semibold rounded-lg hover:bg-gray-50 flex items-center gap-2 transition-colors"><DocumentArrowDownIcon className="w-5 h-5 text-gray-500"/> Export</button>
                         </div>
-                        <div className="bg-white rounded-xl shadow-sm flex-1 flex flex-col overflow-hidden border border-gray-100"><div className="overflow-y-auto"><table className="min-w-full"><thead className="bg-gray-50 sticky top-0 z-10"><tr><th className="px-6 py-4 text-left text-xs font-bold text-gray-500 uppercase tracking-wider">Căn hộ</th><th className="px-6 py-4 text-left text-xs font-bold text-gray-500 uppercase tracking-wider">Chủ hộ</th><th className="px-6 py-4 text-left text-xs font-bold text-gray-500 uppercase tracking-wider">Biển số</th><th className="px-6 py-4 text-center text-xs font-bold text-gray-500 uppercase tracking-wider">Loại xe</th><th className="px-6 py-4 text-center text-xs font-bold text-gray-500 uppercase tracking-wider">Trạng thái đỗ</th><th className="px-6 py-4 text-center text-xs font-bold text-gray-500 uppercase tracking-wider">Thao tác</th></tr></thead><tbody className="divide-y divide-gray-100">{paginatedVehicles.map(v => (<tr key={v.VehicleId} onClick={() => setSelectedVehicle(v)} className={`cursor-pointer transition-colors ${selectedVehicle?.VehicleId === v.VehicleId ? 'bg-blue-50' : 'hover:bg-gray-50'}`}><td className="px-6 py-4 text-sm font-bold text-gray-900">{v.UnitID}</td><td className="px-6 py-4 text-sm text-gray-700">{v.ownerName}</td><td className="px-6 py-4"><span className="font-mono font-bold text-gray-800 text-base bg-gray-100 px-2 py-0.5 rounded border border-gray-200">{v.PlateNumber}</span></td><td className="px-6 py-4 text-center"><div className="flex justify-center"><VehicleTypeBadge type={v.Type} /></div></td><td className="px-6 py-4 text-center flex justify-center">{v.Type.includes('car') ? (<StatusBadge status={v.parkingStatus} priority={v.waitingPriority} />) : (<span className="text-gray-400 text-xs italic">N/A</span>)}</td><td className="px-6 py-4 text-center"><button onClick={(e) => { e.stopPropagation(); setEditingVehicle(v); }} disabled={!canEdit} className="p-2 rounded-full text-gray-400 hover:text-blue-600 hover:bg-blue-50 transition-colors disabled:opacity-30"><PencilSquareIcon className="w-5 h-5" /></button></td></tr>))}</tbody></table></div></div>
+                        <div className="bg-white rounded-xl shadow-sm flex-1 flex flex-col overflow-hidden border border-gray-100"><div className="overflow-y-auto"><table className="min-w-full"><thead className="bg-gray-50 sticky top-0 z-10"><tr><th className="px-6 py-4 text-left text-xs font-bold text-gray-500 uppercase tracking-wider">Căn hộ</th><th className="px-6 py-4 text-left text-xs font-bold text-gray-500 uppercase tracking-wider">Chủ hộ</th><th className="px-6 py-4 text-left text-xs font-bold text-gray-500 uppercase tracking-wider">Biển số</th><th className="px-6 py-4 text-center text-xs font-bold text-gray-500 uppercase tracking-wider">Loại xe</th><th className="px-6 py-4 text-center text-xs font-bold text-gray-500 uppercase tracking-wider">Trạng thái đỗ</th><th className="px-6 py-4 text-center text-xs font-bold text-gray-500 uppercase tracking-wider">Thao tác</th></tr></thead><tbody className="divide-y divide-gray-200">{paginatedVehicles.map(v => (<tr key={v.VehicleId} onClick={() => setSelectedVehicle(v)} className={`cursor-pointer transition-colors ${selectedVehicle?.VehicleId === v.VehicleId ? 'bg-blue-50' : 'hover:bg-gray-50'}`}><td className="px-6 py-4 text-sm font-bold text-gray-900">{v.UnitID}</td><td className="px-6 py-4 text-sm text-gray-700">{v.ownerName}</td><td className="px-6 py-4"><span className="font-mono font-bold text-gray-800 text-base bg-gray-100 px-2 py-0.5 rounded border border-gray-200">{v.PlateNumber}</span></td><td className="px-6 py-4 text-center"><div className="flex justify-center"><VehicleTypeBadge type={v.Type} /></div></td><td className="px-6 py-4 text-center flex justify-center">{v.Type.includes('car') ? (<StatusBadge status={v.parkingStatus} priority={v.waitingPriority} />) : (<span className="text-gray-400 text-xs italic">N/A</span>)}</td><td className="px-6 py-4 text-center"><button onClick={(e) => { e.stopPropagation(); setEditingVehicle(v); }} disabled={!canEdit} className="p-2 rounded-full text-gray-400 hover:text-blue-600 hover:bg-blue-50 transition-colors disabled:opacity-30"><PencilSquareIcon className="w-5 h-5" /></button></td></tr>))}</tbody></table></div></div>
                     </div>
 
                     <div className="fixed bottom-0 right-0 z-50 h-7 flex items-center gap-4 px-6 bg-white border-t border-l border-gray-200 shadow-none"><span className="text-[10px] font-bold text-gray-400 uppercase tracking-widest leading-none">Trang {currentPage} / {totalPages || 1}</span><div className="flex gap-1 items-center h-full"><button disabled={currentPage === 1 || isLoading} onClick={() => setCurrentPage(p => p - 1)} className="p-1 rounded-md hover:bg-gray-100 disabled:opacity-30 transition-colors"><ChevronLeftIcon className="w-4 h-4 text-gray-500" /></button><button disabled={currentPage === totalPages || totalPages === 0 || isLoading} onClick={() => setCurrentPage(p => p + 1)} className="p-1 rounded-md hover:bg-gray-100 disabled:opacity-30 transition-colors"><ChevronRightIcon className="w-4 h-4 text-gray-500" /></button></div></div>
