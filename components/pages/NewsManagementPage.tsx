@@ -275,13 +275,13 @@ const NewsManagementPage: React.FC<NewsManagementPageProps> = ({ news, setNews, 
     <div className="h-full flex flex-col space-y-6 overflow-hidden">
       {editingItem !== undefined && <NewsEditorModal newsItem={editingItem} onSave={handleSave} onClose={() => setEditingItem(undefined)} loading={loading} />}
 
-      {/* Stat Cards Section with Filtering */}
+      {/* Stat Cards Section with Toggle Filtering */}
       <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
           <StatCard 
             label="Tổng bản tin" 
             value={stats.total} 
             icon={<ClipboardDocumentListIcon className="w-6 h-6 text-gray-500" />} 
-            className={`border-l-4 border-gray-400 cursor-pointer transition-all ${categoryFilter === 'all' ? 'ring-2 ring-primary bg-primary/5' : ''}`}
+            className={`border-l-4 border-gray-400 cursor-pointer transition-all ${categoryFilter === 'all' ? 'ring-2 ring-primary bg-primary/5' : 'hover:bg-gray-50'}`}
             onClick={() => setCategoryFilter('all')}
           />
           <StatCard 
@@ -289,7 +289,7 @@ const NewsManagementPage: React.FC<NewsManagementPageProps> = ({ news, setNews, 
             value={stats.notification} 
             icon={<MegaphoneIcon className="w-6 h-6 text-blue-600" />} 
             iconBgClass="bg-blue-100"
-            className={`border-l-4 border-blue-500 cursor-pointer transition-all ${categoryFilter === 'notification' ? 'ring-2 ring-blue-500 bg-blue-50' : ''}`}
+            className={`border-l-4 border-blue-500 cursor-pointer transition-all ${categoryFilter === 'notification' ? 'ring-2 ring-blue-500 bg-blue-50' : 'hover:bg-gray-50'}`}
             onClick={() => handleToggleFilter('notification')}
           />
           <StatCard 
@@ -297,7 +297,7 @@ const NewsManagementPage: React.FC<NewsManagementPageProps> = ({ news, setNews, 
             value={stats.plan} 
             icon={<CalendarDaysIcon className="w-6 h-6 text-orange-600" />} 
             iconBgClass="bg-orange-100"
-            className={`border-l-4 border-orange-500 cursor-pointer transition-all ${categoryFilter === 'plan' ? 'ring-2 ring-orange-500 bg-orange-50' : ''}`}
+            className={`border-l-4 border-orange-500 cursor-pointer transition-all ${categoryFilter === 'plan' ? 'ring-2 ring-orange-500 bg-orange-50' : 'hover:bg-gray-50'}`}
             onClick={() => handleToggleFilter('plan')}
           />
           <StatCard 
@@ -305,7 +305,7 @@ const NewsManagementPage: React.FC<NewsManagementPageProps> = ({ news, setNews, 
             value={stats.event} 
             icon={<SparklesIcon className="w-6 h-6 text-purple-600" />} 
             iconBgClass="bg-purple-100"
-            className={`border-l-4 border-purple-500 cursor-pointer transition-all ${categoryFilter === 'event' ? 'ring-2 ring-purple-500 bg-purple-50' : ''}`}
+            className={`border-l-4 border-purple-500 cursor-pointer transition-all ${categoryFilter === 'event' ? 'ring-2 ring-purple-500 bg-purple-50' : 'hover:bg-gray-50'}`}
             onClick={() => handleToggleFilter('event')}
           />
       </div>
@@ -365,7 +365,6 @@ const NewsManagementPage: React.FC<NewsManagementPageProps> = ({ news, setNews, 
                         <div className="flex items-center gap-4 text-[10px] text-gray-400 font-bold uppercase tracking-widest">
                             <span className="flex items-center gap-1"><ClockIcon className="w-3 h-3"/>{new Date(item.date).toLocaleDateString('vi-VN')}</span>
                             <span className="flex items-center gap-1"><UserCircleIcon className="w-3 h-3"/>{item.sender || 'BQLVH'}</span>
-                            {/* Fix: CheckCircleIcon used here requires import from ui/Icons */}
                             {isSent && <span className="text-emerald-600 font-black flex items-center gap-1"><CheckCircleIcon className="w-3 h-3"/> ĐÃ PHÁT APP</span>}
                         </div>
                     </div>
@@ -378,7 +377,7 @@ const NewsManagementPage: React.FC<NewsManagementPageProps> = ({ news, setNews, 
                             className={`p-2 rounded-lg transition-all border shadow-sm flex items-center justify-center ${
                                 isSent 
                                     ? 'text-gray-400 bg-gray-100 border-gray-200 cursor-not-allowed opacity-60' 
-                                    : 'text-emerald-600 bg-emerald-50 border-emerald-200 hover:bg-emerald-100 shadow-[0_0_15px_rgba(16,185,129,0.3)] animate-pulse scale-105 ring-2 ring-emerald-500/20'
+                                    : 'text-emerald-600 bg-emerald-50 border-emerald-200 hover:bg-emerald-100 shadow-[0_0_15px_rgba(16,185,129,0.5)] animate-pulse scale-105 ring-2 ring-emerald-500/20'
                             }`} 
                             title={isSent ? "Đã gửi thông báo" : "Phát thông báo đẩy tới cư dân ngay"}
                         >
