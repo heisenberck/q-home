@@ -96,9 +96,15 @@ export const updateResidentData = async (
     batch.set(doc(db, 'units', data.unit.UnitID), data.unit);
     batch.set(doc(db, 'owners', data.owner.OwnerID), data.owner);
     const activeIds = new Set<string>();
+    
+    // Thu thập danh sách biển số để tạo log chi tiết
+    const platesUpdated: string[] = [];
+    
     data.vehicles.forEach(v => {
         let vehicleId = v.VehicleId;
         let vehicleToSave = { ...v, isActive: true, updatedAt: new Date().toISOString() };
+        platesUpdated.push(v.PlateNumber);
+        
         if (vehicleId.startsWith('VEH_NEW_')) {
             const newRef = doc(collection(db, "vehicles"));
             vehicleToSave.VehicleId = newRef.id;
@@ -109,20 +115,25 @@ export const updateResidentData = async (
             activeIds.add(vehicleId);
         }
     });
+
     currentVehicles
         .filter(v => v.UnitID === data.unit.UnitID && v.isActive && !activeIds.has(v.VehicleId))
         .forEach(v => {
             batch.update(doc(db, 'vehicles', v.VehicleId), { isActive: false });
         });
-    const logSummary = reason ? `Lý do: ${reason}` : `Cập nhật thông tin căn hộ ${data.unit.UnitID}`;
+
+    const vehicleSummary = platesUpdated.length > 0 ? `Xe: ${platesUpdated.join(', ')}` : 'Cập nhật hồ sơ';
+    const logSummary = `${vehicleSummary}. ${reason ? `Lý do: ${reason}` : ''}`;
+    
     injectLogAndNotif(batch, {
         actor_email: actor?.email,
         module: 'Cư dân',
         action: 'UPDATE',
         title: `Cập nhật Căn ${data.unit.UnitID}`,
-        summary: `Chỉnh sửa hồ sơ. ${logSummary}`,
+        summary: logSummary,
         type: 'request'
     });
+    
     bumpVersion(batch, 'units_version');
     bumpVersion(batch, 'owners_version');
     bumpVersion(batch, 'vehicles_version');
@@ -134,8 +145,16 @@ export const saveVehicles = async (d: Vehicle[], actor?: { email: string, role: 
     if (d.length === 0) return;
     const batch = writeBatch(db);
     const unitId = d[0].UnitID;
+    
+    const details = d.map(v => {
+        const typeLabel = v.Type.includes('car') ? 'Ô tô' : 'Xe máy';
+        return `${typeLabel} [${v.PlateNumber}]`;
+    }).join(', ');
+
     d.forEach(v => { batch.set(doc(db, 'vehicles', v.VehicleId), v); });
-    const summary = reason ? `Cập nhật phương tiện. Lý do: ${reason}` : `Cập nhật ${d.length} phương tiện`;
+    
+    const summary = `Căn ${unitId}: Cập nhật ${details}${reason ? `. Lý do: ${reason}` : ''}`;
+    
     injectLogAndNotif(batch, {
         actor_email: actor?.email,
         module: 'Phương tiện',
@@ -144,6 +163,7 @@ export const saveVehicles = async (d: Vehicle[], actor?: { email: string, role: 
         summary: summary,
         type: 'system'
     });
+    
     bumpVersion(batch, 'vehicles_version');
     return batch.commit();
 };
@@ -243,6 +263,7 @@ export const saveChargesBatch = (charges: ChargeRaw[], periodStat?: MonthlyStat)
 export const updateChargeStatuses = (period: string, unitIds: string[], updates: { isPrinted?: boolean; isSent?: boolean }) => { if (unitIds.length === 0) return Promise.resolve(); const batch = writeBatch(db); unitIds.forEach(id => batch.update(doc(db, 'charges', `${period}_${id}`), updates)); return batch.commit(); };
 export const updateChargePayments = (period: string, paymentUpdates: Map<string, number>) => { if (paymentUpdates.size === 0) return Promise.resolve(); const batch = writeBatch(db); paymentUpdates.forEach((amount, id) => batch.update(doc(db, 'charges', `${period}_${id}`), { TotalPaid: amount, paymentStatus: 'reconciling', PaymentConfirmed: false })); return batch.commit(); };
 export const confirmSinglePayment = async (charge: ChargeRaw, finalPaidAmount: number, status: PaymentStatus = 'paid') => { const batch = writeBatch(db); batch.update(doc(db, 'charges', `${charge.Period}_${charge.UnitID}`), { TotalPaid: finalPaidAmount, paymentStatus: status, PaymentConfirmed: true }); const diff = finalPaidAmount - charge.TotalDue; if (diff !== 0) { const nextPeriod = new Date(charge.Period + '-02'); nextPeriod.setMonth(nextPeriod.getMonth() + 1); const nextPeriodStr = nextPeriod.toISOString().slice(0, 7); const adj: Adjustment = { UnitID: charge.UnitID, Period: nextPeriodStr, Amount: -diff, Description: 'Công nợ kỳ trước', SourcePeriod: charge.Period }; batch.set(doc(db, 'adjustments', `ADJ_${nextPeriodStr}_${charge.UnitID}`), adj, { merge: true }); } return batch.commit(); };
+export const confirmSinglePaymentBatch = (period: string, unitIds: string[], status: PaymentStatus = 'paid') => { if (unitIds.length === 0) return Promise.resolve(); const batch = writeBatch(db); unitIds.forEach(id => batch.update(doc(db, 'charges', `${period}_${id}`), { paymentStatus: status, PaymentConfirmed: true })); return batch.commit(); };
 export const updatePaymentStatusBatch = (period: string, unitIds: string[], status: 'paid' | 'unpaid', charges: ChargeRaw[]) => { if (unitIds.length === 0) return Promise.resolve(); const batch = writeBatch(db); const chargesMap = new Map(charges.map(c => [c.UnitID, c])); unitIds.forEach(id => { const update = { paymentStatus: status, PaymentConfirmed: status === 'paid', TotalPaid: status === 'paid' ? (chargesMap.get(id)?.TotalDue ?? 0) : 0 }; batch.update(doc(db, 'charges', `${period}_${id}`), update); }); return batch.commit(); };
 export const wipeAllBusinessData = async (progress: (msg: string) => void) => { const collections = ['charges', 'waterReadings', 'vehicles', 'adjustments', 'owners', 'units', 'activity_logs', 'monthly_stats', 'billing_locks', 'water_locks', 'profileRequests', 'misc_revenues', 'admin_notifications']; for (const name of collections) { progress(`Querying ${name}...`); const snapshot = await getDocs(collection(db, name)); if (snapshot.empty) continue; const batch = writeBatch(db); snapshot.docs.forEach(d => batch.delete(d.ref)); progress(`Deleting ${snapshot.size} docs from ${name}...`); await batch.commit(); } };
 export const saveUsers = async (d: UserPermission[]) => { const batch = writeBatch(db); d.forEach(u => batch.set(doc(db, 'users', u.Email), u)); bumpVersion(batch, 'users_version'); return batch.commit(); };

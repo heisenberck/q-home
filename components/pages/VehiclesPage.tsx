@@ -1,7 +1,5 @@
-
 import React, { useState, useMemo, useEffect } from 'react';
 import type { Vehicle, Unit, Owner, Role, ActivityLog, VehicleTier, VehicleDocument } from '../../types';
-// Fix: Added missing useAuth import
 import { useNotification, useAuth } from '../../App';
 import Modal from '../ui/Modal';
 import { 
@@ -13,14 +11,11 @@ import {
     SparklesIcon, PaperclipIcon, ArrowUturnLeftIcon, EyeIcon,
     ChevronLeftIcon, ChevronRightIcon
 } from '../ui/Icons';
-// Fix: Corrected import path for helpers from '../../helpers' to '../../utils/helpers'
 import { translateVehicleType, vehicleTypeLabels, compressImageToWebP, timeAgo, getPastelColorForName, parseUnitCode } from '../../utils/helpers';
 import { isProduction } from '../../utils/env';
-import { saveVehicles } from '../../services'; // Import service để lưu DB
+import { saveVehicles } from '../../services'; 
 
 declare const XLSX: any;
-
-// --- Constants & Types ---
 
 const PARKING_STATUS_LABELS: Record<string, string> = {
     'Lốt chính': 'Lốt chính',
@@ -46,8 +41,6 @@ interface VehiclesPageProps {
     onSetVehicles: (updater: React.SetStateAction<Vehicle[]>, logPayload?: any) => void;
     role: Role;
 }
-
-// --- Helper Components ---
 
 const DocumentPreviewModal: React.FC<{
     doc: VehicleDocument;
@@ -115,8 +108,6 @@ const VehicleTypeBadge: React.FC<{ type: string }> = ({ type }) => {
     );
 };
 
-// --- Duplicate Manager Component ---
-
 interface DuplicateGroup {
     plate: string;
     normalizedPlate: string;
@@ -132,31 +123,24 @@ const DuplicateManager: React.FC<{
     const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
 
     useEffect(() => {
-        // 1. Group Logic
         const map = new Map<string, EnhancedVehicle[]>();
         
         vehicles.forEach(v => {
             if (!v.PlateNumber) return;
-            // Normalize: Remove non-alphanumeric, Uppercase
             const normalized = v.PlateNumber.replace(/[^a-zA-Z0-9]/g, '').toUpperCase();
             if (!map.has(normalized)) map.set(normalized, []);
             map.get(normalized)!.push(v);
         });
 
-        // 2. Filter only duplicates
         const dupGroups: DuplicateGroup[] = [];
         const initialSelected = new Set<string>();
 
         map.forEach((items, key) => {
             if (items.length > 1) {
-                // Sort by Created Date (Oldest first)
                 items.sort((a, b) => new Date(a.StartDate).getTime() - new Date(b.StartDate).getTime() || a.VehicleId.localeCompare(b.VehicleId));
-                
-                // Keep the FIRST one (Index 0), Select the rest for deletion
                 for (let i = 1; i < items.length; i++) {
                     initialSelected.add(items[i].VehicleId);
                 }
-
                 dupGroups.push({
                     plate: key, 
                     normalizedPlate: key,
@@ -185,7 +169,6 @@ const DuplicateManager: React.FC<{
 
     return (
         <div className="flex flex-col h-full bg-gray-50 -m-6 p-6 animate-fade-in-down">
-            {/* Header */}
             <div className="flex items-center justify-between mb-6 bg-white p-4 rounded-xl shadow-sm border border-gray-200">
                 <div>
                     <h2 className="text-xl font-bold text-gray-800 flex items-center gap-2">
@@ -209,7 +192,6 @@ const DuplicateManager: React.FC<{
                 </div>
             </div>
 
-            {/* List */}
             <div className="flex-1 overflow-y-auto space-y-4">
                 {groups.length === 0 ? (
                     <div className="flex flex-col items-center justify-center h-64 text-gray-500">
@@ -276,8 +258,6 @@ const DuplicateManager: React.FC<{
         </div>
     );
 };
-
-// --- Edit Modal ---
 
 const VehicleEditModal: React.FC<{
     vehicle: Vehicle;
@@ -474,8 +454,6 @@ const VehicleEditModal: React.FC<{
     );
 };
 
-// --- Detail Panel (Right Side) ---
-
 const VehicleDetailPanel: React.FC<{
     vehicle: EnhancedVehicle,
     activityLogs: ActivityLog[],
@@ -557,11 +535,8 @@ const VehicleDetailPanel: React.FC<{
     );
 };
 
-// --- Main Page ---
-
 const VehiclesPage: React.FC<VehiclesPageProps> = ({ vehicles, units, owners, activityLogs, onSetVehicles, role }) => {
     const { showToast } = useNotification();
-    // Fix: Correctly imported useAuth to resolve Error 2
     const { user } = useAuth();
     const canEdit = ['Admin', 'Accountant', 'Operator'].includes(role);
 
@@ -581,7 +556,8 @@ const VehiclesPage: React.FC<VehiclesPageProps> = ({ vehicles, units, owners, ac
         if (storedSearch) { setSearchTerm(storedSearch); localStorage.removeItem('vehicle_search_term'); }
     }, []);
 
-    const ownersMap = new Map(owners.map(o => [o.OwnerID, o]));
+    // Fix: Explicitly type ownersMap to avoid unknown type inference for owner lookup
+    const ownersMap = new Map<string, Owner>(owners.map(o => [o.OwnerID, o]));
 
     const waitingListMap = useMemo(() => {
         const waiting = vehicles.filter(v => v.isActive && v.parkingStatus === 'Xếp lốt').sort((a, b) => a.StartDate.localeCompare(b.StartDate));
@@ -650,10 +626,12 @@ const VehiclesPage: React.FC<VehiclesPageProps> = ({ vehicles, units, owners, ac
             if (isProduction()) {
                 await saveVehicles([updatedVehicle], { email: user?.Email || 'system', role: user?.Role || 'Admin' }, reason);
             }
+            
+            const typeLabel = updatedVehicle.Type.includes('car') ? 'Ô tô' : 'Xe máy';
             onSetVehicles(prev => prev.map(v => v.VehicleId === updatedVehicle.VehicleId ? updatedVehicle : v), {
                 module: 'Vehicles', 
                 action: 'UPDATE', 
-                summary: `Cập nhật xe ${updatedVehicle.PlateNumber}. Lý do: ${reason}`, 
+                summary: `Căn ${updatedVehicle.UnitID}: Cập nhật ${typeLabel} [${updatedVehicle.PlateNumber}]. Lý do: ${reason}`, 
                 ids: [updatedVehicle.VehicleId, updatedVehicle.UnitID]
             });
             showToast('Cập nhật thành công.', 'success');
@@ -680,10 +658,12 @@ const VehiclesPage: React.FC<VehiclesPageProps> = ({ vehicles, units, owners, ac
             if (isProduction()) {
                 await saveVehicles([deactiveVehicle], { email: user?.Email || 'system', role: user?.Role || 'Admin' }, `Xóa xe: ${reason}`);
             }
+            
+            const typeLabel = vehicle.Type.includes('car') ? 'Ô tô' : 'Xe máy';
             onSetVehicles(prev => prev.map(v => v.VehicleId === vehicle.VehicleId ? deactiveVehicle : v), {
                 module: 'Vehicles', 
                 action: 'DELETE', 
-                summary: `Xóa xe ${vehicle.PlateNumber}. Lý do: ${reason}`, 
+                summary: `Căn ${vehicle.UnitID}: Xóa ${typeLabel} [${vehicle.PlateNumber}]. Lý do: ${reason}`, 
                 ids: [vehicle.VehicleId, vehicle.UnitID]
             });
             showToast('Đã xóa xe khỏi hệ thống.', 'success');
@@ -777,7 +757,7 @@ const VehiclesPage: React.FC<VehiclesPageProps> = ({ vehicles, units, owners, ac
                             {(role === 'Admin') && (<button onClick={() => setIsDuplicateMode(true)} className="h-10 px-4 bg-white border border-red-200 text-red-600 font-semibold rounded-lg hover:bg-red-50 flex items-center gap-2 transition-colors whitespace-nowrap"><SparklesIcon className="w-5 h-5"/> Quét xe trùng</button>)}
                             <button onClick={handleExport} className="h-10 px-4 bg-white border border-gray-200 text-gray-700 font-semibold rounded-lg hover:bg-gray-50 flex items-center gap-2 transition-colors"><DocumentArrowDownIcon className="w-5 h-5 text-gray-500"/> Export</button>
                         </div>
-                        <div className="bg-white rounded-xl shadow-sm flex-1 flex flex-col overflow-hidden border border-gray-100"><div className="overflow-y-auto"><table className="min-w-full"><thead className="bg-gray-50 sticky top-0 z-10"><tr><th className="px-6 py-4 text-left text-xs font-bold text-gray-500 uppercase tracking-wider">Căn hộ</th><th className="px-6 py-4 text-left text-xs font-bold text-gray-500 uppercase tracking-wider">Chủ hộ</th><th className="px-6 py-4 text-left text-xs font-bold text-gray-500 uppercase tracking-wider">Biển số</th><th className="px-6 py-4 text-center text-xs font-bold text-gray-500 uppercase tracking-wider">Loại xe</th><th className="px-6 py-4 text-center text-xs font-bold text-gray-500 uppercase tracking-wider">Trạng thái đỗ</th><th className="px-6 py-4 text-center text-xs font-bold text-gray-500 uppercase tracking-wider">Thao tác</th></tr></thead><tbody className="divide-y divide-gray-200">{paginatedVehicles.map(v => (<tr key={v.VehicleId} onClick={() => setSelectedVehicle(v)} className={`cursor-pointer transition-colors ${selectedVehicle?.VehicleId === v.VehicleId ? 'bg-blue-50' : 'hover:bg-gray-50'}`}><td className="px-6 py-4 text-sm font-bold text-gray-900">{v.UnitID}</td><td className="px-6 py-4 text-sm text-gray-700">{v.ownerName}</td><td className="px-6 py-4"><span className="font-mono font-bold text-gray-800 text-base bg-gray-100 px-2 py-0.5 rounded border border-gray-200">{v.PlateNumber}</span></td><td className="px-6 py-4 text-center"><div className="flex justify-center"><VehicleTypeBadge type={v.Type} /></div></td><td className="px-6 py-4 text-center flex justify-center">{v.Type.includes('car') ? (<StatusBadge status={v.parkingStatus} priority={v.waitingPriority} />) : (<span className="text-gray-400 text-xs italic">N/A</span>)}</td><td className="px-6 py-4 text-center"><button onClick={(e) => { e.stopPropagation(); setEditingVehicle(v); }} disabled={!canEdit} className="p-2 rounded-full text-gray-400 hover:text-blue-600 hover:bg-blue-50 transition-colors disabled:opacity-30"><PencilSquareIcon className="w-5 h-5" /></button></td></tr>))}</tbody></table></div></div>
+                        <div className="bg-white rounded-xl shadow-sm flex-1 flex flex-col overflow-hidden border border-gray-100"><div className="overflow-y-auto"><table className="min-w-full"><thead className="bg-gray-50 sticky top-0 z-10"><tr><th className="px-6 py-4 text-left text-xs font-bold text-gray-500 uppercase tracking-wider">Căn hộ</th><th className="px-6 py-4 text-left text-xs font-bold text-gray-500 uppercase tracking-wider">Chủ hộ</th><th className="px-6 py-4 text-left text-xs font-bold text-gray-500 uppercase tracking-wider">Biển số</th><th className="px-6 py-4 text-center text-xs font-bold text-gray-500 uppercase tracking-wider">Loại xe</th><th className="px-6 py-4 text-center text-xs font-bold text-gray-500 uppercase tracking-wider">Trạng thái đỗ</th><th className="px-6 py-4 text-center text-xs font-bold text-gray-500 uppercase tracking-wider">Thao tác</th></tr></thead><tbody className="divide-y divide-gray-100">{paginatedVehicles.map(v => (<tr key={v.VehicleId} onClick={() => setSelectedVehicle(v)} className={`cursor-pointer transition-colors ${selectedVehicle?.VehicleId === v.VehicleId ? 'bg-blue-50' : 'hover:bg-gray-50'}`}><td className="px-6 py-4 text-sm font-bold text-gray-900">{v.UnitID}</td><td className="px-6 py-4 text-sm text-gray-700">{v.ownerName}</td><td className="px-6 py-4"><span className="font-mono font-bold text-gray-800 text-base bg-gray-100 px-2 py-0.5 rounded border border-gray-200">{v.PlateNumber}</span></td><td className="px-6 py-4 text-center"><div className="flex justify-center"><VehicleTypeBadge type={v.Type} /></div></td><td className="px-6 py-4 text-center flex justify-center">{v.Type.includes('car') ? (<StatusBadge status={v.parkingStatus} priority={v.waitingPriority} />) : (<span className="text-gray-400 text-xs italic">N/A</span>)}</td><td className="px-6 py-4 text-center"><button onClick={(e) => { e.stopPropagation(); setEditingVehicle(v); }} disabled={!canEdit} className="p-2 rounded-full text-gray-400 hover:text-blue-600 hover:bg-blue-50 transition-colors disabled:opacity-30"><PencilSquareIcon className="w-5 h-5" /></button></td></tr>))}</tbody></table></div></div>
                     </div>
 
                     <div className="fixed bottom-0 right-0 z-50 h-7 flex items-center gap-4 px-6 bg-white border-t border-l border-gray-200 shadow-none"><span className="text-[10px] font-bold text-gray-400 uppercase tracking-widest leading-none">Trang {currentPage} / {totalPages || 1}</span><div className="flex gap-1 items-center h-full"><button disabled={currentPage === 1 || isLoading} onClick={() => setCurrentPage(p => p - 1)} className="p-1 rounded-md hover:bg-gray-100 disabled:opacity-30 transition-colors"><ChevronLeftIcon className="w-4 h-4 text-gray-500" /></button><button disabled={currentPage === totalPages || totalPages === 0 || isLoading} onClick={() => setCurrentPage(p => p + 1)} className="p-1 rounded-md hover:bg-gray-100 disabled:opacity-30 transition-colors"><ChevronRightIcon className="w-4 h-4 text-gray-500" /></button></div></div>
