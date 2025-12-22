@@ -17,32 +17,26 @@ interface PortalHomePageProps {
 }
 
 const PortalHomePage: React.FC<PortalHomePageProps> = ({ user, charges, news, setActivePage }) => {
-    // 1. Calculate Current Period (YYYY-MM)
     const currentPeriod = useMemo(() => new Date().toISOString().slice(0, 7), []);
     const IS_PROD = isProduction();
 
-    // 2. Real-time Charge State
     const [currentCharge, setCurrentCharge] = useState<ChargeRaw | null>(null);
     const [loadingCharge, setLoadingCharge] = useState(false);
 
-    // 3. Listener for Current Month's Charge
     useEffect(() => {
         if (!user.residentId) return;
 
-        // Initial/Fallback data from props (static load)
         const propCharge = charges.find(c => c.UnitID === user.residentId && c.Period === currentPeriod);
         if (propCharge) setCurrentCharge(propCharge);
 
         if (IS_PROD) {
             setLoadingCharge(true);
-            
             const q = query(
                 collection(db, 'charges'), 
                 where('UnitID', '==', user.residentId), 
                 where('Period', '==', currentPeriod),
                 limit(1)
             );
-
             const unsubscribe = onSnapshot(q, (snapshot) => {
                 if (!snapshot.empty) {
                     const data = snapshot.docs[0].data() as ChargeRaw;
@@ -55,13 +49,17 @@ const PortalHomePage: React.FC<PortalHomePageProps> = ({ user, charges, news, se
                 console.error("Real-time charge fetch error", err);
                 setLoadingCharge(false);
             });
-
             return () => unsubscribe();
         }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-    }, [user.residentId, currentPeriod, IS_PROD]); // Removed 'charges' to prevent re-subscription loops
+    }, [user.residentId, currentPeriod, IS_PROD, charges]);
 
-    // 4. Render Logic based on Real-time Data
+    const latestNews = useMemo(() => {
+        return [...news]
+            .filter(n => !n.isArchived)
+            .sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime())
+            .slice(0, 3);
+    }, [news]);
+
     const renderBillStatus = () => {
         if (!currentCharge) {
              return (
@@ -76,7 +74,6 @@ const PortalHomePage: React.FC<PortalHomePageProps> = ({ user, charges, news, se
         }
 
         const isPaid = ['paid', 'paid_tm', 'paid_ck'].includes(currentCharge.paymentStatus);
-        
         if (isPaid) {
              return (
                 <div className="bg-green-50 border border-green-200 p-4 rounded-xl flex items-center gap-4">
@@ -89,7 +86,6 @@ const PortalHomePage: React.FC<PortalHomePageProps> = ({ user, charges, news, se
             );
         }
 
-        // Pending / Unpaid
         return (
             <div className="bg-red-50 border border-red-200 p-4 rounded-xl flex items-center gap-4 cursor-pointer hover:bg-red-100 transition-colors" onClick={() => setActivePage('portalBilling')}>
                 <div className="p-2 bg-red-100 rounded-full"><WarningIcon className="w-6 h-6 text-red-600"/></div>
@@ -105,7 +101,6 @@ const PortalHomePage: React.FC<PortalHomePageProps> = ({ user, charges, news, se
 
   return (
     <div className="p-4 space-y-6">
-        {/* Render the dynamic bill card */}
         {renderBillStatus()}
 
         <div className="bg-white p-4 rounded-xl shadow-sm border space-y-3">
@@ -116,12 +111,23 @@ const PortalHomePage: React.FC<PortalHomePageProps> = ({ user, charges, news, se
                 <h3 className="font-bold text-gray-800 text-lg">Tin tức mới nhất</h3>
             </div>
 
-            {news.slice(0, 3).map(item => (
+            {latestNews.length > 0 ? latestNews.map(item => (
                 <div key={item.id} onClick={() => setActivePage('portalNews')} className="border-t pt-3 cursor-pointer group">
                     <p className="font-semibold group-hover:text-primary transition-colors">{item.title}</p>
                     <p className="text-xs text-gray-400 mt-1">{timeAgo(item.date)}</p>
                 </div>
-            ))}
+            )) : (
+                <p className="text-sm text-gray-400 italic text-center py-4">Hiện không có tin tức mới nào.</p>
+            )}
+            
+            {latestNews.length > 0 && (
+                <button 
+                    onClick={() => setActivePage('portalNews')}
+                    className="w-full pt-2 text-primary font-bold text-sm hover:underline flex justify-center items-center gap-1"
+                >
+                    Xem tất cả tin tức
+                </button>
+            )}
         </div>
     </div>
   );

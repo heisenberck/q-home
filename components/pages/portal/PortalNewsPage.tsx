@@ -1,4 +1,5 @@
-import React, { useState } from 'react';
+
+import React, { useState, useMemo } from 'react';
 import type { NewsItem } from '../../../types';
 import Modal from '../../ui/Modal';
 import { timeAgo } from '../../../utils/helpers';
@@ -15,7 +16,7 @@ const NewsDetailPage: React.FC<{ item: NewsItem, onClose: () => void }> = ({ ite
             <div className="space-y-4">
                 {item.imageUrl && <img src={item.imageUrl} alt={item.title} className="w-full h-48 object-cover rounded-lg" />}
                 <p className="text-sm text-gray-500">{new Date(item.date).toLocaleString('vi-VN')}</p>
-                <p className="whitespace-pre-wrap leading-relaxed">{item.content}</p>
+                <div className="whitespace-pre-wrap leading-relaxed text-gray-800">{item.content}</div>
             </div>
         </Modal>
     )
@@ -34,31 +35,48 @@ const NewsCategoryIcon: React.FC<{ category: NewsItem['category'] }> = ({ catego
 const PortalNewsPage: React.FC<PortalNewsPageProps> = ({ news }) => {
   const [selectedNews, setSelectedNews] = useState<NewsItem | null>(null);
 
+  const activeNews = useMemo(() => {
+      return [...news]
+        .filter(item => !item.isArchived)
+        .sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime());
+  }, [news]);
+
   return (
-    <div className="p-4 space-y-4">
+    <div className="p-4 space-y-4 min-h-[300px]">
         {selectedNews && <NewsDetailPage item={selectedNews} onClose={() => setSelectedNews(null)} />}
         
-      {news.filter(item => !item.isArchived).sort((a,b) => new Date(b.date).getTime() - new Date(a.date).getTime()).map(item => (
-        <div key={item.id} onClick={() => setSelectedNews(item)} className="bg-white p-4 rounded-xl shadow-sm border cursor-pointer hover:border-primary flex gap-4 items-start">
-            <div className="flex-grow">
-              <div className="flex items-center gap-2">
-                <NewsCategoryIcon category={item.category} />
-                {item.sender && <span className="text-xs font-semibold text-gray-600 bg-gray-100 px-2 py-0.5 rounded-full">{item.sender}</span>}
-                {item.priority === 'high' && (
-                    <span className="text-xs font-bold text-red-600 bg-red-100 px-2 py-0.5 rounded-full">QUAN TRỌNG</span>
-                )}
-              </div>
-              <h2 className="font-bold text-lg mt-1">{item.title}</h2>
-              <p className="text-sm text-gray-600 mt-1 line-clamp-2">{item.content}</p>
-              <p className="text-xs text-gray-400 mt-2">{timeAgo(item.date)}</p>
+        {activeNews.length === 0 ? (
+            <div className="flex flex-col items-center justify-center py-20 text-gray-400">
+                <BellIcon className="w-16 h-16 mb-4 opacity-20" />
+                <p className="font-bold text-gray-500">Không có thông báo nào</p>
+                <p className="text-sm">Vui lòng quay lại sau.</p>
             </div>
-            {item.imageUrl && (
-                <div className="w-24 h-24 bg-gray-200 rounded-md overflow-hidden flex-shrink-0">
-                    <img src={item.imageUrl} alt={item.title} className="w-full h-full object-cover" />
+        ) : (
+            activeNews.map(item => (
+                <div key={item.id} onClick={() => setSelectedNews(item)} className="bg-white p-4 rounded-xl shadow-sm border border-gray-100 cursor-pointer hover:border-primary transition-colors flex gap-4 items-start active:bg-gray-50">
+                    <div className="flex-grow min-w-0">
+                    <div className="flex items-center gap-2 mb-1 flex-wrap">
+                        <NewsCategoryIcon category={item.category} />
+                        {item.sender && <span className="text-[10px] font-black uppercase text-gray-400 tracking-wider bg-gray-50 px-2 py-0.5 rounded border border-gray-100">{item.sender}</span>}
+                        {item.priority === 'high' && (
+                            <span className="text-[10px] font-black uppercase text-red-600 bg-red-50 px-2 py-0.5 rounded border border-red-100">KHẨN</span>
+                        )}
+                    </div>
+                    <h2 className="font-bold text-base text-gray-900 leading-snug line-clamp-2">{item.title}</h2>
+                    <p className="text-sm text-gray-600 mt-1 line-clamp-2">{item.content}</p>
+                    <div className="flex items-center gap-4 mt-3">
+                        <p className="text-[10px] font-bold text-gray-400 uppercase tracking-widest">{timeAgo(item.date)}</p>
+                        <p className="text-[10px] font-bold text-gray-400 uppercase tracking-widest">{new Date(item.date).toLocaleDateString('vi-VN')}</p>
+                    </div>
+                    </div>
+                    {item.imageUrl && (
+                        <div className="w-20 h-20 bg-gray-100 rounded-lg overflow-hidden flex-shrink-0 border border-gray-100">
+                            <img src={item.imageUrl} alt={item.title} className="w-full h-full object-cover" />
+                        </div>
+                    )}
                 </div>
-            )}
-        </div>
-      ))}
+            ))
+        )}
     </div>
   );
 };

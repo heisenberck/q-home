@@ -7,6 +7,7 @@ import {
     PencilSquareIcon, TrashIcon, UploadIcon, MegaphoneIcon, 
     CheckCircleIcon, SearchIcon, ChevronLeftIcon, ChevronRightIcon,
     ClockIcon, PlusIcon, PaperAirplaneIcon, PinIcon, StarIcon,
+    CalendarDaysIcon, SparklesIcon, UserCircleIcon
 } from '../ui/Icons';
 import { timeAgo } from '../../utils/helpers';
 import { isProduction } from '../../utils/env';
@@ -26,23 +27,24 @@ interface NewsManagementPageProps {
   users: UserPermission[];
 }
 
-const CompactStatCard: React.FC<{
-    label: string;
-    value: number;
-    icon: React.ReactNode;
-    colorClass: string;
-    borderColorClass: string;
-}> = ({ label, value, icon, colorClass, borderColorClass }) => (
-    <div className={`bg-white rounded-lg shadow-sm p-4 border-l-4 ${borderColorClass} flex items-center justify-between`}>
-        <div>
-            <p className="text-xs font-semibold text-gray-500 uppercase tracking-wider">{label}</p>
-            <p className="text-2xl font-bold text-gray-800 mt-1">{value}</p>
-        </div>
-        <div className={`p-2 rounded-full ${colorClass}`}>
-            {icon}
-        </div>
-    </div>
-);
+// Cấu hình hiển thị cho từng loại tin tức
+const CATEGORY_CONFIG: Record<NewsItem['category'], { label: string, icon: React.ReactNode, color: string }> = {
+    notification: { 
+        label: 'Thông báo', 
+        icon: <MegaphoneIcon className="w-3 h-3" />, 
+        color: 'text-blue-600 bg-blue-50 border-blue-100' 
+    },
+    plan: { 
+        label: 'Kế hoạch', 
+        icon: <CalendarDaysIcon className="w-3 h-3" />, 
+        color: 'text-orange-600 bg-orange-50 border-orange-100' 
+    },
+    event: { 
+        label: 'Sự kiện', 
+        icon: <SparklesIcon className="w-3 h-3" />, 
+        color: 'text-purple-600 bg-purple-50 border-purple-100' 
+    },
+};
 
 const NewsEditorModal: React.FC<{
   newsItem?: ExtendedNewsItem | null;
@@ -114,9 +116,28 @@ const NewsEditorModal: React.FC<{
             <input name="title" value={item.title} onChange={handleChange} className={inputStyle} placeholder="Nhập tiêu đề..." required />
         </div>
         <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
-            <div><label className={labelStyle}>Phân loại</label><select name="category" value={item.category} onChange={handleChange} className={inputStyle}><option value="notification">Thông báo</option><option value="plan">Kế hoạch</option><option value="event">Sự kiện</option></select></div>
-            <div><label className={labelStyle}>Độ ưu tiên</label><select name="priority" value={item.priority} onChange={handleChange} className={inputStyle}><option value="normal">Thông thường</option><option value="high">Quan trọng</option></select></div>
-            <div><label className={labelStyle}>Người gửi</label><select name="sender" value={item.sender} onChange={handleChange} className={inputStyle}><option value="BQLVH">BQLVH</option><option value="BQT">BQT</option></select></div>
+            <div>
+                <label className={labelStyle}>Phân loại</label>
+                <select name="category" value={item.category} onChange={handleChange} className={inputStyle}>
+                    <option value="notification">Thông báo</option>
+                    <option value="plan">Kế hoạch</option>
+                    <option value="event">Sự kiện</option>
+                </select>
+            </div>
+            <div>
+                <label className={labelStyle}>Độ ưu tiên</label>
+                <select name="priority" value={item.priority} onChange={handleChange} className={inputStyle}>
+                    <option value="normal">Thông thường</option>
+                    <option value="high">Quan trọng</option>
+                </select>
+            </div>
+            <div>
+                <label className={labelStyle}>Người gửi</label>
+                <select name="sender" value={item.sender} onChange={handleChange} className={inputStyle}>
+                    <option value="BQLVH">BQLVH</option>
+                    <option value="BQT">BQT</option>
+                </select>
+            </div>
         </div>
         <div>
           <label className={labelStyle}>Nội dung</label>
@@ -248,8 +269,8 @@ const NewsManagementPage: React.FC<NewsManagementPageProps> = ({ news, setNews, 
             <SearchIcon className="absolute left-3 top-1/2 -translate-y-1/2 h-5 w-5 text-gray-400" />
             <input type="text" placeholder="Tìm tiêu đề..." value={searchTerm} onChange={e => setSearchTerm(e.target.value)} className="w-full h-10 pl-10 pr-3 border rounded-lg outline-none focus:ring-1 focus:ring-primary"/>
         </div>
-        <select value={categoryFilter} onChange={e => setCategoryFilter(e.target.value)} className="h-10 px-3 border rounded-lg">
-            <option value="all">Tất cả</option>
+        <select value={categoryFilter} onChange={e => setCategoryFilter(e.target.value)} className="h-10 px-3 border rounded-lg text-sm font-medium">
+            <option value="all">Tất cả thể loại</option>
             <option value="notification">Thông báo</option>
             <option value="plan">Kế hoạch</option>
             <option value="event">Sự kiện</option>
@@ -260,30 +281,52 @@ const NewsManagementPage: React.FC<NewsManagementPageProps> = ({ news, setNews, 
       </div>
 
       <div className="flex-1 overflow-y-auto space-y-4">
-        {paginatedNews.map(item => (
-            <div key={item.id} className="flex bg-white border rounded-lg overflow-hidden shadow-sm hover:shadow-md transition-shadow">
-                <div className="w-48 h-32 bg-gray-100 shrink-0">
-                    {item.imageUrl ? <img src={item.imageUrl} className="w-full h-full object-cover" /> : <div className="w-full h-full flex items-center justify-center text-gray-300"><ClockIcon className="w-10 h-10"/></div>}
-                </div>
-                <div className="flex-grow p-4 min-w-0">
-                    <div className="flex items-center gap-2 mb-1">
-                        {item.isPinned && <span className="p-1 bg-orange-100 text-orange-600 rounded-full"><PinIcon className="w-3 h-3" filled/></span>}
-                        <span className="text-[10px] font-black uppercase text-gray-400">{item.category}</span>
-                        {item.priority === 'high' && <span className="text-[10px] font-black uppercase text-red-600">Khẩn</span>}
+        {paginatedNews.map(item => {
+            const config = CATEGORY_CONFIG[item.category];
+            return (
+                <div key={item.id} className="flex bg-white border rounded-lg overflow-hidden shadow-sm hover:shadow-md transition-shadow">
+                    <div className="w-48 h-32 bg-gray-100 shrink-0 border-r relative">
+                        {item.imageUrl ? (
+                            <img src={item.imageUrl} className="w-full h-full object-cover" />
+                        ) : (
+                            <div className="w-full h-full flex items-center justify-center text-gray-300">
+                                <ClockIcon className="w-10 h-10"/>
+                            </div>
+                        )}
+                        {item.isPinned && (
+                            <div className="absolute top-2 left-2 p-1.5 bg-orange-500 text-white rounded-lg shadow-lg">
+                                <PinIcon className="w-3.5 h-3.5" filled/>
+                            </div>
+                        )}
                     </div>
-                    <h3 className="font-bold text-gray-900 truncate">{item.title}</h3>
-                    <div className="flex items-center gap-4 mt-4 text-[10px] text-gray-400 font-bold uppercase tracking-widest">
-                        <span>{new Date(item.date).toLocaleDateString('vi-VN')}</span>
-                        <span>{item.sender || 'BQLVH'}</span>
+                    <div className="flex-grow p-4 min-w-0 flex flex-col justify-between">
+                        <div>
+                            <div className="flex items-center gap-2 mb-2">
+                                <span className={`flex items-center gap-1.5 px-2.5 py-0.5 rounded-full text-[10px] font-black uppercase tracking-wider border ${config.color}`}>
+                                    {config.icon}
+                                    {config.label}
+                                </span>
+                                {item.priority === 'high' && (
+                                    <span className="flex items-center gap-1 px-2.5 py-0.5 rounded-full text-[10px] font-black uppercase tracking-wider bg-red-100 text-red-600 border border-red-200">
+                                        Khẩn
+                                    </span>
+                                )}
+                            </div>
+                            <h3 className="font-bold text-gray-900 text-base line-clamp-1">{item.title}</h3>
+                        </div>
+                        <div className="flex items-center gap-4 text-[10px] text-gray-400 font-bold uppercase tracking-widest">
+                            <span className="flex items-center gap-1"><ClockIcon className="w-3 h-3"/>{new Date(item.date).toLocaleDateString('vi-VN')}</span>
+                            <span className="flex items-center gap-1"><UserCircleIcon className="w-3 h-3"/>{item.sender || 'BQLVH'}</span>
+                        </div>
+                    </div>
+                    <div className="p-2 flex flex-col gap-2 border-l bg-gray-50/50">
+                        <button onClick={() => setEditingItem(item)} className="p-2 text-blue-600 hover:bg-blue-100 rounded-lg transition-colors" title="Chỉnh sửa"><PencilSquareIcon className="w-5 h-5"/></button>
+                        <button onClick={() => handleBroadcast(item)} disabled={item.isBroadcasted} className={`p-2 rounded-lg transition-colors ${item.isBroadcasted ? 'text-green-600' : 'text-gray-400 hover:bg-green-100 hover:text-green-600'}`} title="Phát thông báo đẩy"><PaperAirplaneIcon className="w-5 h-5"/></button>
+                        <button onClick={() => handleDelete(item.id)} className="p-2 text-red-600 hover:bg-red-100 rounded-lg transition-colors" title="Xóa"><TrashIcon className="w-5 h-5"/></button>
                     </div>
                 </div>
-                <div className="p-2 flex flex-col gap-2 border-l">
-                    <button onClick={() => setEditingItem(item)} className="p-2 text-blue-600 hover:bg-blue-50 rounded"><PencilSquareIcon className="w-5 h-5"/></button>
-                    <button onClick={() => handleBroadcast(item)} disabled={item.isBroadcasted} className={`p-2 rounded ${item.isBroadcasted ? 'text-green-600' : 'text-gray-400 hover:bg-green-50 hover:text-green-600'}`}><PaperAirplaneIcon className="w-5 h-5"/></button>
-                    <button onClick={() => handleDelete(item.id)} className="p-2 text-red-600 hover:bg-red-50 rounded"><TrashIcon className="w-5 h-5"/></button>
-                </div>
-            </div>
-        ))}
+            );
+        })}
       </div>
 
       <div className="fixed bottom-0 right-0 z-50 h-7 flex items-center gap-4 px-6 bg-white border-t border-l border-gray-200">

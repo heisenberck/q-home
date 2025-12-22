@@ -7,9 +7,10 @@ import { isProduction } from '../../utils/env';
 
 interface NotificationListenerProps {
     userId: string;
+    onNewNotification?: (data: any) => void;
 }
 
-const NotificationListener: React.FC<NotificationListenerProps> = ({ userId }) => {
+const NotificationListener: React.FC<NotificationListenerProps> = ({ userId, onNewNotification }) => {
     const { showToast } = useNotification();
     const isFirstLoad = useRef(true);
     const IS_PROD = isProduction();
@@ -17,7 +18,6 @@ const NotificationListener: React.FC<NotificationListenerProps> = ({ userId }) =
     useEffect(() => {
         if (!userId || !IS_PROD) return;
 
-        // Truy vấn này chỉ chạy trên Production
         const q = query(
             collection(db, 'notifications'),
             where('userId', '==', userId),
@@ -35,7 +35,11 @@ const NotificationListener: React.FC<NotificationListenerProps> = ({ userId }) =
             snapshot.docChanges().forEach((change) => {
                 if (change.type === 'added') {
                     const data = change.doc.data();
-                    showToast(`🔔 ${data.title}`, 'info', 6000);
+                    if (onNewNotification) {
+                        onNewNotification(data);
+                    } else {
+                        showToast(`🔔 ${data.title}`, 'info', 6000);
+                    }
                 }
             });
         }, (error) => {
@@ -45,7 +49,7 @@ const NotificationListener: React.FC<NotificationListenerProps> = ({ userId }) =
         });
 
         return () => unsubscribe();
-    }, [userId, showToast, IS_PROD]);
+    }, [userId, showToast, IS_PROD, onNewNotification]);
 
     return null;
 };

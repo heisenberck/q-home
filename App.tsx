@@ -108,6 +108,7 @@ const App: React.FC = () => {
     const [activePage, setActivePage] = useState<AdminPage | PortalPage | AdminPortalPage>('overview');
     const [isChangePasswordModalOpen, setIsChangePasswordModalOpen] = useState(false);
     const [activityLogs, setActivityLogs] = useState<ActivityLog[]>([]);
+    const [unreadResidentNotifCount, setUnreadResidentNotifCount] = useState(0);
 
     useEffect(() => {
         const handleResize = () => setIsMobile(window.innerWidth < 768);
@@ -202,26 +203,29 @@ const App: React.FC = () => {
 
     const handleImportResidents = (updates: any[]) => importResidentsBatch(localUnits, localOwners, localVehicles, updates).then(() => { refreshSystemData(true); refreshLogs(); });
 
-    // Tin tức bền vững
     const handleSetNews = async (updater: React.SetStateAction<NewsItem[]>) => {
         if (typeof updater === 'function') {
-            // Trường hợp cập nhật phức tạp, ta nạp lại từ DB sau khi lưu lẻ
             refreshSystemData(true);
         } else {
             setLocalNews(updater);
         }
     };
 
-    // Notification Handlers missing in root App.tsx
     const handleMarkNewsAsRead = useCallback(() => {
-        showToast('Đã đánh dấu tin tức là đã đọc', 'info');
+        // News themselves are handled by localNews filtering archived
+        showToast('Đã xem tin tức', 'info');
     }, [showToast]);
 
     const handleMarkBellAsRead = useCallback(() => {
+        setUnreadResidentNotifCount(0);
         showToast('Đã xem tất cả thông báo', 'info');
     }, [showToast]);
 
-    // Helper functions missing in root App.tsx
+    const handleNewResidentNotification = useCallback((data: any) => {
+        setUnreadResidentNotifCount(prev => prev + 1);
+        // We can optionally still show a toast if the user is not looking at the bell
+    }, []);
+
     const renderAdminPage = () => {
         switch (activePage as AdminPage) {
             case 'overview': return <OverviewPage allUnits={localUnits} allOwners={localOwners} allVehicles={localVehicles} allWaterReadings={localWaterReadings} charges={localCharges} activityLogs={activityLogs} feedback={localFeedback} onNavigate={(p) => setActivePage(p as AdminPage)} monthlyStats={monthlyStats} />;
@@ -277,9 +281,9 @@ const App: React.FC = () => {
         return { 
             unreadNews: localNews.filter(n => !n.isArchived).length,
             hasUnpaidBill: localCharges.some(c => c.UnitID === user?.residentId && !['paid', 'paid_tm', 'paid_ck'].includes(c.paymentStatus)),
-            hasNewNotifications: false 
+            hasNewNotifications: unreadResidentNotifCount > 0 
         };
-    }, [localNews, localCharges, user]);
+    }, [localNews, localCharges, user, unreadResidentNotifCount]);
 
     return (
         <AuthContext.Provider value={{ user, login: handleLogin, logout: handleLogout, updateUser: handleUpdateUser, handleDeleteUsers: handleDeleteUsersAction }}>
@@ -293,7 +297,7 @@ const App: React.FC = () => {
                             </>
                         ) : (
                             <>
-                                <NotificationListener userId={user.Username || user.Email} />
+                                <NotificationListener userId={user.Username || user.Email} onNewNotification={handleNewResidentNotification} />
                                 {isResident ? (
                                     <ResidentLayout activePage={activePage as PortalPage} setActivePage={setActivePage as (p: PortalPage) => void} user={user} owner={localOwners.find(o => o.OwnerID === localUnits.find(u => u.UnitID === user.residentId)?.OwnerID) || null} onUpdateOwner={() => {}} onChangePassword={() => setIsChangePasswordModalOpen(true)} notifications={portalNotifications} onMarkNewsAsRead={handleMarkNewsAsRead} onMarkBellAsRead={handleMarkBellAsRead}>
                                         {renderResidentPage()}
@@ -308,7 +312,7 @@ const App: React.FC = () => {
                                         <div className="flex-1 flex flex-col min-w-0 overflow-hidden">
                                             <Header pageTitle={ADMIN_PAGE_TITLES[activePage as AdminPage] || 'Hệ thống'} onNavigate={(p) => setActivePage(p as AdminPage)} />
                                             <main className="flex-1 overflow-y-auto p-4 md:p-6 lg:p-8">
-                                                {activePage === 'newsManagement' ? <NewsManagementPage news={localNews} setNews={handleSetNews} role={user.Role} users={localUsers} /> : renderAdminPage()}
+                                                {renderAdminPage()}
                                             </main>
                                             <Footer />
                                         </div>
