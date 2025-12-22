@@ -1,7 +1,7 @@
 
 // services/mockAPI.ts
-import type { InvoiceSettings, Unit, Owner, Vehicle, WaterReading, ChargeRaw, Adjustment, UserPermission, ActivityLog, MonthlyStat, TariffCollection, PaymentStatus, ProfileRequest, MiscRevenue } from '../types';
-import { MOCK_UNITS, MOCK_OWNERS, MOCK_VEHICLES, MOCK_WATER_READINGS, MOCK_TARIFFS_SERVICE, MOCK_TARIFFS_PARKING, MOCK_TARIFFS_WATER, MOCK_ADJUSTMENTS, MOCK_USER_PERMISSIONS, patchKiosAreas } from '../constants';
+import type { InvoiceSettings, Unit, Owner, Vehicle, WaterReading, ChargeRaw, Adjustment, UserPermission, ActivityLog, MonthlyStat, TariffCollection, PaymentStatus, ProfileRequest, MiscRevenue, NewsItem, SystemMetadata } from '../types';
+import { MOCK_UNITS, MOCK_OWNERS, MOCK_VEHICLES, MOCK_WATER_READINGS, MOCK_TARIFFS_SERVICE, MOCK_TARIFFS_PARKING, MOCK_TARIFFS_WATER, MOCK_ADJUSTMENTS, MOCK_USER_PERMISSIONS, MOCK_NEWS_ITEMS, patchKiosAreas } from '../constants';
 import { VehicleTier, Role } from '../types';
 
 const DB_PREFIX = 'QHOME_MOCK_DB_V2_';
@@ -31,6 +31,7 @@ let waterReadings: WaterReading[] = loadFromStorage('waterReadings', JSON.parse(
 let charges: ChargeRaw[] = loadFromStorage('charges', []);
 let adjustments: Adjustment[] = loadFromStorage('adjustments', JSON.parse(JSON.stringify(MOCK_ADJUSTMENTS)));
 let users: UserPermission[] = loadFromStorage('users', JSON.parse(JSON.stringify(MOCK_USER_PERMISSIONS)));
+let news: NewsItem[] = loadFromStorage('news', JSON.parse(JSON.stringify(MOCK_NEWS_ITEMS)));
 let activityLogs: ActivityLog[] = loadFromStorage('activityLogs', []);
 let profileRequests: ProfileRequest[] = loadFromStorage('profileRequests', []);
 let miscRevenues: MiscRevenue[] = loadFromStorage('miscRevenues', []);
@@ -74,13 +75,74 @@ export const loadAllData = async () => {
         .map(([period]) => period);
 
     return Promise.resolve({
-        units, owners, vehicles, waterReadings, charges, adjustments, users, activityLogs, invoiceSettings, tariffs, monthlyStats, 
+        units, owners, vehicles, waterReadings, charges, adjustments, users, activityLogs, invoiceSettings, tariffs, monthlyStats, news,
         lockedWaterPeriods,
         hasData: units.length > 0
     });
 };
 
-// --- NEW: Update User Profile ---
+// --- Missing functions for useSmartData ---
+
+export const getSystemMetadata = async (): Promise<SystemMetadata> => {
+    return Promise.resolve({
+        units_version: Date.now(),
+        owners_version: Date.now(),
+        vehicles_version: Date.now(),
+        tariffs_version: Date.now(),
+        users_version: Date.now()
+    });
+};
+
+export const fetchCollection = async <T>(colName: string): Promise<T[]> => {
+    switch (colName) {
+        case 'units': return Promise.resolve(units as unknown as T[]);
+        case 'owners': return Promise.resolve(owners as unknown as T[]);
+        case 'vehicles': return Promise.resolve(vehicles as unknown as T[]);
+        case 'waterReadings': return Promise.resolve(waterReadings as unknown as T[]);
+        case 'adjustments': return Promise.resolve(adjustments as unknown as T[]);
+        case 'users': return Promise.resolve(users as unknown as T[]);
+        case 'charges': return Promise.resolve(charges as unknown as T[]);
+        case 'monthly_stats': return Promise.resolve(monthlyStats as unknown as T[]);
+        default: return Promise.resolve([]);
+    }
+};
+
+export const fetchRecentAdjustments = async (startPeriod: string): Promise<Adjustment[]> => {
+    return Promise.resolve(adjustments.filter(a => a.Period >= startPeriod));
+};
+
+export const fetchRecentWaterReadings = async (periods: string[]): Promise<WaterReading[]> => {
+    return Promise.resolve(waterReadings.filter(r => periods.includes(r.Period)));
+};
+
+export const fetchResidentSpecificData = async (residentId: string) => {
+    const unit = units.find(u => u.UnitID === residentId);
+    if (!unit) return Promise.resolve({ unit: null, owner: null, vehicles: [] });
+    const owner = owners.find(o => o.OwnerID === unit.OwnerID);
+    const unitVehicles = vehicles.filter(v => v.UnitID === residentId && v.isActive);
+    return Promise.resolve({ unit, owner, vehicles: unitVehicles });
+};
+
+// --- NEWS MANAGEMENT ---
+export const fetchNews = async (): Promise<NewsItem[]> => Promise.resolve(news);
+
+export const saveNewsItem = async (item: NewsItem): Promise<string> => {
+    if (item.id && !item.id.startsWith('news_mock')) {
+        news = news.map(n => n.id === item.id ? item : n);
+    } else {
+        item.id = `news_mock_${Date.now()}`;
+        news = [item, ...news];
+    }
+    saveToStorage('news', news);
+    return Promise.resolve(item.id);
+};
+
+export const deleteNewsItem = async (id: string): Promise<void> => {
+    news = news.filter(n => n.id !== id);
+    saveToStorage('news', news);
+    return Promise.resolve();
+};
+
 export const updateUserProfile = async (email: string, updates: Partial<UserPermission>) => {
     users = users.map(u => u.Email === email ? { ...u, ...updates } : u);
     saveToStorage('users', users);
@@ -210,7 +272,7 @@ export const updateResidentData = async (
 
 export const wipeAllBusinessData = async (progressCallback: (message: string) => void) => {
     progressCallback("Cleaning LocalStorage...");
-    const keys = ['units', 'owners', 'vehicles', 'waterReadings', 'charges', 'adjustments', 'activityLogs', 'monthlyStats', 'waterLocks', 'billingLocks', 'profileRequests', 'miscRevenues'];
+    const keys = ['units', 'owners', 'vehicles', 'waterReadings', 'charges', 'adjustments', 'activityLogs', 'monthlyStats', 'waterLocks', 'billingLocks', 'profileRequests', 'miscRevenues', 'news'];
     keys.forEach(k => localStorage.removeItem(DB_PREFIX + k));
     await new Promise(r => setTimeout(r, 500));
     progressCallback("Restored to Factory Mock Data.");

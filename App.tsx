@@ -35,14 +35,13 @@ import AdminPortalResidentsPage from './components/pages/admin-portal/AdminPorta
 import AdminPortalVehiclesPage from './components/pages/admin-portal/AdminPortalVehiclesPage';
 import AdminPortalBillingPage from './components/pages/admin-portal/AdminPortalBillingPage';
 import Toast, { ToastMessage, ToastType } from './components/ui/Toast';
-import { deleteUsers, updateResidentData, importResidentsBatch, updateFeeSettings, fetchLatestLogs, updateUserProfile } from './services';
+import { deleteUsers, updateResidentData, importResidentsBatch, updateFeeSettings, fetchLatestLogs, updateUserProfile, saveNewsItem, deleteNewsItem } from './services';
 import ChangePasswordModal from './components/pages/ChangePasswordModal';
 import NotificationListener from './components/common/NotificationListener';
 
 // --- Types ---
 export type AdminPage = 'overview' | 'billing' | 'residents' | 'vehicles' | 'water' | 'pricing' | 'users' | 'settings' | 'backup' | 'activityLog' | 'newsManagement' | 'feedbackManagement' | 'vas';
 
-// Add LogPayload interface to fix import error in components/pages/BillingPage.tsx
 export interface LogPayload {
     module: string;
     action: string;
@@ -52,7 +51,6 @@ export interface LogPayload {
     ids?: string[];
 }
 
-// --- ADMIN_PAGE_TITLES ---
 const ADMIN_PAGE_TITLES: Record<AdminPage, string> = {
     overview: 'Tổng quan hệ thống',
     billing: 'Bảng tính phí dịch vụ',
@@ -77,61 +75,31 @@ interface AuthContextType {
     updateUser: (updatedUser: UserPermission, oldEmail: string) => Promise<void>;
     handleDeleteUsers: (usernames: string[]) => void;
 }
-
 const AuthContext = createContext<AuthContextType | undefined>(undefined);
 
 interface NotificationContextType {
     showToast: (message: string, type: ToastType, duration?: number) => void;
 }
-
 const NotificationContext = createContext<NotificationContextType | undefined>(undefined);
 
 interface SettingsContextType {
     invoiceSettings: InvoiceSettings;
     setInvoiceSettings: (settings: InvoiceSettings) => Promise<void>;
 }
-
 const SettingsContext = createContext<SettingsContextType | undefined>(undefined);
 
 interface DataRefreshContextType {
     refreshData: (force?: boolean) => void;
 }
-
 const DataRefreshContext = createContext<DataRefreshContextType | undefined>(undefined);
 
 // --- Hooks ---
-export const useAuth = () => {
-    const context = useContext(AuthContext);
-    if (!context) throw new Error('useAuth must be used within an AuthProvider');
-    return context;
-};
+export const useAuth = () => { const context = useContext(AuthContext); if (!context) throw new Error('useAuth must be used within an AuthProvider'); return context; };
+export const useNotification = () => { const context = useContext(NotificationContext); if (!context) throw new Error('useNotification must be used within a NotificationProvider'); return context; };
+export const useSettings = () => { const context = useContext(SettingsContext); if (!context) throw new Error('useSettings must be used within a SettingsProvider'); return context; };
+export const useDataRefresh = () => { const context = useContext(DataRefreshContext); if (!context) throw new Error('useDataRefresh must be used within a DataRefreshProvider'); return context; };
 
-export const useNotification = () => {
-    const context = useContext(NotificationContext);
-    if (!context) throw new Error('useNotification must be used within a NotificationProvider');
-    return context;
-};
-
-export const useSettings = () => {
-    const context = useContext(SettingsContext);
-    if (!context) throw new Error('useSettings must be used within a SettingsProvider');
-    return context;
-};
-
-export const useDataRefresh = () => {
-    const context = useContext(DataRefreshContext);
-    if (!context) throw new Error('useDataRefresh must be used within a DataRefreshProvider');
-    return context;
-};
-
-const DEFAULT_SETTINGS: InvoiceSettings = {
-    logoUrl: '',
-    accountName: '',
-    accountNumber: '',
-    bankName: '',
-    senderEmail: '',
-    buildingName: 'Q-Home Manager'
-};
+const DEFAULT_SETTINGS: InvoiceSettings = { logoUrl: '', accountName: '', accountNumber: '', bankName: '', senderEmail: '', buildingName: 'Q-Home Manager' };
 
 const App: React.FC = () => {
     const [user, setUser] = useState<UserPermission | null>(null);
@@ -142,10 +110,7 @@ const App: React.FC = () => {
     const [activityLogs, setActivityLogs] = useState<ActivityLog[]>([]);
 
     useEffect(() => {
-        const handleResize = () => {
-            const mobile = window.innerWidth < 768;
-            setIsMobile(mobile);
-        };
+        const handleResize = () => setIsMobile(window.innerWidth < 768);
         window.addEventListener('resize', handleResize);
         return () => window.removeEventListener('resize', handleResize);
     }, []);
@@ -156,21 +121,13 @@ const App: React.FC = () => {
             try {
                 const parsed = JSON.parse(rememberedUserStr);
                 setUser(parsed);
-                if (parsed.Role === 'Resident') {
-                    setActivePage('portalHome');
-                } else if (window.innerWidth < 768) {
-                    setActivePage('adminPortalHome');
-                } else {
-                    setActivePage('overview');
-                }
-            } catch (e) {
-                localStorage.removeItem('rememberedUserObject');
-            }
+                setActivePage(parsed.Role === 'Resident' ? 'portalHome' : (window.innerWidth < 768 ? 'adminPortalHome' : 'overview'));
+            } catch (e) { localStorage.removeItem('rememberedUserObject'); }
         }
     }, []);
 
     const { 
-        units, owners, vehicles, waterReadings, charges, adjustments, users: fetchedUsers, 
+        units, owners, vehicles, waterReadings, charges, adjustments, users: fetchedUsers, news,
         invoiceSettings, tariffs, monthlyStats, lockedWaterPeriods,
         refreshSystemData 
     } = useSmartSystemData(user);
@@ -187,15 +144,10 @@ const App: React.FC = () => {
     const [localNews, setLocalNews] = useState<NewsItem[]>([]);
 
     useEffect(() => {
-        setLocalUnits(units);
-        setLocalOwners(owners);
-        setLocalVehicles(vehicles);
-        setLocalWaterReadings(waterReadings);
-        setLocalCharges(charges);
-        setLocalAdjustments(adjustments);
-        setLocalUsers(fetchedUsers);
-        setLocalTariffs(tariffs);
-    }, [units, owners, vehicles, waterReadings, charges, adjustments, fetchedUsers, tariffs]);
+        setLocalUnits(units); setLocalOwners(owners); setLocalVehicles(vehicles); setLocalWaterReadings(waterReadings);
+        setLocalCharges(charges); setLocalAdjustments(adjustments); setLocalUsers(fetchedUsers); setLocalTariffs(tariffs);
+        setLocalNews(news);
+    }, [units, owners, vehicles, waterReadings, charges, adjustments, fetchedUsers, tariffs, news]);
 
     const refreshLogs = useCallback(async () => {
         if (!user || user.Role === 'Resident') return;
@@ -204,57 +156,32 @@ const App: React.FC = () => {
     }, [user]);
 
     useEffect(() => {
-        if (activePage === 'overview' || activePage === 'activityLog' || activePage === 'residents' || activePage === 'vehicles') {
-            refreshLogs();
-        }
+        if (['overview', 'activityLog', 'residents', 'vehicles'].includes(activePage)) refreshLogs();
     }, [activePage, refreshLogs]);
 
     const showToast = useCallback((message: string, type: ToastType, duration: number = 3000) => {
-        const id = Date.now();
-        setToasts(prev => [...prev, { id, message, type, duration }]);
+        const id = Date.now(); setToasts(prev => [...prev, { id, message, type, duration }]);
     }, []);
 
-    const removeToast = (id: number) => {
-        setToasts(prev => prev.filter(t => t.id !== id));
-    };
+    const removeToast = (id: number) => setToasts(prev => prev.filter(t => t.id !== id));
 
     const handleLogin = (loggedInUser: UserPermission, rememberMe: boolean) => {
         setUser(loggedInUser);
-        if (rememberMe) {
-            localStorage.setItem('rememberedUserObject', JSON.stringify(loggedInUser));
-        } else {
-            localStorage.removeItem('rememberedUserObject');
-        }
-        if (loggedInUser.Role === 'Resident') {
-            setActivePage('portalHome');
-        } else if (window.innerWidth < 768) {
-            setActivePage('adminPortalHome');
-        } else {
-            setActivePage('overview');
-        }
-        if (loggedInUser.mustChangePassword) {
-            setIsChangePasswordModalOpen(true);
-        }
+        if (rememberMe) localStorage.setItem('rememberedUserObject', JSON.stringify(loggedInUser));
+        else localStorage.removeItem('rememberedUserObject');
+        setActivePage(loggedInUser.Role === 'Resident' ? 'portalHome' : (window.innerWidth < 768 ? 'adminPortalHome' : 'overview'));
+        if (loggedInUser.mustChangePassword) setIsChangePasswordModalOpen(true);
     };
 
-    const handleLogout = () => {
-        setUser(null);
-        localStorage.removeItem('rememberedUserObject');
-        setActivePage('overview');
-    };
+    const handleLogout = () => { setUser(null); localStorage.removeItem('rememberedUserObject'); setActivePage('overview'); };
 
     const handleUpdateUser = async (updatedUser: UserPermission, oldEmail: string) => {
-        // Persist to DB
         await updateUserProfile(oldEmail, updatedUser);
-        // Update Local State
         setLocalUsers(prev => prev.map(u => u.Email === oldEmail ? updatedUser : u));
         if (user?.Email === oldEmail) {
             setUser(updatedUser);
-            // Update localStorage if remembered
             const remembered = localStorage.getItem('rememberedUserObject');
-            if (remembered) {
-                localStorage.setItem('rememberedUserObject', JSON.stringify(updatedUser));
-            }
+            if (remembered) localStorage.setItem('rememberedUserObject', JSON.stringify(updatedUser));
         }
     };
 
@@ -265,25 +192,27 @@ const App: React.FC = () => {
         deleteUsers(emailsToDelete);
     };
 
-    const handleSetInvoiceSettings = async (settings: InvoiceSettings) => {
-        await updateFeeSettings(settings);
-        refreshSystemData(true);
-    };
+    const handleSetInvoiceSettings = async (settings: InvoiceSettings) => { await updateFeeSettings(settings); refreshSystemData(true); };
 
     const handleSaveResident = async (data: { unit: Unit, owner: Owner, vehicles: Vehicle[] }, reason: string) => {
         if (!user) return;
         await updateResidentData(localUnits, localOwners, localVehicles, data, { email: user.Email, role: user.Role }, reason);
-        refreshSystemData(true);
-        refreshLogs(); 
+        refreshSystemData(true); refreshLogs(); 
     };
 
-    const handleImportResidents = (updates: any[]) => {
-        importResidentsBatch(localUnits, localOwners, localVehicles, updates).then(() => {
+    const handleImportResidents = (updates: any[]) => importResidentsBatch(localUnits, localOwners, localVehicles, updates).then(() => { refreshSystemData(true); refreshLogs(); });
+
+    // Tin tức bền vững
+    const handleSetNews = async (updater: React.SetStateAction<NewsItem[]>) => {
+        if (typeof updater === 'function') {
+            // Trường hợp cập nhật phức tạp, ta nạp lại từ DB sau khi lưu lẻ
             refreshSystemData(true);
-            refreshLogs();
-        });
+        } else {
+            setLocalNews(updater);
+        }
     };
 
+    // Notification Handlers missing in root App.tsx
     const handleMarkNewsAsRead = useCallback(() => {
         showToast('Đã đánh dấu tin tức là đã đọc', 'info');
     }, [showToast]);
@@ -292,14 +221,7 @@ const App: React.FC = () => {
         showToast('Đã xem tất cả thông báo', 'info');
     }, [showToast]);
 
-    const notifications = useMemo(() => {
-        return { 
-            unreadNews: localNews.filter(n => !n.isArchived).length,
-            hasUnpaidBill: localCharges.some(c => c.UnitID === user?.residentId && !['paid', 'paid_tm', 'paid_ck'].includes(c.paymentStatus)),
-            hasNewNotifications: false 
-        };
-    }, [localNews, localCharges, user]);
-
+    // Helper functions missing in root App.tsx
     const renderAdminPage = () => {
         switch (activePage as AdminPage) {
             case 'overview': return <OverviewPage allUnits={localUnits} allOwners={localOwners} allVehicles={localVehicles} allWaterReadings={localWaterReadings} charges={localCharges} activityLogs={activityLogs} feedback={localFeedback} onNavigate={(p) => setActivePage(p as AdminPage)} monthlyStats={monthlyStats} />;
@@ -313,7 +235,7 @@ const App: React.FC = () => {
             case 'settings': return <SettingsPage invoiceSettings={invoiceSettings || DEFAULT_SETTINGS} setInvoiceSettings={handleSetInvoiceSettings} role={user!.Role} />;
             case 'backup': return <BackupRestorePage allData={{ units: localUnits, owners: localOwners, vehicles: localVehicles, waterReadings: localWaterReadings, charges: localCharges, adjustments: localAdjustments, users: localUsers, tariffs: localTariffs }} onRestore={(d) => refreshSystemData(true)} role={user!.Role} />;
             case 'activityLog': return <ActivityLogPage logs={activityLogs} onUndo={()=>{}} role={user!.Role} />;
-            case 'newsManagement': return <NewsManagementPage news={localNews} setNews={setLocalNews} role={user!.Role} users={localUsers} />;
+            case 'newsManagement': return <NewsManagementPage news={localNews} setNews={handleSetNews} role={user!.Role} users={localUsers} />;
             case 'feedbackManagement': return <FeedbackManagementPage feedback={localFeedback} setFeedback={setLocalFeedback} role={user!.Role} />;
             default: return <OverviewPage allUnits={localUnits} allOwners={localOwners} allVehicles={localVehicles} allWaterReadings={localWaterReadings} charges={localCharges} activityLogs={activityLogs} feedback={localFeedback} onNavigate={(p) => setActivePage(p as AdminPage)} monthlyStats={monthlyStats} />;
         }
@@ -351,6 +273,14 @@ const App: React.FC = () => {
 
     const isResident = user?.Role === 'Resident';
 
+    const portalNotifications = useMemo(() => {
+        return { 
+            unreadNews: localNews.filter(n => !n.isArchived).length,
+            hasUnpaidBill: localCharges.some(c => c.UnitID === user?.residentId && !['paid', 'paid_tm', 'paid_ck'].includes(c.paymentStatus)),
+            hasNewNotifications: false 
+        };
+    }, [localNews, localCharges, user]);
+
     return (
         <AuthContext.Provider value={{ user, login: handleLogin, logout: handleLogout, updateUser: handleUpdateUser, handleDeleteUsers: handleDeleteUsersAction }}>
             <NotificationContext.Provider value={{ showToast }}>
@@ -365,7 +295,7 @@ const App: React.FC = () => {
                             <>
                                 <NotificationListener userId={user.Username || user.Email} />
                                 {isResident ? (
-                                    <ResidentLayout activePage={activePage as PortalPage} setActivePage={setActivePage as (p: PortalPage) => void} user={user} owner={localOwners.find(o => o.OwnerID === localUnits.find(u => u.UnitID === user.residentId)?.OwnerID) || null} onUpdateOwner={() => {}} onChangePassword={() => setIsChangePasswordModalOpen(true)} notifications={notifications} onMarkNewsAsRead={handleMarkNewsAsRead} onMarkBellAsRead={handleMarkBellAsRead}>
+                                    <ResidentLayout activePage={activePage as PortalPage} setActivePage={setActivePage as (p: PortalPage) => void} user={user} owner={localOwners.find(o => o.OwnerID === localUnits.find(u => u.UnitID === user.residentId)?.OwnerID) || null} onUpdateOwner={() => {}} onChangePassword={() => setIsChangePasswordModalOpen(true)} notifications={portalNotifications} onMarkNewsAsRead={handleMarkNewsAsRead} onMarkBellAsRead={handleMarkBellAsRead}>
                                         {renderResidentPage()}
                                     </ResidentLayout>
                                 ) : isMobile ? (
@@ -376,9 +306,9 @@ const App: React.FC = () => {
                                     <div className="flex h-screen bg-gray-50 overflow-hidden">
                                         <Sidebar activePage={activePage as AdminPage} setActivePage={(p) => setActivePage(p as AdminPage)} role={user.Role} />
                                         <div className="flex-1 flex flex-col min-w-0 overflow-hidden">
-                                            <Header pageTitle={ADMIN_PAGE_TITLES[activePage as AdminPage] || 'Hệ thống Quản lý'} onNavigate={(p) => setActivePage(p as AdminPage)} />
+                                            <Header pageTitle={ADMIN_PAGE_TITLES[activePage as AdminPage] || 'Hệ thống'} onNavigate={(p) => setActivePage(p as AdminPage)} />
                                             <main className="flex-1 overflow-y-auto p-4 md:p-6 lg:p-8">
-                                                {renderAdminPage()}
+                                                {activePage === 'newsManagement' ? <NewsManagementPage news={localNews} setNews={handleSetNews} role={user.Role} users={localUsers} /> : renderAdminPage()}
                                             </main>
                                             <Footer />
                                         </div>

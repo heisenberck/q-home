@@ -43,5 +43,14 @@ export const {
     getMiscRevenues,
     getMonthlyMiscRevenues,
     deleteMiscRevenue,
-    updateUserProfile, // NEW
+    updateUserProfile,
+    fetchNews,
+    saveNewsItem,
+    deleteNewsItem,
+    // Add missing exports for useSmartData
+    getSystemMetadata,
+    fetchCollection,
+    fetchRecentAdjustments,
+    fetchRecentWaterReadings,
+    fetchResidentSpecificData
 } = api;

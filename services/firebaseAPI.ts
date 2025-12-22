@@ -8,7 +8,7 @@ import type {
     ChargeRaw, Adjustment, UserPermission, ActivityLog, 
     AllData, PaymentStatus, MonthlyStat, SystemMetadata, 
     ProfileRequest, MiscRevenue, TariffCollection, AdminNotification,
-    Role
+    Role, NewsItem
 } from '../types';
 import { VehicleTier } from '../types';
 
@@ -29,9 +29,6 @@ const bumpVersion = (batch: any, field: keyof SystemMetadata) => {
     batch.set(metaRef, { [field]: Date.now() }, { merge: true });
 };
 
-/**
- * Ghi log vào activity_logs và gửi thông báo vào admin_notifications
- */
 const injectLogAndNotif = (batch: any, log: any) => {
     const logId = `log_${Date.now()}_${Math.random().toString(36).substr(2, 5)}`;
     const logRef = doc(db, 'activity_logs', logId);
@@ -50,7 +47,6 @@ const injectLogAndNotif = (batch: any, log: any) => {
     };
     batch.set(logRef, logData);
 
-    // Ghi thông báo chuông
     const notifRef = doc(collection(db, 'admin_notifications'));
     const notifData: AdminNotification = {
         id: notifRef.id,
@@ -63,7 +59,28 @@ const injectLogAndNotif = (batch: any, log: any) => {
     batch.set(notifRef, notifData);
 };
 
-// --- NEW: Update User Profile ---
+// --- NEWS MANAGEMENT ---
+export const fetchNews = async (): Promise<NewsItem[]> => {
+    const q = query(collection(db, 'news'), orderBy('date', 'desc'));
+    const snap = await getDocs(q);
+    return snap.docs.map(d => ({ id: d.id, ...d.data() } as NewsItem));
+};
+
+export const saveNewsItem = async (item: NewsItem): Promise<string> => {
+    const { id, ...data } = item;
+    if (id && !id.startsWith('news_mock')) {
+        await setDoc(doc(db, 'news', id), data, { merge: true });
+        return id;
+    } else {
+        const docRef = await addDoc(collection(db, 'news'), data);
+        return docRef.id;
+    }
+};
+
+export const deleteNewsItem = async (id: string): Promise<void> => {
+    await deleteDoc(doc(db, 'news', id));
+};
+
 export const updateUserProfile = async (email: string, updates: Partial<UserPermission>) => {
     const userRef = doc(db, 'users', email);
     await updateDoc(userRef, updates);

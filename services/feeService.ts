@@ -1,6 +1,5 @@
 
-
-import type { ChargeRaw, Unit, Owner, Vehicle, WaterReading, Adjustment, AllData, PaymentStatus } from '../types';
+import type { ChargeRaw, Unit, Owner, Vehicle, WaterReading, Adjustment, AllData, PaymentStatus, TariffParking } from '../types';
 import { UnitType, VehicleTier, ParkingTariffTier } from '../types';
 import { getPreviousPeriod } from '../utils/helpers';
 
@@ -20,27 +19,12 @@ const applyVAT = (net: number, vatRate: number) => {
 const isBusinessUnit = (unit: Unit) => unit.UnitType === UnitType.KIOS || unit.Status === 'Business';
 
 /**
- * REWRITTEN (2024-08-01): Retrieves the persisted water consumption for a specific billing period.
- *
- * Business Logic:
- * The system now calculates and saves the `consumption` value at the time of data entry (manual or import).
- * This function's sole responsibility is to read that pre-calculated, authoritative value from the database record.
- * This ensures consistency between the Water Management page and the Billing module.
- *
- * @param unitId The ID of the unit.
- * @param readingPeriod The period (YYYY-MM) for which to retrieve consumption.
- * @param allWaterReadings The complete list of water readings from the database.
- * @returns The persisted water consumption in m³. If no record or consumption value exists, returns 0.
+ * Lấy chỉ số tiêu thụ nước đã được lưu trữ cho một kỳ nhất định.
  */
 const getWaterUsage = (unitId: string, readingPeriod: string, allWaterReadings: WaterReading[]): number => {
-    // Find the reading for the specified period.
     const readingForThisPeriod = allWaterReadings.find(r => r.UnitID === unitId && r.Period === readingPeriod);
-
-    // Return the persisted consumption value.
-    // If the record doesn't exist or the consumption field is missing (for legacy data), default to 0.
     return readingForThisPeriod?.consumption ?? 0;
 };
-
 
 const calcServiceFee = (unit: Unit, tariffs: AllData['tariffs']) => {
     const tariffKey = unit.UnitType === UnitType.KIOS ? 'KIOS' 
@@ -54,10 +38,15 @@ const calcServiceFee = (unit: Unit, tariffs: AllData['tariffs']) => {
     return applyVAT(net, tariff.VAT_percent);
 };
 
+const findParkingTariff = (parkingTariffs: TariffParking[], tier: ParkingTariffTier) => {
+    // So khớp không phân biệt hoa thường để tăng tính chịu lỗi của hệ thống
+    return parkingTariffs.find(t => t.Tier.toLowerCase() === tier.toLowerCase());
+};
+
 const calcVehicleFee = (vehicles: Vehicle[], period: string, tariffs: AllData['tariffs']) => {
     const endOfMonth = new Date(new Date(period + '-02').getFullYear(), new Date(period + '-02').getMonth() + 1, 0);
     
-    // FIX: Exclude vehicles with 'Xếp lốt' status from fee calculation.
+    // Loại trừ các xe đang ở trạng thái 'Xếp lốt' khỏi tính phí
     const activeVehicles = vehicles.filter(v => 
         v.isActive && 
         new Date(v.StartDate) <= endOfMonth &&
@@ -66,32 +55,34 @@ const calcVehicleFee = (vehicles: Vehicle[], period: string, tariffs: AllData['t
     
     const carCount = activeVehicles.filter(v => v.Type === VehicleTier.CAR).length;
     const carACount = activeVehicles.filter(v => v.Type === VehicleTier.CAR_A).length;
-    // Count motorbikes and electric bikes together for fee calculation as they share the same tariff tiers.
     const motoCount = activeVehicles.filter(v => v.Type === VehicleTier.MOTORBIKE || v.Type === VehicleTier.EBIKE).length;
     const bicycleCount = activeVehicles.filter(v => v.Type === VehicleTier.BICYCLE).length;
     
-    const carTariff = tariffs.parking.find(t => t.Tier === ParkingTariffTier.CAR);
-    const carATariff = tariffs.parking.find(t => t.Tier === ParkingTariffTier.CAR_A);
-    const moto12Tariff = tariffs.parking.find(t => t.Tier === ParkingTariffTier.MOTO12);
-    const moto34Tariff = tariffs.parking.find(t => t.Tier === ParkingTariffTier.MOTO34);
-    const bicycleTariff = tariffs.parking.find(t => t.Tier === ParkingTariffTier.BICYCLE);
+    const carTariff = findParkingTariff(tariffs.parking, ParkingTariffTier.CAR);
+    const carATariff = findParkingTariff(tariffs.parking, ParkingTariffTier.CAR_A);
+    const moto12Tariff = findParkingTariff(tariffs.parking, ParkingTariffTier.MOTO12);
+    const moto34Tariff = findParkingTariff(tariffs.parking, ParkingTariffTier.MOTO34);
+    const bicycleTariff = findParkingTariff(tariffs.parking, ParkingTariffTier.BICYCLE);
 
+    // Kiểm tra cấu hình có đầy đủ không, nhưng không ngắt chương trình nếu chỉ thiếu mục không dùng tới
     if (!carTariff || !carATariff || !moto12Tariff || !moto34Tariff || !bicycleTariff) {
-         console.error("Parking tariffs are not fully configured!");
-         return { counts: { car: 0, carA: 0, motoTotal: 0, bicycle: 0 }, net: 0, vat: 0, gross: 0 };
+         console.warn("Cảnh báo: Cấu hình đơn giá gửi xe chưa đầy đủ!");
     }
 
     let net = 0;
-    net += carCount * carTariff.Price_per_unit;
-    net += carACount * carATariff.Price_per_unit;
+    if (carCount > 0 && carTariff) net += carCount * carTariff.Price_per_unit;
+    if (carACount > 0 && carATariff) net += carACount * carATariff.Price_per_unit;
     
-    // Tiered pricing for motorbikes
-    net += Math.min(2, motoCount) * moto12Tariff.Price_per_unit;
-    net += Math.max(0, motoCount - 2) * moto34Tariff.Price_per_unit;
+    // Tính phí lũy tiến cho xe máy
+    if (motoCount > 0) {
+        if (moto12Tariff) net += Math.min(2, motoCount) * moto12Tariff.Price_per_unit;
+        if (moto34Tariff) net += Math.max(0, motoCount - 2) * moto34Tariff.Price_per_unit;
+    }
     
-    net += bicycleCount * bicycleTariff.Price_per_unit;
+    if (bicycleCount > 0 && bicycleTariff) net += bicycleCount * bicycleTariff.Price_per_unit;
     
-    const vatPercent = carTariff.VAT_percent; // Assume all parking has same VAT
+    // Sử dụng VAT của lốt ô tô làm mặc định, nếu không có lấy 8%
+    const vatPercent = carTariff?.VAT_percent ?? 8;
     return {
         counts: { car: carCount, carA: carACount, motoTotal: motoCount, bicycle: bicycleCount },
         ...applyVAT(net, vatPercent)
@@ -99,7 +90,6 @@ const calcVehicleFee = (vehicles: Vehicle[], period: string, tariffs: AllData['t
 };
 
 const calcWaterFee = (unit: Unit, period: string, allData: AllData) => {
-    // UPDATED LOGIC: Use the authoritative getWaterUsage function which now reads persisted consumption.
     const usage = getWaterUsage(unit.UnitID, period, allData.waterReadings);
     
     if (usage <= 0) return { usage, ...applyVAT(0, 0) };
@@ -107,33 +97,27 @@ const calcWaterFee = (unit: Unit, period: string, allData: AllData) => {
     const sortedTiers = [...allData.tariffs.water].sort((a, b) => a.From_m3 - b.From_m3);
     
     if (isBusinessUnit(unit)) {
-        const businessTariff = sortedTiers.find(t => t.To_m3 === null); // Highest tier is business rate
+        const businessTariff = sortedTiers.find(t => t.To_m3 === null);
         if (!businessTariff) return { usage, ...applyVAT(0, 0) };
         const taxed = applyVAT(usage * businessTariff.UnitPrice, businessTariff.VAT_percent);
         return { usage, ...taxed };
     }
 
-    // Progressive (lũy tiến) calculation for apartments
     let net = 0;
     let consumptionRemaining = usage;
-    
-    // Tier blocks: first 10, next 10, next 10, rest
     const tierSizes = [10, 10, 10, Infinity];
 
     for (let i = 0; i < sortedTiers.length; i++) {
         if (consumptionRemaining <= 0) break;
-        
         const tier = sortedTiers[i];
-        if (!tier) continue; // Should not happen if data is correct
-        
-        const tierSize = tierSizes[i]; // Assumes sortedTiers and tierSizes are aligned
+        if (!tier) continue;
+        const tierSize = tierSizes[i];
         const usageInThisTier = Math.min(consumptionRemaining, tierSize);
-
         net += usageInThisTier * tier.UnitPrice;
         consumptionRemaining -= usageInThisTier;
     }
     
-    const vatPercent = sortedTiers[0]?.VAT_percent ?? 5; // Assume all water has same VAT
+    const vatPercent = sortedTiers[0]?.VAT_percent ?? 5;
     return { usage, ...applyVAT(net, vatPercent) };
 };
 
@@ -141,7 +125,6 @@ export const calculateChargesBatch = async (
     period: string,
     calculationInputs: CalculationInput[],
     allData: AllData
-// FIX: The function returns an array of charges, so the Promise should resolve to an array type.
 ): Promise<Omit<ChargeRaw, 'CreatedAt' | 'Locked' | 'isPrinted' | 'isSent'>[]> => {
     
     const results = calculationInputs.map(input => {
@@ -177,7 +160,6 @@ export const calculateChargesBatch = async (
             WaterFee_Total: waterFee.gross,
             Adjustments: adjustmentsTotal,
             TotalDue: money(totalDue),
-            // UPDATED LOGIC: Pre-fill paid amount but set status to pending
             TotalPaid: money(totalDue),
             PaymentConfirmed: false,
             paymentStatus: 'pending' as PaymentStatus,
