@@ -1,7 +1,6 @@
 
 import { doc, getDoc, setDoc, collection, getDocs, writeBatch, query, deleteDoc, updateDoc, limit, orderBy, where, serverTimestamp, startAfter } from 'firebase/firestore';
 import { db } from '../firebaseConfig';
-// Fix: Export logActivity to match API interface in services/index.ts
 export { logActivity } from './logService';
 import { logActivity } from './logService';
 import type { 
@@ -30,6 +29,7 @@ const bumpVersion = (batch: any, field: keyof SystemMetadata) => {
     batch.set(metaRef, { [field]: Date.now() }, { merge: true });
 };
 
+// Cải tiến hàm injectLog để nhận diện UnitID và ghi nội dung chi tiết
 const injectLogAndNotif = (batch: any, log: Partial<ActivityLog>) => {
     const logId = `log_${Date.now()}_${Math.random().toString(36).substr(2, 5)}`;
     const logRef = doc(db, 'activityLogs', logId);
@@ -45,7 +45,7 @@ const injectLogAndNotif = (batch: any, log: Partial<ActivityLog>) => {
         module: log.module || 'System',
         action: log.action || 'UPDATE',
         summary: log.summary || '',
-        ids: log.ids || []
+        ids: log.ids || [] // Danh sách UnitID hoặc VehicleID để truy vấn lịch sử
     };
     batch.set(logRef, logData);
 
@@ -53,7 +53,7 @@ const injectLogAndNotif = (batch: any, log: Partial<ActivityLog>) => {
     const notifData: AdminNotification = {
         id: notifRef.id,
         type: 'system',
-        title: log.module === 'Residents' ? `Cập nhật Căn ${log.ids?.[0]}` : 'Cập nhật Phương tiện',
+        title: log.module === 'Residents' ? `Cập nhật Căn ${log.ids?.[0]}` : 'Cập nhật Hệ thống',
         message: log.summary || '',
         isRead: false,
         createdAt: serverTimestamp()
@@ -68,9 +68,12 @@ export const updateResidentData = async (
     reason?: string
 ) => {
     const batch = writeBatch(db);
+    
+    // 1. Cập nhật thông tin căn hộ và chủ hộ
     batch.set(doc(db, 'units', data.unit.UnitID), data.unit);
     batch.set(doc(db, 'owners', data.owner.OwnerID), data.owner);
 
+    // 2. Xử lý danh sách phương tiện (Thêm mới/Cập nhật)
     const activeIds = new Set<string>();
     data.vehicles.forEach(v => {
         let vehicleId = v.VehicleId;
@@ -86,27 +89,32 @@ export const updateResidentData = async (
         }
     });
 
+    // 3. Xoá (vô hiệu hoá) các xe không còn trong danh sách gửi lên
     currentVehicles
         .filter(v => v.UnitID === data.unit.UnitID && v.isActive && !activeIds.has(v.VehicleId))
         .forEach(v => {
             batch.update(doc(db, 'vehicles', v.VehicleId), { isActive: false });
         });
 
+    // 4. Ghi Nhật ký chi tiết bao gồm lý do điều chỉnh
+    const logSummary = reason ? `Điều chỉnh hồ sơ: ${reason}` : `Cập nhật thông tin căn hộ ${data.unit.UnitID}`;
+    
     injectLogAndNotif(batch, {
         actor_email: actor?.email,
         actor_role: actor?.role,
         module: 'Residents',
         action: 'UPDATE_RESIDENT',
-        summary: `Chỉnh sửa hồ sơ căn ${data.unit.UnitID}`,
-        ids: [data.unit.UnitID]
+        summary: logSummary,
+        ids: [data.unit.UnitID] // Quan trọng: Để hiển thị trong "Lịch sử thay đổi" của căn hộ
     });
 
-    // Gọi ghi log tối ưu vào collection mới
-    logActivity('UPDATE', 'Cư dân', `Cập nhật thông tin căn hộ ${data.unit.UnitID}`);
+    // Đồng thời ghi vào log hệ thống tập trung
+    logActivity('UPDATE', 'Cư dân', `${logSummary} (Căn ${data.unit.UnitID})`);
 
     bumpVersion(batch, 'units_version');
     bumpVersion(batch, 'owners_version');
     bumpVersion(batch, 'vehicles_version');
+    
     await batch.commit();
     return true; 
 };
@@ -114,7 +122,12 @@ export const updateResidentData = async (
 export const saveVehicles = async (d: Vehicle[], actor?: { email: string, role: Role }, customSummary?: string) => {
     if (d.length === 0) return;
     const batch = writeBatch(db);
-    d.forEach(v => batch.set(doc(db, 'vehicles', v.VehicleId), v));
+    const unitIds = new Set<string>();
+
+    d.forEach(v => {
+        batch.set(doc(db, 'vehicles', v.VehicleId), v);
+        unitIds.add(v.UnitID);
+    });
     
     injectLogAndNotif(batch, {
         actor_email: actor?.email,
@@ -122,10 +135,9 @@ export const saveVehicles = async (d: Vehicle[], actor?: { email: string, role: 
         module: 'Vehicles',
         action: 'UPDATE_VEHICLE',
         summary: customSummary || `Cập nhật thông tin ${d.length} phương tiện`,
-        ids: d.map(v => v.VehicleId)
+        ids: Array.from(unitIds) // Gắn tag UnitID vào log để căn hộ đó thấy lịch sử
     });
 
-    // Ghi log hoạt động
     logActivity('UPDATE', 'Phương tiện', customSummary || `Cập nhật ${d.length} phương tiện`);
 
     bumpVersion(batch, 'vehicles_version');
@@ -172,7 +184,7 @@ export const loadAllData = async (): Promise<AllData & { hasData: boolean }> => 
         fetchCollection<MonthlyStat>('monthly_stats'),
         fetchWaterLocks()
     ]);
-    const activityLogs = await fetchLatestLogs(50);
+    const activityLogs = await fetchLatestLogs(100); // Tăng limit để tra cứu lịch sử tốt hơn
     const tariffs = tariffsDoc.exists() ? tariffsDoc.data() as TariffCollection : { service: [], parking: [], water: [] };
     return { units, owners, vehicles, waterReadings, tariffs, adjustments, activityLogs, monthlyStats, lockedWaterPeriods, hasData: units.length > 0 };
 };
@@ -230,5 +242,4 @@ export const getPendingProfileRequest = async (residentId: string): Promise<Prof
 export const submitUserProfileUpdate = async (userAuthEmail: string, residentId: string, ownerId: string, newData: any) => { const batch = writeBatch(db); const now = new Date().toISOString(); const userRef = doc(db, 'users', userAuthEmail); const userUpdates: any = {}; if (newData.displayName !== undefined) userUpdates.DisplayName = newData.displayName; if (newData.contactEmail !== undefined) userUpdates.contact_email = newData.contactEmail; if (newData.avatarUrl !== undefined) userUpdates.avatarUrl = newData.avatarUrl; batch.update(userRef, userUpdates); const requestId = `req_${Date.now()}_${residentId}`; const requestRef = doc(db, 'profileRequests', requestId); const profileRequest: ProfileRequest = { id: requestId, residentId, ownerId, status: 'PENDING', changes: newData, createdAt: now, updatedAt: now }; batch.set(requestRef, profileRequest); await batch.commit(); return profileRequest; };
 export const updateResidentAvatar = async (ownerId: string, avatarUrl: string, userEmail?: string): Promise<void> => { const batch = writeBatch(db); const ownerRef = doc(db, 'owners', ownerId); batch.update(ownerRef, { avatarUrl: avatarUrl, updatedAt: new Date().toISOString() }); if (userEmail) { const userRef = doc(db, 'users', userEmail); batch.update(userRef, { avatarUrl: avatarUrl }); } await batch.commit(); };
 export const importResidentsBatch = async (currentUnits: Unit[], currentOwners: Owner[], currentVehicles: Vehicle[], updates: any[]) => { const batch = writeBatch(db); updates.forEach(up => { const unitId = String(up.unitId).trim(); const existingUnit = currentUnits.find(u => u.UnitID === unitId); if (existingUnit) { batch.update(doc(db, "units", unitId), { Status: up.status, Area_m2: up.area, UnitType: up.unitType }); batch.update(doc(db, "owners", existingUnit.OwnerID), { OwnerName: up.ownerName, Phone: up.phone, Email: up.email }); } else { const newOwnerId = doc(collection(db, "owners")).id; batch.set(doc(db, "owners", newOwnerId), { OwnerID: newOwnerId, OwnerName: up.ownerName, Phone: up.phone, Email: up.email }); batch.set(doc(db, "units", unitId), { UnitID: unitId, OwnerID: newOwnerId, UnitType: up.unitType, Area_m2: up.area, Status: up.status }); } }); bumpVersion(batch, 'units_version'); bumpVersion(batch, 'owners_version'); bumpVersion(batch, 'vehicles_version'); await batch.commit(); return { createdCount: 0, updatedCount: 0, vehicleCount: 0 }; };
-// Deprecated but kept for consistency
 export const createProfileRequest = async (request: ProfileRequest) => Promise.resolve();

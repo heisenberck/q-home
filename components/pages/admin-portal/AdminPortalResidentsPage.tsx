@@ -24,7 +24,8 @@ const ResidentStatCard: React.FC<{ label: string; value: number; icon: React.Rea
         }`}
     >
         <div className={`w-8 h-8 rounded-xl flex items-center justify-center shrink-0 ${isActive ? 'bg-white/20' : bgColor}`}>
-            {React.cloneElement(icon as React.ReactElement, { className: `w-5 h-5 ${isActive ? 'text-white' : color}` })}
+            {/* Added ReactElement<any> cast to fix TypeScript cloneElement error */}
+            {React.cloneElement(icon as React.ReactElement<any>, { className: `w-5 h-5 ${isActive ? 'text-white' : color}` })}
         </div>
         <div className="text-center">
             <p className={`text-[9px] font-black uppercase tracking-tight truncate ${isActive ? 'text-white' : 'text-gray-400'}`}>{label}</p>

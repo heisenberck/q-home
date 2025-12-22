@@ -1,11 +1,14 @@
 
 import React, { useState, useEffect, useCallback } from 'react';
-import type { Role } from '../../types';
+import type { Role, ActivityLog } from '../../types';
 import { ActivityLogEntry, fetchLogs, LogAction } from '../../services/logService';
 import { ClockIcon, ArrowPathIcon } from '../ui/Icons';
 
+// Added ActivityLog and onUndo to props to match App.tsx requirements
 interface ActivityLogPageProps {
     role: Role;
+    logs: ActivityLog[];
+    onUndo: () => void;
 }
 
 const getActionStyles = (action: LogAction) => {
@@ -18,7 +21,8 @@ const getActionStyles = (action: LogAction) => {
     }
 };
 
-const ActivityLogPage: React.FC<ActivityLogPageProps> = ({ role }) => {
+// Added unused _logs and _onUndo to props destructuring to satisfy TypeScript
+const ActivityLogPage: React.FC<ActivityLogPageProps> = ({ role, logs: _logs, onUndo: _onUndo }) => {
     const [logs, setLogs] = useState<ActivityLogEntry[]>([]);
     const [lastDoc, setLastDoc] = useState<any>(null);
     const [loading, setLoading] = useState(false);

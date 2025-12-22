@@ -27,7 +27,8 @@ const StatCard: React.FC<{ label: string; value: string | number; subValue?: str
     <div className="bg-white p-4 rounded-2xl shadow-sm border border-gray-100 flex flex-col justify-between active:scale-[0.98] transition-transform">
         <div className="flex justify-between items-start mb-3">
             <div className={`p-2.5 rounded-xl ${bgColor} ${color} shadow-sm`}>
-                {React.cloneElement(icon as React.ReactElement, { className: 'w-5 h-5' })}
+                {/* Added ReactElement<any> cast to fix TypeScript cloneElement error */}
+                {React.cloneElement(icon as React.ReactElement<any>, { className: 'w-5 h-5' })}
             </div>
             {subValue && (
                 <div className="flex flex-col items-end">

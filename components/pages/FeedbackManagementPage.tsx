@@ -48,7 +48,8 @@ const CompactStatCard: React.FC<{
             <p className="text-2xl font-black text-gray-800 leading-none">{value}</p>
         </div>
         <div className={`p-2.5 rounded-xl ${colorClass} shadow-sm ${isActive ? 'scale-110' : ''} transition-transform`}>
-            {React.cloneElement(icon as React.ReactElement, { className: 'w-6 h-6' })}
+            {/* Added ReactElement<any> cast to fix TypeScript cloneElement error */}
+            {React.cloneElement(icon as React.ReactElement<any>, { className: 'w-6 h-6' })}
         </div>
     </div>
 );

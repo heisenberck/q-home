@@ -144,7 +144,8 @@ const InputCard: React.FC<{
         <div className={`px-3 py-2 ${colorClass} flex items-center justify-between`}>
             <div className="flex items-center gap-2">
                 <div className={`p-1 bg-white/20 rounded text-white transition-transform ${isCollapsed ? 'scale-75' : ''}`}>
-                    {React.cloneElement(icon as React.ReactElement, { className: 'w-3.5 h-3.5' })}
+                    {/* Added ReactElement<any> cast to fix TypeScript cloneElement error */}
+                    {React.cloneElement(icon as React.ReactElement<any>, { className: 'w-3.5 h-3.5' })}
                 </div>
                 <div>
                     <h3 className={`font-bold text-white uppercase tracking-wider transition-all ${isCollapsed ? 'text-[8px]' : 'text-[10px]'}`}>{title}</h3>

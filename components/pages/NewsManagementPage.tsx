@@ -56,10 +56,11 @@ const NewsEditorModal: React.FC<{
   onClose: () => void;
   loading: boolean;
 }> = ({ newsItem, onSave, onClose, loading }) => {
+  // Added isBroadcasted and isArchived to initial state to fix type mismatch error
   const [item, setItem] = useState<Omit<ExtendedNewsItem, 'id' | 'date'>>(
     newsItem 
-      ? { title: newsItem.title, content: newsItem.content || '', priority: newsItem.priority, category: newsItem.category, imageUrl: newsItem.imageUrl, sender: newsItem.sender || 'BQLVH', isPinned: newsItem.isPinned || false } 
-      : { title: '', content: '', priority: 'normal', category: 'notification', imageUrl: '', sender: 'BQLVH', isPinned: false }
+      ? { title: newsItem.title, content: newsItem.content || '', priority: newsItem.priority, category: newsItem.category, imageUrl: newsItem.imageUrl, sender: newsItem.sender || 'BQLVH', isPinned: newsItem.isPinned || false, isBroadcasted: newsItem.isBroadcasted, isArchived: newsItem.isArchived } 
+      : { title: '', content: '', priority: 'normal', category: 'notification', imageUrl: '', sender: 'BQLVH', isPinned: false, isBroadcasted: false, isArchived: false }
   );
   const [imagePreview, setImagePreview] = useState(newsItem?.imageUrl || '');
   const fileInputRef = useRef<HTMLInputElement>(null);

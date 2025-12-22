@@ -2,7 +2,7 @@
 // services/mockAPI.ts
 import type { InvoiceSettings, Unit, Owner, Vehicle, WaterReading, ChargeRaw, Adjustment, UserPermission, ActivityLog, MonthlyStat, TariffCollection, PaymentStatus, ProfileRequest, MiscRevenue } from '../types';
 import { MOCK_UNITS, MOCK_OWNERS, MOCK_VEHICLES, MOCK_WATER_READINGS, MOCK_TARIFFS_SERVICE, MOCK_TARIFFS_PARKING, MOCK_TARIFFS_WATER, MOCK_ADJUSTMENTS, MOCK_USER_PERMISSIONS, patchKiosAreas } from '../constants';
-import { VehicleTier } from '../types';
+import { VehicleTier, Role } from '../types';
 
 const DB_PREFIX = 'QHOME_MOCK_DB_V2_';
 
@@ -52,7 +52,7 @@ let invoiceSettings: InvoiceSettings = loadFromStorage('invoiceSettings', {
     bankName: 'MockBank',
     senderEmail: 'dev@example.com', 
     senderName: 'BQL Mock Data',
-    buildingName: 'Q-Home Manager Mock', // FIXED: Added missing property
+    buildingName: 'Q-Home Manager Mock',
     emailSubject: '[MOCK] THÔNG BÁO PHÍ', 
     emailBody: 'Đây là email mock.',
     transferContentTemplate: 'HUD3 {{unitId}} T{{period}}',
@@ -92,8 +92,7 @@ export const fetchLatestLogs = async (limitCount: number = 20): Promise<Activity
     return Promise.resolve([...activityLogs].sort((a,b) => new Date(b.ts).getTime() - new Date(a.ts).getTime()).slice(0, limitCount));
 };
 
-// Fix: Updated logActivity signature to match logService.ts for API consistency
-export const logActivity = async (actionType: any, module: string, description: string) => {
+export const logActivity = async (actionType: any, module: string, description: string, ids?: string[]) => {
     const log: ActivityLog = {
         id: `log_${Date.now()}_${Math.random().toString(36).substr(2, 5)}`,
         ts: new Date().toISOString(),
@@ -102,6 +101,7 @@ export const logActivity = async (actionType: any, module: string, description: 
         module,
         action: String(actionType),
         summary: description,
+        ids: ids || [],
         undone: false,
         undo_token: null,
         undo_until: null
@@ -166,15 +166,15 @@ export const updatePaymentStatusBatch = async (period: string, unitIds: string[]
 
 export const updateResidentData = async (
     currentUnits: Unit[], currentOwners: Owner[], currentVehicles: Vehicle[],
-    updatedData: { unit: Unit; owner: Owner; vehicles: Vehicle[] }
+    updatedData: { unit: Unit; owner: Owner; vehicles: Vehicle[] },
+    actor?: { email: string, role: Role },
+    reason?: string
 ) => {
     const { unit, owner, vehicles: incomingVehicles } = updatedData;
     
-    // 1. Cập nhật Units & Owners
     units = currentUnits.map(u => u.UnitID === unit.UnitID ? unit : u);
     owners = currentOwners.map(o => o.OwnerID === owner.OwnerID ? owner : o);
     
-    // 2. Cập nhật Vehicles
     const activeIds = new Set<string>();
     const newVehiclesList = [...vehicles];
 
@@ -184,14 +184,13 @@ export const updateResidentData = async (
             newVehiclesList[existingIdx] = { ...updatedV, isActive: true, updatedAt: new Date().toISOString() };
             activeIds.add(updatedV.VehicleId);
         } else {
-            const newId = updatedV.VehicleId.startsWith('VEH_NEW_') ? `VEH_MOCK_${Date.now()}_${Math.random().toString(36).substr(2, 5)}` : updatedV.VehicleId;
+            const newId = updatedV.VehicleId.startsWith('VEH_NEW_') ? `VEH_MOCK_${Date.now()}` : updatedV.VehicleId;
             const newV = { ...updatedV, VehicleId: newId, isActive: true, updatedAt: new Date().toISOString() };
             newVehiclesList.push(newV);
             activeIds.add(newId);
         }
     });
 
-    // Phát hiện và vô hiệu hóa xe bị xóa khỏi Modal
     vehicles = newVehiclesList.map(v => {
         if (v.UnitID === unit.UnitID && v.isActive && !activeIds.has(v.VehicleId)) {
             return { ...v, isActive: false, updatedAt: new Date().toISOString() };
@@ -203,6 +202,9 @@ export const updateResidentData = async (
     saveToStorage('owners', owners);
     saveToStorage('vehicles', vehicles);
     
+    const logSummary = reason ? `[Mock] Điều chỉnh hồ sơ: ${reason}` : `[Mock] Cập nhật căn hộ ${unit.UnitID}`;
+    logActivity('UPDATE', 'Residents', logSummary, [unit.UnitID]);
+
     return Promise.resolve({ units, owners, vehicles });
 };
 
