@@ -132,8 +132,8 @@ const App: React.FC = () => {
     }, []);
 
     const { 
-        units = [], owners = [], vehicles = [], waterReadings = [], charges = [], adjustments = [], users: fetchedUsers = [], news = [],
-        invoiceSettings, tariffs, monthlyStats = [], lockedWaterPeriods = [],
+        units, owners, vehicles, waterReadings, charges, adjustments, users: fetchedUsers, news,
+        invoiceSettings, tariffs, monthlyStats, lockedWaterPeriods,
         refreshSystemData 
     } = useSmartSystemData(user);
 
@@ -149,15 +149,9 @@ const App: React.FC = () => {
     const [localNews, setLocalNews] = useState<NewsItem[]>([]);
 
     useEffect(() => {
-        setLocalUnits(units || []); 
-        setLocalOwners(owners || []); 
-        setLocalVehicles(vehicles || []); 
-        setLocalWaterReadings(waterReadings || []);
-        setLocalCharges(charges || []); 
-        setLocalAdjustments(adjustments || []); 
-        setLocalUsers(fetchedUsers || []); 
-        setLocalTariffs(tariffs || { service: [], parking: [], water: [] });
-        setLocalNews(news || []);
+        setLocalUnits(units); setLocalOwners(owners); setLocalVehicles(vehicles); setLocalWaterReadings(waterReadings);
+        setLocalCharges(charges); setLocalAdjustments(adjustments); setLocalUsers(fetchedUsers); setLocalTariffs(tariffs);
+        setLocalNews(news);
     }, [units, owners, vehicles, waterReadings, charges, adjustments, fetchedUsers, tariffs, news]);
 
     const refreshLogs = useCallback(async () => {
@@ -222,7 +216,7 @@ const App: React.FC = () => {
     };
 
     const handleMarkNewsAsRead = useCallback(() => {
-        const allIds = (localNews || []).filter(n => !n.isArchived).map(n => n.id);
+        const allIds = localNews.filter(n => !n.isArchived).map(n => n.id);
         setReadNewsIds(allIds);
         localStorage.setItem('portal_read_news_ids', JSON.stringify(allIds));
     }, [localNews]);
@@ -287,16 +281,12 @@ const App: React.FC = () => {
     const isResident = user?.Role === 'Resident';
 
     const portalNotifications = useMemo(() => {
-        // FIX: Thêm fallback mảng rỗng để tránh lỗi "reading some of undefined"
-        const safeNews = localNews || [];
-        const safeCharges = localCharges || [];
         const readSet = new Set(readNewsIds);
-        
-        const unreadNewsCount = safeNews.filter(n => !n.isArchived && !readSet.has(n.id)).length;
+        const unreadNewsCount = localNews.filter(n => !n.isArchived && !readSet.has(n.id)).length;
         
         return { 
             unreadNews: unreadNewsCount,
-            hasUnpaidBill: safeCharges.some(c => c.UnitID === user?.residentId && !['paid', 'paid_tm', 'paid_ck'].includes(c.paymentStatus)),
+            hasUnpaidBill: localCharges.some(c => c.UnitID === user?.residentId && !['paid', 'paid_tm', 'paid_ck'].includes(c.paymentStatus)),
             hasNewNotifications: unreadResidentNotifCount > 0 
         };
     }, [localNews, localCharges, user, unreadResidentNotifCount, readNewsIds]);
