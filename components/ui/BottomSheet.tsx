@@ -11,12 +11,15 @@ interface BottomSheetProps {
 
 const BottomSheet: React.FC<BottomSheetProps> = ({ isOpen, onClose, title, children }) => {
     const [shouldRender, setShouldRender] = useState(isOpen);
-    const [touchStartY, setTouchStartY] = useState<number | null>(null);
+    const [isDragging, setIsDragging] = useState(false);
+    const [translateY, setTranslateY] = useState(0);
+    const touchStartRef = useRef<{ y: number; time: number }>({ y: 0, time: 0 });
     const contentRef = useRef<HTMLDivElement>(null);
 
     useEffect(() => {
         if (isOpen) {
             setShouldRender(true);
+            setTranslateY(0);
             document.body.style.overflow = 'hidden';
         } else {
             const timer = setTimeout(() => {
@@ -27,61 +30,80 @@ const BottomSheet: React.FC<BottomSheetProps> = ({ isOpen, onClose, title, child
         }
     }, [isOpen]);
 
-    // Xử lý vuốt xuống từ Header
     const handleTouchStart = (e: React.TouchEvent) => {
-        setTouchStartY(e.touches[0].clientY);
+        touchStartRef.current = {
+            y: e.touches[0].clientY,
+            time: Date.now()
+        };
+        setIsDragging(false);
     };
 
     const handleTouchMove = (e: React.TouchEvent) => {
-        if (touchStartY === null) return;
-        
         const currentY = e.touches[0].clientY;
-        const diff = currentY - touchStartY;
+        const diffY = currentY - touchStartRef.current.y;
+        const scrollTop = contentRef.current?.scrollTop || 0;
 
-        // Nếu đang cuộn nội dung, chỉ cho phép vuốt đóng nếu đang ở đỉnh (scrollTop === 0)
-        if (contentRef.current && contentRef.current.scrollTop > 0 && diff > 0) {
-            return;
+        // Chỉ kích hoạt kéo đóng nếu:
+        // 1. Đang kéo xuống (diffY > 0)
+        // 2. Nội dung đang ở đỉnh (scrollTop <= 0)
+        if (diffY > 0 && scrollTop <= 0) {
+            // Ngăn chặn cuộn mặc định của trình duyệt để xử lý kéo thẻ
+            if (e.cancelable) e.preventDefault();
+            setIsDragging(true);
+            setTranslateY(diffY);
+        } else if (isDragging) {
+            // Nếu đang trong trạng thái dragging mà kéo ngược lên
+            setTranslateY(Math.max(0, diffY));
         }
     };
 
     const handleTouchEnd = (e: React.TouchEvent) => {
-        if (touchStartY === null) return;
-        const touchEndY = e.changedTouches[0].clientY;
-        const diff = touchEndY - touchStartY;
+        if (!isDragging) return;
 
-        // Ngưỡng vuốt xuống để đóng (70px)
-        if (diff > 70) {
+        const diffY = translateY;
+        const diffTime = Date.now() - touchStartRef.current.time;
+        const velocity = diffY / diffTime; // Tốc độ kéo
+
+        // Điều kiện đóng: Kéo xuống hơn 30% chiều cao HOẶC vuốt nhanh (velocity > 0.5)
+        const threshold = window.innerHeight * 0.3;
+        
+        if (diffY > threshold || velocity > 0.8) {
             onClose();
+        } else {
+            // Reset về vị trí cũ với animation
+            setTranslateY(0);
         }
-        setTouchStartY(null);
+        setIsDragging(false);
     };
 
     if (!shouldRender) return null;
 
     return (
-        <div className="fixed inset-0 z-[60] flex items-end justify-center">
-            {/* Backdrop với độ mờ nhẹ */}
+        <div className="fixed inset-0 z-[60] flex items-end justify-center overflow-hidden">
+            {/* Backdrop */}
             <div 
                 className={`absolute inset-0 bg-black/50 backdrop-blur-[1px] transition-opacity duration-300 ${
-                    isOpen ? 'opacity-100' : 'opacity-0'
+                    isOpen && !isDragging ? 'opacity-100' : 'opacity-0'
                 }`} 
+                style={{ opacity: isDragging ? Math.max(0, 1 - translateY / 500) : undefined }}
                 onClick={onClose}
             />
             
             {/* Sheet Container */}
             <div 
-                className={`relative w-full max-w-md bg-white rounded-t-[2.5rem] shadow-2xl transition-transform duration-300 ease-out flex flex-col max-h-[92vh] ${
-                    isOpen ? 'translate-y-0' : 'translate-y-full'
+                className={`relative w-full max-w-md bg-white rounded-t-[2.5rem] shadow-2xl flex flex-col max-h-[92vh] select-none ${
+                    !isDragging ? 'transition-transform duration-300 ease-out' : ''
                 }`}
+                style={{ 
+                    transform: `translateY(${isOpen ? translateY : '100'}px)`,
+                    touchAction: 'none' // Chặn pull-to-refresh của trình duyệt
+                }}
+                onTouchStart={handleTouchStart}
+                onTouchMove={handleTouchMove}
+                onTouchEnd={handleTouchEnd}
             >
-                {/* Vùng Header mở rộng: Nhận diện kéo xuống tốt hơn */}
-                <div 
-                    className="pt-2 pb-4 flex flex-col items-center cursor-grab active:cursor-grabbing select-none touch-none"
-                    onTouchStart={handleTouchStart}
-                    onTouchMove={handleTouchMove}
-                    onTouchEnd={handleTouchEnd}
-                >
-                    {/* Thanh kéo iOS Style - To và dễ thấy hơn */}
+                {/* Header Area */}
+                <div className="pt-2 pb-4 flex flex-col items-center shrink-0">
                     <div className="w-14 h-1.5 bg-gray-200 rounded-full mt-2 mb-4" />
                     
                     <div className="w-full px-6 flex justify-between items-center">
@@ -89,25 +111,30 @@ const BottomSheet: React.FC<BottomSheetProps> = ({ isOpen, onClose, title, child
                             {title}
                         </h3>
                         
-                        {/* Nút đóng được tinh chỉnh: Thấp hơn, diện tích chạm lớn */}
                         <button 
-                            onClick={onClose}
-                            className="p-3 bg-gray-100 text-gray-500 rounded-full active:scale-90 active:bg-gray-200 transition-all flex items-center justify-center shadow-sm"
-                            aria-label="Đóng"
+                            onClick={(e) => { e.stopPropagation(); onClose(); }}
+                            className="p-3 bg-gray-100 text-gray-500 rounded-full active:scale-90 transition-all flex items-center justify-center shadow-sm"
                         >
                             <XMarkIcon className="w-6 h-6" />
                         </button>
                     </div>
                 </div>
 
-                {/* Vùng nội dung: Nếu vuốt từ đây khi đang ở top cũng sẽ đóng */}
+                {/* Content Area - Cho phép cuộn bên trong */}
                 <div 
                     ref={contentRef}
-                    className="flex-1 overflow-y-auto p-6 pt-0"
-                    onTouchStart={handleTouchStart}
-                    onTouchEnd={handleTouchEnd}
+                    className="flex-1 overflow-y-auto p-6 pt-0 overscroll-contain"
+                    style={{ touchAction: isDragging ? 'none' : 'pan-y' }}
+                    onScroll={(e) => {
+                        // Nếu đang dragging thì không cho phép scroll
+                        if (isDragging) {
+                            e.currentTarget.scrollTop = 0;
+                        }
+                    }}
                 >
-                    {children}
+                    <div className="pointer-events-auto">
+                        {children}
+                    </div>
                 </div>
             </div>
         </div>
