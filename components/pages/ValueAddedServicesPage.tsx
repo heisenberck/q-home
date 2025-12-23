@@ -5,7 +5,10 @@ import {
     CalendarDaysIcon, PlusIcon, ClockIcon,
     DocumentArrowDownIcon, ChevronUpIcon, ChevronDownIcon,
     ChevronLeftIcon, ChevronRightIcon,
-    PercentIcon, PiggyBankIcon
+    PercentIcon, PiggyBankIcon,
+    MotorbikeIcon,
+    ArchiveBoxIcon,
+    CheckCircleIcon
 } from '../ui/Icons';
 import { formatCurrency } from '../../utils/helpers';
 import { useNotification, useAuth } from '../../App';
@@ -25,6 +28,25 @@ const parseInputNumber = (val: string) => {
     return parseInt(val.replace(/\D/g, "")) || 0;
 };
 
+// --- Sub-Component: Mini Stat Card ---
+const MiniStatCard: React.FC<{ 
+    label: string; 
+    value: number; 
+    icon: React.ReactNode; 
+    colorClass: string; 
+}> = ({ label, value, icon, colorClass }) => (
+    <div className="bg-white p-3 rounded-2xl border border-gray-100 shadow-sm flex items-center gap-3">
+        <div className={`p-2 rounded-xl ${colorClass} text-white shadow-sm`}>
+            {React.cloneElement(icon as React.ReactElement<any>, { className: 'w-4 h-4' })}
+        </div>
+        <div className="min-w-0">
+            <p className="text-[9px] font-black text-gray-400 uppercase tracking-widest leading-none mb-1">{label}</p>
+            <p className="text-sm font-black text-gray-800 leading-none truncate">{formatCurrency(value)}</p>
+        </div>
+    </div>
+);
+
+// --- Sub-Component: Date Picker Popover ---
 const DatePickerPopover: React.FC<{
     selectedDate: string;
     onSelect: (date: string) => void;
@@ -34,21 +56,25 @@ const DatePickerPopover: React.FC<{
     const date = new Date(selectedDate);
     const [viewMonth, setViewMonth] = useState(date.getMonth());
     const [viewYear, setViewYear] = useState(date.getFullYear());
+
     useEffect(() => {
         const handleClickOutside = (e: MouseEvent) => { if (popoverRef.current && !popoverRef.current.contains(e.target as Node)) onClose(); };
         document.addEventListener("mousedown", handleClickOutside);
         return () => document.removeEventListener("mousedown", handleClickOutside);
     }, [onClose]);
+
     const daysInMonth = new Date(viewYear, viewMonth + 1, 0).getDate();
     const firstDayOfMonth = new Date(viewYear, viewMonth, 1).getDay();
     const days = Array.from({ length: daysInMonth }, (_, i) => i + 1);
     const blanks = Array.from({ length: firstDayOfMonth }, (_, i) => i);
     const months = ["Tháng 1", "Tháng 2", "Tháng 3", "Tháng 4", "Tháng 5", "Tháng 6", "Tháng 7", "Tháng 8", "Tháng 9", "Tháng 10", "Tháng 11", "Tháng 12"];
+
     const handleMonthNav = (dir: number) => {
         let newMonth = viewMonth + dir; let newYear = viewYear;
         if (newMonth < 0) { newMonth = 11; newYear--; } else if (newMonth > 11) { newMonth = 0; newYear++; }
         setViewMonth(newMonth); setViewYear(newYear);
     };
+
     return (
         <div ref={popoverRef} className="absolute top-full mt-2 left-0 z-50 bg-white rounded-2xl shadow-2xl border border-gray-200 p-4 w-72 animate-fade-in-down">
             <div className="flex items-center justify-between mb-4">
@@ -59,43 +85,29 @@ const DatePickerPopover: React.FC<{
             <div className="grid grid-cols-7 gap-1 text-center mb-2">{["CN", "T2", "T3", "T4", "T5", "T6", "T7"].map(d => <span key={d} className="text-[10px] font-black text-gray-400">{d}</span>)}</div>
             <div className="grid grid-cols-7 gap-1">{blanks.map(b => <div key={`b-${b}`} />)}{days.map(d => {
                 const fsStr = `${viewYear}-${String(viewMonth + 1).padStart(2, '0')}-${String(d).padStart(2, '0')}`;
-                return <button key={d} onClick={() => { onSelect(fsStr); onClose(); }} className={`h-8 w-8 rounded-lg text-xs font-bold transition-all flex items-center justify-center ${fsStr === selectedDate ? 'bg-primary text-white shadow-md shadow-primary/20 scale-110' : fsStr === new Date().toISOString().split('T')[0] ? 'bg-emerald-50 text-emerald-600 border border-emerald-200' : 'hover:bg-gray-100 text-gray-600'}`}>{d}</button>;
+                const isSelected = fsStr === selectedDate;
+                const isToday = fsStr === new Date().toISOString().split('T')[0];
+                return <button key={d} onClick={() => { onSelect(fsStr); onClose(); }} className={`h-8 w-8 rounded-lg text-xs font-bold transition-all flex items-center justify-center ${isSelected ? 'bg-primary text-white shadow-md' : isToday ? 'bg-emerald-50 text-emerald-600 border border-emerald-200' : 'hover:bg-gray-100 text-gray-600'}`}>{d}</button>;
             })}</div>
             <div className="mt-4 pt-3 border-t border-gray-100 flex justify-center"><button onClick={() => { onSelect(new Date().toISOString().split('T')[0]); onClose(); }} className="text-[10px] font-black text-primary uppercase tracking-widest hover:underline">Quay về hôm nay</button></div>
         </div>
     );
 };
 
-const InputCard: React.FC<{ title: string; icon: React.ReactNode; colorClass: string; children: React.ReactNode; onAdd: () => void; actionLabel?: string; loading?: boolean; isCollapsed?: boolean; typeTotal: number; }> = ({ title, icon, colorClass, children, onAdd, actionLabel = "Thêm", loading, isCollapsed, typeTotal }) => (
-    <div className={`bg-white rounded-xl shadow-sm border border-gray-100 overflow-hidden flex flex-col transition-all duration-300 ${isCollapsed ? 'max-h-11 border-transparent shadow-none' : 'max-h-96 shadow-md'}`}>
-        <div className={`px-3 py-2 ${colorClass} flex items-center justify-between`}>
-            <div className="flex items-center gap-2">
-                <div className={`p-1 bg-white/20 rounded text-white transition-transform ${isCollapsed ? 'scale-75' : ''}`}>{React.cloneElement(icon as React.ReactElement<any>, { className: 'w-3.5 h-3.5' })}</div>
-                <div>
-                    <h3 className={`font-bold text-white uppercase tracking-wider transition-all ${isCollapsed ? 'text-[8px]' : 'text-[10px]'}`}>{title}</h3>
-                    {isCollapsed && typeTotal > 0 && <p className="text-[10px] font-black text-white/90 leading-none animate-fade-in-down tabular-nums">{formatCurrency(typeTotal)}</p>}
-                </div>
-            </div>
-            {isCollapsed && !loading && <button onClick={onAdd} className="p-1 hover:bg-white/20 rounded-full text-white"><PlusIcon className="w-3 h-3" /></button>}
-        </div>
-        <div className={`transition-all duration-300 ${isCollapsed ? 'opacity-0 scale-95 pointer-events-none h-0' : 'opacity-100 scale-100 p-3 h-auto'}`}>
-            <div className="space-y-2.5 mb-3">{children}</div>
-            <button onClick={onAdd} disabled={loading} className={`w-full py-2 rounded-lg font-bold text-[10px] uppercase tracking-wider shadow-sm transition-all flex items-center justify-center gap-2 ${colorClass} text-white hover:brightness-90 active:scale-95 disabled:opacity-50`}>{loading ? <div className="w-3 h-3 border-2 border-white/30 border-t-white rounded-full animate-spin" /> : <PlusIcon className="w-3 h-3" />}{actionLabel}</button>
-        </div>
-    </div>
-);
-
 const ValueAddedServicesPage: React.FC = () => {
     const { showToast } = useNotification();
     const { user } = useAuth();
-    const scrollRef = useRef<HTMLDivElement>(null);
+    
+    // --- State Management ---
     const [selectedDate, setSelectedDate] = useState(new Date().toISOString().split('T')[0]);
     const [dailyRevenues, setDailyRevenues] = useState<MiscRevenue[]>([]);
     const [monthlyRevenues, setMonthlyRevenues] = useState<MiscRevenue[]>([]);
     const [isLoading, setIsLoading] = useState(false);
-    const [isSubmitting, setIsSubmitting] = useState<MiscRevenueType | 'PARKING_BTN' | null>(null);
-    const [isManuallyCollapsed, setIsManuallyCollapsed] = useState(false);
+    const [activeTab, setActiveTab] = useState<MiscRevenueType>('PARKING');
     const [isDatePickerOpen, setIsDatePickerOpen] = useState(false);
+    const [isSubmitting, setIsSubmitting] = useState(false);
+
+    // Form inputs
     const [parkingMoto, setParkingMoto] = useState('');
     const [parkingCar, setParkingCar] = useState('');
     const [kioskName, setKioskName] = useState('');
@@ -104,7 +116,10 @@ const ValueAddedServicesPage: React.FC = () => {
     const [vasAmount, setVasAmount] = useState('');
     const [otherName, setOtherName] = useState('');
     const [otherAmount, setOtherAmount] = useState('');
+
     const typeLabels: Record<MiscRevenueType, string> = { PARKING: 'Xe lượt', KIOS: 'Kios', VAT_SERVICE: 'GTGT', OTHER: 'Khác' };
+    const tabColors: Record<MiscRevenueType, string> = { PARKING: 'bg-blue-600', KIOS: 'bg-amber-500', VAT_SERVICE: 'bg-purple-600', OTHER: 'bg-rose-500' };
+
     const fetchData = async (date: string) => {
         setIsLoading(true);
         try {
@@ -112,128 +127,333 @@ const ValueAddedServicesPage: React.FC = () => {
             setDailyRevenues(daily); setMonthlyRevenues(monthly);
         } catch { showToast('Lỗi tải dữ liệu.', 'error'); } finally { setIsLoading(false); }
     };
+
     useEffect(() => { fetchData(selectedDate); }, [selectedDate]);
-    const handleAddRevenue = async (type: MiscRevenueType, amountStr: string, description: string) => {
-        const amount = parseInputNumber(amountStr);
-        if (amount <= 0 || !description.trim()) { showToast('Vui lòng nhập đầy đủ nội dung và số tiền.', 'warn'); return; }
-        setIsSubmitting(type);
+
+    // --- Action Handlers ---
+    const handleAddTransaction = async () => {
+        let type = activeTab;
+        let amount = 0;
+        let description = '';
+
+        if (type === 'PARKING') {
+            const moto = parseInputNumber(parkingMoto);
+            const car = parseInputNumber(parkingCar);
+            amount = moto + car;
+            description = `Xe máy: ${formatCurrency(moto)} | Ô tô: ${formatCurrency(car)}`;
+            if (amount <= 0) { showToast('Vui lòng nhập doanh thu gửi xe.', 'warn'); return; }
+        } else if (type === 'KIOS') {
+            amount = parseInputNumber(kioskAmount);
+            description = kioskName.trim();
+        } else if (type === 'VAT_SERVICE') {
+            amount = parseInputNumber(vasAmount);
+            description = vasName.trim();
+        } else if (type === 'OTHER') {
+            amount = parseInputNumber(otherAmount);
+            description = otherName.trim();
+        }
+
+        if (type !== 'PARKING' && (amount <= 0 || !description)) {
+            showToast('Vui lòng nhập đầy đủ nội dung và số tiền.', 'warn'); return;
+        }
+
+        setIsSubmitting(true);
         try {
             const payload = { type, amount, description, date: selectedDate, createdBy: user?.Email || 'system' };
             const id = await addMiscRevenue(payload);
             const newItem = { ...payload, id, createdAt: new Date().toISOString() };
-            setDailyRevenues(prev => [newItem, ...prev]); setMonthlyRevenues(prev => [newItem, ...prev]);
-            showToast('Đã thêm thành công.', 'success');
-            if (type === 'KIOS') { setKioskName(''); setKioskAmount(''); }
-            if (type === 'VAT_SERVICE') { setVasName(''); setVasAmount(''); }
-            if (type === 'OTHER') { setOtherName(''); setOtherAmount(''); }
-        } catch { showToast('Lỗi khi lưu.', 'error'); } finally { setIsSubmitting(null); }
+            setDailyRevenues(prev => [newItem, ...prev]); 
+            setMonthlyRevenues(prev => [newItem, ...prev]);
+            showToast('Đã thêm giao dịch thành công.', 'success');
+            
+            // Clear inputs
+            if (type === 'PARKING') { setParkingMoto(''); setParkingCar(''); }
+            else if (type === 'KIOS') { setKioskName(''); setKioskAmount(''); }
+            else if (type === 'VAT_SERVICE') { setVasName(''); setVasAmount(''); }
+            else if (type === 'OTHER') { setOtherName(''); setOtherAmount(''); }
+        } catch { showToast('Lỗi khi lưu.', 'error'); } finally { setIsSubmitting(false); }
     };
-    const handleParkingSave = async () => {
-        const moto = parseInputNumber(parkingMoto); const car = parseInputNumber(parkingCar); const total = moto + car;
-        if (total <= 0) { showToast('Nhập doanh thu gửi xe.', 'warn'); return; }
-        setIsSubmitting('PARKING_BTN' as any);
-        try {
-            const payload = { type: 'PARKING' as MiscRevenueType, amount: total, description: `Xe máy: ${formatCurrency(moto)} | Ô tô: ${formatCurrency(car)}`, date: selectedDate, createdBy: user?.Email || 'system' };
-            const id = await addMiscRevenue(payload);
-            const newItem = { ...payload, id, createdAt: new Date().toISOString() };
-            setDailyRevenues(prev => [newItem, ...prev]); setMonthlyRevenues(prev => [newItem, ...prev]);
-            showToast('Đã lưu doanh thu xe.', 'success'); setParkingMoto(''); setParkingCar('');
-        } catch { showToast('Lỗi.', 'error'); } finally { setIsSubmitting(null); }
-    };
+
     const handleDelete = async (id: string) => {
-        if (!window.confirm('Xác nhận xóa khoản thu?')) return;
-        try { await deleteMiscRevenue(id); setDailyRevenues(prev => prev.filter(r => r.id !== id)); setMonthlyRevenues(prev => prev.filter(r => r.id !== id)); showToast('Đã xóa.', 'success'); } catch { showToast('Lỗi.', 'error'); }
+        if (!window.confirm('Xác nhận xóa khoản thu này?')) return;
+        try { 
+            await deleteMiscRevenue(id); 
+            setDailyRevenues(prev => prev.filter(r => r.id !== id)); 
+            setMonthlyRevenues(prev => prev.filter(r => r.id !== id)); 
+            showToast('Đã xóa giao dịch.', 'success'); 
+        } catch { showToast('Lỗi khi xóa.', 'error'); }
     };
-    const navigateDay = (dir: number) => { const d = new Date(selectedDate); d.setDate(d.getDate() + dir); setSelectedDate(d.toISOString().split('T')[0]); };
+
     const handleExport = () => {
         if (monthlyRevenues.length === 0) { showToast('Không có dữ liệu tháng này.', 'info'); return; }
         try {
-            const wb = XLSX.utils.book_new(); const monthLabel = selectedDate.substring(0, 7);
-            const summaryData = monthlyRevenues.map((r, i) => ({ STT: i + 1, 'Ngày': r.date, 'Giờ': new Date(r.createdAt).toLocaleTimeString('vi-VN', { hour: '2-digit', minute: '2-digit' }), 'Phân loại': typeLabels[r.type] || r.type, 'Nội dung': r.description, 'Số tiền': r.amount, 'Người tạo': r.createdBy }));
-            const wsSummary = XLSX.utils.json_to_sheet(summaryData); XLSX.utils.book_append_sheet(wb, wsSummary, "Tổng hợp Tháng"); XLSX.writeFile(wb, `Bao_cao_VAS_Thang_${monthLabel}.xlsx`); showToast('Xuất báo cáo tháng thành công.', 'success');
+            const wb = XLSX.utils.book_new(); 
+            const monthLabel = selectedDate.substring(0, 7);
+            const summaryData = monthlyRevenues.map((r, i) => ({ 
+                STT: i + 1, 
+                'Ngày': r.date, 
+                'Giờ': new Date(r.createdAt).toLocaleTimeString('vi-VN', { hour: '2-digit', minute: '2-digit' }), 
+                'Phân loại': typeLabels[r.type] || r.type, 
+                'Nội dung': r.description, 
+                'Số tiền': r.amount, 
+                'Người tạo': r.createdBy 
+            }));
+            const wsSummary = XLSX.utils.json_to_sheet(summaryData); 
+            XLSX.utils.book_append_sheet(wb, wsSummary, "Doanh thu VAS"); 
+            XLSX.writeFile(wb, `Bao_cao_VAS_Thang_${monthLabel}.xlsx`); 
+            showToast('Xuất báo cáo thành công.', 'success');
         } catch { showToast('Lỗi khi xuất file Excel.', 'error'); }
     };
+
+    // --- Compute Totals ---
     const monthlyTotal = useMemo(() => monthlyRevenues.reduce((sum, r) => sum + r.amount, 0), [monthlyRevenues]);
     const getTypedDailyTotal = (type: MiscRevenueType) => dailyRevenues.filter(r => r.type === type).reduce((sum, r) => sum + r.amount, 0);
-    const inputStyle = "w-full px-2 py-1.5 bg-gray-50 border border-gray-200 rounded-lg outline-none text-xs font-semibold focus:bg-white focus:ring-1 focus:ring-primary";
-    const labelStyle = "text-[9px] font-black text-gray-400 uppercase ml-1 block mb-0.5";
-    const formattedDate = useMemo(() => { const d = new Date(selectedDate); return d.toLocaleDateString('vi-VN', { day: '2-digit', month: '2-digit', year: 'numeric' }); }, [selectedDate]);
+
+    const inputLabelStyle = "text-[10px] font-black text-gray-400 uppercase tracking-widest mb-1.5 ml-1 block";
+    const inputFieldStyle = "w-full p-3 bg-gray-50 border border-gray-200 rounded-xl outline-none text-sm font-bold text-gray-800 focus:bg-white focus:ring-2 focus:ring-primary/20 focus:border-primary transition-all";
 
     return (
-        <div className="flex flex-col h-full overflow-hidden bg-slate-50/30">
-            <div className="flex-none bg-white/90 backdrop-blur-md z-20 p-3 border-b border-gray-100 sticky top-0 shadow-sm">
-                <div className="max-w-7xl mx-auto flex items-center justify-between gap-4">
-                    <div className="flex items-center gap-2 bg-gray-100 p-1 rounded-xl border border-gray-200 shadow-inner">
-                        <button onClick={() => navigateDay(-1)} className="p-1.5 hover:bg-white hover:text-primary rounded-lg transition-all text-gray-500"><ChevronLeftIcon className="w-4 h-4" /></button>
-                        <div className="relative">
-                            <button onClick={() => setIsDatePickerOpen(!isDatePickerOpen)} className="flex items-center gap-2 pl-3 pr-2 py-1.5 bg-white border border-gray-200 rounded-lg text-xs font-black text-gray-800 outline-none hover:border-primary/30 transition-all min-w-[120px]"><CalendarDaysIcon className="text-primary w-4 h-4" />{formattedDate}<ChevronDownIcon className={`w-3 h-3 ml-auto transition-transform ${isDatePickerOpen ? 'rotate-180' : ''}`} /></button>
-                            {isDatePickerOpen && <DatePickerPopover selectedDate={selectedDate} onSelect={setSelectedDate} onClose={() => setIsDatePickerOpen(false)} />}
-                        </div>
-                        <button onClick={() => navigateDay(1)} className="p-1.5 hover:bg-white hover:text-primary rounded-lg transition-all text-gray-500"><ChevronRightIcon className="w-4 h-4" /></button>
-                    </div>
+        <div className="flex flex-col h-full bg-[#f8fafc] overflow-hidden">
+            {/* Header / Toolbar */}
+            <div className="bg-white border-b border-gray-100 p-4 shrink-0 shadow-sm z-30">
+                <div className="max-w-7xl mx-auto flex flex-col md:flex-row items-center justify-between gap-4">
                     <div className="flex items-center gap-2">
-                        <button onClick={() => fetchData(selectedDate)} className="p-2 bg-gray-50 border border-gray-200 text-gray-400 rounded-xl hover:text-primary hover:bg-white transition-all shadow-sm" title="Làm mới"><ClockIcon className="w-4 h-4" /></button>
-                        <button onClick={handleExport} className="flex items-center gap-1.5 px-3 py-2 bg-white border border-gray-200 text-gray-600 font-bold text-[10px] rounded-xl hover:bg-gray-50 uppercase tracking-wider transition-all shadow-sm"><DocumentArrowDownIcon className="w-3.5 h-3.5 opacity-60" /> Export Tháng</button>
-                        <div className="bg-emerald-50 border border-emerald-100 px-3 py-1.5 rounded-xl flex items-center gap-2 shadow-inner">
-                            <div className="p-1 bg-emerald-600 rounded text-white flex-shrink-0"><BanknotesIcon className="w-3.5 h-3.5" /></div>
-                            <div className="flex flex-col"><span className="text-[8px] font-black text-emerald-600/60 uppercase leading-none mb-0.5">Tổng thu tháng</span><span className="text-xs font-black text-emerald-700 leading-none tabular-nums">{formatCurrency(monthlyTotal)}</span></div>
+                        <div className="bg-gray-100 p-1 rounded-xl flex items-center shadow-inner border border-gray-200">
+                            <button onClick={() => { const d = new Date(selectedDate); d.setDate(d.getDate() - 1); setSelectedDate(d.toISOString().split('T')[0]); }} className="p-2 hover:bg-white rounded-lg transition-all text-gray-500"><ChevronLeftIcon className="w-4 h-4"/></button>
+                            <div className="relative">
+                                <button onClick={() => setIsDatePickerOpen(!isDatePickerOpen)} className="px-4 py-2 text-xs font-black uppercase tracking-tight text-gray-800 flex items-center gap-2">
+                                    <CalendarDaysIcon className="w-4 h-4 text-primary" />
+                                    {new Date(selectedDate).toLocaleDateString('vi-VN', { day: '2-digit', month: '2-digit', year: 'numeric' })}
+                                    <ChevronDownIcon className="w-3 h-3 opacity-40" />
+                                </button>
+                                {isDatePickerOpen && <DatePickerPopover selectedDate={selectedDate} onSelect={setSelectedDate} onClose={() => setIsDatePickerOpen(false)} />}
+                            </div>
+                            <button onClick={() => { const d = new Date(selectedDate); d.setDate(d.getDate() + 1); setSelectedDate(d.toISOString().split('T')[0]); }} className="p-2 hover:bg-white rounded-lg transition-all text-gray-500"><ChevronRightIcon className="w-4 h-4"/></button>
+                        </div>
+                    </div>
+
+                    <div className="flex items-center gap-3">
+                        <button onClick={handleExport} className="flex items-center gap-2 px-4 py-2.5 bg-white border border-gray-200 text-[10px] font-black uppercase tracking-widest text-gray-600 rounded-xl hover:bg-gray-50 active:scale-95 transition-all shadow-sm">
+                            <DocumentArrowDownIcon className="w-4 h-4 opacity-40"/> Báo cáo tháng
+                        </button>
+                        <div className="h-10 px-4 bg-emerald-50 border border-emerald-100 rounded-xl flex items-center gap-3 shadow-inner">
+                            <PiggyBankIcon className="w-5 h-5 text-emerald-600"/>
+                            <div className="flex flex-col">
+                                <span className="text-[8px] font-black text-emerald-600/60 uppercase leading-none mb-0.5">Tổng thu tháng</span>
+                                <span className="text-sm font-black text-emerald-700 leading-none tabular-nums">{formatCurrency(monthlyTotal)}</span>
+                            </div>
                         </div>
                     </div>
                 </div>
             </div>
-            <div ref={scrollRef} className="flex-1 overflow-y-auto scroll-smooth">
-                <div className="max-w-7xl mx-auto p-3 md:p-4 space-y-4 pb-20">
-                    <div className="flex justify-between items-center px-1"><h2 className="text-[11px] font-black text-gray-400 uppercase tracking-[0.2em]">Nhập liệu doanh thu ngày {formattedDate}</h2><button onClick={() => setIsManuallyCollapsed(!isManuallyCollapsed)} className="flex items-center gap-1.5 px-2 py-1 rounded-lg bg-gray-100 text-gray-500 hover:bg-gray-200 transition-all active:scale-95"><span className="text-[10px] font-bold uppercase tracking-wider">{isManuallyCollapsed ? 'Mở rộng' : 'Thu nhỏ'}</span></button></div>
-                    <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-3">
-                        <InputCard title="Xe lượt" icon={<CarIcon />} colorClass="bg-blue-600" isCollapsed={isManuallyCollapsed} typeTotal={getTypedDailyTotal('PARKING')} actionLabel="Lưu" onAdd={handleParkingSave} loading={isSubmitting === 'PARKING_BTN' as any}>
-                            <div className="grid grid-cols-2 gap-2">
-                                <div><label className={labelStyle}>Xe máy</label><input type="text" value={parkingMoto} onChange={e => setParkingMoto(formatInputNumber(e.target.value))} className={inputStyle} placeholder="0" /></div>
-                                <div><label className={labelStyle}>Ô tô</label><input type="text" value={parkingCar} onChange={e => setParkingCar(formatInputNumber(e.target.value))} className={inputStyle} placeholder="0" /></div>
+
+            {/* Main Content Split View */}
+            <div className="flex-1 overflow-hidden p-6 max-w-7xl mx-auto w-full flex gap-8">
+                
+                {/* LEFT COLUMN: INPUT STATION (1/3) */}
+                <div className="w-1/3 flex flex-col gap-6 animate-fade-in-down h-full">
+                    <div className="bg-white rounded-2xl shadow-xl shadow-slate-200/50 border border-gray-100 flex flex-col h-full overflow-hidden">
+                        {/* Tab Headers */}
+                        <div className="grid grid-cols-4 border-b border-gray-50 bg-gray-50/50 p-1">
+                            {(Object.keys(typeLabels) as MiscRevenueType[]).map(type => (
+                                <button 
+                                    key={type}
+                                    onClick={() => setActiveTab(type)}
+                                    className={`flex flex-col items-center justify-center py-3 rounded-xl transition-all gap-1 ${
+                                        activeTab === type 
+                                            ? `bg-white shadow-md text-gray-900 border border-gray-100` 
+                                            : 'text-gray-400 hover:text-gray-600'
+                                    }`}
+                                >
+                                    {type === 'PARKING' && <CarIcon className={`w-5 h-5 ${activeTab === type ? 'text-blue-600' : ''}`} />}
+                                    {type === 'KIOS' && <StoreIcon className={`w-5 h-5 ${activeTab === type ? 'text-amber-500' : ''}`} />}
+                                    {type === 'VAT_SERVICE' && <PercentIcon className={`w-5 h-5 ${activeTab === type ? 'text-purple-600' : ''}`} />}
+                                    {type === 'OTHER' && <ArchiveBoxIcon className={`w-5 h-5 ${activeTab === type ? 'text-rose-500' : ''}`} />}
+                                    <span className="text-[9px] font-black uppercase tracking-tight">{typeLabels[type]}</span>
+                                </button>
+                            ))}
+                        </div>
+
+                        {/* Form Content */}
+                        <div className="flex-1 p-6 space-y-6 overflow-y-auto">
+                            <div className="flex items-center gap-3 mb-2">
+                                <div className={`w-2 h-2 rounded-full ${tabColors[activeTab]}`}></div>
+                                <h3 className="font-black text-gray-800 uppercase tracking-widest text-xs">Thêm {typeLabels[activeTab]}</h3>
                             </div>
-                        </InputCard>
-                        <InputCard title="Kios" icon={<StoreIcon />} colorClass="bg-amber-600" isCollapsed={isManuallyCollapsed} typeTotal={getTypedDailyTotal('KIOS')} onAdd={() => handleAddRevenue('KIOS', kioskAmount, kioskName)} loading={isSubmitting === 'KIOS'}>
-                            <div><label className={labelStyle}>Tên Kios</label><input type="text" value={kioskName} onChange={e => setKioskName(e.target.value)} className={inputStyle} placeholder="Kios 01..." /></div>
-                            <div className="mt-2"><label className={labelStyle}>Số tiền</label><input type="text" value={kioskAmount} onChange={e => setKioskAmount(formatInputNumber(e.target.value))} className={inputStyle} placeholder="0" /></div>
-                        </InputCard>
-                        <InputCard title="GTGT" icon={<PercentIcon />} colorClass="bg-purple-600" isCollapsed={isManuallyCollapsed} typeTotal={getTypedDailyTotal('VAT_SERVICE')} onAdd={() => handleAddRevenue('VAT_SERVICE', vasAmount, vasName)} loading={isSubmitting === 'VAT_SERVICE'}>
-                            <div><label className={labelStyle}>Nội dung</label><input type="text" value={vasName} onChange={e => setVasName(e.target.value)} className={inputStyle} placeholder="Dịch vụ..." /></div>
-                            <div className="mt-2"><label className={labelStyle}>Số tiền</label><input type="text" value={vasAmount} onChange={e => setVasAmount(formatInputNumber(e.target.value))} className={inputStyle} placeholder="0" /></div>
-                        </InputCard>
-                        <InputCard title="Khác" icon={<PiggyBankIcon />} colorClass="bg-rose-600" isCollapsed={isManuallyCollapsed} typeTotal={getTypedDailyTotal('OTHER')} onAdd={() => handleAddRevenue('OTHER', otherAmount, otherName)} loading={isSubmitting === 'OTHER'}>
-                            <div><label className={labelStyle}>Nội dung</label><input type="text" value={otherName} onChange={e => setOtherName(e.target.value)} className={inputStyle} placeholder="Nội dung khác..." /></div>
-                            <div className="mt-2"><label className={labelStyle}>Số tiền</label><input type="text" value={otherAmount} onChange={e => setOtherAmount(formatInputNumber(e.target.value))} className={inputStyle} placeholder="0" /></div>
-                        </InputCard>
+
+                            {activeTab === 'PARKING' && (
+                                <div className="space-y-4 animate-fade-in-down">
+                                    <div className="p-4 bg-blue-50 border border-blue-100 rounded-2xl flex gap-3">
+                                        <div className="p-2 bg-white rounded-lg shrink-0 h-fit text-blue-600 shadow-sm"><MotorbikeIcon className="w-5 h-5"/></div>
+                                        <div className="flex-1">
+                                            <label className={inputLabelStyle}>Doanh thu Xe máy</label>
+                                            <input type="text" value={parkingMoto} onChange={e => setParkingMoto(formatInputNumber(e.target.value))} className={inputFieldStyle} placeholder="0 VNĐ" />
+                                        </div>
+                                    </div>
+                                    <div className="p-4 bg-blue-50 border border-blue-100 rounded-2xl flex gap-3">
+                                        <div className="p-2 bg-white rounded-lg shrink-0 h-fit text-blue-600 shadow-sm"><CarIcon className="w-5 h-5"/></div>
+                                        <div className="flex-1">
+                                            <label className={inputLabelStyle}>Doanh thu Ô tô</label>
+                                            <input type="text" value={parkingCar} onChange={e => setParkingCar(formatInputNumber(e.target.value))} className={inputFieldStyle} placeholder="0 VNĐ" />
+                                        </div>
+                                    </div>
+                                </div>
+                            )}
+
+                            {activeTab === 'KIOS' && (
+                                <div className="space-y-4 animate-fade-in-down">
+                                    <div>
+                                        <label className={inputLabelStyle}>Tên Kios / Cửa hàng</label>
+                                        <input type="text" value={kioskName} onChange={e => setKioskName(e.target.value)} className={inputFieldStyle} placeholder="VD: Kios 05 - Circle K" />
+                                    </div>
+                                    <div>
+                                        <label className={inputLabelStyle}>Số tiền thanh toán</label>
+                                        <input type="text" value={kioskAmount} onChange={e => setKioskAmount(formatInputNumber(e.target.value))} className={inputFieldStyle} placeholder="0 VNĐ" />
+                                    </div>
+                                </div>
+                            )}
+
+                            {activeTab === 'VAT_SERVICE' && (
+                                <div className="space-y-4 animate-fade-in-down">
+                                    <div>
+                                        <label className={inputLabelStyle}>Loại dịch vụ gia tăng</label>
+                                        <input type="text" value={vasName} onChange={e => setVasName(e.target.value)} className={inputFieldStyle} placeholder="VD: Phí sửa chữa điện nước" />
+                                    </div>
+                                    <div>
+                                        <label className={inputLabelStyle}>Số tiền</label>
+                                        <input type="text" value={vasAmount} onChange={e => setVasAmount(formatInputNumber(e.target.value))} className={inputFieldStyle} placeholder="0 VNĐ" />
+                                    </div>
+                                </div>
+                            )}
+
+                            {activeTab === 'OTHER' && (
+                                <div className="space-y-4 animate-fade-in-down">
+                                    <div>
+                                        <label className={inputLabelStyle}>Nội dung thu khác</label>
+                                        <input type="text" value={otherName} onChange={e => setOtherName(e.target.value)} className={inputFieldStyle} placeholder="Nhập chi tiết nội dung..." />
+                                    </div>
+                                    <div>
+                                        <label className={inputLabelStyle}>Số tiền</label>
+                                        <input type="text" value={otherAmount} onChange={e => setOtherAmount(formatInputNumber(e.target.value))} className={inputFieldStyle} placeholder="0 VNĐ" />
+                                    </div>
+                                </div>
+                            )}
+                        </div>
+
+                        {/* Submit Button */}
+                        <div className="p-6 border-t border-gray-50 shrink-0">
+                            <button 
+                                onClick={handleAddTransaction}
+                                disabled={isSubmitting}
+                                className={`w-full py-4 rounded-2xl font-black text-sm uppercase tracking-[0.2em] shadow-lg active:scale-95 transition-all flex items-center justify-center gap-3 text-white ${tabColors[activeTab]} shadow-${tabColors[activeTab].split('-')[1]}/20 disabled:opacity-50`}
+                            >
+                                {isSubmitting ? <Spinner /> : <><PlusIcon className="w-5 h-5" /> Thêm khoản thu</>}
+                            </button>
+                        </div>
                     </div>
-                    <div className="bg-white rounded-2xl shadow-sm border border-gray-100 overflow-hidden min-h-[400px]">
-                        <table className="w-full text-sm border-collapse">
-                            <thead className="sticky top-0 z-10 bg-white shadow-sm ring-1 ring-black/5">
-                                <tr className="text-left text-[9px] font-black text-gray-400 uppercase tracking-widest border-b border-gray-100 bg-gray-50/50">
-                                    <th className="px-5 py-3 w-20">Giờ</th><th className="px-5 py-3 w-28">Loại hình</th><th className="px-5 py-3">Nội dung</th><th className="px-5 py-3 text-right w-36">Số tiền</th><th className="px-5 py-3 w-12"></th>
-                                </tr>
-                            </thead>
-                            <tbody className="divide-y divide-gray-50">
-                                {isLoading ? <tr><td colSpan={5} className="py-20 text-center"><Spinner /></td></tr> : dailyRevenues.length === 0 ? <tr><td colSpan={5} className="py-32 text-center text-gray-300 font-bold uppercase tracking-widest text-[10px]">Chưa ghi nhận giao dịch ngày {formattedDate}</td></tr> : <>
-                                    {dailyRevenues.map(rev => {
-                                        const time = new Date(rev.createdAt).toLocaleTimeString('vi-VN', { hour: '2-digit', minute: '2-digit' });
-                                        const colors: any = { PARKING: 'bg-blue-100 text-blue-700', KIOS: 'bg-amber-100 text-amber-700', VAT_SERVICE: 'bg-purple-100 text-purple-700', OTHER: 'bg-rose-100 text-rose-700' };
-                                        return (
-                                            <tr key={rev.id} className="group hover:bg-slate-50/50 transition-colors">
-                                                <td className="px-5 py-3.5 font-mono text-[10px] text-gray-400">{time}</td>
-                                                <td className="px-5 py-3.5"><span className={`px-2.5 py-0.5 rounded text-[8px] font-black uppercase border border-current whitespace-nowrap ${colors[rev.type] || 'bg-gray-100'}`}>{typeLabels[rev.type] || rev.type}</span></td>
-                                                <td className="px-5 py-3.5 text-xs font-semibold text-gray-700">{rev.description}</td>
-                                                <td className="px-5 py-3.5 text-right font-black text-gray-900 tabular-nums">{formatCurrency(rev.amount)}</td>
-                                                <td className="px-5 py-3.5 text-center"><button onClick={() => handleDelete(rev.id)} className="text-gray-300 hover:text-red-500 opacity-0 group-hover:opacity-100 transition-all active:scale-90"><TrashIcon className="w-4 h-4" /></button></td>
-                                            </tr>
-                                        );
-                                    })}
-                                    <tr className="bg-emerald-50/30"><td colSpan={3} className="px-5 py-6 text-[10px] font-black text-emerald-600 uppercase tracking-widest"><div className="flex items-center gap-2"><div className="w-1.5 h-1.5 bg-emerald-500 rounded-full animate-pulse"></div>Tổng thu ngày {formattedDate}</div></td><td className="px-5 py-6 text-right"><p className="text-[10px] text-emerald-600/60 font-bold leading-none mb-1">{dailyRevenues.length} giao dịch</p><p className="text-xl font-black text-emerald-700 tabular-nums leading-none tracking-tighter">{formatCurrency(dailyRevenues.reduce((sum, r) => sum + r.amount, 0))}</p></td><td></td></tr>
-                                </>}
-                            </tbody>
-                        </table>
+                </div>
+
+                {/* RIGHT COLUMN: HISTORY & STATS (2/3) */}
+                <div className="w-2/3 flex flex-col gap-6 h-full overflow-hidden">
+                    
+                    {/* Top Row: Daily Summary Stats */}
+                    <div className="grid grid-cols-4 gap-4 shrink-0">
+                        <MiniStatCard label="Xe lượt" value={getTypedDailyTotal('PARKING')} icon={<CarIcon />} colorClass="bg-blue-600" />
+                        <MiniStatCard label="Thu Kios" value={getTypedDailyTotal('KIOS')} icon={<StoreIcon />} colorClass="bg-amber-500" />
+                        <MiniStatCard label="Dịch vụ GTGT" value={getTypedDailyTotal('VAT_SERVICE')} icon={<PercentIcon />} colorClass="bg-purple-600" />
+                        <MiniStatCard label="Thu khác" value={getTypedDailyTotal('OTHER')} icon={<ArchiveBoxIcon />} colorClass="bg-rose-500" />
+                    </div>
+
+                    {/* Main Activity Area */}
+                    <div className="bg-white rounded-2xl border border-gray-100 shadow-sm flex-1 flex flex-col overflow-hidden">
+                        <div className="px-5 py-4 border-b border-gray-50 flex justify-between items-center bg-gray-50/30">
+                            <div className="flex items-center gap-2">
+                                <div className="p-2 bg-white rounded-lg shadow-sm border border-gray-100 text-gray-400">
+                                    <ClockIcon className="w-4 h-4"/>
+                                </div>
+                                <h3 className="font-black text-gray-800 text-[10px] uppercase tracking-widest">Hoạt động trong ngày</h3>
+                            </div>
+                            <div className="flex items-center gap-2">
+                                <span className="text-[10px] font-bold text-gray-400 uppercase tabular-nums">{dailyRevenues.length} giao dịch</span>
+                            </div>
+                        </div>
+
+                        <div className="flex-1 overflow-y-auto">
+                            {isLoading ? (
+                                <div className="py-20 flex justify-center"><Spinner /></div>
+                            ) : dailyRevenues.length === 0 ? (
+                                <div className="py-20 flex flex-col items-center justify-center text-gray-300 gap-4 opacity-60">
+                                    <ArchiveBoxIcon className="w-16 h-16"/>
+                                    <p className="font-black uppercase tracking-widest text-xs">Chưa có giao dịch nào</p>
+                                </div>
+                            ) : (
+                                <table className="w-full text-sm border-collapse">
+                                    <thead className="sticky top-0 z-10 bg-white/95 backdrop-blur-md shadow-sm">
+                                        <tr className="text-left text-[9px] font-black text-gray-400 uppercase tracking-widest border-b border-gray-50">
+                                            <th className="px-6 py-3.5 w-24">Thời gian</th>
+                                            <th className="px-6 py-3.5 w-32">Phân loại</th>
+                                            <th className="px-6 py-3.5">Nội dung chi tiết</th>
+                                            <th className="px-6 py-3.5 text-right w-40">Số tiền</th>
+                                            <th className="px-6 py-3.5 w-12 text-center"></th>
+                                        </tr>
+                                    </thead>
+                                    <tbody className="divide-y divide-gray-50">
+                                        {dailyRevenues.map(rev => {
+                                            const time = new Date(rev.createdAt).toLocaleTimeString('vi-VN', { hour: '2-digit', minute: '2-digit' });
+                                            const colors: any = { 
+                                                PARKING: 'bg-blue-50 text-blue-700 border-blue-100', 
+                                                KIOS: 'bg-amber-50 text-amber-700 border-amber-100', 
+                                                VAT_SERVICE: 'bg-purple-50 text-purple-700 border-purple-100', 
+                                                OTHER: 'bg-rose-50 text-rose-700 border-rose-100' 
+                                            };
+                                            return (
+                                                <tr key={rev.id} className="group hover:bg-slate-50 transition-colors">
+                                                    <td className="px-6 py-4 font-mono text-[10px] text-gray-400 font-bold">{time}</td>
+                                                    <td className="px-6 py-4">
+                                                        <span className={`px-2.5 py-1 rounded-lg text-[9px] font-black uppercase border whitespace-nowrap shadow-sm ${colors[rev.type]}`}>
+                                                            {typeLabels[rev.type]}
+                                                        </span>
+                                                    </td>
+                                                    <td className="px-6 py-4">
+                                                        <p className="text-xs font-bold text-gray-700 leading-snug line-clamp-1">{rev.description}</p>
+                                                        <p className="text-[9px] text-gray-400 font-medium mt-0.5 italic">{rev.createdBy.split('@')[0]}</p>
+                                                    </td>
+                                                    <td className="px-6 py-4 text-right font-black text-gray-900 tabular-nums">
+                                                        {formatCurrency(rev.amount)}
+                                                    </td>
+                                                    <td className="px-6 py-4 text-center">
+                                                        <button 
+                                                            onClick={() => handleDelete(rev.id)} 
+                                                            className="text-gray-300 hover:text-red-500 opacity-0 group-hover:opacity-100 transition-all active:scale-90 p-1.5 hover:bg-red-50 rounded-lg"
+                                                        >
+                                                            <TrashIcon className="w-4 h-4" />
+                                                        </button>
+                                                    </td>
+                                                </tr>
+                                            );
+                                        })}
+                                    </tbody>
+                                </table>
+                            )}
+                        </div>
+
+                        {/* Summary Footer for history panel */}
+                        {!isLoading && dailyRevenues.length > 0 && (
+                            <div className="bg-emerald-600 p-4 flex justify-between items-center text-white shrink-0">
+                                <div className="flex items-center gap-2">
+                                    <div className="w-2 h-2 rounded-full bg-white animate-pulse"></div>
+                                    <span className="text-[10px] font-black uppercase tracking-[0.2em]">Tổng thu ngày hôm nay</span>
+                                </div>
+                                <div className="text-right">
+                                    <span className="text-xl font-black tabular-nums tracking-tighter">
+                                        {formatCurrency(dailyRevenues.reduce((sum, r) => sum + r.amount, 0))}
+                                    </span>
+                                </div>
+                            </div>
+                        )}
                     </div>
                 </div>
             </div>
-            <button onClick={() => scrollRef.current?.scrollTo({ top: 0, behavior: 'smooth' })} className="fixed bottom-6 right-6 p-2.5 bg-primary text-white rounded-full shadow-lg hover:bg-primary-focus transition-all active:scale-90 z-50" title="Quay lại phía trên"><ChevronUpIcon className="w-5 h-5" /></button>
         </div>
     );
 };

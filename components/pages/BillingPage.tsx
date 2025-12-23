@@ -262,8 +262,8 @@ const BillingPage: React.FC<BillingPageProps> = ({ charges, setCharges, allData,
     // Stats
     const stats = useMemo(() => {
         const currentCharges = charges.filter(c => c.Period === period);
-        const totalDue = currentCharges.reduce((s, c) => s + c.TotalDue, 0);
-        const totalPaid = currentCharges.reduce((s, c) => s + c.TotalPaid, 0);
+        const totalDue = currentCharges.reduce((sum, c) => sum + (c.TotalDue || 0), 0);
+        const totalPaid = currentCharges.reduce((sum, c) => sum + (c.TotalPaid || 0), 0);
         const debt = totalDue - totalPaid;
         const count = currentCharges.length;
         const paidCount = currentCharges.filter(c => ['paid', 'paid_tm', 'paid_ck'].includes(c.paymentStatus)).length;

@@ -54,12 +54,14 @@ import {
   Camera as LucideCamera,
   CreditCard,
   Percent,
-  PiggyBank
+  PiggyBank,
+  Phone
 } from 'lucide-react';
 
 interface IconProps {
     className?: string;
     size?: number;
+    fill?: string;
 }
 
 // Global default size reduced to 14px for a more refined look
@@ -145,3 +147,4 @@ export const Camera: React.FC<IconProps> = ({ className = DEFAULT_CLASS, size = 
 export const CreditCardIcon: React.FC<IconProps> = ({ className = DEFAULT_CLASS, size = DEFAULT_SIZE }) => <CreditCard className={className} size={size} />;
 export const PercentIcon: React.FC<IconProps> = ({ className = DEFAULT_CLASS, size = DEFAULT_SIZE }) => <Percent className={className} size={size} />;
 export const PiggyBankIcon: React.FC<IconProps> = ({ className = DEFAULT_CLASS, size = DEFAULT_SIZE }) => <PiggyBank className={className} size={size} />;
+export const PhoneIcon: React.FC<IconProps> = ({ className = DEFAULT_CLASS, size = DEFAULT_SIZE, fill = "none" }) => <Phone className={className} size={size} fill={fill} />;
