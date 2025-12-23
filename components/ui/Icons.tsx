@@ -67,13 +67,15 @@ import {
   Menu,
   Store,
   Inbox,
-  ClipboardCheck
+  ClipboardCheck,
+  Bell
 } from 'lucide-react';
 
 interface IconProps {
     className?: string;
     size?: number;
     fill?: string;
+    strokeWidth?: number;
 }
 
 // Global default size reduced to 14px for a more refined look
@@ -83,7 +85,7 @@ const DEFAULT_SIZE = 14;
 export const PieChartIcon: React.FC<IconProps> = ({ className = DEFAULT_CLASS, size = DEFAULT_SIZE }) => <LayoutDashboard className={className} size={size} />;
 export const UserCircleIcon: React.FC<IconProps> = ({ className = DEFAULT_CLASS, size = DEFAULT_SIZE }) => <UserCircle className={className} size={size} />;
 export const ArrowRightOnRectangleIcon: React.FC<IconProps> = ({ className = DEFAULT_CLASS, size = DEFAULT_SIZE }) => <LogOut className={className} size={size} />;
-export const CheckIcon: React.FC<IconProps> = ({ className = DEFAULT_CLASS, size = DEFAULT_SIZE }) => <Check className={className} size={size} />;
+export const CheckIcon: React.FC<IconProps> = ({ className = DEFAULT_CLASS, size = DEFAULT_SIZE, strokeWidth }) => <Check className={className} size={size} strokeWidth={strokeWidth} />;
 export const UserIcon: React.FC<IconProps> = ({ className = DEFAULT_CLASS, size = DEFAULT_SIZE }) => <User className={className} size={size} />;
 export const UsersIcon: React.FC<IconProps> = ({ className = DEFAULT_CLASS, size = DEFAULT_SIZE }) => <Users className={className} size={size} />;
 export const PaperAirplaneIcon: React.FC<IconProps> = ({ className = DEFAULT_CLASS, size = DEFAULT_SIZE }) => <Send className={className} size={size} />;
@@ -102,7 +104,7 @@ export const CalculatorIcon2 = CalculatorIcon;
 export const WaterIcon: React.FC<IconProps> = ({ className = DEFAULT_CLASS, size = DEFAULT_SIZE }) => <Droplets className={className} size={size} />;
 export const ReceiptIcon: React.FC<IconProps> = ({ className = DEFAULT_CLASS, size = DEFAULT_SIZE }) => <Receipt className={className} size={size} />;
 export const CarIcon: React.FC<IconProps> = ({ className = DEFAULT_CLASS, size = DEFAULT_SIZE }) => <Car className={className} size={size} />;
-export const MegaphoneIcon: React.FC<IconProps> = ({ className = DEFAULT_CLASS, size = DEFAULT_SIZE }) => <Megaphone className={className} size={size} />;
+export const MegaphoneIcon: React.FC<IconProps> = ({ className = DEFAULT_CLASS, size = DEFAULT_SIZE }) => <Bell className={className} size={size} />;
 export const ChatBubbleLeftEllipsisIcon: React.FC<IconProps> = ({ className = DEFAULT_CLASS, size = DEFAULT_SIZE }) => <MessageSquare className={className} size={size} />;
 export const ChevronLeftIcon: React.FC<IconProps> = ({ className = DEFAULT_CLASS, size = DEFAULT_SIZE }) => <ChevronLeft className={className} size={size} />;
 export const ChevronRightIcon: React.FC<IconProps> = ({ className = DEFAULT_CLASS, size = DEFAULT_SIZE }) => <ChevronRight className={className} size={size} />;
@@ -144,7 +146,7 @@ export const TrendingUpIcon: React.FC<IconProps> = ({ className = DEFAULT_CLASS,
 export const SparklesIcon: React.FC<IconProps> = ({ className = DEFAULT_CLASS, size = DEFAULT_SIZE }) => <Sparkles className={className} size={size} />;
 export const CircularArrowRefreshIcon = ArrowPathIcon;
 export const CurrencyDollarIcon: React.FC<IconProps> = ({ className = DEFAULT_CLASS, size = DEFAULT_SIZE }) => <Banknote className={className} size={size} />;
-export const BellIcon: React.FC<IconProps> = ({ className = DEFAULT_CLASS, size = DEFAULT_SIZE }) => <Megaphone className={className} size={size} />;
+export const BellIcon: React.FC<IconProps> = ({ className = DEFAULT_CLASS, size = DEFAULT_SIZE }) => <Bell className={className} size={size} />;
 export const PinIcon: React.FC<IconProps & { filled?: boolean }> = ({ className = DEFAULT_CLASS, size = DEFAULT_SIZE, filled }) => <Clock className={className} size={size} />;
 export const CalendarDaysIcon: React.FC<IconProps> = ({ className = DEFAULT_CLASS, size = DEFAULT_SIZE }) => <Clock className={className} size={size} />;
 export const ShareIcon: React.FC<IconProps> = ({ className = DEFAULT_CLASS, size = DEFAULT_SIZE }) => <Share2 className={className} size={size} />;
