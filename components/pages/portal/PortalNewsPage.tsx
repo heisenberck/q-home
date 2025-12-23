@@ -1,5 +1,5 @@
 
-import React, { useState, useMemo, useEffect } from 'react';
+import React, { useState, useMemo } from 'react';
 import type { NewsItem } from '../../../types';
 import Modal from '../../ui/Modal';
 import { timeAgo } from '../../../utils/helpers';
@@ -8,7 +8,8 @@ import { ClipboardDocumentListIcon, BellIcon, CalendarDaysIcon, SparklesIcon, Me
 
 interface PortalNewsPageProps {
   news: NewsItem[];
-  onAllRead?: () => void;
+  readIds: Set<string>;
+  onReadNews: (id: string) => void;
 }
 
 const NewsDetailPage: React.FC<{ item: NewsItem, onClose: () => void }> = ({ item, onClose }) => {
@@ -49,18 +50,19 @@ const NewsCategoryIcon: React.FC<{ category: NewsItem['category'] }> = ({ catego
 };
 
 
-const PortalNewsPage: React.FC<PortalNewsPageProps> = ({ news, onAllRead }) => {
+const PortalNewsPage: React.FC<PortalNewsPageProps> = ({ news, readIds, onReadNews }) => {
   const [selectedNews, setSelectedNews] = useState<NewsItem | null>(null);
-
-  useEffect(() => {
-      if (onAllRead) onAllRead();
-  }, [onAllRead]);
 
   const activeNews = useMemo(() => {
       return [...news]
         .filter(item => !item.isArchived)
         .sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime());
   }, [news]);
+
+  const handleOpenNews = (item: NewsItem) => {
+      onReadNews(item.id);
+      setSelectedNews(item);
+  };
 
   // Helper to strip HTML tags for the list snippet view
   const stripHtml = (html: string) => {
@@ -79,30 +81,41 @@ const PortalNewsPage: React.FC<PortalNewsPageProps> = ({ news, onAllRead }) => {
                 <p className="text-sm">Vui lòng quay lại sau.</p>
             </div>
         ) : (
-            activeNews.map(item => (
-                <div key={item.id} onClick={() => setSelectedNews(item)} className="bg-white p-4 rounded-xl shadow-sm border border-gray-100 cursor-pointer hover:border-primary transition-all flex gap-4 items-start active:bg-gray-50 group">
-                    <div className="flex-grow min-w-0">
-                        <div className="flex items-center gap-2 mb-1 flex-wrap">
-                            <NewsCategoryIcon category={item.category} />
-                            {item.sender && <span className="text-[10px] font-black uppercase text-gray-400 tracking-wider bg-gray-50 px-2 py-0.5 rounded border border-gray-100">{item.sender}</span>}
-                            {item.priority === 'high' && (
-                                <span className="text-[10px] font-black uppercase text-red-600 bg-red-50 px-2 py-0.5 rounded border border-red-100">KHẨN</span>
+            activeNews.map(item => {
+                const isRead = readIds.has(item.id);
+                return (
+                    <div key={item.id} onClick={() => handleOpenNews(item)} className={`bg-white p-4 rounded-xl shadow-sm border transition-all flex gap-4 items-start active:bg-gray-50 group ${isRead ? 'border-gray-100 opacity-80' : 'border-primary/20 bg-primary/5 shadow-md'}`}>
+                        <div className="relative flex-shrink-0">
+                            <div className={`p-2 rounded-xl border ${isRead ? 'bg-gray-50 border-gray-100 text-gray-400' : 'bg-white border-primary/20 shadow-sm'}`}>
+                                <NewsCategoryIcon category={item.category} />
+                            </div>
+                            {!isRead && (
+                                <span className="absolute -top-1 -right-1 w-3 h-3 bg-red-500 rounded-full border-2 border-white ring-2 ring-primary/5 animate-pulse"></span>
                             )}
                         </div>
-                        <h2 className="font-bold text-base text-gray-900 leading-snug line-clamp-2 group-hover:text-primary transition-colors">{item.title}</h2>
-                        <p className="text-sm text-gray-500 mt-1 line-clamp-2">{stripHtml(item.content)}</p>
-                        <div className="flex items-center gap-4 mt-3">
-                            <p className="text-[10px] font-bold text-gray-400 uppercase tracking-widest">{timeAgo(item.date)}</p>
-                            <p className="text-[10px] font-bold text-gray-400 uppercase tracking-widest">{new Date(item.date).toLocaleDateString('vi-VN')}</p>
+                        
+                        <div className="flex-grow min-w-0">
+                            <div className="flex items-center gap-2 mb-1 flex-wrap">
+                                {item.sender && <span className="text-[10px] font-black uppercase text-gray-400 tracking-wider bg-gray-50 px-2 py-0.5 rounded border border-gray-100">{item.sender}</span>}
+                                {item.priority === 'high' && (
+                                    <span className="text-[10px] font-black uppercase text-red-600 bg-red-50 px-2 py-0.5 rounded border border-red-100">KHẨN</span>
+                                )}
+                            </div>
+                            <h2 className={`text-base leading-snug line-clamp-2 transition-colors ${isRead ? 'font-semibold text-gray-700' : 'font-black text-gray-900 group-hover:text-primary'}`}>{item.title}</h2>
+                            <p className="text-sm text-gray-500 mt-1 line-clamp-2">{stripHtml(item.content)}</p>
+                            <div className="flex items-center gap-4 mt-3">
+                                <p className="text-[10px] font-bold text-gray-400 uppercase tracking-widest">{timeAgo(item.date)}</p>
+                                <p className="text-[10px] font-bold text-gray-400 uppercase tracking-widest">{new Date(item.date).toLocaleDateString('vi-VN')}</p>
+                            </div>
                         </div>
+                        {item.imageUrl && (
+                            <div className="w-16 h-16 bg-gray-100 rounded-lg overflow-hidden flex-shrink-0 border border-gray-100 shadow-inner">
+                                <img src={item.imageUrl} alt={item.title} className="w-full h-full object-cover transition-transform group-hover:scale-110 duration-500" />
+                            </div>
+                        )}
                     </div>
-                    {item.imageUrl && (
-                        <div className="w-20 h-20 bg-gray-100 rounded-lg overflow-hidden flex-shrink-0 border border-gray-100 shadow-inner">
-                            <img src={item.imageUrl} alt={item.title} className="w-full h-full object-cover transition-transform group-hover:scale-110 duration-500" />
-                        </div>
-                    )}
-                </div>
-            ))
+                );
+            })
         )}
     </div>
   );

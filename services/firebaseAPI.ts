@@ -8,7 +8,7 @@ import type {
     ChargeRaw, Adjustment, UserPermission, ActivityLog, 
     AllData, PaymentStatus, MonthlyStat, SystemMetadata, 
     ProfileRequest, MiscRevenue, TariffCollection, AdminNotification,
-    Role, NewsItem
+    Role, NewsItem, ResidentNotification
 } from '../types';
 import { VehicleTier } from '../types';
 
@@ -57,6 +57,21 @@ const injectLogAndNotif = (batch: any, log: any) => {
         createdAt: serverTimestamp()
     };
     batch.set(notifRef, notifData);
+};
+
+// --- NOTIFICATION MANAGEMENT ---
+export const markResidentNotificationRead = async (notifId: string) => {
+    const ref = doc(db, 'notifications', notifId);
+    await updateDoc(ref, { isRead: true });
+};
+
+export const markAllResidentNotificationsRead = async (unitId: string, unreadIds: string[]) => {
+    if (unreadIds.length === 0) return;
+    const batch = writeBatch(db);
+    unreadIds.forEach(id => {
+        batch.update(doc(db, 'notifications', id), { isRead: true });
+    });
+    await batch.commit();
 };
 
 // --- NEWS MANAGEMENT ---

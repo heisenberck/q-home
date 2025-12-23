@@ -47,6 +47,21 @@ function doPost(e) {
 }
 
 /**
+ * Gửi lời nhắc nợ định kỳ (Dùng cho Trigger ngày 15/20 hàng tháng)
+ * Lưu ý: Để dùng hàm này thực tế, bạn cần tích hợp Firebase Admin SDK hoặc REST API
+ */
+function scheduledDebtReminder() {
+  const now = new Date();
+  const date = now.getDate();
+  
+  if (date !== 15 && date !== 20) return;
+
+  Logger.log("Bắt đầu chạy tiến trình nhắc nợ định kỳ ngày " + date);
+  // Thực tế: Query danh sách các căn hộ có nợ từ Firestore/Database
+  // Gửi email/notification qua FCM
+}
+
+/**
  * Xử lý gửi Email thông báo phí (Có đính kèm PDF nếu có)
  */
 function handleSendNotification(data) {

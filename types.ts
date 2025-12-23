@@ -206,7 +206,7 @@ export interface FeedbackItem {
     id: string;
     residentId: string;
     subject: string;
-    category: 'general' | 'maintenance' | 'billing' | 'other';
+    category: 'general' | 'maintenance' | 'billing' | 'vehicle_reg' | 'other';
     content: string;
     date: string;
     status: 'Pending' | 'Processing' | 'Resolved';
@@ -249,16 +249,15 @@ export interface InvoiceSettings {
     transferContentTemplate?: string;
 }
 
-export interface AllData {
-    units: Unit[];
-    owners: Owner[];
-    vehicles: Vehicle[];
-    waterReadings: WaterReading[];
-    tariffs: TariffCollection;
-    adjustments: Adjustment[];
-    activityLogs: ActivityLog[];
-    monthlyStats: MonthlyStat[];
-    lockedWaterPeriods: string[];
+export interface ResidentNotification {
+    id: string;
+    userId: string;
+    title: string;
+    body: string;
+    type: 'bill' | 'news' | 'feedback' | 'profile' | 'system';
+    link: string;
+    isRead: boolean;
+    createdAt: any;
 }
 
 export interface SystemMetadata {
@@ -308,4 +307,20 @@ export interface AdminNotification {
     isRead: boolean;
     createdAt: any; // Firestore Timestamp
     linkTo?: string;
+}
+
+/**
+ * Interface representing the complete data snapshot of the system.
+ * Used for data loading, backups, and calculations across the application.
+ */
+export interface AllData {
+    units: Unit[];
+    owners: Owner[];
+    vehicles: Vehicle[];
+    waterReadings: WaterReading[];
+    tariffs: TariffCollection;
+    adjustments: Adjustment[];
+    activityLogs: ActivityLog[];
+    monthlyStats: MonthlyStat[];
+    lockedWaterPeriods: string[];
 }
