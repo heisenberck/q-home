@@ -56,5 +56,5 @@ export const {
     // Feedback
     submitFeedback,
     replyFeedback,
-    fetchAllFeedback
-} = api;
+    subscribeToActiveFeedback
+} = api as any;

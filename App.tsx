@@ -3,7 +3,8 @@ import React, { createContext, useContext, useState, useEffect, useCallback, use
 import type { 
     UserPermission, Unit, Owner, Vehicle, WaterReading, 
     TariffCollection, InvoiceSettings, Adjustment, ChargeRaw, 
-    MonthlyStat, ActivityLog, NewsItem, FeedbackItem, Role, ResidentNotification 
+    MonthlyStat, ActivityLog, NewsItem, FeedbackItem, Role, ResidentNotification,
+    MiscRevenue, OperationalExpense 
 } from './types';
 import { useSmartSystemData } from './hooks/useSmartData';
 import Sidebar from './components/layout/Sidebar';
@@ -35,6 +36,8 @@ import AdminPortalHomePage from './components/pages/admin-portal/AdminPortalHome
 import AdminPortalResidentsPage from './components/pages/admin-portal/AdminPortalResidentsPage';
 import AdminPortalVehiclesPage from './components/pages/admin-portal/AdminPortalVehiclesPage';
 import AdminPortalBillingPage from './components/pages/admin-portal/AdminPortalBillingPage';
+import AdminPortalVASPage from './components/pages/admin-portal/AdminPortalVASPage';
+import AdminPortalExpensesPage from './components/pages/admin-portal/AdminPortalExpensesPage';
 import Toast, { ToastMessage, ToastType } from './components/ui/Toast';
 import { deleteUsers, updateResidentData, importResidentsBatch, updateFeeSettings, fetchLatestLogs, updateUserProfile } from './services';
 import ChangePasswordModal from './components/pages/ChangePasswordModal';
@@ -186,6 +189,7 @@ const App: React.FC = () => {
     const { 
         units, owners, vehicles, waterReadings, charges, adjustments, users: fetchedUsers, news,
         invoiceSettings, tariffs, monthlyStats, lockedWaterPeriods,
+        miscRevenues, expenses,
         refreshSystemData 
     } = useSmartSystemData(user);
 
@@ -199,18 +203,22 @@ const App: React.FC = () => {
     const [localTariffs, setLocalTariffs] = useState<TariffCollection>({ service: [], parking: [], water: [] });
     const [localFeedback, setLocalFeedback] = useState<FeedbackItem[]>([]);
     const [localNews, setLocalNews] = useState<NewsItem[]>([]);
+    const [localMiscRevenues, setLocalMiscRevenues] = useState<MiscRevenue[]>([]);
+    const [localExpenses, setLocalExpenses] = useState<OperationalExpense[]>([]);
 
     useEffect(() => {
-        setLocalUnits(units);
-        setLocalOwners(owners);
-        setLocalVehicles(vehicles);
-        setLocalWaterReadings(waterReadings);
-        setLocalCharges(charges);
-        setLocalAdjustments(adjustments);
-        setLocalUsers(fetchedUsers);
-        setLocalTariffs(tariffs);
-        setLocalNews(news);
-    }, [units, owners, vehicles, waterReadings, charges, adjustments, fetchedUsers, tariffs, news]);
+        setLocalUnits(units || []);
+        setLocalOwners(owners || []);
+        setLocalVehicles(vehicles || []);
+        setLocalWaterReadings(waterReadings || []);
+        setLocalCharges(charges || []);
+        setLocalAdjustments(adjustments || []);
+        setLocalUsers(fetchedUsers || []);
+        setLocalTariffs(tariffs || { service: [], parking: [], water: [] });
+        setLocalNews(news || []);
+        setLocalMiscRevenues(miscRevenues || []);
+        setLocalExpenses(expenses || []);
+    }, [units, owners, vehicles, waterReadings, charges, adjustments, fetchedUsers, tariffs, news, miscRevenues, expenses]);
 
     const refreshLogs = useCallback(async () => {
         if (!user || user.Role === 'Resident') return;
@@ -307,10 +315,6 @@ const App: React.FC = () => {
         });
     }, []);
 
-    const handleMarkBellAsRead = useCallback(() => {
-        setUnreadResidentNotifications([]);
-    }, []);
-
     const notifications = useMemo(() => {
         // Unread news count: Archived news are ignored
         const unreadCount = localNews.filter(n => !n.isArchived && !readNewsIds.has(n.id)).length;
@@ -336,7 +340,7 @@ const App: React.FC = () => {
             case 'backup': return <BackupRestorePage allData={{ units: localUnits, owners: localOwners, vehicles: localVehicles, waterReadings: localWaterReadings, charges: localCharges, adjustments: localAdjustments, users: localUsers, tariffs: localTariffs }} onRestore={(d) => refreshSystemData(true)} role={user!.Role} />;
             case 'activityLog': return <ActivityLogPage logs={activityLogs} onUndo={()=>{}} role={user!.Role} />;
             case 'newsManagement': return <NewsManagementPage news={localNews} setNews={setLocalNews} role={user!.Role} users={localUsers} />;
-            case 'feedbackManagement': return <FeedbackManagementPage feedback={localFeedback} setFeedback={setLocalFeedback} role={user!.Role} units={localUnits} owners={localOwners} />;
+            case 'feedbackManagement': return <FeedbackManagementPage role={user!.Role} units={localUnits} owners={localOwners} />;
             default: return <OverviewPage allUnits={localUnits} allOwners={localOwners} allVehicles={localVehicles} allWaterReadings={localWaterReadings} charges={localCharges} activityLogs={activityLogs} feedback={localFeedback} onNavigate={(p) => setActivePage(p as AdminPage)} monthlyStats={monthlyStats} />;
         }
     };
@@ -355,14 +359,18 @@ const App: React.FC = () => {
     };
 
     const renderAdminMobilePage = () => {
-        const props = { units: localUnits, vehicles: localVehicles, charges: localCharges, monthlyStats, news: localNews, owners: localOwners };
+        const props = { units: localUnits, vehicles: localVehicles, charges: localCharges, monthlyStats, news: localNews, owners: localOwners, waterReadings: localWaterReadings, miscRevenues: localMiscRevenues, expenses: localExpenses };
         switch (activePage as AdminPortalPage) {
             case 'adminPortalHome': return <AdminPortalHomePage {...props} onNavigate={(p) => setActivePage(p as AdminPortalPage)} />;
             case 'adminPortalBilling': return <AdminPortalBillingPage charges={localCharges} units={localUnits} owners={localOwners} />;
             case 'adminPortalResidents': return <AdminPortalResidentsPage units={localUnits} owners={localOwners} vehicles={localVehicles} />;
             case 'adminPortalVehicles': return <AdminPortalVehiclesPage vehicles={localVehicles} units={localUnits} owners={localOwners} />;
+            case 'adminPortalVAS': return <AdminPortalVASPage miscRevenues={localMiscRevenues} />;
+            case 'adminPortalExpenses': return <AdminPortalExpensesPage expenses={localExpenses} />;
             case 'adminPortalMore': return (
                 <div className="p-4 space-y-4">
+                    <button onClick={() => setActivePage('adminPortalVAS')} className="w-full p-4 bg-white rounded-xl shadow-sm border flex justify-between items-center font-bold text-gray-800">Doanh thu GTGT <span>→</span></button>
+                    <button onClick={() => setActivePage('adminPortalExpenses')} className="w-full p-4 bg-white rounded-xl shadow-sm border flex justify-between items-center font-bold text-gray-800">Chi phí vận hành <span>→</span></button>
                     <button onClick={() => setActivePage('newsManagement')} className="w-full p-4 bg-white rounded-xl shadow-sm border flex justify-between items-center font-bold text-gray-800">Quản lý Tin tức <span>→</span></button>
                     <button onClick={() => setActivePage('feedbackManagement')} className="w-full p-4 bg-white rounded-xl shadow-sm border flex justify-between items-center font-bold text-gray-800">Phản hồi Cư dân <span>→</span></button>
                     <button onClick={() => handleLogout()} className="w-full p-4 bg-red-50 text-red-600 rounded-xl shadow-sm border flex justify-between items-center font-black">Đăng xuất <span>⏻</span></button>
@@ -392,7 +400,7 @@ const App: React.FC = () => {
                                         {renderResidentPage()}
                                     </ResidentLayout>
                                 ) : isMobile ? (
-                                    <AdminMobileLayout activePage={activePage as AdminPortalPage} setActivePage={(p) => setActivePage(p as AdminPortalPage)} user={user}>
+                                    <AdminMobileLayout activePage={activePage as AdminPortalPage} setActivePage={setActivePage as (p: AdminPortalPage) => void} user={user}>
                                         {renderAdminMobilePage()}
                                     </AdminMobileLayout>
                                 ) : (

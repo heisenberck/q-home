@@ -1,4 +1,3 @@
-
 import React from 'react';
 import { 
   LayoutDashboard, 
@@ -57,6 +56,7 @@ import {
   PiggyBank,
   Phone,
   ShoppingBag,
+  Hammer,
   Wrench,
   Palette,
   FileText,
@@ -64,7 +64,8 @@ import {
   TrendingDown,
   TrendingUp,
   Menu,
-  Store
+  Store,
+  Inbox
 } from 'lucide-react';
 
 interface IconProps {
@@ -158,6 +159,7 @@ export const PercentIcon: React.FC<IconProps> = ({ className = DEFAULT_CLASS, si
 export const PiggyBankIcon: React.FC<IconProps> = ({ className = DEFAULT_CLASS, size = DEFAULT_SIZE }) => <PiggyBank className={className} size={size} />;
 export const PhoneIcon: React.FC<IconProps> = ({ className = DEFAULT_CLASS, size = DEFAULT_SIZE, fill = "none" }) => <Phone className={className} size={size} fill={fill} />;
 export const ShoppingBagIcon: React.FC<IconProps> = ({ className = DEFAULT_CLASS, size = DEFAULT_SIZE }) => <ShoppingBag className={className} size={size} />;
+export const HammerIcon: React.FC<IconProps> = ({ className = DEFAULT_CLASS, size = DEFAULT_SIZE }) => <Hammer className={className} size={size} />;
 export const WrenchIcon: React.FC<IconProps> = ({ className = DEFAULT_CLASS, size = DEFAULT_SIZE }) => <Wrench className={className} size={size} />;
 export const PaletteIcon: React.FC<IconProps> = ({ className = DEFAULT_CLASS, size = DEFAULT_SIZE }) => <Palette className={className} size={size} />;
 export const FileTextIcon: React.FC<IconProps> = ({ className = DEFAULT_CLASS, size = DEFAULT_SIZE }) => <FileText className={className} size={size} />;
@@ -166,3 +168,5 @@ export const TrendingDownIcon: React.FC<IconProps> = ({ className = DEFAULT_CLAS
 export const MenuIcon: React.FC<IconProps> = ({ className = DEFAULT_CLASS, size = DEFAULT_SIZE }) => <Menu className={className} size={size} />;
 export const ZapIcon: React.FC<IconProps> = ({ className = DEFAULT_CLASS, size = DEFAULT_SIZE }) => <Zap className={className} size={size} />;
 export const InfoIcon: React.FC<IconProps> = ({ className = DEFAULT_CLASS, size = DEFAULT_SIZE }) => <Info className={className} size={size} />;
+/* Fix: Export InboxIcon from lucide-react */
+export const InboxIcon: React.FC<IconProps> = ({ className = DEFAULT_CLASS, size = DEFAULT_SIZE }) => <Inbox className={className} size={size} />;
