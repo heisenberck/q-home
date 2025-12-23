@@ -2,11 +2,12 @@
 // services/index.ts
 import * as firebaseAPI from './firebaseAPI';
 import * as mockAPI from './mockAPI';
+import * as feedbackAPI from './feedbackService';
 import { isProduction } from '../utils/env';
 
 const IS_PROD = isProduction();
 
-const api = IS_PROD ? firebaseAPI : mockAPI;
+const api = IS_PROD ? { ...firebaseAPI, ...feedbackAPI } : { ...mockAPI, ...feedbackAPI };
 
 export const {
     loadAllData,
@@ -47,10 +48,13 @@ export const {
     fetchNews,
     saveNewsItem,
     deleteNewsItem,
-    // Add missing exports for useSmartData
     getSystemMetadata,
     fetchCollection,
     fetchRecentAdjustments,
     fetchRecentWaterReadings,
-    fetchResidentSpecificData
+    fetchResidentSpecificData,
+    // Feedback
+    submitFeedback,
+    replyFeedback,
+    fetchAllFeedback
 } = api;

@@ -218,10 +218,11 @@ export interface FeedbackItem {
     id: string;
     residentId: string;
     subject: string;
-    category: 'general' | 'maintenance' | 'billing' | 'vehicle_reg' | 'other';
+    category: 'general' | 'maintenance' | 'billing' | 'vehicle_reg' | 'other' | 'security' | 'hygiene';
     content: string;
     date: string;
     status: 'Pending' | 'Processing' | 'Resolved';
+    priority?: 'normal' | 'high';
     replies: FeedbackReply[];
     imageUrl?: string;
 }
@@ -321,10 +322,6 @@ export interface AdminNotification {
     linkTo?: string;
 }
 
-/**
- * Interface representing the complete data snapshot of the system.
- * Used for data loading, backups, and calculations across the application.
- */
 export interface AllData {
     units: Unit[];
     owners: Owner[];

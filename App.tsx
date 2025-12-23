@@ -3,7 +3,7 @@ import React, { createContext, useContext, useState, useEffect, useCallback, use
 import type { 
     UserPermission, Unit, Owner, Vehicle, WaterReading, 
     TariffCollection, InvoiceSettings, Adjustment, ChargeRaw, 
-    MonthlyStat, ActivityLog, NewsItem, FeedbackItem, Role, ResidentNotification, MiscRevenue, OperationalExpense 
+    MonthlyStat, ActivityLog, NewsItem, FeedbackItem, Role, ResidentNotification 
 } from './types';
 import { useSmartSystemData } from './hooks/useSmartData';
 import Sidebar from './components/layout/Sidebar';
@@ -35,16 +35,10 @@ import AdminPortalHomePage from './components/pages/admin-portal/AdminPortalHome
 import AdminPortalResidentsPage from './components/pages/admin-portal/AdminPortalResidentsPage';
 import AdminPortalVehiclesPage from './components/pages/admin-portal/AdminPortalVehiclesPage';
 import AdminPortalBillingPage from './components/pages/admin-portal/AdminPortalBillingPage';
-import AdminPortalVASPage from './components/pages/admin-portal/AdminPortalVASPage';
-import AdminPortalExpensesPage from './components/pages/admin-portal/AdminPortalExpensesPage';
 import Toast, { ToastMessage, ToastType } from './components/ui/Toast';
 import { deleteUsers, updateResidentData, importResidentsBatch, updateFeeSettings, fetchLatestLogs, updateUserProfile } from './services';
 import ChangePasswordModal from './components/pages/ChangePasswordModal';
 import NotificationListener from './components/common/NotificationListener';
-import { 
-    SparklesIcon, TrendingDownIcon, MegaphoneIcon, 
-    ChatBubbleLeftEllipsisIcon, ArrowRightOnRectangleIcon 
-} from './components/ui/Icons';
 
 // --- Types ---
 export type AdminPage = 'overview' | 'billing' | 'residents' | 'vehicles' | 'water' | 'pricing' | 'users' | 'settings' | 'backup' | 'activityLog' | 'newsManagement' | 'feedbackManagement' | 'vas' | 'expenses';
@@ -191,7 +185,7 @@ const App: React.FC = () => {
 
     const { 
         units, owners, vehicles, waterReadings, charges, adjustments, users: fetchedUsers, news,
-        invoiceSettings, tariffs, monthlyStats, lockedWaterPeriods, miscRevenues, expenses,
+        invoiceSettings, tariffs, monthlyStats, lockedWaterPeriods,
         refreshSystemData 
     } = useSmartSystemData(user);
 
@@ -342,7 +336,7 @@ const App: React.FC = () => {
             case 'backup': return <BackupRestorePage allData={{ units: localUnits, owners: localOwners, vehicles: localVehicles, waterReadings: localWaterReadings, charges: localCharges, adjustments: localAdjustments, users: localUsers, tariffs: localTariffs }} onRestore={(d) => refreshSystemData(true)} role={user!.Role} />;
             case 'activityLog': return <ActivityLogPage logs={activityLogs} onUndo={()=>{}} role={user!.Role} />;
             case 'newsManagement': return <NewsManagementPage news={localNews} setNews={setLocalNews} role={user!.Role} users={localUsers} />;
-            case 'feedbackManagement': return <FeedbackManagementPage feedback={localFeedback} setFeedback={setLocalFeedback} role={user!.Role} />;
+            case 'feedbackManagement': return <FeedbackManagementPage feedback={localFeedback} setFeedback={setLocalFeedback} role={user!.Role} units={localUnits} owners={localOwners} />;
             default: return <OverviewPage allUnits={localUnits} allOwners={localOwners} allVehicles={localVehicles} allWaterReadings={localWaterReadings} charges={localCharges} activityLogs={activityLogs} feedback={localFeedback} onNavigate={(p) => setActivePage(p as AdminPage)} monthlyStats={monthlyStats} />;
         }
     };
@@ -361,61 +355,17 @@ const App: React.FC = () => {
     };
 
     const renderAdminMobilePage = () => {
-        const props = { 
-            units: localUnits, 
-            vehicles: localVehicles, 
-            charges: localCharges, 
-            monthlyStats, 
-            news: localNews, 
-            owners: localOwners,
-            miscRevenues,
-            expenses,
-            waterReadings: localWaterReadings
-        };
+        const props = { units: localUnits, vehicles: localVehicles, charges: localCharges, monthlyStats, news: localNews, owners: localOwners };
         switch (activePage as AdminPortalPage) {
             case 'adminPortalHome': return <AdminPortalHomePage {...props} onNavigate={(p) => setActivePage(p as AdminPortalPage)} />;
             case 'adminPortalBilling': return <AdminPortalBillingPage charges={localCharges} units={localUnits} owners={localOwners} />;
             case 'adminPortalResidents': return <AdminPortalResidentsPage units={localUnits} owners={localOwners} vehicles={localVehicles} />;
             case 'adminPortalVehicles': return <AdminPortalVehiclesPage vehicles={localVehicles} units={localUnits} owners={localOwners} />;
-            case 'adminPortalVAS': return <AdminPortalVASPage miscRevenues={miscRevenues} />;
-            case 'adminPortalExpenses': return <AdminPortalExpensesPage expenses={expenses} />;
             case 'adminPortalMore': return (
                 <div className="p-4 space-y-4">
-                    <button onClick={() => setActivePage('adminPortalVAS')} className="w-full p-4 bg-white rounded-xl shadow-sm border flex justify-between items-center group active:bg-slate-50 transition-all">
-                        <div className="flex items-center gap-4">
-                            <div className="p-2.5 bg-amber-50 rounded-xl text-amber-600"><SparklesIcon className="w-5 h-5"/></div>
-                            <span className="font-bold text-gray-800">Quản lý Doanh thu GTGT</span>
-                        </div>
-                        <span className="text-gray-300 group-active:translate-x-1 transition-transform">→</span>
-                    </button>
-                    <button onClick={() => setActivePage('adminPortalExpenses')} className="w-full p-4 bg-white rounded-xl shadow-sm border flex justify-between items-center group active:bg-slate-50 transition-all">
-                        <div className="flex items-center gap-4">
-                            <div className="p-2.5 bg-rose-50 rounded-xl text-rose-600"><TrendingDownIcon className="w-5 h-5"/></div>
-                            <span className="font-bold text-gray-800">Quản lý Chi phí VH</span>
-                        </div>
-                        <span className="text-gray-300 group-active:translate-x-1 transition-transform">→</span>
-                    </button>
-                    <button onClick={() => setActivePage('newsManagement')} className="w-full p-4 bg-white rounded-xl shadow-sm border flex justify-between items-center group active:bg-slate-50 transition-all">
-                        <div className="flex items-center gap-4">
-                            <div className="p-2.5 bg-blue-50 rounded-xl text-blue-600"><MegaphoneIcon className="w-5 h-5"/></div>
-                            <span className="font-bold text-gray-800">Quản lý Tin tức</span>
-                        </div>
-                        <span className="text-gray-300 group-active:translate-x-1 transition-transform">→</span>
-                    </button>
-                    <button onClick={() => setActivePage('feedbackManagement')} className="w-full p-4 bg-white rounded-xl shadow-sm border flex justify-between items-center group active:bg-slate-50 transition-all">
-                        <div className="flex items-center gap-4">
-                            <div className="p-2.5 bg-purple-50 rounded-xl text-purple-600"><ChatBubbleLeftEllipsisIcon className="w-5 h-5"/></div>
-                            <span className="font-bold text-gray-800">Phản hồi Cư dân</span>
-                        </div>
-                        <span className="text-gray-300 group-active:translate-x-1 transition-transform">→</span>
-                    </button>
-                    <button onClick={() => handleLogout()} className="w-full p-4 bg-red-50 text-red-600 rounded-xl shadow-sm border flex justify-between items-center font-black active:bg-red-100 transition-all mt-4">
-                        <div className="flex items-center gap-4">
-                            <div className="p-2.5 bg-red-100 rounded-xl"><ArrowRightOnRectangleIcon className="w-5 h-5"/></div>
-                            <span>Đăng xuất</span>
-                        </div>
-                        <span>⏻</span>
-                    </button>
+                    <button onClick={() => setActivePage('newsManagement')} className="w-full p-4 bg-white rounded-xl shadow-sm border flex justify-between items-center font-bold text-gray-800">Quản lý Tin tức <span>→</span></button>
+                    <button onClick={() => setActivePage('feedbackManagement')} className="w-full p-4 bg-white rounded-xl shadow-sm border flex justify-between items-center font-bold text-gray-800">Phản hồi Cư dân <span>→</span></button>
+                    <button onClick={() => handleLogout()} className="w-full p-4 bg-red-50 text-red-600 rounded-xl shadow-sm border flex justify-between items-center font-black">Đăng xuất <span>⏻</span></button>
                 </div>
             );
             default: return <AdminPortalHomePage {...props} onNavigate={(p) => setActivePage(p as AdminPortalPage)} />;
