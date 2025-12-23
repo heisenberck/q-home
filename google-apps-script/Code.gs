@@ -4,7 +4,7 @@
  * Chức năng: 
  * 1. Gửi Email thông báo phí (Kèm PDF).
  * 2. Cấp lại mật khẩu.
- * 3. ĐỒNG BỘ CHI PHÍ VẬN HÀNH SANG GOOGLE SHEETS (Dùng cho kế toán).
+ * 3. ĐỒNG BỘ CHI PHÍ VẬN HÀNH & DOANH THU VAS SANG GOOGLE SHEETS.
  */
 
 const SS_ID = "YOUR_SPREADSHEET_ID_HERE"; // Thay ID Spreadsheet của bạn tại đây
@@ -35,12 +35,45 @@ function doPost(e) {
       case "SYNC_EXPENSE":
         return handleSyncExpense(payload);
 
+      case "SYNC_VAS":
+        return handleSyncVAS(payload);
+
       default:
         return createResponse(false, "Hành động không hợp lệ: " + actionType);
     }
 
   } catch (error) {
     return createResponse(false, error.message);
+  }
+}
+
+/**
+ * Đồng bộ doanh thu VAS sang Google Sheets
+ */
+function handleSyncVAS(data) {
+  try {
+    const ss = SpreadsheetApp.openById(SS_ID) || SpreadsheetApp.getActiveSpreadsheet();
+    let sheet = ss.getSheetByName("DoanhThuVAS");
+    
+    if (!sheet) {
+      sheet = ss.insertSheet("DoanhThuVAS");
+      sheet.appendRow(["ID", "Ngày Thu", "Hạng Mục", "Nội Dung", "Số Tiền", "Người Tạo", "Ngày Ghi Sổ"]);
+      sheet.getRange(1,1,1,7).setFontWeight("bold").setBackground("#e6f4ea");
+    }
+
+    sheet.appendRow([
+      data.id,
+      data.date,
+      data.type,
+      data.description,
+      data.amount,
+      data.createdBy,
+      new Date()
+    ]);
+
+    return createResponse(true, "Đã đồng bộ doanh thu sang Sheets thành công");
+  } catch (e) {
+    return createResponse(false, "Lỗi Sheets: " + e.message);
   }
 }
 

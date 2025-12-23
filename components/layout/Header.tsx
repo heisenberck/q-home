@@ -205,7 +205,7 @@ const Header: React.FC<HeaderProps> = ({ pageTitle, onNavigate }) => {
   const isAccountant = role === 'Accountant';
 
   return (
-    <header className="w-full bg-white border-b border-gray-200 flex items-center justify-between p-4 flex-shrink-0 h-[88px] z-30 shadow-sm">
+    <header className="w-full bg-white border-b border-gray-200 flex items-center justify-between p-4 flex-shrink-0 h-[88px] z-40 shadow-sm">
       {isProfileModalOpen && (
           <ProfileModal 
             user={currentUser} 

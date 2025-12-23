@@ -211,7 +211,7 @@ const ExpenseManagementPage: React.FC = () => {
     return (
         <div className="flex flex-col h-full bg-[#fcfaf8] overflow-hidden">
             {/* Header / Toolbar */}
-            <div className="bg-white border-b border-orange-100 p-4 shrink-0 shadow-sm z-30">
+            <div className="bg-white border-b border-orange-100 p-4 shrink-0 shadow-sm z-10">
                 <div className="max-w-7xl mx-auto flex flex-col md:flex-row items-center justify-between gap-4">
                     <div className="flex items-center gap-2">
                         <div className="bg-orange-50 p-1 rounded-xl flex items-center border border-orange-100 shadow-inner">
