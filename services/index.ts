@@ -3,11 +3,14 @@
 import * as firebaseAPI from './firebaseAPI';
 import * as mockAPI from './mockAPI';
 import * as feedbackAPI from './feedbackService';
+import * as regAPI from './registrationService';
 import { isProduction } from '../utils/env';
 
 const IS_PROD = isProduction();
 
-const api = IS_PROD ? { ...firebaseAPI, ...feedbackAPI } : { ...mockAPI, ...feedbackAPI };
+const api = IS_PROD 
+    ? { ...firebaseAPI, ...feedbackAPI, ...regAPI } 
+    : { ...mockAPI, ...feedbackAPI, ...regAPI };
 
 export const {
     loadAllData,
@@ -56,5 +59,9 @@ export const {
     // Feedback
     submitFeedback,
     replyFeedback,
-    subscribeToActiveFeedback
+    subscribeToActiveFeedback,
+    // Registration
+    submitServiceRegistration,
+    subscribeToRegistrations,
+    processRegistrationAction
 } = api as any;

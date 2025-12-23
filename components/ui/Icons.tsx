@@ -1,3 +1,4 @@
+
 import React from 'react';
 import { 
   LayoutDashboard, 
@@ -65,7 +66,8 @@ import {
   TrendingUp,
   Menu,
   Store,
-  Inbox
+  Inbox,
+  ClipboardCheck
 } from 'lucide-react';
 
 interface IconProps {
@@ -168,5 +170,5 @@ export const TrendingDownIcon: React.FC<IconProps> = ({ className = DEFAULT_CLAS
 export const MenuIcon: React.FC<IconProps> = ({ className = DEFAULT_CLASS, size = DEFAULT_SIZE }) => <Menu className={className} size={size} />;
 export const ZapIcon: React.FC<IconProps> = ({ className = DEFAULT_CLASS, size = DEFAULT_SIZE }) => <Zap className={className} size={size} />;
 export const InfoIcon: React.FC<IconProps> = ({ className = DEFAULT_CLASS, size = DEFAULT_SIZE }) => <Info className={className} size={size} />;
-/* Fix: Export InboxIcon from lucide-react */
 export const InboxIcon: React.FC<IconProps> = ({ className = DEFAULT_CLASS, size = DEFAULT_SIZE }) => <Inbox className={className} size={size} />;
+export const ClipboardCheckIcon: React.FC<IconProps> = ({ className = DEFAULT_CLASS, size = DEFAULT_SIZE }) => <ClipboardCheck className={className} size={size} />;
