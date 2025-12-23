@@ -62,9 +62,9 @@ interface IconProps {
     size?: number;
 }
 
-// Global default size reduced to 16px for a cleaner UI
-const DEFAULT_CLASS = "h-4 w-4";
-const DEFAULT_SIZE = 16;
+// Global default size reduced to 14px for a more refined look
+const DEFAULT_CLASS = "h-3.5 w-3.5";
+const DEFAULT_SIZE = 14;
 
 export const PieChartIcon: React.FC<IconProps> = ({ className = DEFAULT_CLASS, size = DEFAULT_SIZE }) => <LayoutDashboard className={className} size={size} />;
 export const UserCircleIcon: React.FC<IconProps> = ({ className = DEFAULT_CLASS, size = DEFAULT_SIZE }) => <UserCircle className={className} size={size} />;

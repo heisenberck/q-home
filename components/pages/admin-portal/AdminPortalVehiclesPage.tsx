@@ -4,7 +4,7 @@ import type { Vehicle, Unit, Owner } from '../../../types';
 import { 
     SearchIcon, CarIcon, MotorbikeIcon, ChevronDownIcon, ChevronUpIcon,
     UserIcon, PhoneArrowUpRightIcon, ClockIcon, ShieldCheckIcon,
-    EBikeIcon, BikeIcon, Camera
+    EBikeIcon, BikeIcon, Camera, XMarkIcon
 } from '../../ui/Icons';
 import { formatLicensePlate, getPastelColorForName, translateVehicleType } from '../../../utils/helpers';
 
@@ -43,6 +43,7 @@ const AdminPortalVehiclesPage: React.FC<AdminPortalVehiclesPageProps> = ({ vehic
     const [search, setSearch] = useState('');
     const [typeFilter, setTypeFilter] = useState<string | null>(null);
     const [expandedVehicleId, setExpandedVehicleId] = useState<string | null>(null);
+    const [previewUrl, setPreviewUrl] = useState<string | null>(null);
 
     // Deep-linking logic
     useEffect(() => {
@@ -93,6 +94,25 @@ const AdminPortalVehiclesPage: React.FC<AdminPortalVehiclesPageProps> = ({ vehic
 
     return (
         <div className="flex flex-col h-full bg-slate-50">
+            {/* Image Preview Overlay */}
+            {previewUrl && (
+                <div className="fixed inset-0 z-[100] bg-black/90 backdrop-blur-md flex flex-col items-center justify-center p-4 animate-fade-in" onClick={() => setPreviewUrl(null)}>
+                    <button 
+                        onClick={() => setPreviewUrl(null)}
+                        className="absolute top-6 right-6 p-3 bg-white/10 hover:bg-white/20 rounded-full text-white transition-all active:scale-90"
+                    >
+                        <XMarkIcon className="w-8 h-8" />
+                    </button>
+                    <img 
+                        src={previewUrl} 
+                        alt="Preview" 
+                        className="max-w-full max-h-[85vh] object-contain rounded-2xl shadow-2xl animate-zoom-in" 
+                        onClick={(e) => e.stopPropagation()}
+                    />
+                    <p className="text-white/60 text-xs font-bold uppercase tracking-widest mt-6">Nhấn ra ngoài để đóng</p>
+                </div>
+            )}
+
             <div className="p-4 grid grid-cols-2 gap-3 shrink-0">
                 <VehicleStatCard label="Ô tô" value={stats.cars} icon={<CarIcon />} color="text-blue-600" bgColor="bg-blue-50" isActive={typeFilter === 'car'} onClick={() => toggleTypeFilter('car')} />
                 <VehicleStatCard label="Xe máy" value={stats.motos} icon={<MotorbikeIcon />} color="text-orange-600" bgColor="bg-orange-50" isActive={typeFilter === 'motorbike'} onClick={() => toggleTypeFilter('motorbike')} />
@@ -146,6 +166,7 @@ const AdminPortalVehiclesPage: React.FC<AdminPortalVehiclesPageProps> = ({ vehic
 
                             {isExpanded && (
                                 <div className="px-4 pb-4 space-y-4 animate-fade-in-down border-t border-gray-100 pt-4">
+                                    {/* THÔNG TIN XE */}
                                     <div className="grid grid-cols-2 gap-3">
                                         <div className="p-3 bg-gray-50 rounded-xl border border-gray-100">
                                             <p className="text-[9px] font-black text-gray-400 uppercase mb-1">Loại xe</p>
@@ -160,11 +181,14 @@ const AdminPortalVehiclesPage: React.FC<AdminPortalVehiclesPageProps> = ({ vehic
                                         </div>
                                     </div>
                                     
-                                    {/* HIỂN THỊ HÌNH ẢNH XE (Ưu tiên cho Ô tô) */}
+                                    {/* GIỮA: HIỂN THỊ HÌNH ẢNH XE (Phóng to khi nhấn) */}
                                     {isCar && (
                                         <div className="mt-2">
                                             {vehiclePhotoUrl ? (
-                                                <div className="rounded-2xl overflow-hidden border border-gray-200 aspect-video bg-gray-100 shadow-inner relative group">
+                                                <div 
+                                                    onClick={() => setPreviewUrl(vehiclePhotoUrl)}
+                                                    className="rounded-2xl overflow-hidden border border-gray-200 aspect-video bg-gray-100 shadow-inner relative group cursor-zoom-in active:scale-[0.98] transition-all"
+                                                >
                                                     <img src={vehiclePhotoUrl} alt="Ảnh thực tế xe" className="w-full h-full object-cover transition-transform group-hover:scale-105 duration-500" />
                                                     <div className="absolute top-2 right-2 bg-black/40 backdrop-blur-md px-2 py-1 rounded-md flex items-center gap-1 border border-white/20">
                                                         <Camera className="w-3 h-3 text-white" />
@@ -180,6 +204,7 @@ const AdminPortalVehiclesPage: React.FC<AdminPortalVehiclesPageProps> = ({ vehic
                                         </div>
                                     )}
 
+                                    {/* THÔNG TIN CHỦ HỘ */}
                                     <div className="flex items-center gap-3 p-3 bg-slate-50 rounded-xl border border-slate-100">
                                         <div className="w-8 h-8 bg-white rounded-lg flex items-center justify-center text-primary shadow-sm">
                                             <PhoneArrowUpRightIcon className="w-4 h-4" />
@@ -195,6 +220,10 @@ const AdminPortalVehiclesPage: React.FC<AdminPortalVehiclesPageProps> = ({ vehic
                     );
                 })}
             </div>
+            <style>{`
+                @keyframes zoom-in { from { opacity: 0; transform: scale(0.9); } to { opacity: 1; transform: scale(1); } }
+                .animate-zoom-in { animation: zoom-in 0.3s cubic-bezier(0.16, 1, 0.3, 1); }
+            `}</style>
         </div>
     );
 };
