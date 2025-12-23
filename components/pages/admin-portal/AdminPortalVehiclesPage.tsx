@@ -160,19 +160,23 @@ const AdminPortalVehiclesPage: React.FC<AdminPortalVehiclesPageProps> = ({ vehic
                                         </div>
                                     </div>
                                     
-                                    {/* BỔ SUNG: Thẻ hình ảnh xe đúng vị trí theo yêu cầu */}
-                                    {vehiclePhotoUrl ? (
-                                        <div className="rounded-2xl overflow-hidden border border-gray-200 aspect-video bg-gray-100 shadow-inner relative group">
-                                            <img src={vehiclePhotoUrl} alt="Ảnh xe" className="w-full h-full object-cover transition-transform group-hover:scale-105 duration-500" />
-                                            <div className="absolute top-2 right-2 bg-black/40 backdrop-blur-md px-2 py-1 rounded-md flex items-center gap-1">
-                                                <Camera className="w-3 h-3 text-white" />
-                                                <span className="text-[8px] font-black text-white uppercase tracking-widest">Ảnh thực tế</span>
-                                            </div>
-                                        </div>
-                                    ) : isCar && (
-                                        <div className="rounded-2xl border-2 border-dashed border-gray-200 aspect-video flex flex-col items-center justify-center bg-gray-50 text-gray-400">
-                                            <Camera className="w-8 h-8 opacity-20 mb-2" />
-                                            <p className="text-[10px] font-bold uppercase tracking-widest">Chưa có ảnh xe</p>
+                                    {/* HIỂN THỊ HÌNH ẢNH XE (Ưu tiên cho Ô tô) */}
+                                    {isCar && (
+                                        <div className="mt-2">
+                                            {vehiclePhotoUrl ? (
+                                                <div className="rounded-2xl overflow-hidden border border-gray-200 aspect-video bg-gray-100 shadow-inner relative group">
+                                                    <img src={vehiclePhotoUrl} alt="Ảnh thực tế xe" className="w-full h-full object-cover transition-transform group-hover:scale-105 duration-500" />
+                                                    <div className="absolute top-2 right-2 bg-black/40 backdrop-blur-md px-2 py-1 rounded-md flex items-center gap-1 border border-white/20">
+                                                        <Camera className="w-3 h-3 text-white" />
+                                                        <span className="text-[8px] font-black text-white uppercase tracking-widest">Ảnh thực tế</span>
+                                                    </div>
+                                                </div>
+                                            ) : (
+                                                <div className="rounded-2xl border-2 border-dashed border-gray-200 aspect-video flex flex-col items-center justify-center bg-gray-50 text-gray-400 transition-colors hover:bg-gray-100">
+                                                    <Camera className="w-8 h-8 opacity-20 mb-2" />
+                                                    <p className="text-[10px] font-black uppercase tracking-widest opacity-60">Chưa cập nhật ảnh xe</p>
+                                                </div>
+                                            )}
                                         </div>
                                     )}
 
@@ -180,9 +184,9 @@ const AdminPortalVehiclesPage: React.FC<AdminPortalVehiclesPageProps> = ({ vehic
                                         <div className="w-8 h-8 bg-white rounded-lg flex items-center justify-center text-primary shadow-sm">
                                             <PhoneArrowUpRightIcon className="w-4 h-4" />
                                         </div>
-                                        <div className="flex-1">
+                                        <div className="flex-1 min-w-0">
                                             <p className="text-[9px] font-black text-gray-400 uppercase">Liên hệ chủ hộ</p>
-                                            <a href={`tel:${owner?.Phone}`} className="text-sm font-black text-blue-600">{owner?.Phone || '---'}</a>
+                                            <a href={`tel:${owner?.Phone}`} className="text-sm font-black text-blue-600 block truncate">{owner?.Phone || '---'}</a>
                                         </div>
                                     </div>
                                 </div>

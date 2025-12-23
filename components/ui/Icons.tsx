@@ -51,7 +51,10 @@ import {
   Tag,
   SquarePen,
   X,
-  Camera as LucideCamera
+  Camera as LucideCamera,
+  CreditCard,
+  Percent,
+  PiggyBank
 } from 'lucide-react';
 
 interface IconProps {
@@ -59,9 +62,9 @@ interface IconProps {
     size?: number;
 }
 
-// Default styles for all icons to ensure consistency and smaller size (18px)
-const DEFAULT_CLASS = "h-[18px] w-[18px]";
-const DEFAULT_SIZE = 18;
+// Global default size reduced to 16px for a cleaner UI
+const DEFAULT_CLASS = "h-4 w-4";
+const DEFAULT_SIZE = 16;
 
 export const PieChartIcon: React.FC<IconProps> = ({ className = DEFAULT_CLASS, size = DEFAULT_SIZE }) => <LayoutDashboard className={className} size={size} />;
 export const UserCircleIcon: React.FC<IconProps> = ({ className = DEFAULT_CLASS, size = DEFAULT_SIZE }) => <UserCircle className={className} size={size} />;
@@ -138,5 +141,7 @@ export const CloudArrowDownIcon: React.FC<IconProps> = ({ className = DEFAULT_CL
 export const StarIcon: React.FC<IconProps> = ({ className = DEFAULT_CLASS, size = DEFAULT_SIZE }) => <Star className={className} size={size} />;
 export const PencilSquareIcon: React.FC<IconProps> = ({ className = DEFAULT_CLASS, size = DEFAULT_SIZE }) => <SquarePen className={className} size={size} />;
 export const InformationCircleIcon: React.FC<IconProps> = ({ className = DEFAULT_CLASS, size = DEFAULT_SIZE }) => <Info className={className} size={size} />;
-// Fix: Added Camera icon export
 export const Camera: React.FC<IconProps> = ({ className = DEFAULT_CLASS, size = DEFAULT_SIZE }) => <LucideCamera className={className} size={size} />;
+export const CreditCardIcon: React.FC<IconProps> = ({ className = DEFAULT_CLASS, size = DEFAULT_SIZE }) => <CreditCard className={className} size={size} />;
+export const PercentIcon: React.FC<IconProps> = ({ className = DEFAULT_CLASS, size = DEFAULT_SIZE }) => <Percent className={className} size={size} />;
+export const PiggyBankIcon: React.FC<IconProps> = ({ className = DEFAULT_CLASS, size = DEFAULT_SIZE }) => <PiggyBank className={className} size={size} />;
