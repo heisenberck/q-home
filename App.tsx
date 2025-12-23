@@ -23,6 +23,7 @@ import ActivityLogPage from './components/pages/ActivityLogPage';
 import NewsManagementPage from './components/pages/NewsManagementPage';
 import FeedbackManagementPage from './components/pages/FeedbackManagementPage';
 import ValueAddedServicesPage from './components/pages/ValueAddedServicesPage';
+import ExpenseManagementPage from './components/pages/ExpenseManagementPage';
 import ResidentLayout, { PortalPage } from './components/layout/ResidentLayout';
 import AdminMobileLayout, { AdminPortalPage } from './components/layout/AdminMobileLayout';
 import PortalHomePage from './components/pages/portal/PortalHomePage';
@@ -40,7 +41,7 @@ import ChangePasswordModal from './components/pages/ChangePasswordModal';
 import NotificationListener from './components/common/NotificationListener';
 
 // --- Types ---
-export type AdminPage = 'overview' | 'billing' | 'residents' | 'vehicles' | 'water' | 'pricing' | 'users' | 'settings' | 'backup' | 'activityLog' | 'newsManagement' | 'feedbackManagement' | 'vas';
+export type AdminPage = 'overview' | 'billing' | 'residents' | 'vehicles' | 'water' | 'pricing' | 'users' | 'settings' | 'backup' | 'activityLog' | 'newsManagement' | 'feedbackManagement' | 'vas' | 'expenses';
 
 export interface LogPayload {
     module: string;
@@ -64,10 +65,12 @@ const ADMIN_PAGE_TITLES: Record<AdminPage, string> = {
     activityLog: 'Nhật ký Hoạt động',
     newsManagement: 'Quản lý Tin tức',
     feedbackManagement: 'Phản hồi Cư dân',
-    vas: 'Dịch vụ Gia tăng (VAS)'
+    vas: 'Dịch vụ Gia tăng (VAS)',
+    expenses: 'Quản lý Chi phí Vận hành'
 };
 
-// --- Contexts ---
+// ... (các Context và Hooks giữ nguyên không đổi)
+
 interface AuthContextType {
     user: UserPermission | null;
     login: (user: UserPermission, rememberMe: boolean) => void;
@@ -97,7 +100,6 @@ interface DataRefreshContextType {
 
 const DataRefreshContext = createContext<DataRefreshContextType | undefined>(undefined);
 
-// --- Hooks ---
 export const useAuth = () => {
     const context = useContext(AuthContext);
     if (!context) throw new Error('useAuth must be used within an AuthProvider');
@@ -140,7 +142,6 @@ const App: React.FC = () => {
     const [activityLogs, setActivityLogs] = useState<ActivityLog[]>([]);
     const [unreadResidentNotifications, setUnreadResidentNotifications] = useState<ResidentNotification[]>([]);
     
-    // Track Read News IDs in local state and storage
     const [readNewsIds, setReadNewsIds] = useState<Set<string>>(new Set());
 
     useEffect(() => {
@@ -153,14 +154,9 @@ const App: React.FC = () => {
     }, []);
 
     useEffect(() => {
-        // Load Read News
         const saved = localStorage.getItem('seen_news_ids_v2');
         if (saved) {
-            try {
-                setReadNewsIds(new Set(JSON.parse(saved)));
-            } catch (e) {
-                console.error("Failed to parse read news ids", e);
-            }
+            try { setReadNewsIds(new Set(JSON.parse(saved))); } catch (e) {}
         }
 
         const rememberedUserStr = localStorage.getItem('rememberedUserObject');
@@ -310,7 +306,6 @@ const App: React.FC = () => {
     }, []);
 
     const notifications = useMemo(() => {
-        // Unread news count: Archived news are ignored
         const unreadCount = localNews.filter(n => !n.isArchived && !readNewsIds.has(n.id)).length;
         return { 
             unreadNews: unreadCount,
@@ -324,6 +319,7 @@ const App: React.FC = () => {
             case 'overview': return <OverviewPage allUnits={localUnits} allOwners={localOwners} allVehicles={localVehicles} allWaterReadings={localWaterReadings} charges={localCharges} activityLogs={activityLogs} feedback={localFeedback} onNavigate={(p) => setActivePage(p as AdminPage)} monthlyStats={monthlyStats} />;
             case 'billing': return <BillingPage charges={localCharges} setCharges={setLocalCharges} allData={{ units: localUnits, owners: localOwners, vehicles: localVehicles, waterReadings: localWaterReadings, tariffs: localTariffs, adjustments: localAdjustments, activityLogs, monthlyStats, lockedWaterPeriods }} onUpdateAdjustments={setLocalAdjustments} role={user!.Role} invoiceSettings={invoiceSettings || DEFAULT_SETTINGS} onRefresh={() => refreshSystemData(true)} />;
             case 'vas': return <ValueAddedServicesPage />;
+            case 'expenses': return <ExpenseManagementPage />;
             case 'residents': return <ResidentsPage units={localUnits} owners={localOwners} vehicles={localVehicles} activityLogs={activityLogs} onSaveResident={handleSaveResident} onImportData={handleImportResidents} onDeleteResidents={()=>{}} role={user!.Role} currentUser={user!} onNavigate={(p) => setActivePage(p as AdminPage)} />;
             case 'vehicles': return <VehiclesPage vehicles={localVehicles} units={localUnits} owners={localOwners} activityLogs={activityLogs} onSetVehicles={setLocalVehicles} role={user!.Role} />;
             case 'water': return <WaterPage waterReadings={localWaterReadings} setWaterReadings={setLocalWaterReadings} allUnits={localUnits} role={user!.Role} tariffs={localTariffs} lockedPeriods={lockedWaterPeriods} refreshData={refreshSystemData} />;

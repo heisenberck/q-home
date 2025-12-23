@@ -55,7 +55,13 @@ import {
   CreditCard,
   Percent,
   PiggyBank,
-  Phone
+  Phone,
+  ShoppingBag,
+  Wrench,
+  Palette,
+  FileText,
+  Wallet,
+  TrendingDown
 } from 'lucide-react';
 
 interface IconProps {
@@ -148,3 +154,9 @@ export const CreditCardIcon: React.FC<IconProps> = ({ className = DEFAULT_CLASS,
 export const PercentIcon: React.FC<IconProps> = ({ className = DEFAULT_CLASS, size = DEFAULT_SIZE }) => <Percent className={className} size={size} />;
 export const PiggyBankIcon: React.FC<IconProps> = ({ className = DEFAULT_CLASS, size = DEFAULT_SIZE }) => <PiggyBank className={className} size={size} />;
 export const PhoneIcon: React.FC<IconProps> = ({ className = DEFAULT_CLASS, size = DEFAULT_SIZE, fill = "none" }) => <Phone className={className} size={size} fill={fill} />;
+export const ShoppingBagIcon: React.FC<IconProps> = ({ className = DEFAULT_CLASS, size = DEFAULT_SIZE }) => <ShoppingBag className={className} size={size} />;
+export const WrenchIcon: React.FC<IconProps> = ({ className = DEFAULT_CLASS, size = DEFAULT_SIZE }) => <Wrench className={className} size={size} />;
+export const PaletteIcon: React.FC<IconProps> = ({ className = DEFAULT_CLASS, size = DEFAULT_SIZE }) => <Palette className={className} size={size} />;
+export const FileTextIcon: React.FC<IconProps> = ({ className = DEFAULT_CLASS, size = DEFAULT_SIZE }) => <FileText className={className} size={size} />;
+export const WalletIcon: React.FC<IconProps> = ({ className = DEFAULT_CLASS, size = DEFAULT_SIZE }) => <Wallet className={className} size={size} />;
+export const TrendingDownIcon: React.FC<IconProps> = ({ className = DEFAULT_CLASS, size = DEFAULT_SIZE }) => <TrendingDown className={className} size={size} />;

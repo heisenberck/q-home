@@ -4,14 +4,14 @@ import {
     PieChartIcon, CalculatorIcon, UsersIcon, WaterIcon, ReceiptIcon, 
     CarIcon, MegaphoneIcon, ChatBubbleLeftEllipsisIcon,
     ChevronLeftIcon, ChevronRightIcon, ChevronDownIcon, ChevronUpIcon,
-    ArrowPathIcon, BanknotesIcon
+    ArrowPathIcon, BanknotesIcon, WalletIcon, TrendingDownIcon
 } from '../ui/Icons';
 import type { Role, UserPermission } from '../../types';
 import { useSettings, useAuth } from '../../App';
 import { isProduction } from '../../utils/env';
 import InstallPWA from '../common/InstallPWA';
 
-type Page = 'overview' | 'billing' | 'residents' | 'vehicles' | 'water' | 'pricing' | 'users' | 'settings' | 'backup' | 'activityLog' | 'newsManagement' | 'feedbackManagement' | 'vas';
+type Page = 'overview' | 'billing' | 'residents' | 'vehicles' | 'water' | 'pricing' | 'users' | 'settings' | 'backup' | 'activityLog' | 'newsManagement' | 'feedbackManagement' | 'vas' | 'expenses';
 
 interface SidebarProps {
   activePage: Page;
@@ -48,6 +48,7 @@ const menuGroups: (MenuItem | MenuGroup)[] = [
         items: [
             { id: 'billing', label: 'Bảng tính phí', icon: <CalculatorIcon /> },
             { id: 'vas', label: 'Dịch vụ GTGT', icon: <BanknotesIcon /> },
+            { id: 'expenses', label: 'Chi phí vận hành', icon: <TrendingDownIcon /> },
             { id: 'pricing', label: 'Quản lý Đơn giá', icon: <ReceiptIcon /> },
         ]
     },
@@ -92,6 +93,7 @@ const Sidebar: React.FC<SidebarProps> = ({ activePage, setActivePage, role }) =>
                   // "pricing" page is controlled by "billing" permission
                   if (item.id === 'pricing') permissionKey = 'billing';
                   if (item.id === 'vas') permissionKey = 'billing';
+                  if (item.id === 'expenses') permissionKey = 'billing';
 
                   return userPermissions.has(permissionKey);
               });

@@ -1,11 +1,13 @@
 
 /**
- * GOOGLE APPS SCRIPT BACKEND FOR Q-HOME V2.0
- * Chức năng: Gửi Email thông báo phí, Gửi mã đặt lại mật khẩu, Log báo cáo vào Spreadsheet.
+ * GOOGLE APPS SCRIPT BACKEND - Q-HOME V2.0 (Google Workspace Solution)
+ * Chức năng: 
+ * 1. Gửi Email thông báo phí (Kèm PDF).
+ * 2. Cấp lại mật khẩu.
+ * 3. ĐỒNG BỘ CHI PHÍ VẬN HÀNH SANG GOOGLE SHEETS (Dùng cho kế toán).
  */
 
-// Cấu hình bảo mật đơn giản (Tùy chọn: Thêm token để xác thực request từ App)
-const SHARED_SECRET = "QHOME_SECURE_TOKEN_2024";
+const SS_ID = "YOUR_SPREADSHEET_ID_HERE"; // Thay ID Spreadsheet của bạn tại đây
 
 /**
  * Xử lý yêu cầu POST từ ứng dụng React
@@ -15,85 +17,88 @@ function doPost(e) {
     let payload;
     let actionType = "";
 
-    // 1. Phân tích dữ liệu đầu vào (Hỗ trợ cả JSON và Form-encoded)
     if (e.postData && e.postData.type === "application/json") {
       payload = JSON.parse(e.postData.contents);
       actionType = payload.action_type || "RESET_PASSWORD";
     } else {
       payload = e.parameter;
-      actionType = "NOTIFY_BILL";
+      actionType = payload.action_type || "NOTIFY_BILL";
     }
 
-    // 2. Định tuyến xử lý theo loại hành động
     switch (actionType) {
       case "RESET_PASSWORD":
         return handleResetPassword(payload);
       
       case "NOTIFY_BILL":
-      case "TEST_CONNECTION":
         return handleSendNotification(payload);
 
+      case "SYNC_EXPENSE":
+        return handleSyncExpense(payload);
+
       default:
-        throw new Error("Hành động không hợp lệ: " + actionType);
+        return createResponse(false, "Hành động không hợp lệ: " + actionType);
     }
 
   } catch (error) {
-    console.error("Lỗi doPost:", error);
-    return ContentService.createTextOutput(JSON.stringify({
-      success: false,
-      error: error.message
-    })).setMimeType(ContentService.MimeType.JSON);
+    return createResponse(false, error.message);
   }
 }
 
 /**
- * Gửi lời nhắc nợ định kỳ (Dùng cho Trigger ngày 15/20 hàng tháng)
- * Lưu ý: Để dùng hàm này thực tế, bạn cần tích hợp Firebase Admin SDK hoặc REST API
+ * Đồng bộ khoản chi sang Google Sheets
  */
-function scheduledDebtReminder() {
-  const now = new Date();
-  const date = now.getDate();
-  
-  if (date !== 15 && date !== 20) return;
+function handleSyncExpense(data) {
+  try {
+    const ss = SpreadsheetApp.openById(SS_ID) || SpreadsheetApp.getActiveSpreadsheet();
+    let sheet = ss.getSheetByName("ChiPhiVanHanh");
+    
+    if (!sheet) {
+      sheet = ss.insertSheet("ChiPhiVanHanh");
+      sheet.appendRow(["ID", "Ngày Chi", "Hạng Mục", "Nội Dung", "Số Tiền", "Người Thực Hiện", "Ngày Ghi Sổ"]);
+      sheet.getRange(1,1,1,7).setFontWeight("bold").setBackground("#f3f3f3");
+    }
 
-  Logger.log("Bắt đầu chạy tiến trình nhắc nợ định kỳ ngày " + date);
-  // Thực tế: Query danh sách các căn hộ có nợ từ Firestore/Database
-  // Gửi email/notification qua FCM
+    sheet.appendRow([
+      data.id,
+      data.date,
+      data.category,
+      data.description,
+      data.amount,
+      data.performedBy,
+      new Date()
+    ]);
+
+    return createResponse(true, "Đã đồng bộ sang Sheets thành công");
+  } catch (e) {
+    return createResponse(false, "Lỗi Sheets: " + e.message);
+  }
 }
 
 /**
- * Xử lý gửi Email thông báo phí (Có đính kèm PDF nếu có)
+ * Gửi Email thông báo phí
  */
 function handleSendNotification(data) {
   const recipient = data.email;
   const subject = data.subject || "Thông báo từ Ban Quản Lý";
   const htmlBody = data.htmlBody;
-  const senderName = data.senderName || "BQL Chung cư Q-Home";
+  const senderName = data.senderName || "BQL Chung cư HUD3 Linh Đàm";
   
   const options = {
     name: senderName,
     htmlBody: htmlBody
   };
 
-  // Xử lý file đính kèm (PDF base64 từ frontend)
   if (data.attachmentBase64 && data.attachmentName) {
     const bytes = Utilities.base64Decode(data.attachmentBase64);
     const blob = Utilities.newBlob(bytes, 'application/pdf', data.attachmentName);
     options.attachments = [blob];
   }
 
-  // Thực hiện gửi mail
   GmailApp.sendEmail(recipient, subject, "", options);
 
-  return ContentService.createTextOutput(JSON.stringify({
-    success: true,
-    message: "Email đã được gửi tới " + recipient
-  })).setMimeType(ContentService.MimeType.JSON);
+  return createResponse(true, "Email đã được gửi");
 }
 
-/**
- * Xử lý gửi link đặt lại mật khẩu
- */
 function handleResetPassword(data) {
   const recipient = data.email;
   const resetLink = data.link;
@@ -105,15 +110,10 @@ function handleResetPassword(data) {
       </div>
       <div style="padding: 24px; color: #374151; line-height: 1.6;">
         <p>Xin chào,</p>
-        <p>Chúng tôi nhận được yêu cầu đặt lại mật khẩu cho tài khoản <strong>${recipient}</strong> trên hệ thống Quản lý cư dân Q-Home.</p>
-        <p>Vui lòng nhấn vào nút bên dưới để tiến hành đặt lại mật khẩu của bạn:</p>
+        <p>Chúng tôi nhận được yêu cầu đặt lại mật khẩu cho tài khoản <strong>${recipient}</strong> trên hệ thống Q-Home.</p>
         <div style="text-align: center; margin: 32px 0;">
           <a href="${resetLink}" style="background-color: #006f3a; color: white; padding: 12px 24px; text-decoration: none; border-radius: 6px; font-weight: bold; display: inline-block;">Đặt lại Mật khẩu</a>
         </div>
-        <p style="font-size: 13px; color: #6b7280;">Nếu bạn không yêu cầu hành động này, vui lòng bỏ qua email này. Link sẽ hết hạn trong vòng 24 giờ.</p>
-      </div>
-      <div style="background-color: #f9fafb; padding: 16px; text-align: center; font-size: 12px; color: #9ca3af; border-top: 1px solid #e5e7eb;">
-        Đây là email tự động, vui lòng không trả lời.
       </div>
     </div>
   `;
@@ -123,17 +123,10 @@ function handleResetPassword(data) {
     htmlBody: htmlTemplate
   });
 
-  return ContentService.createTextOutput(JSON.stringify({
-    success: true,
-    message: "Mã khôi phục đã gửi tới " + recipient
-  })).setMimeType(ContentService.MimeType.JSON);
+  return createResponse(true, "Link khôi phục đã gửi");
 }
 
-/**
- * Hàm hỗ trợ cho Admin: Kiểm tra lịch sử gửi mail
- */
-function checkQuota() {
-  const remaining = MailApp.getRemainingDailyQuota();
-  Logger.log("Số lượng email còn lại trong ngày: " + remaining);
-  return remaining;
+function createResponse(success, message) {
+  return ContentService.createTextOutput(JSON.stringify({ success, message }))
+    .setMimeType(ContentService.MimeType.JSON);
 }

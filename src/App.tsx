@@ -3,7 +3,7 @@ import React, { createContext, useContext, useState, useEffect, useCallback, use
 import type { 
     UserPermission, Unit, Owner, Vehicle, WaterReading, 
     TariffCollection, InvoiceSettings, Adjustment, ChargeRaw, 
-    MonthlyStat, ActivityLog, NewsItem, FeedbackItem, Role 
+    MonthlyStat, ActivityLog, NewsItem, FeedbackItem, Role, ResidentNotification 
 } from './types';
 import { useSmartSystemData } from './hooks/useSmartData';
 import Sidebar from './components/layout/Sidebar';
@@ -23,6 +23,7 @@ import ActivityLogPage from './components/pages/ActivityLogPage';
 import NewsManagementPage from './components/pages/NewsManagementPage';
 import FeedbackManagementPage from './components/pages/FeedbackManagementPage';
 import ValueAddedServicesPage from './components/pages/ValueAddedServicesPage';
+import ExpenseManagementPage from './components/pages/ExpenseManagementPage';
 import ResidentLayout, { PortalPage } from './components/layout/ResidentLayout';
 import AdminMobileLayout, { AdminPortalPage } from './components/layout/AdminMobileLayout';
 import PortalHomePage from './components/pages/portal/PortalHomePage';
@@ -40,9 +41,8 @@ import ChangePasswordModal from './components/pages/ChangePasswordModal';
 import NotificationListener from './components/common/NotificationListener';
 
 // --- Types ---
-export type AdminPage = 'overview' | 'billing' | 'residents' | 'vehicles' | 'water' | 'pricing' | 'users' | 'settings' | 'backup' | 'activityLog' | 'newsManagement' | 'feedbackManagement' | 'vas';
+export type AdminPage = 'overview' | 'billing' | 'residents' | 'vehicles' | 'water' | 'pricing' | 'users' | 'settings' | 'backup' | 'activityLog' | 'newsManagement' | 'feedbackManagement' | 'vas' | 'expenses';
 
-// Add LogPayload interface to fix import error in components/pages/BillingPage.tsx
 export interface LogPayload {
     module: string;
     action: string;
@@ -65,7 +65,8 @@ const ADMIN_PAGE_TITLES: Record<AdminPage, string> = {
     activityLog: 'Nhật ký Hoạt động',
     newsManagement: 'Quản lý Tin tức',
     feedbackManagement: 'Phản hồi Cư dân',
-    vas: 'Dịch vụ Gia tăng (VAS)'
+    vas: 'Dịch vụ Gia tăng (VAS)',
+    expenses: 'Quản lý Chi phí Vận hành'
 };
 
 // --- Contexts ---
@@ -139,6 +140,10 @@ const App: React.FC = () => {
     const [activePage, setActivePage] = useState<AdminPage | PortalPage | AdminPortalPage>('overview');
     const [isChangePasswordModalOpen, setIsChangePasswordModalOpen] = useState(false);
     const [activityLogs, setActivityLogs] = useState<ActivityLog[]>([]);
+    const [unreadResidentNotifications, setUnreadResidentNotifications] = useState<ResidentNotification[]>([]);
+    
+    // Track Read News IDs in local state and storage
+    const [readNewsIds, setReadNewsIds] = useState<Set<string>>(new Set());
 
     useEffect(() => {
         const handleResize = () => {
@@ -150,6 +155,16 @@ const App: React.FC = () => {
     }, []);
 
     useEffect(() => {
+        // Load Read News
+        const saved = localStorage.getItem('seen_news_ids_v2');
+        if (saved) {
+            try {
+                setReadNewsIds(new Set(JSON.parse(saved)));
+            } catch (e) {
+                console.error("Failed to parse read news ids", e);
+            }
+        }
+
         const rememberedUserStr = localStorage.getItem('rememberedUserObject');
         if (rememberedUserStr) {
             try {
@@ -169,7 +184,7 @@ const App: React.FC = () => {
     }, []);
 
     const { 
-        units, owners, vehicles, waterReadings, charges, adjustments, users: fetchedUsers, 
+        units, owners, vehicles, waterReadings, charges, adjustments, users: fetchedUsers, news,
         invoiceSettings, tariffs, monthlyStats, lockedWaterPeriods,
         refreshSystemData 
     } = useSmartSystemData(user);
@@ -194,7 +209,8 @@ const App: React.FC = () => {
         setLocalAdjustments(adjustments);
         setLocalUsers(fetchedUsers);
         setLocalTariffs(tariffs);
-    }, [units, owners, vehicles, waterReadings, charges, adjustments, fetchedUsers, tariffs]);
+        setLocalNews(news);
+    }, [units, owners, vehicles, waterReadings, charges, adjustments, fetchedUsers, tariffs, news]);
 
     const refreshLogs = useCallback(async () => {
         if (!user || user.Role === 'Resident') return;
@@ -203,7 +219,7 @@ const App: React.FC = () => {
     }, [user]);
 
     useEffect(() => {
-        if (activePage === 'overview' || activePage === 'activityLog' || activePage === 'residents' || activePage === 'vehicles') {
+        if (['overview', 'activityLog', 'residents', 'vehicles'].includes(activePage)) {
             refreshLogs();
         }
     }, [activePage, refreshLogs]);
@@ -245,13 +261,10 @@ const App: React.FC = () => {
     };
 
     const handleUpdateUser = async (updatedUser: UserPermission, oldEmail: string) => {
-        // Persist to DB
         await updateUserProfile(oldEmail, updatedUser);
-        // Update Local State
         setLocalUsers(prev => prev.map(u => u.Email === oldEmail ? updatedUser : u));
         if (user?.Email === oldEmail) {
             setUser(updatedUser);
-            // Update localStorage if remembered
             const remembered = localStorage.getItem('rememberedUserObject');
             if (remembered) {
                 localStorage.setItem('rememberedUserObject', JSON.stringify(updatedUser));
@@ -285,27 +298,35 @@ const App: React.FC = () => {
         });
     };
 
-    const handleMarkNewsAsRead = useCallback(() => {
-        showToast('Đã đánh dấu tin tức là đã đọc', 'info');
-    }, [showToast]);
+    const handleMarkNewsAsRead = useCallback((newsId: string) => {
+        setReadNewsIds(prev => {
+            const next = new Set(prev);
+            next.add(newsId);
+            localStorage.setItem('seen_news_ids_v2', JSON.stringify(Array.from(next)));
+            return next;
+        });
+    }, []);
 
     const handleMarkBellAsRead = useCallback(() => {
-        showToast('Đã xem tất cả thông báo', 'info');
-    }, [showToast]);
+        setUnreadResidentNotifications([]);
+    }, []);
 
     const notifications = useMemo(() => {
+        // Unread news count: Archived news are ignored
+        const unreadCount = localNews.filter(n => !n.isArchived && !readNewsIds.has(n.id)).length;
         return { 
-            unreadNews: localNews.filter(n => !n.isArchived).length,
+            unreadNews: unreadCount,
             hasUnpaidBill: localCharges.some(c => c.UnitID === user?.residentId && !['paid', 'paid_tm', 'paid_ck'].includes(c.paymentStatus)),
-            hasNewNotifications: false 
+            unreadList: unreadResidentNotifications
         };
-    }, [localNews, localCharges, user]);
+    }, [localNews, localCharges, user, unreadResidentNotifications, readNewsIds]);
 
     const renderAdminPage = () => {
         switch (activePage as AdminPage) {
             case 'overview': return <OverviewPage allUnits={localUnits} allOwners={localOwners} allVehicles={localVehicles} allWaterReadings={localWaterReadings} charges={localCharges} activityLogs={activityLogs} feedback={localFeedback} onNavigate={(p) => setActivePage(p as AdminPage)} monthlyStats={monthlyStats} />;
             case 'billing': return <BillingPage charges={localCharges} setCharges={setLocalCharges} allData={{ units: localUnits, owners: localOwners, vehicles: localVehicles, waterReadings: localWaterReadings, tariffs: localTariffs, adjustments: localAdjustments, activityLogs, monthlyStats, lockedWaterPeriods }} onUpdateAdjustments={setLocalAdjustments} role={user!.Role} invoiceSettings={invoiceSettings || DEFAULT_SETTINGS} onRefresh={() => refreshSystemData(true)} />;
             case 'vas': return <ValueAddedServicesPage />;
+            case 'expenses': return <ExpenseManagementPage />;
             case 'residents': return <ResidentsPage units={localUnits} owners={localOwners} vehicles={localVehicles} activityLogs={activityLogs} onSaveResident={handleSaveResident} onImportData={handleImportResidents} onDeleteResidents={()=>{}} role={user!.Role} currentUser={user!} onNavigate={(p) => setActivePage(p as AdminPage)} />;
             case 'vehicles': return <VehiclesPage vehicles={localVehicles} units={localUnits} owners={localOwners} activityLogs={activityLogs} onSetVehicles={setLocalVehicles} role={user!.Role} />;
             case 'water': return <WaterPage waterReadings={localWaterReadings} setWaterReadings={setLocalWaterReadings} allUnits={localUnits} role={user!.Role} tariffs={localTariffs} lockedPeriods={lockedWaterPeriods} refreshData={refreshSystemData} />;
@@ -321,12 +342,13 @@ const App: React.FC = () => {
     };
 
     const renderResidentPage = () => {
-        const owner = localOwners.find(o => o.OwnerID === localUnits.find(u => u.UnitID === user!.residentId)?.OwnerID) || null;
+        const unit = localUnits.find(u => u.UnitID === user!.residentId) || null;
+        const owner = localOwners.find(o => o.OwnerID === unit?.OwnerID) || null;
         switch (activePage as PortalPage) {
             case 'portalHome': return <PortalHomePage user={user!} owner={owner} charges={localCharges} news={localNews} setActivePage={setActivePage as (p: PortalPage) => void} />;
-            case 'portalNews': return <PortalNewsPage news={localNews} />;
+            case 'portalNews': return <PortalNewsPage news={localNews} readIds={readNewsIds} onReadNews={handleMarkNewsAsRead} />;
             case 'portalBilling': return <PortalBillingPage charges={localCharges} user={user!} />;
-            case 'portalContact': return <PortalContactPage hotline={invoiceSettings?.HOTLINE || '0834.88.66.86'} onSubmitFeedback={(f) => setLocalFeedback([...localFeedback, f])} />;
+            case 'portalContact': return <PortalContactPage hotline={invoiceSettings?.HOTLINE || '0834.88.66.86'} onSubmitFeedback={(f) => setLocalFeedback([...localFeedback, f])} owner={owner} unit={unit} />;
             case 'portalProfile': return <PortalProfilePage user={user!} owner={owner!} onUpdateOwner={(o) => setLocalOwners(prev => prev.map(old => old.OwnerID === o.OwnerID ? o : old))} onChangePassword={() => setIsChangePasswordModalOpen(true)} />;
             default: return <PortalHomePage user={user!} owner={owner} charges={localCharges} news={localNews} setActivePage={setActivePage as (p: PortalPage) => void} />;
         }
@@ -364,9 +386,9 @@ const App: React.FC = () => {
                             </>
                         ) : (
                             <>
-                                <NotificationListener userId={user.Username || user.Email} />
+                                <NotificationListener userId={user.Username || user.Email} onUpdateList={setUnreadResidentNotifications} />
                                 {isResident ? (
-                                    <ResidentLayout activePage={activePage as PortalPage} setActivePage={setActivePage as (p: PortalPage) => void} user={user} owner={localOwners.find(o => o.OwnerID === localUnits.find(u => u.UnitID === user.residentId)?.OwnerID) || null} onUpdateOwner={() => {}} onChangePassword={() => setIsChangePasswordModalOpen(true)} notifications={notifications} onMarkNewsAsRead={handleMarkNewsAsRead} onMarkBellAsRead={handleMarkBellAsRead}>
+                                    <ResidentLayout activePage={activePage as PortalPage} setActivePage={setActivePage as (p: PortalPage) => void} user={user} owner={localOwners.find(o => o.OwnerID === localUnits.find(u => u.UnitID === user.residentId)?.OwnerID) || null} onUpdateOwner={() => {}} onChangePassword={() => setIsChangePasswordModalOpen(true)} notifications={notifications} onMarkNewsAsRead={() => {}}>
                                         {renderResidentPage()}
                                     </ResidentLayout>
                                 ) : isMobile ? (

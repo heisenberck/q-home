@@ -6,6 +6,18 @@ export enum UnitType {
     KIOS = 'KIOS'
 }
 
+export type ExpenseCategory = 'purchasing' | 'maintenance' | 'decoration' | 'other';
+
+export interface OperationalExpense {
+    id: string;
+    category: ExpenseCategory;
+    amount: number;
+    description: string;
+    date: string; // YYYY-MM-DD
+    createdAt: string;
+    performedBy: string;
+}
+
 export interface Unit {
     UnitID: string;
     OwnerID: string;
