@@ -13,7 +13,7 @@ import {
     CloudArrowUpIcon
 } from '../ui/Icons';
 import { formatCurrency } from '../../utils/helpers';
-import { useNotification, useAuth, useSettings } from '../../App';
+import { useNotification, useAuth, useSettings, useDataRefresh } from '../../App';
 import { addMiscRevenue, getMiscRevenues, getMonthlyMiscRevenues, deleteMiscRevenue } from '../../services';
 import type { MiscRevenue, MiscRevenueType } from '../../types';
 import Spinner from '../ui/Spinner';
@@ -82,6 +82,7 @@ const ValueAddedServicesPage: React.FC = () => {
     const { showToast } = useNotification();
     const { user } = useAuth();
     const { invoiceSettings } = useSettings();
+    const { refreshData } = useDataRefresh();
     
     // --- State Management ---
     const [selectedDate, setSelectedDate] = useState(new Date().toISOString().split('T')[0]);
@@ -155,6 +156,10 @@ const ValueAddedServicesPage: React.FC = () => {
             
             setDailyRevenues(prev => [newItem, ...prev]); 
             setMonthlyRevenues(prev => [newItem, ...prev]);
+            
+            // QUAN TRỌNG: Làm mới dữ liệu toàn cục để Portal/Dashboard cập nhật số liệu
+            refreshData(true);
+            
             showToast('Đã thêm giao dịch thành công.', 'success');
             
             // Clear inputs
@@ -209,7 +214,11 @@ const ValueAddedServicesPage: React.FC = () => {
         try { 
             await deleteMiscRevenue(id); 
             setDailyRevenues(prev => prev.filter(r => r.id !== id)); 
-            setMonthlyRevenues(prev => prev.filter(r => r.id !== id)); 
+            setMonthlyRevenues(prev => prev.filter(r => r.id !== id));
+            
+            // Làm mới dữ liệu toàn cục
+            refreshData(true);
+            
             showToast('Đã xóa giao dịch.', 'success'); 
         } catch { showToast('Lỗi khi xóa.', 'error'); }
     };
@@ -383,7 +392,7 @@ const ValueAddedServicesPage: React.FC = () => {
                             <button 
                                 onClick={handleAddTransaction}
                                 disabled={isSubmitting}
-                                className="w-full py-4 rounded-2xl font-black text-sm uppercase tracking-[0.2em] shadow-lg shadow-primary/20 bg-primary text-white hover:bg-primary-focus active:scale-95 transition-all flex items-center justify-center gap-3 disabled:opacity-50"
+                                className="w-full py-4 rounded-2xl font-black text-sm uppercase tracking-[0.2em] shadow-lg shadow-primary/20 bg-primary text-white hover:bg-primary-focus active:scale-[0.98] transition-all flex items-center justify-center gap-3 disabled:opacity-50"
                             >
                                 {isSubmitting ? <Spinner /> : <><PlusIcon className="w-5 h-5" /> Ghi nhận doanh thu</>}
                             </button>

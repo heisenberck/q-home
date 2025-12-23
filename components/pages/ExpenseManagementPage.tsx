@@ -5,10 +5,11 @@ import {
     CalendarDaysIcon, PlusIcon, ClockIcon, TrashIcon,
     ChevronLeftIcon, ChevronRightIcon, ChevronDownIcon,
     TrendingDownIcon, ArchiveBoxIcon, CheckCircleIcon,
-    DocumentArrowDownIcon
+    DocumentArrowDownIcon,
+    CloudArrowUpIcon
 } from '../ui/Icons';
 import { formatCurrency, timeAgo } from '../../utils/helpers';
-import { useNotification, useAuth } from '../../App';
+import { useNotification, useAuth, useDataRefresh, useSettings } from '../../App';
 import { addExpense, getExpensesByMonth, deleteExpense } from '../../services/expenseService';
 import type { OperationalExpense, ExpenseCategory } from '../../types';
 import Spinner from '../ui/Spinner';
@@ -53,7 +54,7 @@ const DatePickerPopover: React.FC<{
         <div ref={popoverRef} className="absolute top-full mt-2 left-0 z-50 bg-white rounded-2xl shadow-2xl border border-gray-200 p-4 w-72 animate-fade-in-down">
             <div className="flex items-center justify-between mb-4">
                 <button onClick={() => setViewMonth(m => m === 0 ? 11 : m - 1)} className="p-1 hover:bg-gray-100 rounded-full"><ChevronLeftIcon className="w-4 h-4"/></button>
-                <div className="text-sm font-black text-gray-800 uppercase">{months[viewMonth]} {viewYear}</div>
+                <div className="text-sm font-black text-gray-800 uppercase tracking-tight">{months[viewMonth]} {viewYear}</div>
                 <button onClick={() => setViewMonth(m => m === 11 ? 0 : m + 1)} className="p-1 hover:bg-gray-100 rounded-full"><ChevronRightIcon className="w-4 h-4"/></button>
             </div>
             <div className="grid grid-cols-7 gap-1 text-center mb-2">
@@ -82,6 +83,8 @@ const DatePickerPopover: React.FC<{
 const ExpenseManagementPage: React.FC = () => {
     const { showToast } = useNotification();
     const { user } = useAuth();
+    const { invoiceSettings } = useSettings();
+    const { refreshData } = useDataRefresh();
     
     const [selectedDate, setSelectedDate] = useState(new Date().toISOString().split('T')[0]);
     const [expenses, setExpenses] = useState<OperationalExpense[]>([]);
@@ -89,6 +92,7 @@ const ExpenseManagementPage: React.FC = () => {
     const [activeTab, setActiveTab] = useState<ExpenseCategory>('purchasing');
     const [isDatePickerOpen, setIsDatePickerOpen] = useState(false);
     const [isSubmitting, setIsSubmitting] = useState(false);
+    const [isSyncing, setIsSyncing] = useState(false);
 
     // Form inputs
     const [amount, setAmount] = useState('');
@@ -144,6 +148,9 @@ const ExpenseManagementPage: React.FC = () => {
                 setExpenses(prev => [newItem, ...prev]);
             }
             
+            // QUAN TRỌNG: Gọi refreshData để Portal Mobile cập nhật số liệu ngay lập tức
+            refreshData(true);
+            
             showToast('Ghi nhận chi phí thành công.', 'success');
             setAmount('');
             setDescription('');
@@ -154,11 +161,50 @@ const ExpenseManagementPage: React.FC = () => {
         }
     };
 
+    const handleSyncToSheets = async (item: OperationalExpense) => {
+        if (!invoiceSettings.appsScriptUrl) {
+            showToast('Chưa cấu hình Apps Script URL trong Cài đặt.', 'error');
+            return;
+        }
+
+        setIsSyncing(true);
+        try {
+            const formData = new URLSearchParams();
+            formData.append('action_type', 'SYNC_EXPENSE');
+            formData.append('id', item.id);
+            formData.append('date', item.date);
+            formData.append('category', categoryConfig[item.category].label);
+            formData.append('description', item.description);
+            formData.append('amount', item.amount.toString());
+            formData.append('performedBy', item.performedBy);
+
+            const response = await fetch(invoiceSettings.appsScriptUrl, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+                body: formData
+            });
+
+            if (response.ok) {
+                showToast(`Đã đồng bộ phiếu "${item.description}" sang Google Sheets.`, 'success');
+            } else {
+                showToast('Lỗi server Apps Script.', 'error');
+            }
+        } catch (e) {
+            showToast('Không thể kết nối Apps Script.', 'error');
+        } finally {
+            setIsSyncing(false);
+        }
+    };
+
     const handleDelete = async (id: string) => {
         if (!window.confirm('Xác nhận xóa khoản chi này?')) return;
         try {
             await deleteExpense(id);
             setExpenses(prev => prev.filter(e => e.id !== id));
+            
+            // Cập nhật lại số liệu Dashboard
+            refreshData(true);
+            
             showToast('Đã xóa giao dịch.', 'success');
         } catch {
             showToast('Lỗi khi xóa.', 'error');
@@ -186,19 +232,6 @@ const ExpenseManagementPage: React.FC = () => {
             const worksheet = XLSX.utils.json_to_sheet(dataToExport);
             const workbook = XLSX.utils.book_new();
             XLSX.utils.book_append_sheet(workbook, worksheet, "Chi phí vận hành");
-
-            // Tự động căn chỉnh độ rộng cột cơ bản
-            const wscols = [
-                { wch: 5 },  // STT
-                { wch: 15 }, // Ngày chi
-                { wch: 15 }, // Hạng mục
-                { wch: 40 }, // Nội dung
-                { wch: 15 }, // Số tiền
-                { wch: 20 }, // Người thực hiện
-                { wch: 20 }  // Ngày ghi sổ
-            ];
-            worksheet['!cols'] = wscols;
-
             XLSX.writeFile(workbook, `Bao_cao_Chi_phi_Van_hanh_${periodLabel}.xlsx`);
             showToast('Xuất báo cáo Excel thành công!', 'success');
         } catch (error) {
@@ -356,7 +389,7 @@ const ExpenseManagementPage: React.FC = () => {
                                             <th className="px-6 py-3.5 w-32">Hạng mục</th>
                                             <th className="px-6 py-3.5">Nội dung</th>
                                             <th className="px-6 py-3.5 text-right w-40">Số tiền</th>
-                                            <th className="px-6 py-3.5 w-12 text-center"></th>
+                                            <th className="px-6 py-3.5 w-24 text-center">Thao tác</th>
                                         </tr>
                                     </thead>
                                     <tbody className="divide-y divide-gray-50">
@@ -377,13 +410,24 @@ const ExpenseManagementPage: React.FC = () => {
                                                 <td className="px-6 py-4 text-right font-black text-orange-600 tabular-nums">
                                                     - {formatCurrency(exp.amount)}
                                                 </td>
-                                                <td className="px-6 py-4 text-center">
-                                                    <button 
-                                                        onClick={() => handleDelete(exp.id)} 
-                                                        className="text-gray-300 hover:text-red-500 opacity-0 group-hover:opacity-100 transition-all active:scale-90 p-1.5"
-                                                    >
-                                                        <TrashIcon className="w-4 h-4" />
-                                                    </button>
+                                                <td className="px-6 py-4">
+                                                    <div className="flex justify-center items-center gap-1">
+                                                        <button 
+                                                            onClick={() => handleSyncToSheets(exp)}
+                                                            disabled={isSyncing}
+                                                            className="p-1.5 text-gray-300 hover:text-orange-600 transition-all opacity-0 group-hover:opacity-100"
+                                                            title="Đồng bộ sang Google Sheets"
+                                                        >
+                                                            <CloudArrowUpIcon className="w-4 h-4" />
+                                                        </button>
+                                                        <button 
+                                                            onClick={() => handleDelete(exp.id)} 
+                                                            className="p-1.5 text-gray-300 hover:text-red-500 transition-all opacity-0 group-hover:opacity-100"
+                                                            title="Xóa vĩnh viễn"
+                                                        >
+                                                            <TrashIcon className="w-4 h-4" />
+                                                        </button>
+                                                    </div>
                                                 </td>
                                             </tr>
                                         ))}

@@ -3,7 +3,7 @@ import React, { createContext, useContext, useState, useEffect, useCallback, use
 import type { 
     UserPermission, Unit, Owner, Vehicle, WaterReading, 
     TariffCollection, InvoiceSettings, Adjustment, ChargeRaw, 
-    MonthlyStat, ActivityLog, NewsItem, FeedbackItem, Role, ResidentNotification 
+    MonthlyStat, ActivityLog, NewsItem, FeedbackItem, Role, ResidentNotification, MiscRevenue, OperationalExpense 
 } from './types';
 import { useSmartSystemData } from './hooks/useSmartData';
 import Sidebar from './components/layout/Sidebar';
@@ -35,10 +35,16 @@ import AdminPortalHomePage from './components/pages/admin-portal/AdminPortalHome
 import AdminPortalResidentsPage from './components/pages/admin-portal/AdminPortalResidentsPage';
 import AdminPortalVehiclesPage from './components/pages/admin-portal/AdminPortalVehiclesPage';
 import AdminPortalBillingPage from './components/pages/admin-portal/AdminPortalBillingPage';
+import AdminPortalVASPage from './components/pages/admin-portal/AdminPortalVASPage';
+import AdminPortalExpensesPage from './components/pages/admin-portal/AdminPortalExpensesPage';
 import Toast, { ToastMessage, ToastType } from './components/ui/Toast';
 import { deleteUsers, updateResidentData, importResidentsBatch, updateFeeSettings, fetchLatestLogs, updateUserProfile } from './services';
 import ChangePasswordModal from './components/pages/ChangePasswordModal';
 import NotificationListener from './components/common/NotificationListener';
+import { 
+    SparklesIcon, TrendingDownIcon, MegaphoneIcon, 
+    ChatBubbleLeftEllipsisIcon, ArrowRightOnRectangleIcon 
+} from './components/ui/Icons';
 
 // --- Types ---
 export type AdminPage = 'overview' | 'billing' | 'residents' | 'vehicles' | 'water' | 'pricing' | 'users' | 'settings' | 'backup' | 'activityLog' | 'newsManagement' | 'feedbackManagement' | 'vas' | 'expenses';
@@ -69,8 +75,7 @@ const ADMIN_PAGE_TITLES: Record<AdminPage, string> = {
     expenses: 'Quản lý Chi phí Vận hành'
 };
 
-// ... (các Context và Hooks giữ nguyên không đổi)
-
+// --- Contexts ---
 interface AuthContextType {
     user: UserPermission | null;
     login: (user: UserPermission, rememberMe: boolean) => void;
@@ -100,6 +105,7 @@ interface DataRefreshContextType {
 
 const DataRefreshContext = createContext<DataRefreshContextType | undefined>(undefined);
 
+// --- Hooks ---
 export const useAuth = () => {
     const context = useContext(AuthContext);
     if (!context) throw new Error('useAuth must be used within an AuthProvider');
@@ -142,6 +148,7 @@ const App: React.FC = () => {
     const [activityLogs, setActivityLogs] = useState<ActivityLog[]>([]);
     const [unreadResidentNotifications, setUnreadResidentNotifications] = useState<ResidentNotification[]>([]);
     
+    // Track Read News IDs in local state and storage
     const [readNewsIds, setReadNewsIds] = useState<Set<string>>(new Set());
 
     useEffect(() => {
@@ -154,9 +161,14 @@ const App: React.FC = () => {
     }, []);
 
     useEffect(() => {
+        // Load Read News
         const saved = localStorage.getItem('seen_news_ids_v2');
         if (saved) {
-            try { setReadNewsIds(new Set(JSON.parse(saved))); } catch (e) {}
+            try {
+                setReadNewsIds(new Set(JSON.parse(saved)));
+            } catch (e) {
+                console.error("Failed to parse read news ids", e);
+            }
         }
 
         const rememberedUserStr = localStorage.getItem('rememberedUserObject');
@@ -179,7 +191,7 @@ const App: React.FC = () => {
 
     const { 
         units, owners, vehicles, waterReadings, charges, adjustments, users: fetchedUsers, news,
-        invoiceSettings, tariffs, monthlyStats, lockedWaterPeriods,
+        invoiceSettings, tariffs, monthlyStats, lockedWaterPeriods, miscRevenues, expenses,
         refreshSystemData 
     } = useSmartSystemData(user);
 
@@ -306,6 +318,7 @@ const App: React.FC = () => {
     }, []);
 
     const notifications = useMemo(() => {
+        // Unread news count: Archived news are ignored
         const unreadCount = localNews.filter(n => !n.isArchived && !readNewsIds.has(n.id)).length;
         return { 
             unreadNews: unreadCount,
@@ -348,17 +361,61 @@ const App: React.FC = () => {
     };
 
     const renderAdminMobilePage = () => {
-        const props = { units: localUnits, vehicles: localVehicles, charges: localCharges, monthlyStats, news: localNews, owners: localOwners };
+        const props = { 
+            units: localUnits, 
+            vehicles: localVehicles, 
+            charges: localCharges, 
+            monthlyStats, 
+            news: localNews, 
+            owners: localOwners,
+            miscRevenues,
+            expenses,
+            waterReadings: localWaterReadings
+        };
         switch (activePage as AdminPortalPage) {
             case 'adminPortalHome': return <AdminPortalHomePage {...props} onNavigate={(p) => setActivePage(p as AdminPortalPage)} />;
             case 'adminPortalBilling': return <AdminPortalBillingPage charges={localCharges} units={localUnits} owners={localOwners} />;
             case 'adminPortalResidents': return <AdminPortalResidentsPage units={localUnits} owners={localOwners} vehicles={localVehicles} />;
             case 'adminPortalVehicles': return <AdminPortalVehiclesPage vehicles={localVehicles} units={localUnits} owners={localOwners} />;
+            case 'adminPortalVAS': return <AdminPortalVASPage miscRevenues={miscRevenues} />;
+            case 'adminPortalExpenses': return <AdminPortalExpensesPage expenses={expenses} />;
             case 'adminPortalMore': return (
                 <div className="p-4 space-y-4">
-                    <button onClick={() => setActivePage('newsManagement')} className="w-full p-4 bg-white rounded-xl shadow-sm border flex justify-between items-center font-bold text-gray-800">Quản lý Tin tức <span>→</span></button>
-                    <button onClick={() => setActivePage('feedbackManagement')} className="w-full p-4 bg-white rounded-xl shadow-sm border flex justify-between items-center font-bold text-gray-800">Phản hồi Cư dân <span>→</span></button>
-                    <button onClick={() => handleLogout()} className="w-full p-4 bg-red-50 text-red-600 rounded-xl shadow-sm border flex justify-between items-center font-black">Đăng xuất <span>⏻</span></button>
+                    <button onClick={() => setActivePage('adminPortalVAS')} className="w-full p-4 bg-white rounded-xl shadow-sm border flex justify-between items-center group active:bg-slate-50 transition-all">
+                        <div className="flex items-center gap-4">
+                            <div className="p-2.5 bg-amber-50 rounded-xl text-amber-600"><SparklesIcon className="w-5 h-5"/></div>
+                            <span className="font-bold text-gray-800">Quản lý Doanh thu GTGT</span>
+                        </div>
+                        <span className="text-gray-300 group-active:translate-x-1 transition-transform">→</span>
+                    </button>
+                    <button onClick={() => setActivePage('adminPortalExpenses')} className="w-full p-4 bg-white rounded-xl shadow-sm border flex justify-between items-center group active:bg-slate-50 transition-all">
+                        <div className="flex items-center gap-4">
+                            <div className="p-2.5 bg-rose-50 rounded-xl text-rose-600"><TrendingDownIcon className="w-5 h-5"/></div>
+                            <span className="font-bold text-gray-800">Quản lý Chi phí VH</span>
+                        </div>
+                        <span className="text-gray-300 group-active:translate-x-1 transition-transform">→</span>
+                    </button>
+                    <button onClick={() => setActivePage('newsManagement')} className="w-full p-4 bg-white rounded-xl shadow-sm border flex justify-between items-center group active:bg-slate-50 transition-all">
+                        <div className="flex items-center gap-4">
+                            <div className="p-2.5 bg-blue-50 rounded-xl text-blue-600"><MegaphoneIcon className="w-5 h-5"/></div>
+                            <span className="font-bold text-gray-800">Quản lý Tin tức</span>
+                        </div>
+                        <span className="text-gray-300 group-active:translate-x-1 transition-transform">→</span>
+                    </button>
+                    <button onClick={() => setActivePage('feedbackManagement')} className="w-full p-4 bg-white rounded-xl shadow-sm border flex justify-between items-center group active:bg-slate-50 transition-all">
+                        <div className="flex items-center gap-4">
+                            <div className="p-2.5 bg-purple-50 rounded-xl text-purple-600"><ChatBubbleLeftEllipsisIcon className="w-5 h-5"/></div>
+                            <span className="font-bold text-gray-800">Phản hồi Cư dân</span>
+                        </div>
+                        <span className="text-gray-300 group-active:translate-x-1 transition-transform">→</span>
+                    </button>
+                    <button onClick={() => handleLogout()} className="w-full p-4 bg-red-50 text-red-600 rounded-xl shadow-sm border flex justify-between items-center font-black active:bg-red-100 transition-all mt-4">
+                        <div className="flex items-center gap-4">
+                            <div className="p-2.5 bg-red-100 rounded-xl"><ArrowRightOnRectangleIcon className="w-5 h-5"/></div>
+                            <span>Đăng xuất</span>
+                        </div>
+                        <span>⏻</span>
+                    </button>
                 </div>
             );
             default: return <AdminPortalHomePage {...props} onNavigate={(p) => setActivePage(p as AdminPortalPage)} />;
@@ -385,7 +442,7 @@ const App: React.FC = () => {
                                         {renderResidentPage()}
                                     </ResidentLayout>
                                 ) : isMobile ? (
-                                    <AdminMobileLayout activePage={activePage as AdminPortalPage} setActivePage={setActivePage as (p: AdminPortalPage) => void} user={user}>
+                                    <AdminMobileLayout activePage={activePage as AdminPortalPage} setActivePage={(p) => setActivePage(p as AdminPortalPage)} user={user}>
                                         {renderAdminMobilePage()}
                                     </AdminMobileLayout>
                                 ) : (

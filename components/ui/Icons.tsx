@@ -61,7 +61,10 @@ import {
   Palette,
   FileText,
   Wallet,
-  TrendingDown
+  TrendingDown,
+  TrendingUp,
+  Menu,
+  Store
 } from 'lucide-react';
 
 interface IconProps {
@@ -119,7 +122,7 @@ export const WarningIcon: React.FC<IconProps> = ({ className = DEFAULT_CLASS, si
 export const ClockIcon: React.FC<IconProps> = ({ className = DEFAULT_CLASS, size = DEFAULT_SIZE }) => <Clock className={className} size={size} />;
 export const ChatBubbleLeftRightIcon: React.FC<IconProps> = ({ className = DEFAULT_CLASS, size = DEFAULT_SIZE }) => <MessageSquare className={className} size={size} />;
 export const TagIcon: React.FC<IconProps> = ({ className = DEFAULT_CLASS, size = DEFAULT_SIZE }) => <Tag className={className} size={size} />;
-export const StoreIcon: React.FC<IconProps> = ({ className = DEFAULT_CLASS, size = DEFAULT_SIZE }) => <Building2 className={className} size={size} />;
+export const StoreIcon: React.FC<IconProps> = ({ className = DEFAULT_CLASS, size = DEFAULT_SIZE }) => <Store className={className} size={size} />;
 export const DocumentTextIcon: React.FC<IconProps> = ({ className = DEFAULT_CLASS, size = DEFAULT_SIZE }) => <ClipboardList className={className} size={size} />;
 export const MotorbikeIcon: React.FC<IconProps> = ({ className = DEFAULT_CLASS, size = DEFAULT_SIZE }) => <Bike className={className} size={size} />;
 export const BikeIcon: React.FC<IconProps> = ({ className = DEFAULT_CLASS, size = DEFAULT_SIZE }) => <Bike className={className} size={size} />;
@@ -134,7 +137,7 @@ export const DocumentArrowDownIcon: React.FC<IconProps> = ({ className = DEFAULT
 export const ShieldCheckIcon: React.FC<IconProps> = ({ className = DEFAULT_CLASS, size = DEFAULT_SIZE }) => <CheckCircle className={className} size={size} />;
 export const PlusIcon: React.FC<IconProps> = ({ className = DEFAULT_CLASS, size = DEFAULT_SIZE }) => <Plus className={className} size={size} />;
 export const UserGroupIcon: React.FC<IconProps> = ({ className = DEFAULT_CLASS, size = DEFAULT_SIZE }) => <Users className={className} size={size} />;
-export const TrendingUpIcon: React.FC<IconProps> = ({ className = DEFAULT_CLASS, size = DEFAULT_SIZE }) => <Sparkles className={className} size={size} />;
+export const TrendingUpIcon: React.FC<IconProps> = ({ className = DEFAULT_CLASS, size = DEFAULT_SIZE }) => <TrendingUp className={className} size={size} />;
 export const SparklesIcon: React.FC<IconProps> = ({ className = DEFAULT_CLASS, size = DEFAULT_SIZE }) => <Sparkles className={className} size={size} />;
 export const CircularArrowRefreshIcon = ArrowPathIcon;
 export const CurrencyDollarIcon: React.FC<IconProps> = ({ className = DEFAULT_CLASS, size = DEFAULT_SIZE }) => <Banknote className={className} size={size} />;
@@ -160,3 +163,6 @@ export const PaletteIcon: React.FC<IconProps> = ({ className = DEFAULT_CLASS, si
 export const FileTextIcon: React.FC<IconProps> = ({ className = DEFAULT_CLASS, size = DEFAULT_SIZE }) => <FileText className={className} size={size} />;
 export const WalletIcon: React.FC<IconProps> = ({ className = DEFAULT_CLASS, size = DEFAULT_SIZE }) => <Wallet className={className} size={size} />;
 export const TrendingDownIcon: React.FC<IconProps> = ({ className = DEFAULT_CLASS, size = DEFAULT_SIZE }) => <TrendingDown className={className} size={size} />;
+export const MenuIcon: React.FC<IconProps> = ({ className = DEFAULT_CLASS, size = DEFAULT_SIZE }) => <Menu className={className} size={size} />;
+export const ZapIcon: React.FC<IconProps> = ({ className = DEFAULT_CLASS, size = DEFAULT_SIZE }) => <Zap className={className} size={size} />;
+export const InfoIcon: React.FC<IconProps> = ({ className = DEFAULT_CLASS, size = DEFAULT_SIZE }) => <Info className={className} size={size} />;

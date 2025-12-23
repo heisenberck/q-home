@@ -5,7 +5,7 @@ import { db } from '../firebaseConfig';
 import { isProduction } from '../utils/env';
 import { 
     Unit, Owner, Vehicle, WaterReading, NewsItem,
-    TariffCollection, UserPermission, InvoiceSettings, Adjustment, ActivityLog, MonthlyStat, SystemMetadata, ChargeRaw
+    TariffCollection, UserPermission, InvoiceSettings, Adjustment, ActivityLog, MonthlyStat, SystemMetadata, ChargeRaw, MiscRevenue, OperationalExpense
 } from '../types';
 import * as api from '../services/index'; 
 import { get, set } from 'idb-keyval';
@@ -29,11 +29,13 @@ export const useSmartSystemData = (currentUser: UserPermission | null) => {
         monthlyStats: MonthlyStat[];
         lockedWaterPeriods: string[];
         charges: ChargeRaw[];
+        miscRevenues: MiscRevenue[];
+        expenses: OperationalExpense[];
         hasLoaded: boolean;
     }>({
         units: [], owners: [], vehicles: [], tariffs: { service: [], parking: [], water: [] },
         users: [], news: [], invoiceSettings: null, adjustments: [], waterReadings: [], activityLogs: [], monthlyStats: [], lockedWaterPeriods: [],
-        charges: [],
+        charges: [], miscRevenues: [], expenses: [],
         hasLoaded: false
     });
 
@@ -47,6 +49,7 @@ export const useSmartSystemData = (currentUser: UserPermission | null) => {
         try {
             const isAdmin = currentUser && currentUser.Role !== 'Resident';
             const residentId = currentUser?.residentId;
+            const currentPeriod = new Date().toISOString().slice(0, 7);
 
             // 1. Fetch Server Metadata
             const serverMeta = await api.getSystemMetadata();
@@ -61,7 +64,6 @@ export const useSmartSystemData = (currentUser: UserPermission | null) => {
             const fetchedUsers = shouldFetchUsers ? await api.fetchCollection<UserPermission>('users') : cachedUsers;
             if (shouldFetchUsers) await set(CACHE_PREFIX + 'users', fetchedUsers);
 
-            // Fetch News (Luôn lấy vì nó nhẹ và quan trọng)
             const fetchedNews = await api.fetchNews();
 
             if (!currentUser) {
@@ -90,8 +92,9 @@ export const useSmartSystemData = (currentUser: UserPermission | null) => {
             let fetchedAdjustments: Adjustment[] = [];
             let fetchedWaterReadings: WaterReading[] = [];
             let fetchedCharges: ChargeRaw[] = [];
+            let fetchedMisc: MiscRevenue[] = [];
+            let fetchedExpenses: OperationalExpense[] = [];
 
-            // Define flags in higher scope to fix "Cannot find name" errors
             let shouldFetchUnitsFlag = false;
             let shouldFetchOwnersFlag = false;
             let shouldFetchVehiclesFlag = false;
@@ -108,20 +111,20 @@ export const useSmartSystemData = (currentUser: UserPermission | null) => {
                 promises.push(shouldFetchOwnersFlag ? api.fetchCollection<Owner>('owners') : Promise.resolve(cachedOwners));
                 promises.push(shouldFetchVehiclesFlag ? api.fetchCollection<Vehicle>('vehicles') : Promise.resolve(cachedVehicles));
                 
-                const currentPeriod = new Date().toISOString().slice(0, 7);
                 promises.push(api.fetchRecentAdjustments(currentPeriod)); 
                 promises.push(api.fetchRecentWaterReadings([currentPeriod]));
                 promises.push(api.fetchCollection<ChargeRaw>('charges'));
+                // Fetch extra stats for admin dashboard
+                promises.push(api.getMonthlyMiscRevenues(currentPeriod));
+                promises.push(api.fetchCollection<OperationalExpense>('operational_expenses').then(all => all.filter(e => e.date.startsWith(currentPeriod))));
             } else {
                 if (residentId) {
                     promises.push(api.fetchResidentSpecificData(residentId));
-                    promises.push(Promise.resolve([])); promises.push(Promise.resolve([])); promises.push(Promise.resolve([])); promises.push(Promise.resolve([]));
+                    // Placeholders for indices 4-10
+                    for(let i=0; i<6; i++) promises.push(Promise.resolve([]));
                     promises.push(api.fetchCollection<ChargeRaw>('charges').then(all => all.filter(c => c.UnitID === residentId)));
                 } else {
-                    // Ensure indices are consistent if no residentId
-                    promises.push(Promise.resolve(null));
-                    promises.push(Promise.resolve([])); promises.push(Promise.resolve([])); promises.push(Promise.resolve([])); promises.push(Promise.resolve([]));
-                    promises.push(Promise.resolve([]));
+                    for(let i=0; i<8; i++) promises.push(Promise.resolve([]));
                 }
             }
 
@@ -137,7 +140,9 @@ export const useSmartSystemData = (currentUser: UserPermission | null) => {
                 fetchedAdjustments = results[6] || [];
                 fetchedWaterReadings = results[7] || [];
                 fetchedCharges = results[8] || [];
-                // Update Cache using flags
+                fetchedMisc = results[9] || [];
+                fetchedExpenses = results[10] || [];
+
                 if (shouldFetchUnitsFlag) await set(CACHE_PREFIX + 'units', fetchedUnits);
                 if (shouldFetchOwnersFlag) await set(CACHE_PREFIX + 'owners', fetchedOwners);
                 if (shouldFetchVehiclesFlag) await set(CACHE_PREFIX + 'vehicles', fetchedVehicles);
@@ -150,7 +155,7 @@ export const useSmartSystemData = (currentUser: UserPermission | null) => {
                     fetchedOwners = specificData.owner ? [specificData.owner] : [];
                     fetchedVehicles = specificData.vehicles;
                 }
-                fetchedCharges = results[8] || [];
+                fetchedCharges = results[9] || [];
             }
 
             setData({
@@ -167,6 +172,8 @@ export const useSmartSystemData = (currentUser: UserPermission | null) => {
                 monthlyStats, 
                 lockedWaterPeriods,
                 charges: fetchedCharges,
+                miscRevenues: fetchedMisc,
+                expenses: fetchedExpenses,
                 hasLoaded: true
             });
 

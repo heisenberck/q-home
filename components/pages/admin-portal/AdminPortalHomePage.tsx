@@ -6,10 +6,11 @@ import {
     MegaphoneIcon, WarningIcon, CheckCircleIcon, TrendingUpIcon,
     ChevronRightIcon, ClockIcon, SearchIcon, XMarkIcon,
     UserIcon, PhoneArrowUpRightIcon, ChevronDownIcon, ChevronUpIcon,
-    MotorbikeIcon, BikeIcon, EBikeIcon, HomeIcon, ShieldCheckIcon
+    MotorbikeIcon, BikeIcon, EBikeIcon, HomeIcon, ShieldCheckIcon,
+    TrendingDownIcon, SparklesIcon
 } from '../../ui/Icons';
 import { formatCurrency, formatNumber, getPastelColorForName, translateVehicleType } from '../../../utils/helpers';
-import type { Unit, Vehicle, ChargeRaw, MonthlyStat, NewsItem, WaterReading, Owner } from '../../../types';
+import type { Unit, Vehicle, ChargeRaw, MonthlyStat, NewsItem, WaterReading, Owner, MiscRevenue, OperationalExpense } from '../../../types';
 import { AdminPortalPage } from '../../layout/AdminMobileLayout';
 
 interface AdminPortalHomePageProps {
@@ -20,6 +21,8 @@ interface AdminPortalHomePageProps {
     news?: NewsItem[];
     waterReadings?: WaterReading[];
     owners?: Owner[];
+    miscRevenues?: MiscRevenue[];
+    expenses?: OperationalExpense[];
     onNavigate?: (page: AdminPortalPage) => void;
 }
 
@@ -67,6 +70,8 @@ const AdminPortalHomePage: React.FC<AdminPortalHomePageProps> = ({
     news = [], 
     waterReadings = [],
     owners = [],
+    miscRevenues = [],
+    expenses = [],
     onNavigate
 }) => {
     const [searchQuery, setSearchQuery] = useState('');
@@ -79,12 +84,12 @@ const AdminPortalHomePage: React.FC<AdminPortalHomePageProps> = ({
         const totalPaid = periodCharges.reduce((s, c) => s + (c.TotalPaid || 0), 0);
         const paidCount = periodCharges.filter(c => ['paid', 'paid_tm', 'paid_ck'].includes(c.paymentStatus)).length;
         const totalUnits = units.length || 0;
-        const activeVehicles = vehicles.filter(v => v.isActive);
-        const cars = activeVehicles.filter(v => v.Type.includes('car')).length;
-        const motos = activeVehicles.filter(v => v.Type === 'motorbike' || v.Type === 'ebike').length;
-        const waterConsumption = waterReadings.filter(r => r.Period === currentPeriod).reduce((sum, r) => sum + (r.consumption || 0), 0);
-        return { totalDue, totalPaid, paidCount, totalUnits, cars, motos, waterConsumption };
-    }, [units, vehicles, charges, currentPeriod, waterReadings]);
+        
+        const vasTotal = miscRevenues.reduce((sum, r) => sum + r.amount, 0);
+        const expenseTotal = expenses.reduce((sum, e) => sum + e.amount, 0);
+        
+        return { totalDue, totalPaid, paidCount, totalUnits, vasTotal, expenseTotal };
+    }, [units, vehicles, charges, currentPeriod, miscRevenues, expenses]);
 
     const searchResults = useMemo(() => {
         if (searchQuery.length < 2) return [];
@@ -132,10 +137,11 @@ const AdminPortalHomePage: React.FC<AdminPortalHomePageProps> = ({
     return (
         <div className="p-4 space-y-5">
             <div className="grid grid-cols-2 gap-3 shrink-0">
-                <StatCard label="Tài chính" value={formatCurrency(stats.totalPaid)} subValue={formatCurrency(stats.totalDue)} icon={<BanknotesIcon />} color="text-emerald-600" bgColor="bg-emerald-50" onClick={() => onNavigate?.('adminPortalBilling')} />
+                <StatCard label="Thực thu tháng" value={formatCurrency(stats.totalPaid)} subValue={formatCurrency(stats.totalDue)} icon={<BanknotesIcon />} color="text-emerald-600" bgColor="bg-emerald-50" onClick={() => onNavigate?.('adminPortalBilling')} />
                 <StatCard label="Tiến độ thu" value={`${Math.round((stats.paidCount / (stats.totalUnits || 1)) * 100)}%`} subValue={`${stats.paidCount}/${stats.totalUnits}`} icon={<CheckCircleIcon />} color="text-primary" bgColor="bg-primary/10" onClick={() => onNavigate?.('adminPortalBilling')} />
-                <StatCard label="Phương tiện" value={`${stats.cars} Ô tô / ${stats.motos} Xe máy`} icon={<MotorbikeIcon />} color="text-blue-600" bgColor="bg-blue-50" onClick={() => onNavigate?.('adminPortalVehicles')} />
-                <StatCard label="Nước sạch" value={`${formatNumber(stats.waterConsumption)} m³`} icon={<DropletsIcon />} color="text-cyan-600" bgColor="bg-cyan-50" />
+                {/* Cập nhật điều hướng trực tiếp bên dưới */}
+                <StatCard label="Doanh thu GTGT" value={formatCurrency(stats.vasTotal)} icon={<SparklesIcon />} color="text-amber-600" bgColor="bg-amber-50" onClick={() => onNavigate?.('adminPortalVAS')} />
+                <StatCard label="Chi phí VH" value={formatCurrency(stats.expenseTotal)} icon={<TrendingDownIcon />} color="text-rose-600" bgColor="bg-rose-50" onClick={() => onNavigate?.('adminPortalExpenses')} />
             </div>
 
             <div className="bg-white p-5 rounded-2xl shadow-sm border border-gray-100">
@@ -255,7 +261,7 @@ const AdminPortalHomePage: React.FC<AdminPortalHomePageProps> = ({
                 <div className="p-4 space-y-4 text-gray-700">
                     <div className="flex items-center gap-4 group">
                         <div className="shrink-0 w-8 h-8 bg-gray-50 rounded-xl flex items-center justify-center border border-gray-100 text-red-500"><WarningIcon className="w-4 h-4" /></div>
-                        <span className="text-xs font-bold flex-1">{Math.max(0, stats.totalUnits - waterReadings.filter(r => r.Period === currentPeriod).length)} căn chưa chốt nước</span>
+                        <span className="text-xs font-bold flex-1">{Math.max(0, units.length - waterReadings.filter(r => r.Period === currentPeriod).length)} căn chưa chốt nước</span>
                         <ChevronRightIcon className="w-3 h-3 text-gray-300" />
                     </div>
                     <div className="flex items-center gap-4 group" onClick={() => onNavigate?.('adminPortalVehicles')}>

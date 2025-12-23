@@ -3,19 +3,21 @@ import React, { useState, useRef, useEffect } from 'react';
 import { 
     HomeIcon, UsersIcon, UserCircleIcon, 
     ChevronLeftIcon, CarIcon, BanknotesIcon, PieChartIcon,
-    UserIcon, ArrowRightOnRectangleIcon, MotorbikeIcon
+    UserIcon, ArrowRightOnRectangleIcon, MotorbikeIcon,
+    MenuIcon
 } from '../ui/Icons';
 import type { UserPermission } from '../../types';
 import { useAuth } from '../../App';
+import NotificationBell from '../common/NotificationBell';
 
-export type AdminPortalPage = 'adminPortalHome' | 'adminPortalResidents' | 'adminPortalVehicles' | 'adminPortalBilling' | 'adminPortalMore';
+export type AdminPortalPage = 'adminPortalHome' | 'adminPortalResidents' | 'adminPortalVehicles' | 'adminPortalBilling' | 'adminPortalMore' | 'adminPortalVAS' | 'adminPortalExpenses';
 
 const navItems = [
   { id: 'adminPortalHome' as AdminPortalPage, label: 'Home', icon: <HomeIcon /> },
   { id: 'adminPortalResidents' as AdminPortalPage, label: 'Cư dân', icon: <UsersIcon /> },
   { id: 'adminPortalVehicles' as AdminPortalPage, label: 'Phương tiện', icon: <MotorbikeIcon /> },
   { id: 'adminPortalBilling' as AdminPortalPage, label: 'Phí', icon: <BanknotesIcon /> },
-  { id: 'adminPortalMore' as AdminPortalPage, label: 'Thêm', icon: <UserCircleIcon /> },
+  { id: 'adminPortalMore' as AdminPortalPage, label: 'Thêm', icon: <MenuIcon /> },
 ];
 
 const pageTitles: Record<AdminPortalPage, string> = {
@@ -24,6 +26,8 @@ const pageTitles: Record<AdminPortalPage, string> = {
     adminPortalVehicles: 'Quản lý Xe',
     adminPortalBilling: 'Bảng tính phí',
     adminPortalMore: 'Menu Quản trị',
+    adminPortalVAS: 'Doanh thu GTGT',
+    adminPortalExpenses: 'Chi phí vận hành',
 };
 
 interface AdminMobileLayoutProps {
@@ -37,6 +41,7 @@ const AdminMobileLayout: React.FC<AdminMobileLayoutProps> = ({ children, activeP
   const { logout } = useAuth();
   const [isProfileOpen, setIsProfileOpen] = useState(false);
   const isHomePage = activePage === 'adminPortalHome';
+  const isSubPage = ['adminPortalVAS', 'adminPortalExpenses'].includes(activePage);
   const menuRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
@@ -65,37 +70,41 @@ const AdminMobileLayout: React.FC<AdminMobileLayoutProps> = ({ children, activeP
                 <h1 className="text-base font-black tracking-tight">{pageTitles[activePage]}</h1>
             </div>
 
-            <div className="relative" ref={menuRef}>
-                <button 
-                    onClick={() => setIsProfileOpen(!isProfileOpen)}
-                    className={`w-9 h-9 rounded-full border-2 shadow-sm overflow-hidden flex items-center justify-center transition-all active:scale-90 ${
-                        isHomePage ? 'border-white/40 bg-white/10' : 'border-gray-100 bg-gray-50'
-                    }`}
-                >
-                    {user.avatarUrl ? (
-                        <img src={user.avatarUrl} alt="Admin" className="w-full h-full object-cover" />
-                    ) : (
-                        <UserCircleIcon className={`w-7 h-7 ${isHomePage ? 'text-white/60' : 'text-gray-400'}`} />
-                    )}
-                </button>
+            <div className="flex items-center gap-4">
+                <NotificationBell />
 
-                {isProfileOpen && (
-                    <div className="absolute right-0 mt-3 w-56 bg-white rounded-2xl shadow-2xl border border-gray-100 z-50 py-2 animate-fade-in-down ring-1 ring-black/5 text-gray-800">
-                        <div className="px-4 py-2 border-b border-gray-50 mb-1">
-                            <p className="text-[10px] font-bold text-gray-400 uppercase tracking-widest">Administrator</p>
-                            <p className="text-sm font-black text-gray-800 truncate">{user.DisplayName || user.Username}</p>
+                <div className="relative" ref={menuRef}>
+                    <button 
+                        onClick={() => setIsProfileOpen(!isProfileOpen)}
+                        className={`w-9 h-9 rounded-full border-2 shadow-sm overflow-hidden flex items-center justify-center transition-all active:scale-90 ${
+                            isHomePage ? 'border-white/40 bg-white/10' : 'border-gray-100 bg-gray-50'
+                        }`}
+                    >
+                        {user.avatarUrl ? (
+                            <img src={user.avatarUrl} alt="Admin" className="w-full h-full object-cover" />
+                        ) : (
+                            <UserCircleIcon className={`w-7 h-7 ${isHomePage ? 'text-white/60' : 'text-gray-400'}`} />
+                        )}
+                    </button>
+
+                    {isProfileOpen && (
+                        <div className="absolute right-0 mt-3 w-56 bg-white rounded-2xl shadow-2xl border border-gray-100 z-50 py-2 animate-fade-in-down ring-1 ring-black/5 text-gray-800">
+                            <div className="px-4 py-2 border-b border-gray-50 mb-1">
+                                <p className="text-[10px] font-bold text-gray-400 uppercase tracking-widest">Administrator</p>
+                                <p className="text-sm font-black text-gray-800 truncate">{user.DisplayName || user.Username}</p>
+                            </div>
+                            <button className="w-full flex items-center gap-3 px-4 py-3 text-sm font-bold text-gray-600 hover:bg-gray-50 transition-colors">
+                                <div className="p-1.5 bg-primary/10 rounded-lg"><UserIcon className="w-4 h-4 text-primary" /></div> Cài đặt cá nhân
+                            </button>
+                            <button 
+                                onClick={logout}
+                                className="w-full flex items-center gap-3 px-4 py-3 text-sm font-bold text-red-600 hover:bg-red-50 transition-colors border-t border-gray-50 mt-1"
+                            >
+                                <div className="p-1.5 bg-red-100 rounded-lg"><ArrowRightOnRectangleIcon className="w-4 h-4" /></div> Đăng xuất
+                            </button>
                         </div>
-                        <button className="w-full flex items-center gap-3 px-4 py-3 text-sm font-bold text-gray-600 hover:bg-gray-50 transition-colors">
-                            <div className="p-1.5 bg-primary/10 rounded-lg"><UserIcon className="w-4 h-4 text-primary" /></div> Cài đặt cá nhân
-                        </button>
-                        <button 
-                            onClick={logout}
-                            className="w-full flex items-center gap-3 px-4 py-3 text-sm font-bold text-red-600 hover:bg-red-50 transition-colors border-t border-gray-50 mt-1"
-                        >
-                            <div className="p-1.5 bg-red-100 rounded-lg"><ArrowRightOnRectangleIcon className="w-4 h-4" /></div> Đăng xuất
-                        </button>
-                    </div>
-                )}
+                    )}
+                </div>
             </div>
         </header>
 
@@ -108,7 +117,7 @@ const AdminMobileLayout: React.FC<AdminMobileLayoutProps> = ({ children, activeP
       <nav className="fixed bottom-0 left-0 right-0 bg-white border-t border-gray-200 shadow-[0_-4px_20px_rgba(0,0,0,0.08)] z-40 pb-safe">
         <div className="grid grid-cols-5 max-w-md mx-auto">
           {navItems.map(item => {
-            const isActive = activePage === item.id;
+            const isActive = activePage === item.id || (item.id === 'adminPortalMore' && isSubPage);
             return (
               <button
                 key={item.id}
