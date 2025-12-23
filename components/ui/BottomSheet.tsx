@@ -1,5 +1,5 @@
 
-import React, { useEffect, useState } from 'react';
+import React, { useEffect, useState, useRef } from 'react';
 import { XMarkIcon } from './Icons';
 
 interface BottomSheetProps {
@@ -12,6 +12,7 @@ interface BottomSheetProps {
 const BottomSheet: React.FC<BottomSheetProps> = ({ isOpen, onClose, title, children }) => {
     const [shouldRender, setShouldRender] = useState(isOpen);
     const [touchStartY, setTouchStartY] = useState<number | null>(null);
+    const contentRef = useRef<HTMLDivElement>(null);
 
     useEffect(() => {
         if (isOpen) {
@@ -26,8 +27,21 @@ const BottomSheet: React.FC<BottomSheetProps> = ({ isOpen, onClose, title, child
         }
     }, [isOpen]);
 
+    // Xử lý vuốt xuống từ Header
     const handleTouchStart = (e: React.TouchEvent) => {
         setTouchStartY(e.touches[0].clientY);
+    };
+
+    const handleTouchMove = (e: React.TouchEvent) => {
+        if (touchStartY === null) return;
+        
+        const currentY = e.touches[0].clientY;
+        const diff = currentY - touchStartY;
+
+        // Nếu đang cuộn nội dung, chỉ cho phép vuốt đóng nếu đang ở đỉnh (scrollTop === 0)
+        if (contentRef.current && contentRef.current.scrollTop > 0 && diff > 0) {
+            return;
+        }
     };
 
     const handleTouchEnd = (e: React.TouchEvent) => {
@@ -35,7 +49,7 @@ const BottomSheet: React.FC<BottomSheetProps> = ({ isOpen, onClose, title, child
         const touchEndY = e.changedTouches[0].clientY;
         const diff = touchEndY - touchStartY;
 
-        // Nếu vuốt xuống hơn 70px thì đóng sheet
+        // Ngưỡng vuốt xuống để đóng (70px)
         if (diff > 70) {
             onClose();
         }
@@ -46,9 +60,9 @@ const BottomSheet: React.FC<BottomSheetProps> = ({ isOpen, onClose, title, child
 
     return (
         <div className="fixed inset-0 z-[60] flex items-end justify-center">
-            {/* Backdrop */}
+            {/* Backdrop với độ mờ nhẹ */}
             <div 
-                className={`absolute inset-0 bg-black/40 backdrop-blur-[2px] transition-opacity duration-300 ${
+                className={`absolute inset-0 bg-black/50 backdrop-blur-[1px] transition-opacity duration-300 ${
                     isOpen ? 'opacity-100' : 'opacity-0'
                 }`} 
                 onClick={onClose}
@@ -60,30 +74,39 @@ const BottomSheet: React.FC<BottomSheetProps> = ({ isOpen, onClose, title, child
                     isOpen ? 'translate-y-0' : 'translate-y-full'
                 }`}
             >
-                {/* Header / Swipe Area */}
+                {/* Vùng Header mở rộng: Nhận diện kéo xuống tốt hơn */}
                 <div 
-                    className="pt-3 pb-2 flex flex-col items-center cursor-pointer select-none"
+                    className="pt-2 pb-4 flex flex-col items-center cursor-grab active:cursor-grabbing select-none touch-none"
                     onTouchStart={handleTouchStart}
+                    onTouchMove={handleTouchMove}
                     onTouchEnd={handleTouchEnd}
                 >
-                    {/* Thanh kéo giả lập iOS */}
-                    <div className="w-12 h-1.5 bg-gray-200 rounded-full mb-4" />
+                    {/* Thanh kéo iOS Style - To và dễ thấy hơn */}
+                    <div className="w-14 h-1.5 bg-gray-200 rounded-full mt-2 mb-4" />
                     
                     <div className="w-full px-6 flex justify-between items-center">
-                        <h3 className="text-lg font-black text-gray-800 uppercase tracking-tight">{title}</h3>
-                        {/* Nút đóng duy nhất nằm trong hàng tiêu đề */}
+                        <h3 className="text-xl font-black text-gray-800 uppercase tracking-tight leading-none">
+                            {title}
+                        </h3>
+                        
+                        {/* Nút đóng được tinh chỉnh: Thấp hơn, diện tích chạm lớn */}
                         <button 
                             onClick={onClose}
-                            className="p-2 bg-gray-100 text-gray-500 rounded-full active:scale-90 transition-transform flex items-center justify-center"
-                            aria-label="Close"
+                            className="p-3 bg-gray-100 text-gray-500 rounded-full active:scale-90 active:bg-gray-200 transition-all flex items-center justify-center shadow-sm"
+                            aria-label="Đóng"
                         >
-                            <XMarkIcon className="w-5 h-5" />
+                            <XMarkIcon className="w-6 h-6" />
                         </button>
                     </div>
                 </div>
 
-                {/* Content Area */}
-                <div className="flex-1 overflow-y-auto p-6 pt-2">
+                {/* Vùng nội dung: Nếu vuốt từ đây khi đang ở top cũng sẽ đóng */}
+                <div 
+                    ref={contentRef}
+                    className="flex-1 overflow-y-auto p-6 pt-0"
+                    onTouchStart={handleTouchStart}
+                    onTouchEnd={handleTouchEnd}
+                >
                     {children}
                 </div>
             </div>

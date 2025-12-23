@@ -138,11 +138,11 @@ const AdminPortalVehiclesPage: React.FC<AdminPortalVehiclesPageProps> = ({ vehic
             <BottomSheet 
                 isOpen={!!selectedVehicle} 
                 onClose={() => setSelectedVehicle(null)} 
-                title="Thông tin phương tiện"
+                title="Thông tin xe"
             >
                 {selectedVehicle && selectedVehicleDetails && (
                     <div className="space-y-6">
-                        {/* Plate & Type Header */}
+                        {/* Plate & Type Header - Reduced top padding because Sheet Header handled it */}
                         <div className="text-center py-6 bg-slate-50 rounded-[2.5rem] border border-slate-100">
                             <div className="w-16 h-16 bg-white rounded-3xl flex items-center justify-center shadow-sm text-primary mx-auto mb-3">
                                 <div className="w-10 h-10">{getVehicleIcon(selectedVehicle.Type)}</div>
@@ -151,7 +151,7 @@ const AdminPortalVehiclesPage: React.FC<AdminPortalVehiclesPageProps> = ({ vehic
                                 {formatLicensePlate(selectedVehicle.PlateNumber)}
                             </h2>
                             <p className="text-[10px] font-black text-gray-400 uppercase tracking-[0.2em] mt-1">
-                                {translateVehicleType(selectedVehicle.Type as any)} • {selectedVehicle.VehicleName || 'Chưa rõ Model'}
+                                {translateVehicleType(selectedVehicle.Type as any)} • {selectedVehicle.VehicleName || 'Model chưa rõ'}
                             </p>
                         </div>
 
@@ -193,7 +193,7 @@ const AdminPortalVehiclesPage: React.FC<AdminPortalVehiclesPageProps> = ({ vehic
                                     <ShieldCheckIcon className="w-4 h-4" />
                                     <span className="text-[9px] font-black uppercase tracking-widest">Lốt đỗ</span>
                                 </div>
-                                <p className="text-sm font-black text-gray-800">{selectedVehicle.parkingStatus || 'Không có lốt'}</p>
+                                <p className="text-sm font-black text-gray-800">{selectedVehicle.parkingStatus || 'Không lốt'}</p>
                             </div>
                             <div className="p-4 bg-gray-50 rounded-2xl border border-gray-100">
                                 <div className="flex items-center gap-2 mb-2 text-orange-500">
@@ -206,7 +206,7 @@ const AdminPortalVehiclesPage: React.FC<AdminPortalVehiclesPageProps> = ({ vehic
 
                         {/* Real Photo */}
                         {selectedVehicle.documents?.vehiclePhoto?.url && (
-                            <div className="space-y-2">
+                            <div className="space-y-2 pb-6">
                                 <h5 className="text-[11px] font-black text-gray-400 uppercase tracking-[0.2em] px-2">Ảnh thực tế</h5>
                                 <div className="rounded-[2rem] overflow-hidden border border-gray-200 shadow-inner bg-slate-200">
                                     <img src={selectedVehicle.documents.vehiclePhoto.url} className="w-full h-auto" alt="Vehicle" />
@@ -216,13 +216,6 @@ const AdminPortalVehiclesPage: React.FC<AdminPortalVehiclesPageProps> = ({ vehic
                     </div>
                 )}
             </BottomSheet>
-            
-            {/* Image Preview Overlay (nếu có nhấn vào ảnh trong tương lai) */}
-            {previewUrl && (
-                <div className="fixed inset-0 z-[110] bg-black/95 flex items-center justify-center p-4" onClick={() => setPreviewUrl(null)}>
-                     <img src={previewUrl} className="max-w-full max-h-full rounded-xl" alt="Full" />
-                </div>
-            )}
         </div>
     );
 };
