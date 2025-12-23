@@ -6,7 +6,7 @@ import {
     MegaphoneIcon, WarningIcon, CheckCircleIcon, TrendingUpIcon,
     ChevronRightIcon, ClockIcon, SearchIcon, XMarkIcon,
     UserIcon, PhoneArrowUpRightIcon, ChevronDownIcon, ChevronUpIcon,
-    MotorbikeIcon, BikeIcon, EBikeIcon, HomeIcon
+    MotorbikeIcon, BikeIcon, EBikeIcon, HomeIcon, ShieldCheckIcon
 } from '../../ui/Icons';
 import { formatCurrency, formatNumber, getPastelColorForName, translateVehicleType } from '../../../utils/helpers';
 import type { Unit, Vehicle, ChargeRaw, MonthlyStat, NewsItem, WaterReading, Owner } from '../../../types';
@@ -23,11 +23,27 @@ interface AdminPortalHomePageProps {
     onNavigate?: (page: AdminPortalPage) => void;
 }
 
-const StatCard: React.FC<{ label: string; value: string | number; subValue?: string; icon: React.ReactNode; color: string; bgColor: string }> = ({ label, value, subValue, icon, color, bgColor }) => (
-    <div className="bg-white p-4 rounded-2xl shadow-sm border border-gray-100 flex flex-col justify-between active:scale-[0.98] transition-transform">
+const getStatusVN = (status: string) => {
+    switch (status) {
+        case 'Owner': return 'Chính chủ';
+        case 'Rent': return 'Hộ thuê';
+        case 'Business': return 'Kinh doanh';
+        default: return status;
+    }
+};
+
+const getVehicleIcon = (type: string) => {
+    if (type === 'car' || type === 'car_a') return <CarIcon className="w-5 h-5" />;
+    if (type === 'motorbike') return <MotorbikeIcon className="w-5 h-5" />;
+    if (type === 'ebike') return <EBikeIcon className="w-5 h-5" />;
+    if (type === 'bicycle') return <BikeIcon className="w-5 h-5" />;
+    return <CarIcon className="w-5 h-5" />;
+};
+
+const StatCard: React.FC<{ label: string; value: string | number; subValue?: string; icon: React.ReactNode; color: string; bgColor: string; onClick?: () => void }> = ({ label, value, subValue, icon, color, bgColor, onClick }) => (
+    <div onClick={onClick} className={`bg-white p-4 rounded-2xl shadow-sm border border-gray-100 flex flex-col justify-between active:scale-[0.98] transition-transform ${onClick ? 'cursor-pointer' : ''}`}>
         <div className="flex justify-between items-start mb-3">
             <div className={`p-2.5 rounded-xl ${bgColor} ${color} shadow-sm`}>
-                {/* Added ReactElement<any> cast to fix TypeScript cloneElement error */}
                 {React.cloneElement(icon as React.ReactElement<any>, { className: 'w-5 h-5' })}
             </div>
             {subValue && (
@@ -116,9 +132,9 @@ const AdminPortalHomePage: React.FC<AdminPortalHomePageProps> = ({
     return (
         <div className="p-4 space-y-5">
             <div className="grid grid-cols-2 gap-3 shrink-0">
-                <StatCard label="Tài chính" value={formatCurrency(stats.totalPaid)} subValue={formatCurrency(stats.totalDue)} icon={<BanknotesIcon />} color="text-emerald-600" bgColor="bg-emerald-50" />
-                <StatCard label="Tiến độ thu" value={`${Math.round((stats.paidCount / (stats.totalUnits || 1)) * 100)}%`} subValue={`${stats.paidCount}/${stats.totalUnits}`} icon={<CheckCircleIcon />} color="text-primary" bgColor="bg-primary/10" />
-                <StatCard label="Xe Ôtô / Máy" value={`${stats.cars} / ${stats.motos}`} icon={<CarIcon />} color="text-blue-600" bgColor="bg-blue-50" />
+                <StatCard label="Tài chính" value={formatCurrency(stats.totalPaid)} subValue={formatCurrency(stats.totalDue)} icon={<BanknotesIcon />} color="text-emerald-600" bgColor="bg-emerald-50" onClick={() => onNavigate?.('adminPortalBilling')} />
+                <StatCard label="Tiến độ thu" value={`${Math.round((stats.paidCount / (stats.totalUnits || 1)) * 100)}%`} subValue={`${stats.paidCount}/${stats.totalUnits}`} icon={<CheckCircleIcon />} color="text-primary" bgColor="bg-primary/10" onClick={() => onNavigate?.('adminPortalBilling')} />
+                <StatCard label="Phương tiện" value={`${stats.cars} Ô tô / ${stats.motos} Xe máy`} icon={<MotorbikeIcon />} color="text-blue-600" bgColor="bg-blue-50" onClick={() => onNavigate?.('adminPortalVehicles')} />
                 <StatCard label="Nước sạch" value={`${formatNumber(stats.waterConsumption)} m³`} icon={<DropletsIcon />} color="text-cyan-600" bgColor="bg-cyan-50" />
             </div>
 
@@ -161,6 +177,8 @@ const AdminPortalHomePage: React.FC<AdminPortalHomePageProps> = ({
                         {searchResults.length > 0 ? searchResults.map(res => {
                             const isExpanded = expandedResultId === res.id;
                             const theme = getPastelColorForName(res.targetId || 'HUD3');
+                            const vType = res.type === 'vehicle' ? res.vehicle?.Type : '';
+                            const isCar = vType === 'car' || vType === 'car_a';
                             
                             return (
                                 <div key={res.id} className={`transition-all ${isExpanded ? 'bg-slate-50 shadow-inner' : 'bg-white'}`}>
@@ -168,8 +186,10 @@ const AdminPortalHomePage: React.FC<AdminPortalHomePageProps> = ({
                                         onClick={() => setExpandedResultId(isExpanded ? null : res.id)}
                                         className="w-full flex items-center gap-3 p-4 text-left active:bg-gray-100 transition-colors"
                                     >
-                                        <div className={`w-10 h-10 rounded-xl flex items-center justify-center font-black text-xs shrink-0 ${theme.bg} ${theme.text} ${theme.border}`}>
-                                            {res.type === 'unit' ? res.targetId : <CarIcon className="w-5 h-5" />}
+                                        <div className={`w-10 h-10 rounded-xl flex items-center justify-center font-black text-xs shrink-0 transition-transform ${
+                                            isExpanded ? 'scale-110 shadow-sm' : ''
+                                        } ${theme.bg} ${theme.text} ${theme.border}`}>
+                                            {res.type === 'unit' ? res.targetId : getVehicleIcon(vType)}
                                         </div>
                                         <div className="flex-1 min-w-0">
                                             <p className="text-sm font-black text-gray-800 truncate">
@@ -192,9 +212,26 @@ const AdminPortalHomePage: React.FC<AdminPortalHomePageProps> = ({
                                                     </a>
                                                     <div className="flex items-center gap-3 p-3 bg-white rounded-xl border border-gray-200 text-gray-700">
                                                         <HomeIcon className="w-4 h-4" />
-                                                        <span className="text-xs font-black truncate">{res.type === 'unit' ? res.unit?.Status : `Căn ${res.unit?.UnitID}`}</span>
+                                                        <span className="text-xs font-black truncate">{res.type === 'unit' ? getStatusVN(res.unit?.Status) : `Căn ${res.unit?.UnitID}`}</span>
                                                     </div>
                                                 </div>
+
+                                                {res.type === 'vehicle' && (
+                                                    <div className="p-3 bg-white rounded-xl border border-gray-200 space-y-2">
+                                                        <div className="flex justify-between items-center">
+                                                            <span className="text-[10px] font-bold text-gray-400 uppercase">Trạng thái lốt</span>
+                                                            <span className={`text-xs font-black ${isCar ? 'text-primary' : 'text-gray-400'}`}>
+                                                                {isCar ? (res.vehicle?.parkingStatus || 'Không lốt') : 'N/A'}
+                                                            </span>
+                                                        </div>
+                                                        {isCar && res.vehicle?.documents?.vehiclePhoto?.url && (
+                                                            <div className="mt-2 rounded-lg overflow-hidden border border-gray-100 aspect-video bg-gray-50">
+                                                                <img src={res.vehicle.documents.vehiclePhoto.url} alt="Xe" className="w-full h-full object-cover" />
+                                                            </div>
+                                                        )}
+                                                    </div>
+                                                )}
+
                                                 <button 
                                                     onClick={() => handleJumpToDetail(res.type === 'unit' ? 'adminPortalResidents' : 'adminPortalVehicles', res.targetId)}
                                                     className="w-full mt-1 py-2.5 bg-primary text-white text-[11px] font-black uppercase tracking-widest rounded-xl shadow-md active:bg-primary-focus transition-all flex items-center justify-center gap-2"
@@ -221,7 +258,7 @@ const AdminPortalHomePage: React.FC<AdminPortalHomePageProps> = ({
                         <span className="text-xs font-bold flex-1">{Math.max(0, stats.totalUnits - waterReadings.filter(r => r.Period === currentPeriod).length)} căn chưa chốt nước</span>
                         <ChevronRightIcon className="w-3 h-3 text-gray-300" />
                     </div>
-                    <div className="flex items-center gap-4 group">
+                    <div className="flex items-center gap-4 group" onClick={() => onNavigate?.('adminPortalVehicles')}>
                         <div className="shrink-0 w-8 h-8 bg-gray-50 rounded-xl flex items-center justify-center border border-gray-100 text-orange-500"><ClockIcon className="w-4 h-4" /></div>
                         <span className="text-xs font-bold flex-1">{vehicles.filter(v => v.parkingStatus === 'Xếp lốt').length} xe đang chờ lốt đỗ</span>
                         <ChevronRightIcon className="w-3 h-3 text-gray-300" />

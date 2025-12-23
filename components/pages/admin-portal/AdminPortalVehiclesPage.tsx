@@ -4,7 +4,7 @@ import type { Vehicle, Unit, Owner } from '../../../types';
 import { 
     SearchIcon, CarIcon, MotorbikeIcon, ChevronDownIcon, ChevronUpIcon,
     UserIcon, PhoneArrowUpRightIcon, ClockIcon, ShieldCheckIcon,
-    EBikeIcon, BikeIcon
+    EBikeIcon, BikeIcon, Camera
 } from '../../ui/Icons';
 import { formatLicensePlate, getPastelColorForName, translateVehicleType } from '../../../utils/helpers';
 
@@ -14,6 +14,14 @@ interface AdminPortalVehiclesPageProps {
     owners?: Owner[];
 }
 
+const getVehicleIcon = (type: string) => {
+    if (type === 'car' || type === 'car_a') return <CarIcon className="w-full h-full" />;
+    if (type === 'motorbike') return <MotorbikeIcon className="w-full h-full" />;
+    if (type === 'ebike') return <EBikeIcon className="w-full h-full" />;
+    if (type === 'bicycle') return <BikeIcon className="w-full h-full" />;
+    return <CarIcon className="w-full h-full" />;
+};
+
 const VehicleStatCard: React.FC<{ label: string; value: number; icon: React.ReactNode; color: string; bgColor: string; isActive: boolean; onClick: () => void }> = ({ label, value, icon, color, bgColor, isActive, onClick }) => (
     <div 
         onClick={onClick}
@@ -22,7 +30,6 @@ const VehicleStatCard: React.FC<{ label: string; value: number; icon: React.Reac
         }`}
     >
         <div className={`w-9 h-9 rounded-xl flex items-center justify-center shrink-0 ${isActive ? 'bg-white/20' : bgColor}`}>
-            {/* Added ReactElement<any> cast to fix TypeScript cloneElement error */}
             {React.cloneElement(icon as React.ReactElement<any>, { className: `w-5 h-5 ${isActive ? 'text-white' : color}` })}
         </div>
         <div className="min-w-0">
@@ -112,6 +119,8 @@ const AdminPortalVehiclesPage: React.FC<AdminPortalVehiclesPageProps> = ({ vehic
                     const unit = (units || []).find(u => u.UnitID === vehicle.UnitID);
                     const owner = (owners || []).find(o => o.OwnerID === unit?.OwnerID);
                     const unitTheme = getPastelColorForName(vehicle.UnitID);
+                    const isCar = vehicle.Type.includes('car');
+                    const vehiclePhotoUrl = vehicle.documents?.vehiclePhoto?.url;
 
                     return (
                         <div key={vehicle.VehicleId} id={`vehicle-card-${vehicle.VehicleId}`} className={`bg-white transition-all ${isExpanded ? 'ring-2 ring-primary shadow-md my-2' : ''}`}>
@@ -123,11 +132,11 @@ const AdminPortalVehiclesPage: React.FC<AdminPortalVehiclesPageProps> = ({ vehic
                                     <div className={`w-10 h-10 rounded-xl flex items-center justify-center font-black text-xs shrink-0 transition-all ${
                                         isExpanded ? 'bg-primary text-white scale-110' : `${unitTheme.bg} ${unitTheme.text} ${unitTheme.border}`
                                     }`}>
-                                        {vehicle.UnitID}
+                                        <div className="w-6 h-6">{getVehicleIcon(vehicle.Type)}</div>
                                     </div>
                                     <div className="min-w-0">
                                         <h4 className="text-sm font-mono font-black text-gray-800 tracking-tight">{formatLicensePlate(vehicle.PlateNumber)}</h4>
-                                        <p className="text-[11px] text-gray-400 font-bold uppercase truncate">{owner?.OwnerName || 'N/A'}</p>
+                                        <p className="text-[11px] text-gray-400 font-bold uppercase truncate">{owner?.OwnerName || 'N/A'} • Căn {vehicle.UnitID}</p>
                                     </div>
                                 </div>
                                 <div className="text-gray-300">
@@ -145,11 +154,32 @@ const AdminPortalVehiclesPage: React.FC<AdminPortalVehiclesPageProps> = ({ vehic
                                         </div>
                                         <div className="p-3 bg-gray-50 rounded-xl border border-gray-100">
                                             <p className="text-[9px] font-black text-gray-400 uppercase mb-1">Đỗ xe</p>
-                                            <p className={`text-xs font-black ${vehicle.parkingStatus === 'Lốt chính' ? 'text-green-600' : 'text-blue-600'}`}>{vehicle.parkingStatus || 'Không lốt'}</p>
+                                            <p className={`text-xs font-black ${isCar ? 'text-primary' : 'text-gray-400'}`}>
+                                                {isCar ? (vehicle.parkingStatus || 'Không lốt') : 'N/A'}
+                                            </p>
                                         </div>
                                     </div>
+                                    
+                                    {/* BỔ SUNG: Thẻ hình ảnh xe đúng vị trí theo yêu cầu */}
+                                    {vehiclePhotoUrl ? (
+                                        <div className="rounded-2xl overflow-hidden border border-gray-200 aspect-video bg-gray-100 shadow-inner relative group">
+                                            <img src={vehiclePhotoUrl} alt="Ảnh xe" className="w-full h-full object-cover transition-transform group-hover:scale-105 duration-500" />
+                                            <div className="absolute top-2 right-2 bg-black/40 backdrop-blur-md px-2 py-1 rounded-md flex items-center gap-1">
+                                                <Camera className="w-3 h-3 text-white" />
+                                                <span className="text-[8px] font-black text-white uppercase tracking-widest">Ảnh thực tế</span>
+                                            </div>
+                                        </div>
+                                    ) : isCar && (
+                                        <div className="rounded-2xl border-2 border-dashed border-gray-200 aspect-video flex flex-col items-center justify-center bg-gray-50 text-gray-400">
+                                            <Camera className="w-8 h-8 opacity-20 mb-2" />
+                                            <p className="text-[10px] font-bold uppercase tracking-widest">Chưa có ảnh xe</p>
+                                        </div>
+                                    )}
+
                                     <div className="flex items-center gap-3 p-3 bg-slate-50 rounded-xl border border-slate-100">
-                                        <div className="w-8 h-8 bg-white rounded-lg flex items-center justify-center text-primary shadow-sm"><PhoneArrowUpRightIcon className="w-4 h-4" /></div>
+                                        <div className="w-8 h-8 bg-white rounded-lg flex items-center justify-center text-primary shadow-sm">
+                                            <PhoneArrowUpRightIcon className="w-4 h-4" />
+                                        </div>
                                         <div className="flex-1">
                                             <p className="text-[9px] font-black text-gray-400 uppercase">Liên hệ chủ hộ</p>
                                             <a href={`tel:${owner?.Phone}`} className="text-sm font-black text-blue-600">{owner?.Phone || '---'}</a>

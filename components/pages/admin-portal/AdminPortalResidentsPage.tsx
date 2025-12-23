@@ -5,7 +5,7 @@ import {
     HomeIcon, UserIcon, SearchIcon, PhoneArrowUpRightIcon, 
     ChevronRightIcon, ChevronDownIcon, ChevronUpIcon,
     EnvelopeIcon, CarIcon, DocumentTextIcon, PaperclipIcon,
-    UserCircleIcon, MotorbikeIcon, KeyIcon, StoreIcon
+    UserCircleIcon, MotorbikeIcon, KeyIcon, StoreIcon, EBikeIcon, BikeIcon
 } from '../../ui/Icons';
 import { parseUnitCode, translateVehicleType, getPastelColorForName } from '../../../utils/helpers';
 import Modal from '../../ui/Modal';
@@ -16,6 +16,23 @@ interface AdminPortalResidentsPageProps {
     vehicles?: Vehicle[];
 }
 
+const getStatusVN = (status: string) => {
+    switch (status) {
+        case 'Owner': return 'Chính chủ';
+        case 'Rent': return 'Hộ thuê';
+        case 'Business': return 'Kinh doanh';
+        default: return status;
+    }
+};
+
+const getVehicleIcon = (type: string) => {
+    if (type === 'car' || type === 'car_a') return <CarIcon className="w-4 h-4 text-blue-500" />;
+    if (type === 'motorbike') return <MotorbikeIcon className="w-4 h-4 text-orange-500" />;
+    if (type === 'ebike') return <EBikeIcon className="w-4 h-4 text-emerald-500" />;
+    if (type === 'bicycle') return <BikeIcon className="w-4 h-4 text-purple-500" />;
+    return <CarIcon className="w-4 h-4 text-blue-500" />;
+};
+
 const ResidentStatCard: React.FC<{ label: string; value: number; icon: React.ReactNode; color: string; bgColor: string; isActive: boolean; onClick: () => void }> = ({ label, value, icon, color, bgColor, isActive, onClick }) => (
     <div 
         onClick={onClick}
@@ -24,7 +41,6 @@ const ResidentStatCard: React.FC<{ label: string; value: number; icon: React.Rea
         }`}
     >
         <div className={`w-8 h-8 rounded-xl flex items-center justify-center shrink-0 ${isActive ? 'bg-white/20' : bgColor}`}>
-            {/* Added ReactElement<any> cast to fix TypeScript cloneElement error */}
             {React.cloneElement(icon as React.ReactElement<any>, { className: `w-5 h-5 ${isActive ? 'text-white' : color}` })}
         </div>
         <div className="text-center">
@@ -141,7 +157,7 @@ const AdminPortalResidentsPage: React.FC<AdminPortalResidentsPageProps> = ({ uni
                                     <div className="min-w-0">
                                         <h4 className="text-sm font-black text-gray-800 truncate">{owner?.OwnerName || 'Chưa cập nhật'}</h4>
                                         <p className="text-[10px] text-gray-400 uppercase font-bold tracking-tight">
-                                            {unit.Status === 'Owner' ? 'Chính chủ' : unit.Status === 'Rent' ? 'Hộ thuê' : 'Kinh doanh'} • {unit.Area_m2}m²
+                                            {getStatusVN(unit.Status)} • {unit.Area_m2}m²
                                         </p>
                                     </div>
                                 </div>
@@ -167,15 +183,27 @@ const AdminPortalResidentsPage: React.FC<AdminPortalResidentsPageProps> = ({ uni
                                     <div className="space-y-2">
                                         <h5 className="text-[10px] font-black text-gray-400 uppercase tracking-widest flex items-center gap-1">Xe tại căn ({unitVehicles.length})</h5>
                                         <div className="grid grid-cols-1 gap-1.5">
-                                            {unitVehicles.map(v => (
-                                                <div key={v.VehicleId} className="flex items-center justify-between p-2.5 bg-slate-50 rounded-lg border border-slate-200">
-                                                    <div className="flex items-center gap-2">
-                                                        {v.Type.includes('car') ? <CarIcon className="w-4 h-4 text-blue-500"/> : <MotorbikeIcon className="w-4 h-4 text-orange-500"/>}
-                                                        <span className="font-mono text-xs font-black text-gray-800 tracking-tight">{v.PlateNumber}</span>
+                                            {unitVehicles.map(v => {
+                                                const isCar = v.Type.includes('car');
+                                                return (
+                                                    <div key={v.VehicleId} className="p-3 bg-slate-50 rounded-xl border border-slate-200">
+                                                        <div className="flex items-center justify-between">
+                                                            <div className="flex items-center gap-2">
+                                                                {getVehicleIcon(v.Type)}
+                                                                <span className="font-mono text-xs font-black text-gray-800 tracking-tight">{v.PlateNumber}</span>
+                                                            </div>
+                                                            <span className="text-[10px] font-bold text-gray-400 uppercase">
+                                                                {isCar ? (v.parkingStatus || 'Không lốt') : 'N/A'}
+                                                            </span>
+                                                        </div>
+                                                        {isCar && v.documents?.vehiclePhoto?.url && (
+                                                            <div className="mt-2 rounded-lg overflow-hidden border border-gray-100 aspect-video bg-gray-200">
+                                                                <img src={v.documents.vehiclePhoto.url} alt="Xe" className="w-full h-full object-cover" />
+                                                            </div>
+                                                        )}
                                                     </div>
-                                                    <span className="text-[10px] font-bold text-gray-400">{v.parkingStatus || 'Không lốt'}</span>
-                                                </div>
-                                            ))}
+                                                );
+                                            })}
                                         </div>
                                     </div>
                                 </div>

@@ -3,7 +3,7 @@ import React, { useState, useRef, useEffect } from 'react';
 import { 
     HomeIcon, UsersIcon, UserCircleIcon, 
     ChevronLeftIcon, CarIcon, BanknotesIcon, PieChartIcon,
-    UserIcon, ArrowRightOnRectangleIcon
+    UserIcon, ArrowRightOnRectangleIcon, MotorbikeIcon
 } from '../ui/Icons';
 import type { UserPermission } from '../../types';
 import { useAuth } from '../../App';
@@ -13,7 +13,7 @@ export type AdminPortalPage = 'adminPortalHome' | 'adminPortalResidents' | 'admi
 const navItems = [
   { id: 'adminPortalHome' as AdminPortalPage, label: 'Home', icon: <HomeIcon /> },
   { id: 'adminPortalResidents' as AdminPortalPage, label: 'Cư dân', icon: <UsersIcon /> },
-  { id: 'adminPortalVehicles' as AdminPortalPage, label: 'Phương tiện', icon: <CarIcon /> },
+  { id: 'adminPortalVehicles' as AdminPortalPage, label: 'Phương tiện', icon: <MotorbikeIcon /> },
   { id: 'adminPortalBilling' as AdminPortalPage, label: 'Phí', icon: <BanknotesIcon /> },
   { id: 'adminPortalMore' as AdminPortalPage, label: 'Thêm', icon: <UserCircleIcon /> },
 ];
