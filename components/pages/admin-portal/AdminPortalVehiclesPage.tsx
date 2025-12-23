@@ -3,9 +3,9 @@ import React, { useMemo, useState } from 'react';
 import type { Vehicle, Unit, Owner } from '../../../types';
 import { 
     SearchIcon, CarIcon, MotorbikeIcon, ChevronRightIcon,
-    UserIcon, PhoneArrowUpRightIcon, ClockIcon, ShieldCheckIcon,
+    UserIcon, PhoneIcon, ClockIcon, ShieldCheckIcon,
     EBikeIcon, BikeIcon, Camera, XMarkIcon, ChevronUpIcon, ChevronDownIcon,
-    HomeIcon, PencilSquareIcon, TrashIcon
+    HomeIcon
 } from '../../ui/Icons';
 import { formatLicensePlate, getPastelColorForName, translateVehicleType } from '../../../utils/helpers';
 import BottomSheet from '../../ui/BottomSheet';
@@ -177,8 +177,11 @@ const AdminPortalVehiclesPage: React.FC<AdminPortalVehiclesPageProps> = ({ vehic
                                         <h4 className="text-base font-black text-gray-800">{selectedVehicleDetails.owner?.OwnerName}</h4>
                                     </div>
                                 </div>
-                                <a href={`tel:${selectedVehicleDetails.owner?.Phone}`} className="p-4 bg-emerald-600 text-white rounded-2xl shadow-lg active:scale-95 transition-all">
-                                    <PhoneArrowUpRightIcon className="w-5 h-5" />
+                                <a 
+                                    href={`tel:${selectedVehicleDetails.owner?.Phone}`} 
+                                    className="p-3 bg-emerald-50 text-emerald-600 rounded-xl border border-emerald-100 shadow-sm active:bg-emerald-100 active:scale-90 transition-all"
+                                >
+                                    <PhoneIcon className="w-5 h-5" />
                                 </a>
                             </div>
                         </div>
@@ -210,17 +213,6 @@ const AdminPortalVehiclesPage: React.FC<AdminPortalVehiclesPageProps> = ({ vehic
                                 </div>
                             </div>
                         )}
-
-                        {/* Bottom Actions */}
-                        <div className="pt-4 grid grid-cols-2 gap-3 sticky bottom-0 bg-white pb-2">
-                             <button className="py-4 bg-slate-900 text-white text-[11px] font-black uppercase tracking-[0.2em] rounded-2xl flex items-center justify-center gap-2 shadow-lg">
-                                <PencilSquareIcon className="w-4 h-4" /> Chỉnh sửa
-                            </button>
-                            {/* Fix: Added missing TrashIcon import to fix the "Cannot find name 'TrashIcon'" error. */}
-                            <button className="py-4 bg-rose-600 text-white text-[11px] font-black uppercase tracking-[0.2em] rounded-2xl flex items-center justify-center gap-2 shadow-lg shadow-rose-200">
-                                <TrashIcon className="w-4 h-4" /> Xóa xe
-                            </button>
-                        </div>
                     </div>
                 )}
             </BottomSheet>

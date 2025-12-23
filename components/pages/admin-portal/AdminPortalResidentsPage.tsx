@@ -224,16 +224,8 @@ const AdminPortalResidentsPage: React.FC<AdminPortalResidentsPageProps> = ({ uni
                                 )}
                             </div>
                         </div>
-
-                        {/* Bottom Actions */}
-                        <div className="grid grid-cols-2 gap-3 pt-4 sticky bottom-0 bg-white pb-2">
-                            <button className="py-4 bg-primary text-white text-[11px] font-black uppercase tracking-[0.2em] rounded-2xl shadow-lg shadow-primary/20 flex items-center justify-center gap-2">
-                                <MegaphoneIcon className="w-4 h-4" /> Gửi TB
-                            </button>
-                            <button className="py-4 bg-slate-900 text-white text-[11px] font-black uppercase tracking-[0.2em] rounded-2xl shadow-lg flex items-center justify-center gap-2">
-                                <PencilSquareIcon className="w-4 h-4" /> Chỉnh sửa
-                            </button>
-                        </div>
+                        
+                        {/* Footer buttons removed to maintain view-only philosophy on mobile */}
                     </div>
                 )}
             </BottomSheet>
