@@ -189,9 +189,9 @@ const App: React.FC = () => {
     }, []);
 
     const { 
-        units, owners, vehicles, waterReadings, charges, adjustments, users: fetchedUsers, news,
-        invoiceSettings, tariffs, monthlyStats, lockedWaterPeriods,
-        miscRevenues, expenses,
+        units = [], owners = [], vehicles = [], waterReadings = [], charges = [], adjustments = [], users: fetchedUsers = [], news = [],
+        invoiceSettings, tariffs = { service: [], parking: [], water: [] }, monthlyStats = [], lockedWaterPeriods = [],
+        miscRevenues = [], expenses = [], // Bổ sung destructuring ở đây
         refreshSystemData 
     } = useSmartSystemData(user);
 

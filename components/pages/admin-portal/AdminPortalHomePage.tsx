@@ -79,14 +79,14 @@ const AdminPortalHomePage: React.FC<AdminPortalHomePageProps> = ({
     const currentPeriod = useMemo(() => new Date().toISOString().slice(0, 7), []);
     
     const stats = useMemo(() => {
-        const periodCharges = charges.filter(c => c.Period === currentPeriod);
+        const periodCharges = (charges || []).filter(c => c.Period === currentPeriod);
         const totalDue = periodCharges.reduce((s, c) => s + (c.TotalDue || 0), 0);
         const totalPaid = periodCharges.reduce((s, c) => s + (c.TotalPaid || 0), 0);
         const paidCount = periodCharges.filter(c => ['paid', 'paid_tm', 'paid_ck'].includes(c.paymentStatus)).length;
-        const totalUnits = units.length || 0;
+        const totalUnits = (units || []).length || 0;
         
-        const vasTotal = miscRevenues.reduce((sum, r) => sum + r.amount, 0);
-        const expenseTotal = expenses.reduce((sum, e) => sum + e.amount, 0);
+        const vasTotal = (miscRevenues || []).reduce((sum, r) => sum + (r.amount || 0), 0);
+        const expenseTotal = (expenses || []).reduce((sum, e) => sum + (e.amount || 0), 0);
         
         return { totalDue, totalPaid, paidCount, totalUnits, vasTotal, expenseTotal };
     }, [units, vehicles, charges, currentPeriod, miscRevenues, expenses]);
@@ -96,26 +96,26 @@ const AdminPortalHomePage: React.FC<AdminPortalHomePageProps> = ({
         const q = searchQuery.toLowerCase();
         const results: any[] = [];
         
-        const matchedUnits = units.filter(u => {
-            const owner = owners.find(o => o.OwnerID === u.OwnerID);
+        const matchedUnits = (units || []).filter(u => {
+            const owner = (owners || []).find(o => o.OwnerID === u.OwnerID);
             return u.UnitID.toLowerCase().includes(q) || (owner?.OwnerName || '').toLowerCase().includes(q);
         });
 
         matchedUnits.forEach(u => {
-            const owner = owners.find(o => o.OwnerID === u.OwnerID);
-            const unitVehicles = vehicles.filter(v => v.UnitID === u.UnitID && v.isActive);
+            const owner = (owners || []).find(o => o.OwnerID === u.OwnerID);
+            const unitVehicles = (vehicles || []).filter(v => v.UnitID === u.UnitID && v.isActive);
             results.push({ type: 'unit', id: `unit_${u.UnitID}`, targetId: u.UnitID, owner, unit: u, vehicles: unitVehicles });
         });
 
-        const matchedVehicles = vehicles.filter(v => 
+        const matchedVehicles = (vehicles || []).filter(v => 
             v.isActive && 
             v.PlateNumber.toLowerCase().replace(/[^a-zA-Z0-9]/g, '').includes(q.replace(/[^a-zA-Z0-9]/g, '')) &&
             !matchedUnits.some(u => u.UnitID === v.UnitID)
         );
 
         matchedVehicles.forEach(v => {
-            const unit = units.find(u => u.UnitID === v.UnitID);
-            const owner = owners.find(o => o.OwnerID === unit?.OwnerID);
+            const unit = (units || []).find(u => u.UnitID === v.UnitID);
+            const owner = (owners || []).find(o => o.OwnerID === unit?.OwnerID);
             results.push({ type: 'vehicle', id: `veh_${v.VehicleId}`, targetId: v.VehicleId, vehicle: v, unit, owner });
         });
 
@@ -128,7 +128,7 @@ const AdminPortalHomePage: React.FC<AdminPortalHomePageProps> = ({
     };
 
     const chartData = useMemo(() => {
-        return monthlyStats.slice(-6).map(s => ({
+        return (monthlyStats || []).slice(-6).map(s => ({
             name: s.period ? `T${s.period.split('-')[1]}` : '---',
             val: Math.round((s.totalDue || 0) / 1000000)
         }));
@@ -139,7 +139,6 @@ const AdminPortalHomePage: React.FC<AdminPortalHomePageProps> = ({
             <div className="grid grid-cols-2 gap-3 shrink-0">
                 <StatCard label="Thực thu tháng" value={formatCurrency(stats.totalPaid)} subValue={formatCurrency(stats.totalDue)} icon={<BanknotesIcon />} color="text-emerald-600" bgColor="bg-emerald-50" onClick={() => onNavigate?.('adminPortalBilling')} />
                 <StatCard label="Tiến độ thu" value={`${Math.round((stats.paidCount / (stats.totalUnits || 1)) * 100)}%`} subValue={`${stats.paidCount}/${stats.totalUnits}`} icon={<CheckCircleIcon />} color="text-primary" bgColor="bg-primary/10" onClick={() => onNavigate?.('adminPortalBilling')} />
-                {/* Cập nhật điều hướng trực tiếp bên dưới */}
                 <StatCard label="Doanh thu GTGT" value={formatCurrency(stats.vasTotal)} icon={<SparklesIcon />} color="text-amber-600" bgColor="bg-amber-50" onClick={() => onNavigate?.('adminPortalVAS')} />
                 <StatCard label="Chi phí VH" value={formatCurrency(stats.expenseTotal)} icon={<TrendingDownIcon />} color="text-rose-600" bgColor="bg-rose-50" onClick={() => onNavigate?.('adminPortalExpenses')} />
             </div>
@@ -223,7 +222,7 @@ const AdminPortalHomePage: React.FC<AdminPortalHomePageProps> = ({
                                                 </div>
 
                                                 {res.type === 'vehicle' && (
-                                                    <div className="p-3 bg-white rounded-xl border border-gray-200 space-y-2">
+                                                    <div className="p-3 bg-white rounded-xl border border-gray-100 space-y-2">
                                                         <div className="flex justify-between items-center">
                                                             <span className="text-[10px] font-bold text-gray-400 uppercase">Trạng thái lốt</span>
                                                             <span className={`text-xs font-black ${isCar ? 'text-primary' : 'text-gray-400'}`}>
@@ -261,12 +260,12 @@ const AdminPortalHomePage: React.FC<AdminPortalHomePageProps> = ({
                 <div className="p-4 space-y-4 text-gray-700">
                     <div className="flex items-center gap-4 group">
                         <div className="shrink-0 w-8 h-8 bg-gray-50 rounded-xl flex items-center justify-center border border-gray-100 text-red-500"><WarningIcon className="w-4 h-4" /></div>
-                        <span className="text-xs font-bold flex-1">{Math.max(0, units.length - waterReadings.filter(r => r.Period === currentPeriod).length)} căn chưa chốt nước</span>
+                        <span className="text-xs font-bold flex-1">{Math.max(0, (units || []).length - (waterReadings || []).filter(r => r.Period === currentPeriod).length)} căn chưa chốt nước</span>
                         <ChevronRightIcon className="w-3 h-3 text-gray-300" />
                     </div>
                     <div className="flex items-center gap-4 group" onClick={() => onNavigate?.('adminPortalVehicles')}>
                         <div className="shrink-0 w-8 h-8 bg-gray-50 rounded-xl flex items-center justify-center border border-gray-100 text-orange-500"><ClockIcon className="w-4 h-4" /></div>
-                        <span className="text-xs font-bold flex-1">{vehicles.filter(v => v.parkingStatus === 'Xếp lốt').length} xe đang chờ lốt đỗ</span>
+                        <span className="text-xs font-bold flex-1">{(vehicles || []).filter(v => v.parkingStatus === 'Xếp lốt').length} xe đang chờ lốt đỗ</span>
                         <ChevronRightIcon className="w-3 h-3 text-gray-300" />
                     </div>
                 </div>

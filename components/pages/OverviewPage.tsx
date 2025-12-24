@@ -59,16 +59,16 @@ const DashboardFooter: React.FC<{
     activityLogs: ActivityLog[];
     feedback: FeedbackItem[];
     onNavigate: (page: AdminPage) => void;
-}> = ({ activityLogs, feedback, onNavigate }) => {
+}> = ({ activityLogs = [], feedback = [], onNavigate }) => {
     const [tickerKey, setTickerKey] = useState(0);
     const [showActivityPopup, setShowActivityPopup] = useState(false);
     const [showMsgPopup, setShowMsgPopup] = useState(false);
     
-    const latestLogs = useMemo(() => activityLogs.slice(0, 5), [activityLogs]);
+    const latestLogs = useMemo(() => (activityLogs || []).slice(0, 5), [activityLogs]);
     const currentLog = latestLogs.length > 0 ? latestLogs[tickerKey % Math.min(latestLogs.length, 3)] : null;
 
-    const unreadMessages = useMemo(() => feedback.filter(f => f.status === 'Pending').slice(0, 5), [feedback]);
-    const pendingFeedbackCount = feedback.filter(f => f.status === 'Pending').length;
+    const unreadMessages = useMemo(() => (feedback || []).filter(f => f.status === 'Pending').slice(0, 5), [feedback]);
+    const pendingFeedbackCount = (feedback || []).filter(f => f.status === 'Pending').length;
 
     useEffect(() => {
         if (latestLogs.length === 0) return;
@@ -176,45 +176,41 @@ interface OverviewPageProps {
     monthlyStats?: MonthlyStat[];
 }
 
-const OverviewPage: React.FC<OverviewPageProps> = ({ allUnits, allOwners, allVehicles, allWaterReadings, charges, activityLogs, feedback, onNavigate, monthlyStats = [] }) => {
+const OverviewPage: React.FC<OverviewPageProps> = ({ allUnits = [], allOwners = [], allVehicles = [], allWaterReadings = [], charges = [], activityLogs = [], feedback = [], onNavigate, monthlyStats = [] }) => {
 
     const commandCenterStats = useMemo(() => {
         const currentPeriod = new Date().toISOString().slice(0, 7);
         const previousPeriod = getPreviousPeriod(currentPeriod);
         
         // 1. Optimized Data Structure (Map) for faster counting
-        const unitMap = new Map<string, Unit>(allUnits.map(u => [u.UnitID, u]));
-        const totalUnits = allUnits.length;
+        const totalUnits = (allUnits || []).length;
         
         // Count Resident Breakdown (O(n))
         const residentBreakdown = { Owner: 0, Rent: 0, Business: 0 };
         let occupiedUnits = 0;
-        for (const u of allUnits) {
+        for (const u of (allUnits || [])) {
             if (u.OwnerID) occupiedUnits++;
-            residentBreakdown[u.Status]++;
+            if (residentBreakdown[u.Status] !== undefined) residentBreakdown[u.Status]++;
         }
         const occupancyRate = totalUnits > 0 ? (occupiedUnits / totalUnits) * 100 : 0;
         
-        // 2. Finance Stats (O(1) from Pre-aggregated MonthlyStat if available)
-        const currentMonthStat = monthlyStats.find(s => s.period === currentPeriod);
+        // 2. Finance Stats
+        const currentMonthStat = (monthlyStats || []).find(s => s.period === currentPeriod);
         
         let totalDue = currentMonthStat?.totalDue ?? 0;
         let totalPaid = 0;
 
-        // Note: Paid amount is often volatile, so we still calculate it from current charges
-        // but we limit the scan to only the current month's charges (already filtered by parent usually)
-        const currentCharges = charges.filter(c => c.Period === currentPeriod);
-        totalPaid = currentCharges.reduce((sum, c) => sum + c.TotalPaid, 0);
+        const currentCharges = (charges || []).filter(c => c.Period === currentPeriod);
+        totalPaid = currentCharges.reduce((sum, c) => sum + (c.TotalPaid || 0), 0);
         
-        // Fallback for totalDue if Stat doc is missing
-        if (totalDue === 0) totalDue = currentCharges.reduce((sum, c) => sum + c.TotalDue, 0);
+        if (totalDue === 0) totalDue = currentCharges.reduce((sum, c) => sum + (c.TotalDue || 0), 0);
 
         const totalDebt = totalDue - totalPaid;
         const collectionRate = totalDue > 0 ? (totalPaid / totalDue) * 100 : 0;
         
-        // 3. Vehicle Stats (O(n) scan)
+        // 3. Vehicle Stats
         let carSlotsUsed = 0, motoCount = 0, ebikeCount = 0, bicycleCount = 0, waitingCount = 0;
-        for (const v of allVehicles) {
+        for (const v of (allVehicles || [])) {
             if (!v.isActive) continue;
             if (v.Type === VehicleTier.CAR || v.Type === VehicleTier.CAR_A) carSlotsUsed++;
             else if (v.Type === VehicleTier.MOTORBIKE) motoCount++;
@@ -224,34 +220,34 @@ const OverviewPage: React.FC<OverviewPageProps> = ({ allUnits, allOwners, allVeh
             if (v.parkingStatus === 'Xếp lốt') waitingCount++;
         }
         
-        // 4. Water Stats (O(n))
-        const currentWater = allWaterReadings.filter(r => r.Period === currentPeriod);
+        // 4. Water Stats
+        const currentWater = (allWaterReadings || []).filter(r => r.Period === currentPeriod);
         const recordedCount = currentWater.length;
         const totalConsumption = currentWater.reduce((sum, r) => sum + (r.consumption || 0), 0);
         
-        const prevTotalConsumption = allWaterReadings
+        const prevTotalConsumption = (allWaterReadings || [])
             .filter(r => r.Period === previousPeriod)
             .reduce((sum, r) => sum + (r.consumption || 0), 0);
         const waterTrend = prevTotalConsumption > 0 ? ((totalConsumption - prevTotalConsumption) / prevTotalConsumption) * 100 : 0;
         
         // 5. Feedback Stats
-        const newFeedbackCount = feedback.filter(f => f.status === 'Pending').length;
-        const processingFeedbackCount = feedback.filter(f => f.status === 'Processing').length;
+        const newFeedbackCount = (feedback || []).filter(f => f.status === 'Pending').length;
+        const processingFeedbackCount = (feedback || []).filter(f => f.status === 'Processing').length;
         
-        // 6. Optimized Chart Data (Using 12-month pre-aggregated stats)
+        // 6. Optimized Chart Data
         const revenueChartData = Array.from({ length: 6 }).map((_, i) => { 
             const d = new Date(); 
             d.setMonth(d.getMonth() - i); 
             const p = d.toISOString().slice(0, 7); 
             
-            const stat = monthlyStats.find(s => s.period === p);
+            const stat = (monthlyStats || []).find(s => s.period === p);
             
             if (stat) {
                 return { 
                     name: `T${d.getMonth() + 1}`, 
-                    'Dịch vụ': stat.totalService, 
-                    'Gửi xe': stat.totalParking, 
-                    'Nước': stat.totalWater
+                    'Dịch vụ': stat.totalService || 0, 
+                    'Gửi xe': stat.totalParking || 0, 
+                    'Nước': stat.totalWater || 0
                 };
             }
             return { name: `T${d.getMonth() + 1}`, 'Dịch vụ': 0, 'Gửi xe': 0, 'Nước': 0 };
@@ -305,15 +301,17 @@ const OverviewPage: React.FC<OverviewPageProps> = ({ allUnits, allOwners, allVeh
             <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
                 <div className="lg:col-span-2 bg-white p-6 rounded-xl shadow-sm border border-gray-100">
                     <h3 className="font-bold text-lg text-gray-800 mb-4">Biểu đồ doanh thu (6 tháng gần nhất)</h3>
-                    <ResponsiveContainer width="100%" height={250}>
-                        <BarChart data={commandCenterStats.revenueChartData} margin={{ top: 5, right: 20, left: -10, bottom: 5 }}>
-                            <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#e5e7eb" /><XAxis dataKey="name" tick={{ fill: '#6b7280', fontSize: 12 }} axisLine={false} tickLine={false} /><YAxis tickFormatter={formatYAxis} tick={{ fill: '#6b7280', fontSize: 12 }} axisLine={false} tickLine={false} /><Tooltip content={<CustomTooltip />} cursor={{ fill: 'rgba(243, 244, 246, 0.7)' }} /><Legend wrapperStyle={{ fontSize: '12px', paddingTop: '10px' }} iconSize={10} /><Bar dataKey="Dịch vụ" stackId="revenue" fill="#3b82f6" /><Bar dataKey="Gửi xe" stackId="revenue" fill="#10b981" /><Bar dataKey="Nước" stackId="revenue" fill="#f59e0b" radius={[4, 4, 0, 0]} />
-                        </BarChart>
-                    </ResponsiveContainer>
+                    <div className="h-[250px] w-full">
+                        <ResponsiveContainer width="100%" height="100%">
+                            <BarChart data={commandCenterStats.revenueChartData} margin={{ top: 5, right: 20, left: -10, bottom: 5 }}>
+                                <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#e5e7eb" /><XAxis dataKey="name" tick={{ fill: '#6b7280', fontSize: 12 }} axisLine={false} tickLine={false} /><YAxis tickFormatter={formatYAxis} tick={{ fill: '#6b7280', fontSize: 12 }} axisLine={false} tickLine={false} /><Tooltip content={<CustomTooltip />} cursor={{ fill: 'rgba(243, 244, 246, 0.7)' }} /><Legend wrapperStyle={{ fontSize: '12px', paddingTop: '10px' }} iconSize={10} /><Bar dataKey="Dịch vụ" stackId="revenue" fill="#3b82f6" /><Bar dataKey="Gửi xe" stackId="revenue" fill="#10b981" /><Bar dataKey="Nước" stackId="revenue" fill="#f59e0b" radius={[4, 4, 0, 0]} />
+                            </BarChart>
+                        </ResponsiveContainer>
+                    </div>
                 </div>
                 <div className="bg-white p-6 rounded-xl shadow-sm border border-gray-100">
                     <h3 className="font-bold text-lg text-gray-800 mb-4">Cảnh báo & Việc cần làm</h3>
-                    <ul className="space-y-4">{commandCenterStats.alertItems.map((item: any, index: number) => (<li key={index} className="flex items-center gap-3">{item.icon}<span className="text-sm font-medium text-gray-700">{item.text}</span></li>))}</ul>
+                    <ul className="space-y-4">{(commandCenterStats.alertItems || []).map((item: any, index: number) => (<li key={index} className="flex items-center gap-3">{item.icon}<span className="text-sm font-medium text-gray-700">{item.text}</span></li>))}</ul>
                 </div>
             </div>
             
