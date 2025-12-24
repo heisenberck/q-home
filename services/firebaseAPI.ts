@@ -1,6 +1,7 @@
 
 import { doc, getDoc, setDoc, collection, getDocs, writeBatch, query, deleteDoc, updateDoc, limit, orderBy, where, serverTimestamp, startAfter, addDoc } from 'firebase/firestore';
-import { db } from '../firebaseConfig';
+import { signInWithEmailAndPassword, onAuthStateChanged, signInAnonymously } from 'firebase/auth';
+import { db, auth } from '../firebaseConfig';
 export { logActivity } from './logService';
 import { logActivity } from './logService';
 import type { 
@@ -12,34 +13,73 @@ import type {
 } from '../types';
 
 /**
- * Tìm kiếm 1 tài khoản cụ thể để đăng nhập (Dùng cho PROD)
+ * Hàm hỗ trợ đợi trạng thái Auth ổn định
  */
-export const fetchUserForLogin = async (identifier: string): Promise<UserPermission | null> => {
+const waitForAuth = () => new Promise((resolve) => {
+    const unsub = onAuthStateChanged(auth, (user) => {
+        unsub();
+        resolve(user);
+    });
+});
+
+/**
+ * Tìm kiếm tài khoản và thực hiện xác thực Firebase Auth
+ */
+export const fetchUserForLogin = async (identifier: string, password?: string): Promise<{user: UserPermission | null, error?: string}> => {
     const cleanId = identifier.trim().toLowerCase();
     
-    // 1. Tìm theo Username (Mã căn)
-    const qUsername = query(collection(db, 'users'), where('Username', '==', cleanId), limit(1));
-    const snapUsername = await getDocs(qUsername);
-    if (!snapUsername.empty) return snapUsername.docs[0].data() as UserPermission;
+    try {
+        // 1. Tìm thông tin User trong Firestore trước
+        let userData: UserPermission | null = null;
+        const docRef = doc(db, 'users', cleanId);
+        const docSnap = await getDoc(docRef);
+        
+        if (docSnap.exists()) {
+            userData = docSnap.data() as UserPermission;
+        } else {
+            const qUsername = query(collection(db, 'users'), where('Username', '==', cleanId), limit(1));
+            const snapUsername = await getDocs(qUsername);
+            if (!snapUsername.empty) {
+                userData = snapUsername.docs[0].data() as UserPermission;
+            }
+        }
 
-    // 2. Tìm theo Email hệ thống
-    const qEmail = query(collection(db, 'users'), where('Email', '==', cleanId), limit(1));
-    const snapEmail = await getDocs(qEmail);
-    if (!snapEmail.empty) return snapEmail.docs[0].data() as UserPermission;
-    
-    // 3. Tìm theo Email liên hệ (contact_email)
-    const qContact = query(collection(db, 'users'), where('contact_email', '==', cleanId), limit(1));
-    const snapContact = await getDocs(qContact);
-    if (!snapContact.empty) return snapContact.docs[0].data() as UserPermission;
+        if (!userData) return { user: null, error: "Tài khoản không tồn tại trên hệ thống dữ liệu." };
 
-    return null;
+        // 2. Thực hiện đăng nhập vào Firebase Auth
+        if (password) {
+            try {
+                await signInWithEmailAndPassword(auth, userData.Email, password);
+            } catch (authError: any) {
+                if (authError.code === 'auth/user-not-found') {
+                    return { 
+                        user: null, 
+                        error: "Tài khoản đã có trong dữ liệu nhưng chưa được kích hoạt trong hệ thống xác thực (Authentication). Vui lòng liên hệ Admin." 
+                    };
+                }
+                if (authError.code === 'auth/wrong-password') {
+                    return { user: null, error: "Mật khẩu không chính xác." };
+                }
+                return { user: null, error: "Lỗi xác thực: " + authError.message };
+            }
+        } else {
+            // Fallback nếu không có mật khẩu (không khuyến khích cho Production)
+            await signInAnonymously(auth);
+        }
+
+        await waitForAuth();
+        return { user: userData };
+    } catch (error: any) {
+        console.error("fetchUserForLogin Error:", error);
+        return { user: null, error: "Lỗi hệ thống: " + error.message };
+    }
 };
 
-// --- NEW SCOPED QUERIES FOR RESIDENTS ---
+// --- CÁC HÀM KHÁC GIỮ NGUYÊN ---
 export const fetchChargesForResident = async (residentId: string): Promise<ChargeRaw[]> => {
-    const q = query(collection(db, 'charges'), where('UnitID', '==', residentId), orderBy('Period', 'desc'));
+    const q = query(collection(db, 'charges'), where('UnitID', '==', residentId));
     const snap = await getDocs(q);
-    return snap.docs.map(d => d.data() as ChargeRaw);
+    return snap.docs.map(d => d.data() as ChargeRaw).sort((a,b) => b.Period.localeCompare(a.Period));
 };
 
 export const fetchResidentSpecificData = async (residentId: string) => {
@@ -79,9 +119,9 @@ const injectLogAndNotif = (batch: any, log: any) => {
 };
 
 export const fetchNews = async (): Promise<NewsItem[]> => {
-    const q = query(collection(db, 'news'), orderBy('date', 'desc'));
+    const q = query(collection(db, 'news'), limit(50));
     const snap = await getDocs(q);
-    return snap.docs.map(d => ({ id: d.id, ...d.data() } as NewsItem));
+    return snap.docs.map(d => ({ id: d.id, ...d.data() } as NewsItem)).sort((a,b) => b.date.localeCompare(a.date));
 };
 
 export const saveNewsItem = async (item: NewsItem): Promise<string> => {
@@ -182,7 +222,7 @@ export const getBillingLockStatus = async (period: string): Promise<boolean> => 
 export const setBillingLockStatus = async (period: string, status: boolean): Promise<void> => { const docRef = doc(db, 'billing_locks', period); await setDoc(docRef, { isLocked: status, updatedAt: new Date().toISOString() }); };
 export const resetUserPassword = async (email: string): Promise<void> => { const userRef = doc(db, 'users', email); await updateDoc(userRef, { password: '123456', mustChangePassword: true }); };
 export const addMiscRevenue = async (data: Omit<MiscRevenue, 'id' | 'createdAt'>): Promise<string> => { const docRef = doc(collection(db, 'misc_revenues')); const id = docRef.id; await setDoc(docRef, { ...data, id, createdAt: new Date().toISOString() }); return id; };
-export const getMonthlyMiscRevenues = async (month: string): Promise<MiscRevenue[]> => { const q = query(collection(db, 'misc_revenues'), where('date', '>=', month), where('date', '<=', month + '\uf8ff'), orderBy('date', 'desc'), orderBy('createdAt', 'desc')); const snap = await getDocs(q); return snap.docs.map(d => d.data() as MiscRevenue); };
+export const getMonthlyMiscRevenues = async (month: string): Promise<MiscRevenue[]> => { const q = query(collection(db, 'misc_revenues'), where('date', '>=', month), where('date', '<=', month + '\uf8ff')); const snap = await getDocs(q); return snap.docs.map(d => d.data() as MiscRevenue).sort((a,b) => b.date.localeCompare(a.date)); };
 export const deleteMiscRevenue = async (id: string): Promise<void> => { await deleteDoc(doc(db, 'misc_revenues', id)); };
 export const getAllPendingProfileRequests = async (): Promise<ProfileRequest[]> => { const q = query(collection(db, 'profileRequests'), where('status', '==', 'PENDING')); const snap = await getDocs(q); return snap.docs.map(d => d.data() as ProfileRequest); };
 export const resolveProfileRequest = async (request: ProfileRequest, action: 'approve' | 'reject', adminEmail: string, approvedChanges?: any) => { const batch = writeBatch(db); const reqRef = doc(db, 'profileRequests', request.id); batch.update(reqRef, { status: action === 'approve' ? 'APPROVED' : 'REJECTED', updatedAt: new Date().toISOString() }); if (action === 'approve') { const changesToApply = approvedChanges || request.changes; const ownerRef = doc(db, 'owners', request.ownerId); const ownerUpdates: any = {}; if (changesToApply.OwnerName !== undefined) ownerUpdates.OwnerName = changesToApply.OwnerName; if (changesToApply.Phone !== undefined) ownerUpdates.Phone = changesToApply.Phone; if (changesToApply.Email !== undefined) ownerUpdates.Email = changesToApply.Email; if (changesToApply.secondOwnerName !== undefined) ownerUpdates.secondOwnerName = changesToApply.secondOwnerName; if (changesToApply.secondOwnerPhone !== undefined) ownerUpdates.secondOwnerPhone = changesToApply.secondOwnerPhone; if (changesToApply.avatarUrl !== undefined) ownerUpdates.avatarUrl = changesToApply.avatarUrl; ownerUpdates.updatedAt = new Date().toISOString(); if (Object.keys(ownerUpdates).length > 0) { batch.update(ownerRef, ownerUpdates); bumpVersion(batch, 'owners_version'); } if (changesToApply.UnitStatus) { batch.update(doc(db, 'units', request.residentId), { Status: changesToApply.UnitStatus }); bumpVersion(batch, 'units_version'); } injectLogAndNotif(batch, { actor_email: adminEmail, actor_role: 'Admin', module: 'Residents', action: 'APPROVE_PROFILE_UPDATE', summary: `Duyệt cập nhật thông tin cư dân ${request.residentId}`, ids: [request.residentId] }); } await batch.commit(); };

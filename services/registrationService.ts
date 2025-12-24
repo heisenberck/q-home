@@ -32,25 +32,27 @@ export const submitServiceRegistration = async (registration: Omit<ServiceRegist
 };
 
 /**
- * TỐI ƯU: Chỉ lắng nghe các yêu cầu Chưa xử lý (Pending) + 20 yêu cầu gần nhất
+ * Lắng nghe các yêu cầu đăng ký
  */
 export const subscribeToRegistrations = (callback: (items: ServiceRegistration[]) => void) => {
-    // Chỉ lấy 50 mục gần nhất/đang chờ để tiết kiệm Read
+    // Chỉ lấy 50 mục gần nhất
     const q = query(
         collection(db, COLLECTION_NAME),
-        orderBy('date', 'desc'),
         limit(50)
     );
 
     return onSnapshot(q, (snapshot) => {
-        const items = snapshot.docs.map(d => ({ ...d.data() } as ServiceRegistration));
-        // Sắp xếp local để đưa Pending lên đầu
+        const items = snapshot.docs.map(d => ({ ...d.data(), id: d.id } as ServiceRegistration));
+        // Sắp xếp local: Mới nhất và Pending lên đầu
         const sorted = items.sort((a, b) => {
             if (a.status === 'Pending' && b.status !== 'Pending') return -1;
             if (a.status !== 'Pending' && b.status === 'Pending') return 1;
-            return 0;
+            return new Date(b.date).getTime() - new Date(a.date).getTime();
         });
         callback(sorted);
+    }, (error) => {
+        console.warn("Lỗi listener registrations:", error.message);
+        callback([]);
     });
 };
 

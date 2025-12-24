@@ -33,6 +33,9 @@ const ResidentNotificationBell: React.FC<ResidentNotificationBellProps> = memo((
 
         const unsubscribe = onSnapshot(q, (snapshot) => {
             setUnreadList(snapshot.docs.map(d => ({ id: d.id, ...d.data() } as ResidentNotification)));
+        }, (error) => {
+            console.warn("Resident Notification Listener Error:", error.message);
+            setUnreadList([]);
         });
 
         const handleClickOutside = (e: MouseEvent) => {

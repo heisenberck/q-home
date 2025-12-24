@@ -28,6 +28,9 @@ export const subscribeToUnreadNotifications = (
             ...doc.data()
         } as AdminNotification));
         callback(notifications);
+    }, (error) => {
+        console.warn("Permission Error in Admin Notifications:", error.message);
+        callback([]);
     });
 };
 

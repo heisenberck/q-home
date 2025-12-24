@@ -49,10 +49,10 @@ const ForgotPasswordModal: React.FC<{ onClose: () => void; users: UserPermission
         const { appsScriptUrl } = invoiceSettings;
         if (!appsScriptUrl) { showToast('Chưa cấu hình máy chủ Email.', 'error'); setIsLoading(false); return; }
         
-        // Luôn kiểm tra trong Mock trước cho chắc
-        let user = MOCK_USER_PERMISSIONS.find(u => u.Email.toLowerCase() === email.trim().toLowerCase());
+        let user: any = MOCK_USER_PERMISSIONS.find(u => u.Email.toLowerCase() === email.trim().toLowerCase());
         if (!user && isProduction()) {
-            user = await fetchUserForLogin(email) as any;
+            const res = await fetchUserForLogin(email);
+            user = res.user;
         }
 
         if (!user) { showToast('Email không tồn tại trong hệ thống.', 'error'); setIsLoading(false); return; }
@@ -108,19 +108,19 @@ const LoginPage: React.FC<LoginPageProps> = ({ users, onLogin, allOwners, allUni
 
         const cleanIdentifier = identifier.trim().toLowerCase();
         
-        // 1. Kiểm tra trong danh sách Local (Mock Data) trước
-        let user = MOCK_USER_PERMISSIONS.find(u => 
+        let user: UserPermission | null = MOCK_USER_PERMISSIONS.find(u => 
             u.Email.toLowerCase() === cleanIdentifier || 
             (u.Username && u.Username.toLowerCase() === cleanIdentifier)
-        );
+        ) || null;
 
-        // 2. Nếu không thấy và đang ở môi trường PROD, thử tìm trực tiếp từ Firestore
         if (!user && isProduction()) {
-            try {
-                user = await fetchUserForLogin(cleanIdentifier);
-            } catch (err) {
-                console.error("Login Search Error:", err);
+            const loginResult = await fetchUserForLogin(cleanIdentifier, password);
+            if (loginResult.error) {
+                setError(loginResult.error);
+                setIsLoading(false);
+                return;
             }
+            user = loginResult.user;
         }
 
         if (!user) {
