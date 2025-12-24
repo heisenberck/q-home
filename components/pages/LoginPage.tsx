@@ -19,7 +19,6 @@ interface LoginPageProps {
     resetInfo?: { email: string; pass: string } | null;
 }
 
-// --- Helper: Send Password Reset Email ---
 const sendPasswordResetEmail = async (
     email: string,
     link: string,
@@ -110,7 +109,7 @@ const LoginPage: React.FC<LoginPageProps> = ({ users, onLogin, allOwners, allUni
         const cleanIdentifier = identifier.trim().toLowerCase();
         let userFound = null;
         
-        // 1. Tìm User trong Mock hoặc Firestore
+        // 1. Tìm User
         const localUser = MOCK_USER_PERMISSIONS.find(u => 
             u.Email.toLowerCase() === cleanIdentifier || 
             (u.Username && u.Username.toLowerCase() === cleanIdentifier)
@@ -146,12 +145,20 @@ const LoginPage: React.FC<LoginPageProps> = ({ users, onLogin, allOwners, allUni
             return;
         }
 
-        // 2. Kích hoạt Firebase Auth Session để có quyền ghi Firestore
+        // 2. Kích hoạt Firebase Auth Session - BẮT BUỘC ĐỂ CÓ QUYỀN GHI
         if (isProduction()) {
             try {
+                // Đảm bảo await hoàn thành để có token hợp lệ
                 await signInAnonymously(auth);
-            } catch (authErr) {
-                console.warn("Auth Session Warning:", authErr);
+            } catch (authErr: any) {
+                console.error("Firebase Auth Error:", authErr);
+                if (authErr.code === 'auth/admin-restricted-operation') {
+                    setError('Lỗi hệ thống: Bạn cần Enable "Anonymous" trong Firebase Console -> Authentication.');
+                } else {
+                    setError('Lỗi kết nối máy chủ bảo mật. Vui lòng thử lại.');
+                }
+                setIsLoading(false);
+                return;
             }
         }
 
@@ -210,7 +217,7 @@ const LoginPage: React.FC<LoginPageProps> = ({ users, onLogin, allOwners, allUni
                             </label>
                             <button type="button" onClick={() => setIsForgotPassModalOpen(true)} className="font-bold text-[#006f3a] hover:underline">Quên mật khẩu?</button>
                         </div>
-                        {error && <div className="p-3 bg-red-50 text-red-600 text-xs text-center border border-red-100 rounded-lg animate-pulse">{error}</div>}
+                        {error && <div className="p-3 bg-red-50 text-red-600 text-xs text-center border border-red-200 rounded-lg animate-fade-in-down">{error}</div>}
                         <button type="submit" disabled={isLoading} className="w-full h-12 bg-primary text-white font-bold rounded-lg shadow-lg active:scale-[0.98] disabled:opacity-50 flex items-center justify-center gap-2">
                             {isLoading ? <Spinner /> : 'Đăng nhập'}
                         </button>

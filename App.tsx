@@ -40,7 +40,7 @@ import AdminPortalBillingPage from './components/pages/admin-portal/AdminPortalB
 import AdminPortalVASPage from './components/pages/admin-portal/AdminPortalVASPage';
 import AdminPortalExpensesPage from './components/pages/admin-portal/AdminPortalExpensesPage';
 import Toast, { ToastMessage, ToastType } from './components/ui/Toast';
-import { deleteUsers, updateResidentData, importResidentsBatch, updateFeeSettings, fetchLatestLogs, updateUserProfile } from './services';
+import { deleteUsers, updateResidentData, importResidentsBatch, updateFeeSettings, fetchLatestLogs, updateUserProfile, saveWaterReadings, logActivity } from './services';
 import ChangePasswordModal from './components/pages/ChangePasswordModal';
 import NotificationListener from './components/common/NotificationListener';
 
@@ -191,7 +191,7 @@ const App: React.FC = () => {
     const { 
         units = [], owners = [], vehicles = [], waterReadings = [], charges = [], adjustments = [], users: fetchedUsers = [], news = [],
         invoiceSettings, tariffs = { service: [], parking: [], water: [] }, monthlyStats = [], lockedWaterPeriods = [],
-        miscRevenues = [], expenses = [], // Bổ sung destructuring ở đây
+        miscRevenues = [], expenses = [],
         refreshSystemData 
     } = useSmartSystemData(user);
 
@@ -301,6 +301,34 @@ const App: React.FC = () => {
         refreshLogs(); 
     };
 
+    const handleSaveWaterReadings = async (updater: any, log?: LogPayload) => {
+        const currentData = localWaterReadings;
+        const nextData = typeof updater === 'function' ? updater(currentData) : updater;
+        
+        // So sánh để tìm các bản ghi bị thay đổi hoặc thêm mới
+        const changed = nextData.filter((nr: WaterReading) => {
+            const old = currentData.find(or => or.UnitID === nr.UnitID && or.Period === nr.Period);
+            return !old || old.CurrIndex !== nr.CurrIndex;
+        });
+
+        // 1. Cập nhật UI tức thì
+        setLocalWaterReadings(nextData);
+
+        // 2. Ghi xuống Firestore nếu có thay đổi
+        if (changed.length > 0) {
+            try {
+                await saveWaterReadings(changed);
+                if (log) {
+                    await logActivity(log.action, log.module, log.summary, log.ids);
+                }
+                // Refresh background để đảm bảo metadata/version khớp
+                refreshSystemData(true);
+            } catch (err) {
+                showToast('Lỗi khi lưu chỉ số nước xuống hệ thống.', 'error');
+            }
+        }
+    };
+
     const handleImportResidents = (updates: any[]) => {
         importResidentsBatch(localUnits, localOwners, localVehicles, updates).then(() => {
             refreshSystemData(true);
@@ -335,7 +363,7 @@ const App: React.FC = () => {
             case 'expenses': return <ExpenseManagementPage />;
             case 'residents': return <ResidentsPage units={localUnits} owners={localOwners} vehicles={localVehicles} activityLogs={activityLogs} onSaveResident={handleSaveResident} onImportData={handleImportResidents} onDeleteResidents={()=>{}} role={user!.Role} currentUser={user!} onNavigate={(p) => setActivePage(p as AdminPage)} />;
             case 'vehicles': return <VehiclesPage vehicles={localVehicles} units={localUnits} owners={localOwners} activityLogs={activityLogs} onSetVehicles={setLocalVehicles} role={user!.Role} />;
-            case 'water': return <WaterPage waterReadings={localWaterReadings} setWaterReadings={setLocalWaterReadings} allUnits={localUnits} role={user!.Role} tariffs={localTariffs} lockedPeriods={lockedWaterPeriods} refreshData={refreshSystemData} />;
+            case 'water': return <WaterPage waterReadings={localWaterReadings} setWaterReadings={handleSaveWaterReadings} allUnits={localUnits} role={user!.Role} tariffs={localTariffs} lockedPeriods={lockedWaterPeriods} refreshData={refreshSystemData} />;
             case 'pricing': return <PricingPage tariffs={localTariffs} setTariffs={setLocalTariffs} role={user!.Role} />;
             case 'users': return <UsersPage users={localUsers} setUsers={setLocalUsers} units={localUnits} role={user!.Role} />;
             case 'settings': return <SettingsPage invoiceSettings={invoiceSettings || DEFAULT_SETTINGS} setInvoiceSettings={handleSetInvoiceSettings} role={user!.Role} />;

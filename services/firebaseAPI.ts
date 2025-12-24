@@ -83,7 +83,7 @@ const bumpVersion = (batch: any, field: keyof SystemMetadata) => {
 };
 
 const injectLogAndNotif = (batch: any, log: any) => {
-    // Sử dụng Firestore Auto-ID để tránh lỗi permission ghi ID tùy chỉnh
+    // Luôn sử dụng cơ chế doc(collection(...)) để Firestore tự sinh ID hợp lệ
     const logRef = doc(collection(db, 'activity_logs'));
     const logData = { 
         id: logRef.id, 
@@ -135,9 +135,12 @@ export const updateUserProfile = async (email: string, updates: Partial<UserPerm
 export const updateResidentData = async (currentUnits: Unit[], currentOwners: Owner[], currentVehicles: Vehicle[], data: { unit: Unit; owner: Owner; vehicles: Vehicle[] }, actor?: { email: string, role: Role }, reason?: string) => {
     const batch = writeBatch(db);
     
-    // Đảm bảo luôn merge: true để tránh mất dữ liệu không mong muốn và lỗi permission
-    batch.set(doc(db, 'units', data.unit.UnitID), data.unit, { merge: true });
-    batch.set(doc(db, 'owners', data.owner.OwnerID), data.owner, { merge: true });
+    // Sử dụng set + merge để ghi đè an toàn
+    const unitRef = doc(db, 'units', data.unit.UnitID);
+    batch.set(unitRef, data.unit, { merge: true });
+
+    const ownerRef = doc(db, 'owners', data.owner.OwnerID);
+    batch.set(ownerRef, data.owner, { merge: true });
     
     const activeIds = new Set<string>();
     const platesUpdated: string[] = [];
@@ -154,13 +157,16 @@ export const updateResidentData = async (currentUnits: Unit[], currentOwners: Ow
             activeIds.add(newRef.id); 
         }
         else { 
-            batch.set(doc(db, 'vehicles', vehicleId), vehicleToSave, { merge: true }); 
+            const vRef = doc(db, 'vehicles', vehicleId);
+            batch.set(vRef, vehicleToSave, { merge: true }); 
             activeIds.add(vehicleId); 
         }
     });
 
+    // Vô hiệu hóa các xe không còn trong danh sách mới
     currentVehicles.filter(v => v.UnitID === data.unit.UnitID && v.isActive && !activeIds.has(v.VehicleId)).forEach(v => { 
-        batch.update(doc(db, 'vehicles', v.VehicleId), { isActive: false }); 
+        const vRef = doc(db, 'vehicles', v.VehicleId);
+        batch.update(vRef, { isActive: false }); 
     });
 
     const logSummary = `${platesUpdated.length > 0 ? `Xe: ${platesUpdated.join(', ')}` : 'Cập nhật hồ sơ'}. ${reason ? `Lý do: ${reason}` : ''}`;
@@ -177,6 +183,7 @@ export const updateResidentData = async (currentUnits: Unit[], currentOwners: Ow
     bumpVersion(batch, 'owners_version'); 
     bumpVersion(batch, 'vehicles_version');
     
+    // Commit toàn bộ batch
     await batch.commit(); 
     return true; 
 };
@@ -186,7 +193,10 @@ export const saveVehicles = async (d: Vehicle[], actor?: { email: string, role: 
     const batch = writeBatch(db);
     const unitId = d[0].UnitID;
     const details = d.map(v => `${v.Type.includes('car') ? 'Ô tô' : 'Xe máy'} [${v.PlateNumber}]`).join(', ');
-    d.forEach(v => { batch.set(doc(db, 'vehicles', v.VehicleId), v, { merge: true }); });
+    d.forEach(v => { 
+        const vRef = doc(db, 'vehicles', v.VehicleId);
+        batch.set(vRef, v, { merge: true }); 
+    });
     injectLogAndNotif(batch, { actor_email: actor?.email, module: 'Phương tiện', action: 'UPDATE', title: `Cập nhật Căn ${unitId}`, summary: `Căn ${unitId}: Cập nhật ${details}${reason ? `. Lý do: ${reason}` : ''}`, type: 'system' });
     bumpVersion(batch, 'vehicles_version'); 
     return batch.commit();

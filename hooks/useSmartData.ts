@@ -9,6 +9,7 @@ import {
 } from '../types';
 import * as api from '../services/index'; 
 import { get, set } from 'idb-keyval';
+import { getPreviousPeriod } from '../utils/helpers';
 
 const CACHE_PREFIX = 'qhome_cache_v3_';
 const META_KEY = 'qhome_meta_version';
@@ -102,12 +103,18 @@ export const useSmartSystemData = (currentUser: UserPermission | null) => {
                     })),
                 ]);
 
-                const [stats, locks, recentAdjustments, misc, exps] = await Promise.all([
+                // Lấy danh sách kỳ cần tải số nước (Hiện tại và 2 tháng trước)
+                const p1 = currentPeriod;
+                const p2 = getPreviousPeriod(p1);
+                const p3 = getPreviousPeriod(p2);
+
+                const [stats, locks, recentAdjustments, misc, exps, water] = await Promise.all([
                     api.fetchCollection('monthly_stats'),
                     api.fetchWaterLocks(),
                     api.fetchRecentAdjustments(currentPeriod),
                     api.getMonthlyMiscRevenues(currentPeriod),
-                    api.fetchCollection('operational_expenses')
+                    api.fetchCollection('operational_expenses'),
+                    api.fetchRecentWaterReadings([p1, p2, p3]) // Tải chỉ số nước thực tế
                 ]);
 
                 const allCharges = await (api.fetchCollection('charges') as Promise<ChargeRaw[]>)
@@ -125,7 +132,7 @@ export const useSmartSystemData = (currentUser: UserPermission | null) => {
                     lockedWaterPeriods: locks || [],
                     adjustments: recentAdjustments || [],
                     charges: allCharges,
-                    waterReadings: [],
+                    waterReadings: water || [], // Cập nhật dữ liệu nước thật
                     miscRevenues: misc || [],
                     expenses: exps || [],
                     hasLoaded: true
