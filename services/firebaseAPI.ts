@@ -83,7 +83,6 @@ const bumpVersion = (batch: any, field: keyof SystemMetadata) => {
 };
 
 const injectLogAndNotif = (batch: any, log: any) => {
-    // Luôn sử dụng cơ chế doc(collection(...)) để Firestore tự sinh ID hợp lệ
     const logRef = doc(collection(db, 'activity_logs'));
     const logData = { 
         id: logRef.id, 
@@ -108,6 +107,7 @@ const injectLogAndNotif = (batch: any, log: any) => {
         isRead: false, 
         createdAt: serverTimestamp() 
     };
+    // Fix: removed invalid batch.set call with syntax error
     batch.set(notifRef, notifData);
 };
 
@@ -134,22 +134,16 @@ export const updateUserProfile = async (email: string, updates: Partial<UserPerm
 
 export const updateResidentData = async (currentUnits: Unit[], currentOwners: Owner[], currentVehicles: Vehicle[], data: { unit: Unit; owner: Owner; vehicles: Vehicle[] }, actor?: { email: string, role: Role }, reason?: string) => {
     const batch = writeBatch(db);
-    
-    // Sử dụng set + merge để ghi đè an toàn
     const unitRef = doc(db, 'units', data.unit.UnitID);
     batch.set(unitRef, data.unit, { merge: true });
-
     const ownerRef = doc(db, 'owners', data.owner.OwnerID);
     batch.set(ownerRef, data.owner, { merge: true });
-    
     const activeIds = new Set<string>();
     const platesUpdated: string[] = [];
-    
     data.vehicles.forEach(v => {
         let vehicleId = v.VehicleId;
         let vehicleToSave = { ...v, isActive: true, updatedAt: new Date().toISOString() };
         platesUpdated.push(v.PlateNumber);
-        
         if (!vehicleId || vehicleId.startsWith('VEH_NEW_')) { 
             const newRef = doc(collection(db, "vehicles")); 
             vehicleToSave.VehicleId = newRef.id; 
@@ -162,28 +156,15 @@ export const updateResidentData = async (currentUnits: Unit[], currentOwners: Ow
             activeIds.add(vehicleId); 
         }
     });
-
-    // Vô hiệu hóa các xe không còn trong danh sách mới
     currentVehicles.filter(v => v.UnitID === data.unit.UnitID && v.isActive && !activeIds.has(v.VehicleId)).forEach(v => { 
         const vRef = doc(db, 'vehicles', v.VehicleId);
         batch.update(vRef, { isActive: false }); 
     });
-
     const logSummary = `${platesUpdated.length > 0 ? `Xe: ${platesUpdated.join(', ')}` : 'Cập nhật hồ sơ'}. ${reason ? `Lý do: ${reason}` : ''}`;
-    injectLogAndNotif(batch, { 
-        actor_email: actor?.email, 
-        module: 'Cư dân', 
-        action: 'UPDATE', 
-        title: `Cập nhật Căn ${data.unit.UnitID}`, 
-        summary: logSummary, 
-        type: 'request' 
-    });
-    
+    injectLogAndNotif(batch, { actor_email: actor?.email, module: 'Cư dân', action: 'UPDATE', title: `Cập nhật Căn ${data.unit.UnitID}`, summary: logSummary, type: 'request' });
     bumpVersion(batch, 'units_version'); 
     bumpVersion(batch, 'owners_version'); 
     bumpVersion(batch, 'vehicles_version');
-    
-    // Commit toàn bộ batch
     await batch.commit(); 
     return true; 
 };
@@ -213,22 +194,10 @@ export const fetchLatestLogs = async (limitCount: number = 20): Promise<Activity
     return snap.docs.map(d => {
         const data = d.data();
         let tsString = new Date().toISOString();
-        if (data.timestamp instanceof Timestamp) {
-            tsString = data.timestamp.toDate().toISOString();
-        } else if (data.timestamp && typeof data.timestamp.toDate === 'function') {
-            tsString = data.timestamp.toDate().toISOString();
-        } else if (data.timestamp) {
-            tsString = new Date(data.timestamp).toISOString();
-        }
-
-        return { 
-            id: d.id, 
-            ts: tsString, 
-            actor_email: data.performedBy?.email || 'system', 
-            summary: data.description || '', 
-            module: data.module || 'System', 
-            action: data.actionType || 'UPDATE' 
-        } as any;
+        if (data.timestamp instanceof Timestamp) { tsString = data.timestamp.toDate().toISOString(); } 
+        else if (data.timestamp && typeof data.timestamp.toDate === 'function') { tsString = data.timestamp.toDate().toISOString(); } 
+        else if (data.timestamp) { tsString = new Date(data.timestamp).toISOString(); }
+        return { id: d.id, ts: tsString, actor_email: data.performedBy?.email || 'system', summary: data.description || '', module: data.module || 'System', action: data.actionType || 'UPDATE' } as any;
     });
 };
 
@@ -265,7 +234,7 @@ export const updateChargeStatuses = (period: string, unitIds: string[], updates:
 export const updateChargePayments = (period: string, paymentUpdates: Map<string, number>) => { if (paymentUpdates.size === 0) return Promise.resolve(); const batch = writeBatch(db); paymentUpdates.forEach((amount, id) => batch.update(doc(db, 'charges', `${period}_${id}`), { TotalPaid: amount, paymentStatus: 'reconciling', PaymentConfirmed: false })); return batch.commit(); };
 export const confirmSinglePayment = async (charge: ChargeRaw, finalPaidAmount: number, status: PaymentStatus = 'paid') => { const batch = writeBatch(db); batch.update(doc(db, 'charges', `${charge.Period}_${charge.UnitID}`), { TotalPaid: finalPaidAmount, paymentStatus: status, PaymentConfirmed: true }); const diff = finalPaidAmount - charge.TotalDue; if (diff !== 0) { const nextPeriod = new Date(charge.Period + '-02'); nextPeriod.setMonth(nextPeriod.getMonth() + 1); const nextPeriodStr = nextPeriod.toISOString().slice(0, 7); const adj: Adjustment = { UnitID: charge.UnitID, Period: nextPeriodStr, Amount: -diff, Description: 'Công nợ kỳ trước', SourcePeriod: charge.Period }; batch.set(doc(db, 'adjustments', `ADJ_${nextPeriodStr}_${charge.UnitID}`), adj, { merge: true }); } return batch.commit(); };
 export const updatePaymentStatusBatch = (period: string, unitIds: string[], status: 'paid' | 'unpaid', charges: ChargeRaw[]) => { if (unitIds.length === 0) return Promise.resolve(); const batch = writeBatch(db); const chargesMap = new Map(charges.map(c => [c.UnitID, c])); unitIds.forEach(id => { const update = { paymentStatus: status, PaymentConfirmed: status === 'paid', TotalPaid: status === 'paid' ? (chargesMap.get(id)?.TotalDue ?? 0) : 0 }; batch.update(doc(db, 'charges', `${period}_${id}`), update); }); return batch.commit(); };
-export const wipeAllBusinessData = async (progress: (msg: string) => void) => { const collections = ['charges', 'waterReadings', 'vehicles', 'adjustments', 'owners', 'units', 'activity_logs', 'monthly_stats', 'billing_locks', 'water_locks', 'profileRequests', 'misc_revenues', 'admin_notifications']; for (const name of collections) { progress(`Querying ${name}...`); const snapshot = await getDocs(collection(db, name)); if (snapshot.empty) continue; const batch = writeBatch(db); snapshot.docs.forEach(d => batch.delete(d.ref)); progress(`Deleting ${snapshot.size} docs from ${name}...`); await batch.commit(); } };
+export const wipeAllBusinessData = async (progress: (msg: string) => void) => { const collections = ['charges', 'waterReadings', 'vehicles', 'adjustments', 'owners', 'units', 'activity_logs', 'monthly_stats', 'billing_locks', 'water_locks', 'profileRequests', 'misc_revenues', 'admin_notifications', 'service_registrations']; for (const name of collections) { progress(`Querying ${name}...`); const snapshot = await getDocs(collection(db, name)); if (snapshot.empty) continue; const batch = writeBatch(db); snapshot.docs.forEach(d => batch.delete(d.ref)); progress(`Deleting ${snapshot.size} docs from ${name}...`); await batch.commit(); } };
 export const saveUsers = async (d: UserPermission[]) => { const batch = writeBatch(db); d.forEach(u => batch.set(doc(db, 'users', u.Email), u, { merge: true })); bumpVersion(batch, 'users_version'); return batch.commit(); };
 export const deleteUsers = async (emails: string[]) => { if (emails.length === 0) return Promise.resolve(); const batch = writeBatch(db); emails.forEach(email => batch.delete(doc(db, 'users', email))); bumpVersion(batch, 'users_version'); return batch.commit(); };
 export const saveTariffs = async (d: TariffCollection) => { const batch = writeBatch(db); batch.set(doc(db, 'settings', 'tariffs'), d, { merge: true }); bumpVersion(batch, 'tariffs_version'); return batch.commit(); };
@@ -277,7 +246,28 @@ export const getBillingLockStatus = async (period: string): Promise<boolean> => 
 export const setBillingLockStatus = async (period: string, status: boolean): Promise<void> => { const docRef = doc(db, 'billing_locks', period); await setDoc(docRef, { isLocked: status, updatedAt: new Date().toISOString() }, { merge: true }); };
 export const resetUserPassword = async (email: string): Promise<void> => { const userRef = doc(db, 'users', email); await updateDoc(userRef, { password: '123456', mustChangePassword: true }); };
 export const addMiscRevenue = async (data: Omit<MiscRevenue, 'id' | 'createdAt'>): Promise<string> => { const docRef = doc(collection(db, 'misc_revenues')); const id = docRef.id; await setDoc(docRef, { ...data, id, createdAt: new Date().toISOString() }, { merge: true }); return id; };
-export const getMonthlyMiscRevenues = async (month: string): Promise<MiscRevenue[]> => { const q = query(collection(db, 'misc_revenues'), where('date', '>=', month), where('date', '<=', month + '\uf8ff'), orderBy('date', 'desc'), orderBy('createdAt', 'desc')); const snap = await getDocs(q); return snap.docs.map(d => d.data() as MiscRevenue); };
+
+export const getMiscRevenues = async (date: string): Promise<MiscRevenue[]> => {
+    const q = query(collection(db, 'misc_revenues'), where('date', '==', date));
+    const snap = await getDocs(q);
+    return snap.docs.map(d => d.data() as MiscRevenue).sort((a,b) => b.createdAt.localeCompare(a.createdAt));
+};
+
+export const getMonthlyMiscRevenues = async (month: string): Promise<MiscRevenue[]> => {
+    // Truy vấn đơn giản theo khoảng ngày để tránh yêu cầu Composite Index
+    const q = query(
+        collection(db, 'misc_revenues'), 
+        where('date', '>=', month), 
+        where('date', '<=', month + '\uf8ff')
+    );
+    const snap = await getDocs(q);
+    // Sắp xếp phía client để đảm bảo tính ổn định và không cần Index
+    return snap.docs.map(d => d.data() as MiscRevenue).sort((a,b) => {
+        if (a.date !== b.date) return b.date.localeCompare(a.date);
+        return b.createdAt.localeCompare(a.createdAt);
+    });
+};
+
 export const deleteMiscRevenue = async (id: string): Promise<void> => { await deleteDoc(doc(db, 'misc_revenues', id)); };
 export const getAllPendingProfileRequests = async (): Promise<ProfileRequest[]> => { const q = query(collection(db, 'profileRequests'), where('status', '==', 'PENDING')); const snap = await getDocs(q); return snap.docs.map(d => d.data() as ProfileRequest); };
 export const resolveProfileRequest = async (request: ProfileRequest, action: 'approve' | 'reject', adminEmail: string, approvedChanges?: any) => { const batch = writeBatch(db); const reqRef = doc(db, 'profileRequests', request.id); batch.update(reqRef, { status: action === 'approve' ? 'APPROVED' : 'REJECTED', updatedAt: new Date().toISOString() }); if (action === 'approve') { const changesToApply = approvedChanges || request.changes; const ownerRef = doc(db, 'owners', request.ownerId); const ownerUpdates: any = {}; if (changesToApply.OwnerName !== undefined) ownerUpdates.OwnerName = changesToApply.OwnerName; if (changesToApply.Phone !== undefined) ownerUpdates.Phone = changesToApply.Phone; if (changesToApply.Email !== undefined) ownerUpdates.Email = changesToApply.Email; if (changesToApply.secondOwnerName !== undefined) ownerUpdates.secondOwnerName = changesToApply.secondOwnerName; if (changesToApply.secondOwnerPhone !== undefined) ownerUpdates.secondOwnerPhone = changesToApply.secondOwnerPhone; if (changesToApply.avatarUrl !== undefined) ownerUpdates.avatarUrl = changesToApply.avatarUrl; ownerUpdates.updatedAt = new Date().toISOString(); if (Object.keys(ownerUpdates).length > 0) { batch.update(ownerRef, ownerUpdates); bumpVersion(batch, 'owners_version'); } if (changesToApply.UnitStatus) { batch.update(doc(db, 'units', request.residentId), { Status: changesToApply.UnitStatus }); bumpVersion(batch, 'units_version'); } injectLogAndNotif(batch, { actor_email: adminEmail, actor_role: 'Admin', module: 'Residents', action: 'APPROVE_PROFILE_UPDATE', summary: `Duyệt cập nhật thông tin cư dân ${request.residentId}`, ids: [request.residentId] }); } await batch.commit(); };

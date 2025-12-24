@@ -84,7 +84,6 @@ const ValueAddedServicesPage: React.FC = () => {
     const { invoiceSettings } = useSettings();
     const { refreshData } = useDataRefresh();
     
-    // --- State Management ---
     const [selectedDate, setSelectedDate] = useState(new Date().toISOString().split('T')[0]);
     const [dailyRevenues, setDailyRevenues] = useState<MiscRevenue[]>([]);
     const [monthlyRevenues, setMonthlyRevenues] = useState<MiscRevenue[]>([]);
@@ -109,11 +108,22 @@ const ValueAddedServicesPage: React.FC = () => {
     const fetchData = async (date: string) => {
         setIsLoading(true);
         try {
-            const [daily, monthly] = await Promise.all([getMiscRevenues(date), getMonthlyMiscRevenues(date.substring(0, 7))]);
-            setDailyRevenues(daily); 
-            setMonthlyRevenues(monthly);
-        } catch { 
-            showToast('Lỗi tải dữ liệu.', 'error'); 
+            // Kiểm tra xem hàm có tồn tại không trước khi gọi
+            if (typeof getMiscRevenues !== 'function' || typeof getMonthlyMiscRevenues !== 'function') {
+                console.warn("API Functions not yet defined.");
+                setIsLoading(false);
+                return;
+            }
+
+            const [daily, monthly] = await Promise.all([
+                getMiscRevenues(date), 
+                getMonthlyMiscRevenues(date.substring(0, 7))
+            ]);
+            setDailyRevenues(daily || []); 
+            setMonthlyRevenues(monthly || []);
+        } catch (err) { 
+            console.error("Fetch Data Error:", err);
+            showToast('Lỗi tải dữ liệu. Vui lòng thử lại.', 'error'); 
         } finally { 
             setIsLoading(false); 
         }
@@ -121,7 +131,6 @@ const ValueAddedServicesPage: React.FC = () => {
 
     useEffect(() => { fetchData(selectedDate); }, [selectedDate]);
 
-    // --- Action Handlers ---
     const handleAddTransaction = async () => {
         let type = activeTab;
         let amount = 0;
@@ -154,13 +163,14 @@ const ValueAddedServicesPage: React.FC = () => {
             const id = await addMiscRevenue(payload);
             const newItem = { ...payload, id, createdAt: new Date().toISOString() };
             
+            // Cập nhật UI ngay lập tức
             setDailyRevenues(prev => [newItem, ...prev]); 
             setMonthlyRevenues(prev => [newItem, ...prev]);
             
-            // QUAN TRỌNG: Làm mới dữ liệu toàn cục để Portal/Dashboard cập nhật số liệu
-            refreshData(true);
-            
             showToast('Đã thêm giao dịch thành công.', 'success');
+            
+            // Background refresh để đồng bộ toàn cục
+            refreshData(true);
             
             // Clear inputs
             if (type === 'PARKING') { setParkingMoto(''); setParkingCar(''); }
@@ -215,10 +225,7 @@ const ValueAddedServicesPage: React.FC = () => {
             await deleteMiscRevenue(id); 
             setDailyRevenues(prev => prev.filter(r => r.id !== id)); 
             setMonthlyRevenues(prev => prev.filter(r => r.id !== id));
-            
-            // Làm mới dữ liệu toàn cục
             refreshData(true);
-            
             showToast('Đã xóa giao dịch.', 'success'); 
         } catch { showToast('Lỗi khi xóa.', 'error'); }
     };
@@ -246,15 +253,12 @@ const ValueAddedServicesPage: React.FC = () => {
         }
     };
 
-    // --- Compute Totals ---
     const monthlyTotal = useMemo(() => monthlyRevenues.reduce((sum, r) => sum + r.amount, 0), [monthlyRevenues]);
-
     const inputLabelStyle = "text-[10px] font-black text-gray-400 uppercase tracking-widest mb-1.5 ml-1 block";
     const inputFieldStyle = "w-full p-3 bg-gray-50 border border-gray-200 rounded-xl outline-none text-sm font-bold text-gray-800 focus:bg-white focus:ring-2 focus:ring-primary/20 focus:border-primary transition-all";
 
     return (
         <div className="flex flex-col h-full bg-[#f8fafc] overflow-hidden">
-            {/* Header / Toolbar - z-index standardized */}
             <div className="bg-white border-b border-gray-100 p-4 shrink-0 shadow-sm z-10">
                 <div className="max-w-7xl mx-auto flex flex-col md:flex-row items-center justify-between gap-4">
                     <div className="flex items-center gap-2">
@@ -271,7 +275,6 @@ const ValueAddedServicesPage: React.FC = () => {
                             <button onClick={() => { const d = new Date(selectedDate); d.setDate(d.getDate() + 1); setSelectedDate(d.toISOString().split('T')[0]); }} className="p-2 hover:bg-white rounded-lg transition-all text-gray-500"><ChevronRightIcon className="w-4 h-4"/></button>
                         </div>
                     </div>
-
                     <div className="flex items-center gap-3">
                         <button onClick={handleExport} className="flex items-center gap-2 px-4 py-2.5 bg-white border border-gray-200 text-[10px] font-black uppercase tracking-widest text-gray-600 rounded-xl hover:bg-gray-50 active:scale-95 transition-all shadow-sm">
                             <DocumentArrowDownIcon className="w-4 h-4 opacity-40"/> Báo cáo tháng
@@ -287,24 +290,12 @@ const ValueAddedServicesPage: React.FC = () => {
                 </div>
             </div>
 
-            {/* Main Content Split View */}
             <div className="flex-1 overflow-hidden p-6 max-w-7xl mx-auto w-full flex gap-8">
-                
-                {/* LEFT COLUMN: INPUT STATION */}
                 <div className="w-1/3 flex flex-col gap-6 animate-fade-in-down h-full">
                     <div className="bg-white rounded-2xl shadow-xl shadow-slate-200/50 border border-gray-100 flex flex-col h-full overflow-hidden">
-                        {/* Tab Headers */}
                         <div className="grid grid-cols-4 border-b border-gray-50 bg-gray-50/50 p-1">
                             {(Object.keys(typeLabels) as MiscRevenueType[]).map(type => (
-                                <button 
-                                    key={type}
-                                    onClick={() => setActiveTab(type)}
-                                    className={`flex flex-col items-center justify-center py-3 rounded-xl transition-all gap-1 ${
-                                        activeTab === type 
-                                            ? `bg-white shadow-md text-gray-900 border border-gray-100` 
-                                            : 'text-gray-400 hover:text-gray-600'
-                                    }`}
-                                >
+                                <button key={type} onClick={() => setActiveTab(type)} className={`flex flex-col items-center justify-center py-3 rounded-xl transition-all gap-1 ${activeTab === type ? `bg-white shadow-md text-gray-900 border border-gray-100` : 'text-gray-400 hover:text-gray-600'}`}>
                                     {type === 'PARKING' && <CarIcon className={`w-5 h-5 ${activeTab === type ? 'text-blue-600' : ''}`} />}
                                     {type === 'KIOS' && <StoreIcon className={`w-5 h-5 ${activeTab === type ? 'text-amber-500' : ''}`} />}
                                     {type === 'VAT_SERVICE' && <PercentIcon className={`w-5 h-5 ${activeTab === type ? 'text-purple-600' : ''}`} />}
@@ -313,8 +304,6 @@ const ValueAddedServicesPage: React.FC = () => {
                                 </button>
                             ))}
                         </div>
-
-                        {/* Dynamic Form Area */}
                         <div className="flex-1 p-6 space-y-5 overflow-y-auto">
                             {activeTab === 'PARKING' && (
                                 <div className="space-y-5 animate-fade-in-down">
@@ -322,104 +311,59 @@ const ValueAddedServicesPage: React.FC = () => {
                                         <label className={inputLabelStyle}>Doanh thu Xe máy / lượt</label>
                                         <div className="relative">
                                             <MotorbikeIcon className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-400" />
-                                            <input 
-                                                type="text" 
-                                                value={parkingMoto} 
-                                                onChange={e => setParkingMoto(formatInputNumber(e.target.value))} 
-                                                className={`${inputFieldStyle} pl-10`}
-                                                placeholder="0"
-                                            />
+                                            <input type="text" value={parkingMoto} onChange={e => setParkingMoto(formatInputNumber(e.target.value))} className={`${inputFieldStyle} pl-10`} placeholder="0" />
                                         </div>
                                     </div>
                                     <div>
                                         <label className={inputLabelStyle}>Doanh thu Ô tô / lượt</label>
                                         <div className="relative">
                                             <CarIcon className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-400" />
-                                            <input 
-                                                type="text" 
-                                                value={parkingCar} 
-                                                onChange={e => setParkingCar(formatInputNumber(e.target.value))} 
-                                                className={`${inputFieldStyle} pl-10`}
-                                                placeholder="0"
-                                            />
+                                            <input type="text" value={parkingCar} onChange={e => setParkingCar(formatInputNumber(e.target.value))} className={`${inputFieldStyle} pl-10`} placeholder="0" />
                                         </div>
                                     </div>
                                 </div>
                             )}
-
                             {activeTab === 'KIOS' && (
                                 <div className="space-y-5 animate-fade-in-down">
-                                    <div>
-                                        <label className={inputLabelStyle}>Tên Kios / Đơn vị nộp</label>
-                                        <input type="text" value={kioskName} onChange={e => setKioskName(e.target.value)} className={inputFieldStyle} placeholder="VD: Kios 05 - Circle K" />
-                                    </div>
-                                    <div>
-                                        <label className={inputLabelStyle}>Số tiền nộp</label>
-                                        <input type="text" value={kioskAmount} onChange={e => setKioskAmount(formatInputNumber(e.target.value))} className={inputFieldStyle} placeholder="0" />
-                                    </div>
+                                    <div><label className={inputLabelStyle}>Tên Kios / Đơn vị nộp</label><input type="text" value={kioskName} onChange={e => setKioskName(e.target.value)} className={inputFieldStyle} placeholder="VD: Kios 05 - Circle K" /></div>
+                                    <div><label className={inputLabelStyle}>Số tiền nộp</label><input type="text" value={kioskAmount} onChange={e => setKioskAmount(formatInputNumber(e.target.value))} className={inputFieldStyle} placeholder="0" /></div>
                                 </div>
                             )}
-
                             {activeTab === 'VAT_SERVICE' && (
                                 <div className="space-y-5 animate-fade-in-down">
-                                    <div>
-                                        <label className={inputLabelStyle}>Tên dịch vụ</label>
-                                        <input type="text" value={vasName} onChange={e => setVasName(e.target.value)} className={inputFieldStyle} placeholder="VD: Phí đăng ký cư trú hộ mới" />
-                                    </div>
-                                    <div>
-                                        <label className={inputLabelStyle}>Số tiền</label>
-                                        <input type="text" value={vasAmount} onChange={e => setVasAmount(formatInputNumber(e.target.value))} className={inputFieldStyle} placeholder="0" />
-                                    </div>
+                                    <div><label className={inputLabelStyle}>Tên dịch vụ</label><input type="text" value={vasName} onChange={e => setVasName(e.target.value)} className={inputFieldStyle} placeholder="VD: Phí đăng ký cư trú hộ mới" /></div>
+                                    <div><label className={inputLabelStyle}>Số tiền</label><input type="text" value={vasAmount} onChange={e => setVasAmount(formatInputNumber(e.target.value))} className={inputFieldStyle} placeholder="0" /></div>
                                 </div>
                             )}
-
                             {activeTab === 'OTHER' && (
                                 <div className="space-y-5 animate-fade-in-down">
-                                    <div>
-                                        <label className={inputLabelStyle}>Nội dung thu</label>
-                                        <input type="text" value={otherName} onChange={e => setOtherName(e.target.value)} className={inputFieldStyle} placeholder="VD: Tiền đền bù hỏng hóc..." />
-                                    </div>
-                                    <div>
-                                        <label className={inputLabelStyle}>Số tiền</label>
-                                        <input type="text" value={otherAmount} onChange={e => setOtherAmount(formatInputNumber(e.target.value))} className={inputFieldStyle} placeholder="0" />
-                                    </div>
+                                    <div><label className={inputLabelStyle}>Nội dung thu</label><input type="text" value={otherName} onChange={e => setOtherName(e.target.value)} className={inputFieldStyle} placeholder="VD: Tiền đền bù hỏng hóc..." /></div>
+                                    <div><label className={inputLabelStyle}>Số tiền</label><input type="text" value={otherAmount} onChange={e => setOtherAmount(formatInputNumber(e.target.value))} className={inputFieldStyle} placeholder="0" /></div>
                                 </div>
                             )}
                         </div>
-
-                        {/* Submit Section */}
                         <div className="p-6 border-t border-gray-50 bg-gray-50/30">
-                            <button 
-                                onClick={handleAddTransaction}
-                                disabled={isSubmitting}
-                                className="w-full py-4 rounded-2xl font-black text-sm uppercase tracking-[0.2em] shadow-lg shadow-primary/20 bg-primary text-white hover:bg-primary-focus active:scale-[0.98] transition-all flex items-center justify-center gap-3 disabled:opacity-50"
-                            >
+                            <button onClick={handleAddTransaction} disabled={isSubmitting} className="w-full py-4 rounded-2xl font-black text-sm uppercase tracking-[0.2em] shadow-lg shadow-primary/20 bg-primary text-white hover:bg-primary-focus active:scale-[0.98] transition-all flex items-center justify-center gap-3 disabled:opacity-50">
                                 {isSubmitting ? <Spinner /> : <><PlusIcon className="w-5 h-5" /> Ghi nhận doanh thu</>}
                             </button>
                         </div>
                     </div>
                 </div>
-
-                {/* RIGHT COLUMN: HISTORY */}
                 <div className="w-2/3 flex flex-col gap-6 h-full overflow-hidden">
                     <div className="bg-white rounded-2xl border border-gray-100 shadow-sm flex-1 flex flex-col overflow-hidden">
                         <div className="px-5 py-4 border-b border-gray-50 flex justify-between items-center bg-gray-50/30">
                             <div className="flex items-center gap-2">
-                                <div className="p-2 bg-white rounded-lg shadow-sm border border-primary/10 text-primary">
-                                    <ClockIcon className="w-4 h-4"/>
-                                </div>
+                                <div className="p-2 bg-white rounded-lg shadow-sm border border-primary/10 text-primary"><ClockIcon className="w-4 h-4"/></div>
                                 <h3 className="font-black text-gray-800 text-[10px] uppercase tracking-widest">Lịch sử thu phí trong ngày</h3>
                             </div>
                             <span className="text-[10px] font-bold text-gray-400 uppercase tabular-nums">{dailyRevenues.length} giao dịch</span>
                         </div>
-
                         <div className="flex-1 overflow-y-auto">
                             {isLoading ? (
                                 <div className="py-20 flex justify-center"><Spinner /></div>
                             ) : dailyRevenues.length === 0 ? (
                                 <div className="py-20 flex flex-col items-center justify-center text-gray-300 gap-4 opacity-60">
-                                    <ArchiveBoxIcon className="w-16 h-16"/>
-                                    <p className="font-black uppercase tracking-widest text-xs">Chưa có giao dịch nào hôm nay</p>
+                                    <ArchiveBoxIcon className="w-16 h-16"/><p className="font-black uppercase tracking-widest text-xs">Chưa có giao dịch nào hôm nay</p>
                                 </div>
                             ) : (
                                 <table className="w-full text-sm border-collapse">
@@ -435,45 +379,11 @@ const ValueAddedServicesPage: React.FC = () => {
                                     <tbody className="divide-y divide-gray-50">
                                         {dailyRevenues.map(r => (
                                             <tr key={r.id} className="group hover:bg-slate-50 transition-colors">
-                                                <td className="px-6 py-4 font-mono text-[10px] text-gray-400 font-bold">
-                                                    {new Date(r.createdAt).toLocaleTimeString('vi-VN', { hour: '2-digit', minute: '2-digit' })}
-                                                </td>
-                                                <td className="px-6 py-4">
-                                                    <span className={`px-2.5 py-1 rounded-lg text-[9px] font-black uppercase border whitespace-nowrap shadow-sm ${
-                                                        r.type === 'PARKING' ? 'bg-blue-50 text-blue-700 border-blue-100' :
-                                                        r.type === 'KIOS' ? 'bg-amber-50 text-amber-700 border-amber-100' :
-                                                        r.type === 'VAT_SERVICE' ? 'bg-purple-50 text-purple-700 border-purple-100' :
-                                                        'bg-gray-50 text-gray-700 border-gray-100'
-                                                    }`}>
-                                                        {typeLabels[r.type]}
-                                                    </span>
-                                                </td>
-                                                <td className="px-6 py-4">
-                                                    <p className="text-xs font-bold text-gray-700 leading-snug">{r.description}</p>
-                                                    <p className="text-[9px] text-gray-400 font-medium mt-0.5 italic">{r.createdBy}</p>
-                                                </td>
-                                                <td className="px-6 py-4 text-right font-black text-emerald-600 tabular-nums">
-                                                    + {formatCurrency(r.amount)}
-                                                </td>
-                                                <td className="px-6 py-4">
-                                                    <div className="flex justify-center items-center gap-1">
-                                                        <button 
-                                                            onClick={() => handleSyncToSheets(r)}
-                                                            disabled={isSyncing}
-                                                            className="p-1.5 text-gray-300 hover:text-primary transition-all opacity-0 group-hover:opacity-100"
-                                                            title="Đồng bộ sang Google Sheets"
-                                                        >
-                                                            <CloudArrowUpIcon className="w-4 h-4" />
-                                                        </button>
-                                                        <button 
-                                                            onClick={() => handleDelete(r.id)} 
-                                                            className="p-1.5 text-gray-300 hover:text-red-500 transition-all opacity-0 group-hover:opacity-100"
-                                                            title="Xóa vĩnh viễn"
-                                                        >
-                                                            <TrashIcon className="w-4 h-4" />
-                                                        </button>
-                                                    </div>
-                                                </td>
+                                                <td className="px-6 py-4 font-mono text-[10px] text-gray-400 font-bold">{new Date(r.createdAt).toLocaleTimeString('vi-VN', { hour: '2-digit', minute: '2-digit' })}</td>
+                                                <td className="px-6 py-4"><span className={`px-2.5 py-1 rounded-lg text-[9px] font-black uppercase border whitespace-nowrap shadow-sm ${r.type === 'PARKING' ? 'bg-blue-50 text-blue-700 border-blue-100' : r.type === 'KIOS' ? 'bg-amber-50 text-amber-700 border-amber-100' : r.type === 'VAT_SERVICE' ? 'bg-purple-50 text-purple-700 border-purple-100' : 'bg-gray-50 text-gray-700 border-gray-100'}`}>{typeLabels[r.type]}</span></td>
+                                                <td className="px-6 py-4"><p className="text-xs font-bold text-gray-700 leading-snug">{r.description}</p><p className="text-[9px] text-gray-400 font-medium mt-0.5 italic">{r.createdBy}</p></td>
+                                                <td className="px-6 py-4 text-right font-black text-emerald-600 tabular-nums">+ {formatCurrency(r.amount)}</td>
+                                                <td className="px-6 py-4"><div className="flex justify-center items-center gap-1"><button onClick={() => handleSyncToSheets(r)} disabled={isSyncing} className="p-1.5 text-gray-300 hover:text-primary transition-all opacity-0 group-hover:opacity-100" title="Đồng bộ sang Google Sheets"><CloudArrowUpIcon className="w-4 h-4" /></button><button onClick={() => handleDelete(r.id)} className="p-1.5 text-gray-300 hover:text-red-500 transition-all opacity-0 group-hover:opacity-100" title="Xóa vĩnh viễn"><TrashIcon className="w-4 h-4" /></button></div></td>
                                             </tr>
                                         ))}
                                     </tbody>
