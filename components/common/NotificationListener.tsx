@@ -1,32 +1,36 @@
 
-import React, { useEffect, useRef } from 'react';
+import React, { useEffect, useRef, memo } from 'react';
 import { collection, query, where, orderBy, limit, onSnapshot } from 'firebase/firestore';
 import { db } from '../../firebaseConfig';
-import { useNotification } from '../../App';
+import { useNotification, useAuth } from '../../App';
 import { isProduction } from '../../utils/env';
 import type { ResidentNotification } from '../../types';
 
 interface NotificationListenerProps {
     userId: string;
-    onNewNotification?: (notif: ResidentNotification) => void;
     onUpdateList?: (list: ResidentNotification[]) => void;
 }
 
-const NotificationListener: React.FC<NotificationListenerProps> = ({ userId, onNewNotification, onUpdateList }) => {
+const NotificationListener: React.FC<NotificationListenerProps> = memo(({ userId, onUpdateList }) => {
     const { showToast } = useNotification();
+    const { user } = useAuth();
     const isFirstLoad = useRef(true);
+    const lastSubId = useRef("");
     const IS_PROD = isProduction();
 
     useEffect(() => {
-        if (!userId || !IS_PROD) return;
+        // Chỉ Resident mới cần lắng nghe real-time notifications cá nhân
+        // Admin đã có NotificationBell riêng
+        if (!userId || !IS_PROD || user?.Role !== 'Resident' || lastSubId.current === userId) return;
 
-        // Optimized Query: Only fetch UNREAD notifications to save quota
+        lastSubId.current = userId;
+        
         const q = query(
             collection(db, 'notifications'),
             where('userId', '==', userId),
             where('isRead', '==', false),
             orderBy('createdAt', 'desc'),
-            limit(10) // Resident only needs a small snapshot of unread items
+            limit(10)
         );
 
         const unsubscribe = onSnapshot(q, (snapshot) => {
@@ -35,11 +39,8 @@ const NotificationListener: React.FC<NotificationListenerProps> = ({ userId, onN
                 ...doc.data()
             } as ResidentNotification));
 
-            if (onUpdateList) {
-                onUpdateList(list);
-            }
+            if (onUpdateList) onUpdateList(list);
 
-            // Detect new arrivals for Toast
             if (isFirstLoad.current) {
                 isFirstLoad.current = false;
                 return;
@@ -48,22 +49,21 @@ const NotificationListener: React.FC<NotificationListenerProps> = ({ userId, onN
             snapshot.docChanges().forEach((change) => {
                 if (change.type === 'added') {
                     const data = change.doc.data() as ResidentNotification;
-                    if (onNewNotification) {
-                        onNewNotification(data);
-                    }
-                    // Visual feedback
-                    const icons: any = { bill: '💰', news: '📢', feedback: '💬', profile: '👤' };
+                    const icons: any = { bill: '💰', news: '📢', feedback: '💬' };
                     showToast(`${icons[data.type] || '🔔'} ${data.title}`, 'info', 6000);
                 }
             });
         }, (error) => {
-            console.error("Notification listener error:", error);
+            console.error("Quota/Listener Error:", error);
         });
 
-        return () => unsubscribe();
-    }, [userId, showToast, IS_PROD, onNewNotification, onUpdateList]);
+        return () => {
+            unsubscribe();
+            lastSubId.current = "";
+        };
+    }, [userId, IS_PROD, user?.Role]);
 
     return null;
-};
+});
 
 export default NotificationListener;

@@ -184,8 +184,8 @@ const App: React.FC = () => {
     }, []);
 
     const { 
-        units, owners, vehicles, waterReadings, charges, adjustments, users: fetchedUsers, news,
-        invoiceSettings, tariffs, monthlyStats, lockedWaterPeriods,
+        units = [], owners = [], vehicles = [], waterReadings = [], charges = [], adjustments = [], users: fetchedUsers = [], news = [],
+        invoiceSettings, tariffs = { service: [], parking: [], water: [] }, monthlyStats = [], lockedWaterPeriods = [],
         refreshSystemData 
     } = useSmartSystemData(user);
 
@@ -201,15 +201,15 @@ const App: React.FC = () => {
     const [localNews, setLocalNews] = useState<NewsItem[]>([]);
 
     useEffect(() => {
-        setLocalUnits(units);
-        setLocalOwners(owners);
-        setLocalVehicles(vehicles);
-        setLocalWaterReadings(waterReadings);
-        setLocalCharges(charges);
-        setLocalAdjustments(adjustments);
-        setLocalUsers(fetchedUsers);
-        setLocalTariffs(tariffs);
-        setLocalNews(news);
+        if (units) setLocalUnits(units);
+        if (owners) setLocalOwners(owners);
+        if (vehicles) setLocalVehicles(vehicles);
+        if (waterReadings) setLocalWaterReadings(waterReadings);
+        if (charges) setLocalCharges(charges);
+        if (adjustments) setLocalAdjustments(adjustments);
+        if (fetchedUsers) setLocalUsers(fetchedUsers);
+        if (tariffs) setLocalTariffs(tariffs);
+        if (news) setLocalNews(news);
     }, [units, owners, vehicles, waterReadings, charges, adjustments, fetchedUsers, tariffs, news]);
 
     const refreshLogs = useCallback(async () => {
@@ -307,10 +307,6 @@ const App: React.FC = () => {
         });
     }, []);
 
-    const handleMarkBellAsRead = useCallback(() => {
-        setUnreadResidentNotifications([]);
-    }, []);
-
     const notifications = useMemo(() => {
         // Unread news count: Archived news are ignored
         const unreadCount = localNews.filter(n => !n.isArchived && !readNewsIds.has(n.id)).length;
@@ -336,7 +332,7 @@ const App: React.FC = () => {
             case 'backup': return <BackupRestorePage allData={{ units: localUnits, owners: localOwners, vehicles: localVehicles, waterReadings: localWaterReadings, charges: localCharges, adjustments: localAdjustments, users: localUsers, tariffs: localTariffs }} onRestore={(d) => refreshSystemData(true)} role={user!.Role} />;
             case 'activityLog': return <ActivityLogPage logs={activityLogs} onUndo={()=>{}} role={user!.Role} />;
             case 'newsManagement': return <NewsManagementPage news={localNews} setNews={setLocalNews} role={user!.Role} users={localUsers} />;
-            case 'feedbackManagement': return <FeedbackManagementPage feedback={localFeedback} setFeedback={setLocalFeedback} role={user!.Role} />;
+            case 'feedbackManagement': return <FeedbackManagementPage role={user!.Role} units={localUnits} owners={localOwners} />;
             default: return <OverviewPage allUnits={localUnits} allOwners={localOwners} allVehicles={localVehicles} allWaterReadings={localWaterReadings} charges={localCharges} activityLogs={activityLogs} feedback={localFeedback} onNavigate={(p) => setActivePage(p as AdminPage)} monthlyStats={monthlyStats} />;
         }
     };

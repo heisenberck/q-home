@@ -56,6 +56,9 @@ export const {
     fetchRecentAdjustments,
     fetchRecentWaterReadings,
     fetchResidentSpecificData,
+    fetchChargesForResident,
+    // New function for direct login check
+    fetchUserForLogin,
     // Feedback
     submitFeedback,
     replyFeedback,
