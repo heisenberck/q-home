@@ -1,3 +1,4 @@
+
 import React from 'react';
 import { 
   LayoutDashboard, 
@@ -66,9 +67,7 @@ import {
   Menu,
   Store,
   Inbox,
-  ClipboardCheck,
-  // Added Pencil icon to lucide-react imports
-  Pencil
+  ClipboardCheck
 } from 'lucide-react';
 
 interface IconProps {
@@ -176,5 +175,3 @@ export const ZapIcon: React.FC<IconProps> = ({ className = DEFAULT_CLASS, size =
 export const InfoIcon: React.FC<IconProps> = ({ className = DEFAULT_CLASS, size = DEFAULT_SIZE }) => <Info className={className} size={size} />;
 export const InboxIcon: React.FC<IconProps> = ({ className = DEFAULT_CLASS, size = DEFAULT_SIZE }) => <Inbox className={className} size={size} />;
 export const ClipboardCheckIcon: React.FC<IconProps> = ({ className = DEFAULT_CLASS, size = DEFAULT_SIZE }) => <ClipboardCheck className={className} size={size} />;
-// Added PencilIcon export to resolve missing member error
-export const PencilIcon: React.FC<IconProps> = ({ className = DEFAULT_CLASS, size = DEFAULT_SIZE }) => <Pencil className={className} size={size} />;
