@@ -9,9 +9,10 @@ import {
     WarningIcon, ChevronDownIcon, CalendarDaysIcon,
     UserIcon, InformationCircleIcon, CloudArrowUpIcon,
     FileTextIcon, BikeIcon, DocumentArrowDownIcon,
-    CheckIcon
+    CheckIcon, ClipboardCheckIcon
 } from '../ui/Icons';
 import Spinner from '../ui/Spinner';
+import StatCard from '../ui/StatCard';
 import { translateVehicleType, timeAgo } from '../../utils/helpers';
 import { subscribeToRegistrations, processRegistrationAction } from '../../services';
 
@@ -29,7 +30,6 @@ const ServiceRegistrationPage: React.FC<ServiceRegistrationPageProps> = ({ role 
 
     // --- UI States ---
     const [activeTab, setActiveTab] = useState<RegistrationType>('Construction');
-    // FIX: Trạng thái mặc định là "Tất cả"
     const [statusFilter, setStatusFilter] = useState<RegistrationStatus | 'All'>('All');
     const [searchTerm, setSearchTerm] = useState('');
     const [reviewItem, setReviewItem] = useState<ServiceRegistration | null>(null);
@@ -56,6 +56,17 @@ const ServiceRegistrationPage: React.FC<ServiceRegistrationPageProps> = ({ role 
             return true;
         });
     }, [registrations, activeTab, statusFilter, searchTerm]);
+
+    // 3. Logic: Stats Calculation
+    const stats = useMemo(() => {
+        const tabData = registrations.filter(r => r.type === activeTab);
+        return {
+            total: tabData.length,
+            pending: tabData.filter(r => r.status === 'Pending').length,
+            approved: tabData.filter(r => r.status === 'Approved').length,
+            rejected: tabData.filter(r => r.status === 'Rejected').length,
+        };
+    }, [registrations, activeTab]);
 
     const handleAction = async (id: string, action: RegistrationStatus) => {
         if (!reviewItem) return;
@@ -93,7 +104,7 @@ const ServiceRegistrationPage: React.FC<ServiceRegistrationPageProps> = ({ role 
     };
 
     return (
-        <div className="space-y-4 animate-fade-in-down">
+        <div className="space-y-6 animate-fade-in-down h-full flex flex-col">
             <style>{`
                 @keyframes pulse-glow {
                     0% { box-shadow: 0 0 0 0 rgba(249, 115, 22, 0.4); transform: scale(1); }
@@ -105,7 +116,47 @@ const ServiceRegistrationPage: React.FC<ServiceRegistrationPageProps> = ({ role 
                 }
             `}</style>
             
-            {/* Filters Bar */}
+            {/* 1. Stat Cards Row */}
+            <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
+                <div onClick={() => setStatusFilter('All')} className="cursor-pointer">
+                    <StatCard 
+                        label="Tất cả đơn" 
+                        value={stats.total} 
+                        icon={<ClipboardCheckIcon className="w-6 h-6 text-blue-600"/>} 
+                        className={`border-l-4 border-blue-500 transition-all ${statusFilter === 'All' ? 'ring-2 ring-blue-500 bg-blue-50/30 shadow-md' : 'hover:bg-gray-50'}`} 
+                        iconBgClass="bg-blue-100" 
+                    />
+                </div>
+                <div onClick={() => setStatusFilter('Pending')} className="cursor-pointer">
+                    <StatCard 
+                        label="Chờ xử lý" 
+                        value={stats.pending} 
+                        icon={<ClockIcon className="w-6 h-6 text-amber-600"/>} 
+                        className={`border-l-4 border-amber-500 transition-all ${statusFilter === 'Pending' ? 'ring-2 ring-amber-500 bg-amber-50/30 shadow-md' : 'hover:bg-gray-50'}`} 
+                        iconBgClass="bg-amber-100" 
+                    />
+                </div>
+                <div onClick={() => setStatusFilter('Approved')} className="cursor-pointer">
+                    <StatCard 
+                        label="Đã phê duyệt" 
+                        value={stats.approved} 
+                        icon={<CheckCircleIcon className="w-6 h-6 text-emerald-600"/>} 
+                        className={`border-l-4 border-emerald-500 transition-all ${statusFilter === 'Approved' ? 'ring-2 ring-emerald-500 bg-emerald-50/30 shadow-md' : 'hover:bg-gray-50'}`} 
+                        iconBgClass="bg-emerald-100" 
+                    />
+                </div>
+                <div onClick={() => setStatusFilter('Rejected')} className="cursor-pointer">
+                    <StatCard 
+                        label="Đã từ chối" 
+                        value={stats.rejected} 
+                        icon={<XMarkIcon className="w-6 h-6 text-rose-600"/>} 
+                        className={`border-l-4 border-rose-500 transition-all ${statusFilter === 'Rejected' ? 'ring-2 ring-rose-500 bg-rose-50/30 shadow-md' : 'hover:bg-gray-50'}`} 
+                        iconBgClass="bg-rose-100" 
+                    />
+                </div>
+            </div>
+
+            {/* 2. Filters & Toolbar Bar */}
             <div className="bg-white p-3 rounded-2xl shadow-sm border border-gray-100 flex flex-col lg:flex-row gap-3 items-center">
                 <div className="flex bg-gray-100 p-1 rounded-xl w-full lg:w-auto border border-gray-200 shadow-inner">
                     <button onClick={() => setActiveTab('Construction')} className={`flex-1 lg:w-40 py-2.5 rounded-lg text-xs font-black uppercase transition-all flex items-center justify-center gap-2 ${activeTab === 'Construction' ? 'bg-white shadow-sm text-primary' : 'text-gray-500 hover:text-gray-700'}`}>
@@ -139,14 +190,14 @@ const ServiceRegistrationPage: React.FC<ServiceRegistrationPageProps> = ({ role 
                 </select>
             </div>
 
-            {/* Table Area */}
-            <div className="bg-white rounded-2xl shadow-sm border border-gray-100 overflow-hidden min-h-[400px]">
+            {/* 3. Table Area */}
+            <div className="bg-white rounded-2xl shadow-sm border border-gray-100 overflow-hidden flex-1 flex flex-col min-h-0">
                 {isLoading ? (
                     <div className="py-20 flex justify-center"><Spinner /></div>
                 ) : (
-                    <div className="overflow-x-auto">
+                    <div className="overflow-y-auto">
                         <table className="min-w-full text-sm">
-                            <thead className="bg-gray-50 border-b">
+                            <thead className="bg-gray-50 border-b sticky top-0 z-10">
                                 <tr>
                                     <th className="px-6 py-4 text-left font-black text-gray-400 uppercase tracking-widest text-[10px]">Căn hộ</th>
                                     <th className="px-6 py-4 text-left font-black text-gray-400 uppercase tracking-widest text-[10px]">
@@ -209,7 +260,8 @@ const ServiceRegistrationPage: React.FC<ServiceRegistrationPageProps> = ({ role 
                                                         : 'bg-white text-gray-400 border-gray-100 hover:text-primary hover:border-primary/20'
                                                 }`}
                                             >
-                                                {item.status === 'Pending' ? <CheckIcon className="w-5 h-5" strokeWidth={3} /> : <EyeIcon className="w-5 h-5" />}
+                                                {/* Fixed error: strokeWidth is not a valid prop for CheckIcon wrapper */}
+                                                {item.status === 'Pending' ? <CheckIcon className="w-5 h-5" /> : <EyeIcon className="w-5 h-5" />}
                                             </button>
                                         </td>
                                     </tr>

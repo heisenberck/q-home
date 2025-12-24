@@ -58,7 +58,7 @@ const menuGroups: (MenuItem | MenuGroup)[] = [
         label: 'Thông báo & Đăng ký',
         items: [
             { id: 'newsManagement', label: 'Quản lý Tin tức', icon: <MegaphoneIcon /> },
-            { id: 'serviceRegistration', label: 'Quản lý Đăng ký', icon: <ClipboardCheckIcon /> },
+            { id: 'serviceRegistration', label: 'Quản lý đăng ký', icon: <ClipboardCheckIcon /> },
             { id: 'feedbackManagement', label: 'Quản lý Phản hồi', icon: <ChatBubbleLeftEllipsisIcon /> },
         ]
     }

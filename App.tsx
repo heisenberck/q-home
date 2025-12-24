@@ -71,7 +71,7 @@ const ADMIN_PAGE_TITLES: Record<AdminPage, string> = {
     feedbackManagement: 'Phản hồi Cư dân',
     vas: 'Dịch vụ Gia tăng (VAS)',
     expenses: 'Quản lý Chi phí Vận hành',
-    serviceRegistration: 'Xét duyệt Đăng ký Dịch vụ'
+    serviceRegistration: 'Quản lý đăng ký dịch vụ'
 };
 
 // --- Contexts ---
@@ -374,7 +374,7 @@ const App: React.FC = () => {
                 <div className="p-4 space-y-4">
                     <button onClick={() => setActivePage('adminPortalVAS')} className="w-full p-4 bg-white rounded-xl shadow-sm border flex justify-between items-center font-bold text-gray-800">Doanh thu GTGT <span>→</span></button>
                     <button onClick={() => setActivePage('adminPortalExpenses')} className="w-full p-4 bg-white rounded-xl shadow-sm border flex justify-between items-center font-bold text-gray-800">Chi phí vận hành <span>→</span></button>
-                    <button onClick={() => setActivePage('serviceRegistration')} className="w-full p-4 bg-white rounded-xl shadow-sm border flex justify-between items-center font-bold text-gray-800">Xét duyệt Đăng ký <span>→</span></button>
+                    <button onClick={() => setActivePage('serviceRegistration')} className="w-full p-4 bg-white rounded-xl shadow-sm border flex justify-between items-center font-bold text-gray-800">Quản lý đăng ký <span>→</span></button>
                     <button onClick={() => setActivePage('newsManagement')} className="w-full p-4 bg-white rounded-xl shadow-sm border flex justify-between items-center font-bold text-gray-800">Quản lý Tin tức <span>→</span></button>
                     <button onClick={() => setActivePage('feedbackManagement')} className="w-full p-4 bg-white rounded-xl shadow-sm border flex justify-between items-center font-bold text-gray-800">Phản hồi Cư dân <span>→</span></button>
                     <button onClick={() => handleLogout()} className="w-full p-4 bg-red-50 text-red-600 rounded-xl shadow-sm border flex justify-between items-center font-black">Đăng xuất <span>⏻</span></button>

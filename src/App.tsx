@@ -1,7 +1,5 @@
 
 import React, { createContext, useContext, useState, useEffect, useCallback, useMemo } from 'react';
-import { onAuthStateChanged } from 'firebase/auth';
-import { auth } from './firebaseConfig';
 import type { 
     UserPermission, Unit, Owner, Vehicle, WaterReading, 
     TariffCollection, InvoiceSettings, Adjustment, ChargeRaw, 
@@ -38,13 +36,21 @@ import AdminPortalResidentsPage from './components/pages/admin-portal/AdminPorta
 import AdminPortalVehiclesPage from './components/pages/admin-portal/AdminPortalVehiclesPage';
 import AdminPortalBillingPage from './components/pages/admin-portal/AdminPortalBillingPage';
 import Toast, { ToastMessage, ToastType } from './components/ui/Toast';
-import Spinner from './components/ui/Spinner';
 import { deleteUsers, updateResidentData, importResidentsBatch, updateFeeSettings, fetchLatestLogs, updateUserProfile } from './services';
 import ChangePasswordModal from './components/pages/ChangePasswordModal';
 import NotificationListener from './components/common/NotificationListener';
 
 // --- Types ---
 export type AdminPage = 'overview' | 'billing' | 'residents' | 'vehicles' | 'water' | 'pricing' | 'users' | 'settings' | 'backup' | 'activityLog' | 'newsManagement' | 'feedbackManagement' | 'vas' | 'expenses';
+
+export interface LogPayload {
+    module: string;
+    action: string;
+    summary: string;
+    before_snapshot?: any;
+    count?: number;
+    ids?: string[];
+}
 
 const ADMIN_PAGE_TITLES: Record<AdminPage, string> = {
     overview: 'Tổng quan hệ thống',
@@ -66,7 +72,6 @@ const ADMIN_PAGE_TITLES: Record<AdminPage, string> = {
 // --- Contexts ---
 interface AuthContextType {
     user: UserPermission | null;
-    authLoading: boolean;
     login: (user: UserPermission, rememberMe: boolean) => void;
     logout: () => void;
     updateUser: (updatedUser: UserPermission, oldEmail: string) => Promise<void>;
@@ -130,38 +135,15 @@ const DEFAULT_SETTINGS: InvoiceSettings = {
 
 const App: React.FC = () => {
     const [user, setUser] = useState<UserPermission | null>(null);
-    const [authLoading, setAuthLoading] = useState(true);
     const [toasts, setToasts] = useState<ToastMessage[]>([]);
     const [isMobile, setIsMobile] = useState(window.innerWidth < 768);
     const [activePage, setActivePage] = useState<AdminPage | PortalPage | AdminPortalPage>('overview');
     const [isChangePasswordModalOpen, setIsChangePasswordModalOpen] = useState(false);
     const [activityLogs, setActivityLogs] = useState<ActivityLog[]>([]);
     const [unreadResidentNotifications, setUnreadResidentNotifications] = useState<ResidentNotification[]>([]);
+    
+    // Track Read News IDs in local state and storage
     const [readNewsIds, setReadNewsIds] = useState<Set<string>>(new Set());
-
-    // --- Firebase Auth Synchronization ---
-    useEffect(() => {
-        const unsubscribe = onAuthStateChanged(auth, (firebaseUser) => {
-            if (firebaseUser) {
-                // If Firebase says we are logged in, but our React state is empty
-                // we try to recover the user object from local storage
-                const saved = localStorage.getItem('rememberedUserObject');
-                if (saved) {
-                    try {
-                        const parsed = JSON.parse(saved);
-                        setUser(parsed);
-                    } catch (e) {
-                        console.error("Failed to parse user from storage", e);
-                    }
-                }
-            } else {
-                setUser(null);
-            }
-            setAuthLoading(false);
-        });
-
-        return () => unsubscribe();
-    }, []);
 
     useEffect(() => {
         const handleResize = () => {
@@ -182,13 +164,30 @@ const App: React.FC = () => {
                 console.error("Failed to parse read news ids", e);
             }
         }
+
+        const rememberedUserStr = localStorage.getItem('rememberedUserObject');
+        if (rememberedUserStr) {
+            try {
+                const parsed = JSON.parse(rememberedUserStr);
+                setUser(parsed);
+                if (parsed.Role === 'Resident') {
+                    setActivePage('portalHome');
+                } else if (window.innerWidth < 768) {
+                    setActivePage('adminPortalHome');
+                } else {
+                    setActivePage('overview');
+                }
+            } catch (e) {
+                localStorage.removeItem('rememberedUserObject');
+            }
+        }
     }, []);
 
     const { 
-        units, owners, vehicles, waterReadings, charges, adjustments, users: fetchedUsers, news,
-        invoiceSettings, tariffs, monthlyStats, lockedWaterPeriods,
+        units = [], owners = [], vehicles = [], waterReadings = [], charges = [], adjustments = [], users: fetchedUsers = [], news = [],
+        invoiceSettings, tariffs = { service: [], parking: [], water: [] }, monthlyStats = [], lockedWaterPeriods = [],
         refreshSystemData 
-    } = useSmartSystemData(user, authLoading); // Pass authLoading to hook
+    } = useSmartSystemData(user);
 
     const [localUnits, setLocalUnits] = useState<Unit[]>([]);
     const [localOwners, setLocalOwners] = useState<Owner[]>([]);
@@ -202,15 +201,15 @@ const App: React.FC = () => {
     const [localNews, setLocalNews] = useState<NewsItem[]>([]);
 
     useEffect(() => {
-        setLocalUnits(units || []);
-        setLocalOwners(owners || []);
-        setLocalVehicles(vehicles || []);
-        setLocalWaterReadings(waterReadings || []);
-        setLocalCharges(charges || []);
-        setLocalAdjustments(adjustments || []);
-        setLocalUsers(fetchedUsers || []);
-        setLocalTariffs(tariffs || { service: [], parking: [], water: [] });
-        setLocalNews(news || []);
+        if (units) setLocalUnits(units);
+        if (owners) setLocalOwners(owners);
+        if (vehicles) setLocalVehicles(vehicles);
+        if (waterReadings) setLocalWaterReadings(waterReadings);
+        if (charges) setLocalCharges(charges);
+        if (adjustments) setLocalAdjustments(adjustments);
+        if (fetchedUsers) setLocalUsers(fetchedUsers);
+        if (tariffs) setLocalTariffs(tariffs);
+        if (news) setLocalNews(news);
     }, [units, owners, vehicles, waterReadings, charges, adjustments, fetchedUsers, tariffs, news]);
 
     const refreshLogs = useCallback(async () => {
@@ -256,7 +255,6 @@ const App: React.FC = () => {
     };
 
     const handleLogout = () => {
-        auth.signOut();
         setUser(null);
         localStorage.removeItem('rememberedUserObject');
         setActivePage('overview');
@@ -310,6 +308,7 @@ const App: React.FC = () => {
     }, []);
 
     const notifications = useMemo(() => {
+        // Unread news count: Archived news are ignored
         const unreadCount = localNews.filter(n => !n.isArchived && !readNewsIds.has(n.id)).length;
         return { 
             unreadNews: unreadCount,
@@ -371,17 +370,8 @@ const App: React.FC = () => {
 
     const isResident = user?.Role === 'Resident';
 
-    if (authLoading) {
-        return (
-            <div className="h-screen w-screen flex flex-col items-center justify-center bg-white gap-4">
-                <Spinner />
-                <p className="text-gray-400 font-bold text-xs uppercase tracking-widest animate-pulse">Đang xác thực hệ thống...</p>
-            </div>
-        );
-    }
-
     return (
-        <AuthContext.Provider value={{ user, authLoading, login: handleLogin, logout: handleLogout, updateUser: handleUpdateUser, handleDeleteUsers: handleDeleteUsersAction }}>
+        <AuthContext.Provider value={{ user, login: handleLogin, logout: handleLogout, updateUser: handleUpdateUser, handleDeleteUsers: handleDeleteUsersAction }}>
             <NotificationContext.Provider value={{ showToast }}>
                 <SettingsContext.Provider value={{ invoiceSettings: invoiceSettings || DEFAULT_SETTINGS, setInvoiceSettings: handleSetInvoiceSettings }}>
                     <DataRefreshContext.Provider value={{ refreshData: refreshSystemData }}>
