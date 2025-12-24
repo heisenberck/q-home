@@ -4,12 +4,13 @@ import { doc, getDoc } from 'firebase/firestore';
 import { db } from '../firebaseConfig';
 import { 
     Unit, Owner, Vehicle, WaterReading, NewsItem,
-    TariffCollection, UserPermission, InvoiceSettings, Adjustment, MonthlyStat, SystemMetadata, ChargeRaw
+    TariffCollection, UserPermission, InvoiceSettings, Adjustment, MonthlyStat, SystemMetadata, ChargeRaw,
+    MiscRevenue, OperationalExpense
 } from '../types';
 import * as api from '../services/index'; 
 import { get, set } from 'idb-keyval';
 
-const CACHE_PREFIX = 'qhome_cache_v2_';
+const CACHE_PREFIX = 'qhome_cache_v3_';
 const META_KEY = 'qhome_meta_version';
 
 export const useSmartSystemData = (currentUser: UserPermission | null) => {
@@ -26,6 +27,8 @@ export const useSmartSystemData = (currentUser: UserPermission | null) => {
         lockedWaterPeriods: [],
         invoiceSettings: null,
         tariffs: { service: [], parking: [], water: [] },
+        miscRevenues: [],
+        expenses: [],
         hasLoaded: false
     });
     const [loading, setLoading] = useState(true);
@@ -40,7 +43,7 @@ export const useSmartSystemData = (currentUser: UserPermission | null) => {
             const isAdmin = currentUser && currentUser.Role !== 'Resident';
             const currentPeriod = new Date().toISOString().slice(0, 7);
 
-            // 1. Fetch Metadata
+            // 1. Fetch Metadata & Cache Status
             const serverMeta = await api.getSystemMetadata();
             const localMeta = (await get(CACHE_PREFIX + META_KEY)) as SystemMetadata || { units_version: 0, owners_version: 0, vehicles_version: 0, tariffs_version: 0, users_version: 0 };
 
@@ -63,6 +66,7 @@ export const useSmartSystemData = (currentUser: UserPermission | null) => {
             const fetchedNews = await api.fetchNews() || [];
 
             if (!isAdmin) {
+                // Portal dành cho Cư dân
                 if (currentUser?.residentId) {
                     const specific = await api.fetchResidentSpecificData(currentUser.residentId);
                     const charges = await (api.fetchCollection('charges') as Promise<ChargeRaw[]>)
@@ -71,7 +75,7 @@ export const useSmartSystemData = (currentUser: UserPermission | null) => {
                     setData({
                         units: specific.unit ? [specific.unit] : [],
                         owners: specific.owner ? [specific.owner] : [],
-                        vehicles: specific.vehicles || [],
+                        vehicles: (specific.vehicles || []).filter((v:any) => v.isActive),
                         charges: charges,
                         news: fetchedNews,
                         users: fetchedUsers,
@@ -81,21 +85,29 @@ export const useSmartSystemData = (currentUser: UserPermission | null) => {
                         adjustments: [],
                         monthlyStats: [],
                         lockedWaterPeriods: [],
+                        miscRevenues: [],
+                        expenses: [],
                         hasLoaded: true
                     });
                 }
             } else {
+                // Dashboard dành cho Admin/Nhân viên
                 const [units, owners, vehicles, tariffsData] = await Promise.all([
                     fetchOrCache('units', 'units_version', () => api.fetchCollection('units')),
                     fetchOrCache('owners', 'owners_version', () => api.fetchCollection('owners')),
                     fetchOrCache('vehicles', 'vehicles_version', () => api.fetchCollection('vehicles')),
-                    fetchOrCache('tariffs', 'tariffs_version', () => getDoc(doc(db, 'settings', 'tariffs')).then(s => s.data())),
+                    fetchOrCache('tariffs', 'tariffs_version', () => getDoc(doc(db, 'settings', 'tariffs')).then(s => {
+                        const d = s.data();
+                        return d ? d : { service: [], parking: [], water: [] };
+                    })),
                 ]);
 
-                const [stats, locks, recentAdjustments] = await Promise.all([
+                const [stats, locks, recentAdjustments, misc, exps] = await Promise.all([
                     api.fetchCollection('monthly_stats'),
                     api.fetchWaterLocks(),
-                    api.fetchRecentAdjustments(currentPeriod)
+                    api.fetchRecentAdjustments(currentPeriod),
+                    api.getMonthlyMiscRevenues(currentPeriod),
+                    api.fetchCollection('operational_expenses')
                 ]);
 
                 const allCharges = await (api.fetchCollection('charges') as Promise<ChargeRaw[]>)
@@ -114,6 +126,8 @@ export const useSmartSystemData = (currentUser: UserPermission | null) => {
                     adjustments: recentAdjustments || [],
                     charges: allCharges,
                     waterReadings: [],
+                    miscRevenues: misc || [],
+                    expenses: exps || [],
                     hasLoaded: true
                 });
 
