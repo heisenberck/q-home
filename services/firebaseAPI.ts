@@ -107,7 +107,6 @@ const injectLogAndNotif = (batch: any, log: any) => {
         isRead: false, 
         createdAt: serverTimestamp() 
     };
-    // Fix: removed invalid batch.set call with syntax error
     batch.set(notifRef, notifData);
 };
 
