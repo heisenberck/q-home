@@ -53,6 +53,8 @@ export const {
     deleteNewsItem,
     getSystemMetadata,
     fetchCollection,
+    fetchCollectionOptimized,
+    getQuickStats,
     fetchRecentAdjustments,
     fetchRecentWaterReadings,
     fetchResidentSpecificData,

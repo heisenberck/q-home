@@ -1,5 +1,5 @@
 
-import React, { useState, useMemo, useEffect, useRef } from 'react';
+import React, { useState, useMemo, useEffect } from 'react';
 import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, Legend } from 'recharts';
 import type { Unit, Vehicle, WaterReading, ChargeRaw, ActivityLog, Owner, FeedbackItem, MonthlyStat } from '../../types';
 import { VehicleTier } from '../../types';
@@ -9,7 +9,6 @@ import {
 } from '../ui/Icons';
 import { getPreviousPeriod, timeAgo } from '../../utils/helpers';
 import type { AdminPage } from '../../App';
-import { isProduction } from '../../utils/env';
 
 // --- Local Components & Helpers ---
 
@@ -43,7 +42,7 @@ const CustomTooltip = ({ active, payload, label }: any) => {
 
 interface ModuleCardProps { title: string; icon: React.ReactNode; borderColor: string; children: React.ReactNode; }
 const ModuleCard: React.FC<ModuleCardProps> = ({ title, icon, borderColor, children }) => (
-    <div className={`bg-white rounded-xl shadow-sm border border-gray-100 border-l-4 ${borderColor} flex flex-col h-full`}>
+    <div className={`bg-white rounded-xl shadow-sm border border-gray-100 border-l-4 ${borderColor} flex flex-col h-full transition-transform hover:shadow-md active:scale-95`}>
         <header className="p-4 flex items-center justify-between border-b border-gray-100">
             <h3 className="font-bold text-gray-800">{title}</h3>
             {icon}
@@ -52,9 +51,8 @@ const ModuleCard: React.FC<ModuleCardProps> = ({ title, icon, borderColor, child
     </div>
 );
 
-const ProgressBar: React.FC<{ value: number }> = ({ value }) => ( <div className="w-full bg-gray-200 rounded-full h-2.5"><div className="bg-blue-600 h-2.5 rounded-full" style={{ width: `${value}%` }}></div></div>);
+const ProgressBar: React.FC<{ value: number }> = ({ value }) => ( <div className="w-full bg-gray-200 rounded-full h-2.5"><div className="bg-blue-600 h-2.5 rounded-full transition-all duration-500" style={{ width: `${value}%` }}></div></div>);
 
-// --- Dashboard Footer Component ---
 const DashboardFooter: React.FC<{
     activityLogs: ActivityLog[];
     feedback: FeedbackItem[];
@@ -76,12 +74,6 @@ const DashboardFooter: React.FC<{
         return () => clearInterval(interval);
     }, [latestLogs.length]);
 
-    useEffect(() => {
-        const close = () => { setShowActivityPopup(false); setShowMsgPopup(false); };
-        if(showActivityPopup || showMsgPopup) document.addEventListener('click', close);
-        return () => document.removeEventListener('click', close);
-    }, [showActivityPopup, showMsgPopup]);
-
     return (
         <div className="fixed bottom-0 left-64 right-0 bg-white/95 backdrop-blur-md border-t border-gray-200 h-7 flex items-center justify-between px-6 text-gray-600 z-30 shadow-[0_-4px_6px_-1px_rgba(0,0,0,0.05)]">
             <div className="flex-1 flex items-center relative max-w-2xl" onClick={(e) => { e.stopPropagation(); setShowActivityPopup(!showActivityPopup); setShowMsgPopup(false); }}>
@@ -102,26 +94,6 @@ const DashboardFooter: React.FC<{
                         <span className="text-[10px] text-gray-400 italic pl-1">Không có hoạt động gần đây.</span>
                     )}
                 </div>
-
-                {showActivityPopup && latestLogs.length > 0 && (
-                    <div className="absolute bottom-9 left-0 w-96 bg-white rounded-xl shadow-2xl border border-gray-200 p-1 animate-slide-up z-40" onClick={(e) => e.stopPropagation()}>
-                        <div className="bg-gray-50 px-3 py-2 border-b border-gray-100 rounded-t-lg flex justify-between items-center">
-                            <span className="text-xs font-bold text-gray-700 uppercase tracking-wider">Hoạt động gần nhất</span>
-                            <span className="text-[10px] text-gray-400">Tự động cập nhật</span>
-                        </div>
-                        <ul className="max-h-64 overflow-y-auto py-1">
-                            {latestLogs.map(log => (
-                                <li key={log.id} className="px-3 py-2.5 hover:bg-gray-50 border-b border-gray-50 last:border-0">
-                                    <div className="flex justify-between items-start mb-0.5">
-                                        <span className="text-xs font-bold text-gray-800">{log.actor_email}</span>
-                                        <span className="text-[10px] text-gray-400">{timeAgo(log.ts)}</span>
-                                    </div>
-                                    <p className="text-xs text-gray-600 leading-snug">{log.summary}</p>
-                                </li>
-                            ))}
-                        </ul>
-                    </div>
-                )}
             </div>
 
             <div className="flex items-center relative" onClick={(e) => { e.stopPropagation(); setShowMsgPopup(!showMsgPopup); setShowActivityPopup(false); }}>
@@ -130,40 +102,11 @@ const DashboardFooter: React.FC<{
                     <span>Tin nhắn</span>
                     {pendingFeedbackCount > 0 && (<span className="absolute -top-1 -right-1 flex h-3 w-3 items-center justify-center rounded-full bg-red-500 text-white text-[8px] font-bold ring-1 ring-white shadow-sm">{pendingFeedbackCount}</span>)}
                 </button>
-
-                {showMsgPopup && (
-                    <div className="absolute bottom-9 right-0 w-80 bg-white rounded-xl shadow-2xl border border-gray-200 p-1 animate-slide-up z-40" onClick={(e) => e.stopPropagation()}>
-                        <div className="bg-gray-50 px-3 py-2 border-b border-gray-100 rounded-t-lg flex justify-between items-center">
-                            <span className="text-xs font-bold text-gray-700 uppercase tracking-wider">Tin nhắn chưa đọc</span>
-                            <button onClick={() => onNavigate('feedbackManagement')} className="text-[10px] text-blue-600 hover:underline">Xem tất cả</button>
-                        </div>
-                        {unreadMessages.length > 0 ? (
-                            <ul className="max-h-64 overflow-y-auto py-1">
-                                {unreadMessages.map(msg => (
-                                    <li key={msg.id} onClick={() => onNavigate('feedbackManagement')} className="px-3 py-2.5 hover:bg-blue-50 border-b border-gray-50 last:border-0 cursor-pointer group">
-                                        <div className="flex justify-between items-start mb-0.5">
-                                            <span className="text-xs font-bold text-gray-800 group-hover:text-blue-700">{msg.residentId}</span>
-                                            <span className="text-[10px] text-gray-400">{timeAgo(msg.date)}</span>
-                                        </div>
-                                        <p className="text-xs font-semibold text-gray-700 truncate">{msg.subject}</p>
-                                        <p className="text-[10px] text-gray-500 truncate mt-0.5">{msg.content}</p>
-                                    </li>
-                                ))}
-                            </ul>
-                        ) : (
-                            <div className="p-6 text-center text-gray-400">
-                                <ChatBubbleLeftRightIcon className="w-8 h-8 mx-auto mb-2 opacity-20"/>
-                                <p className="text-xs">Không có tin nhắn mới</p>
-                            </div>
-                        )}
-                    </div>
-                )}
             </div>
         </div>
     );
 };
 
-// --- Main Page Component ---
 interface OverviewPageProps {
     allUnits: Unit[];
     allOwners: Owner[];
@@ -174,130 +117,112 @@ interface OverviewPageProps {
     feedback: any[];
     onNavigate: (page: string) => void;
     monthlyStats?: MonthlyStat[];
+    quickStats?: { totalUnits: number; activeVehicles: number };
 }
 
-const OverviewPage: React.FC<OverviewPageProps> = ({ allUnits, allOwners, allVehicles, allWaterReadings, charges, activityLogs, feedback, onNavigate, monthlyStats = [] }) => {
+const OverviewPage: React.FC<OverviewPageProps> = ({ 
+    allUnits, allVehicles, allWaterReadings, charges, 
+    activityLogs, feedback, onNavigate, monthlyStats = [],
+    quickStats = { totalUnits: 0, activeVehicles: 0 }
+}) => {
 
     const commandCenterStats = useMemo(() => {
         const currentPeriod = new Date().toISOString().slice(0, 7);
         const previousPeriod = getPreviousPeriod(currentPeriod);
         
-        // 1. Optimized Data Structure (Map) for faster counting
-        const unitMap = new Map<string, Unit>(allUnits.map(u => [u.UnitID, u]));
-        const totalUnits = allUnits.length;
+        // 1. Optimized Totals (Priority: Aggregated Data > Document List)
+        const totalUnits = quickStats.totalUnits || allUnits.length;
         
-        // Count Resident Breakdown (O(n))
+        // Count Resident Breakdown (O(n) - only if list exists)
         const residentBreakdown = { Owner: 0, Rent: 0, Business: 0 };
         let occupiedUnits = 0;
-        for (const u of allUnits) {
-            if (u.OwnerID) occupiedUnits++;
-            residentBreakdown[u.Status]++;
+        if (allUnits.length > 0) {
+            for (const u of allUnits) {
+                if (u.OwnerID) occupiedUnits++;
+                residentBreakdown[u.Status]++;
+            }
         }
         const occupancyRate = totalUnits > 0 ? (occupiedUnits / totalUnits) * 100 : 0;
         
-        // 2. Finance Stats (O(1) from Pre-aggregated MonthlyStat if available)
+        // 2. Finance Stats
         const currentMonthStat = monthlyStats.find(s => s.period === currentPeriod);
-        
         let totalDue = currentMonthStat?.totalDue ?? 0;
-        let totalPaid = 0;
-
-        // Note: Paid amount is often volatile, so we still calculate it from current charges
-        // but we limit the scan to only the current month's charges (already filtered by parent usually)
         const currentCharges = charges.filter(c => c.Period === currentPeriod);
-        totalPaid = currentCharges.reduce((sum, c) => sum + c.TotalPaid, 0);
-        
-        // Fallback for totalDue if Stat doc is missing
+        const totalPaid = currentCharges.reduce((sum, c) => sum + c.TotalPaid, 0);
         if (totalDue === 0) totalDue = currentCharges.reduce((sum, c) => sum + c.TotalDue, 0);
 
-        const totalDebt = totalDue - totalPaid;
         const collectionRate = totalDue > 0 ? (totalPaid / totalDue) * 100 : 0;
         
-        // 3. Vehicle Stats (O(n) scan)
-        let carSlotsUsed = 0, motoCount = 0, ebikeCount = 0, bicycleCount = 0, waitingCount = 0;
-        for (const v of allVehicles) {
-            if (!v.isActive) continue;
-            if (v.Type === VehicleTier.CAR || v.Type === VehicleTier.CAR_A) carSlotsUsed++;
-            else if (v.Type === VehicleTier.MOTORBIKE) motoCount++;
-            else if (v.Type === VehicleTier.EBIKE) ebikeCount++;
-            else if (v.Type === VehicleTier.BICYCLE) bicycleCount++;
-            
-            if (v.parkingStatus === 'Xếp lốt') waitingCount++;
-        }
-        
-        // 4. Water Stats (O(n))
+        // 3. Water Stats
         const currentWater = allWaterReadings.filter(r => r.Period === currentPeriod);
         const recordedCount = currentWater.length;
-        const totalConsumption = currentWater.reduce((sum, r) => sum + (r.consumption || 0), 0);
+        const totalConsumption = currentWater.reduce((sum, r) => sum + (r.consumption ?? 0), 0);
         
         const prevTotalConsumption = allWaterReadings
             .filter(r => r.Period === previousPeriod)
-            .reduce((sum, r) => sum + (r.consumption || 0), 0);
+            .reduce((sum, r) => sum + (r.consumption ?? 0), 0);
         const waterTrend = prevTotalConsumption > 0 ? ((totalConsumption - prevTotalConsumption) / prevTotalConsumption) * 100 : 0;
         
-        // 5. Feedback Stats
-        const newFeedbackCount = feedback.filter(f => f.status === 'Pending').length;
-        const processingFeedbackCount = feedback.filter(f => f.status === 'Processing').length;
-        
-        // 6. Optimized Chart Data (Using 12-month pre-aggregated stats)
+        // 4. Optimized Chart Data (Using pre-aggregated stats)
         const revenueChartData = Array.from({ length: 6 }).map((_, i) => { 
             const d = new Date(); 
             d.setMonth(d.getMonth() - i); 
             const p = d.toISOString().slice(0, 7); 
-            
             const stat = monthlyStats.find(s => s.period === p);
-            
-            if (stat) {
-                return { 
-                    name: `T${d.getMonth() + 1}`, 
-                    'Dịch vụ': stat.totalService, 
-                    'Gửi xe': stat.totalParking, 
-                    'Nước': stat.totalWater
-                };
-            }
-            return { name: `T${d.getMonth() + 1}`, 'Dịch vụ': 0, 'Gửi xe': 0, 'Nước': 0 };
+            return stat ? { 
+                name: `T${d.getMonth() + 1}`, 
+                'Dịch vụ': stat.totalService, 
+                'Gửi xe': stat.totalParking, 
+                'Nước': stat.totalWater
+            } : { name: `T${d.getMonth() + 1}`, 'Dịch vụ': 0, 'Gửi xe': 0, 'Nước': 0 };
         }).reverse();
 
-        const unrecordedWaterCount = totalUnits - recordedCount;
-        const alertItems = [
-            unrecordedWaterCount > 0 && { text: `${unrecordedWaterCount} căn chưa chốt số nước`, icon: <WarningIcon className="w-5 h-5 text-red-500"/> }, 
-            waitingCount > 0 && { text: `${waitingCount} xe đang trong danh sách chờ`, icon: <WarningIcon className="w-5 h-5 text-orange-500"/>}, 
-            { text: 'Thông báo phí mới chưa phát hành', icon: <WarningIcon className="w-5 h-5 text-blue-500"/> },
-        ].filter(Boolean);
+        const unrecordedWaterCount = Math.max(0, totalUnits - recordedCount);
 
-        return { residentStats: { totalUnits, occupancyRate, breakdown: residentBreakdown }, financeStats: { totalRevenue: totalPaid, totalDebt, collectionRate }, vehicleStats: { carSlotsUsed, motoCount, ebikeCount, bicycleCount, waiting: waitingCount }, waterStats: { recorded: recordedCount, total: totalUnits, consumption: totalConsumption, trend: waterTrend }, feedbackStats: { new: newFeedbackCount, processing: processingFeedbackCount }, revenueChartData, alertItems, };
-    }, [allUnits, allVehicles, allWaterReadings, charges, feedback, monthlyStats]);
+        return { 
+            residentStats: { totalUnits, occupancyRate, breakdown: residentBreakdown }, 
+            financeStats: { totalRevenue: totalPaid, totalDebt: totalDue - totalPaid, collectionRate }, 
+            vehicleStats: { activeCount: quickStats.activeVehicles || allVehicles.length }, 
+            waterStats: { recorded: recordedCount, total: totalUnits, consumption: totalConsumption, trend: waterTrend }, 
+            feedbackStats: { new: feedback.filter(f => f.status === 'Pending').length }, 
+            revenueChartData, 
+            unrecordedWaterCount
+        };
+    }, [allUnits, allVehicles, allWaterReadings, charges, feedback, monthlyStats, quickStats]);
 
     return (
         <div className="space-y-6 pb-8">
             <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-5 gap-6">
-                <div onClick={() => onNavigate('residents')} className="cursor-pointer transition-transform duration-200 ease-in-out hover:scale-[1.03] hover:shadow-lg rounded-xl">
+                <div onClick={() => onNavigate('residents')}>
                     <ModuleCard title="Cư dân" icon={<BuildingIcon className="w-6 h-6 text-blue-600"/>} borderColor="border-blue-500">
                         <div><p className="text-sm text-gray-500">Tổng số căn hộ</p><p className="text-3xl font-bold text-gray-800">{commandCenterStats.residentStats.totalUnits}</p></div>
-                        <div><p className="text-sm font-semibold text-gray-600 mb-2">Tỷ lệ lấp đầy: {commandCenterStats.residentStats.occupancyRate.toFixed(0)}%</p><ProgressBar value={commandCenterStats.residentStats.occupancyRate} /><p className="text-xs text-gray-500 mt-2">{commandCenterStats.residentStats.breakdown.Owner || 0} Chính chủ | {commandCenterStats.residentStats.breakdown.Rent || 0} Cho thuê</p></div>
+                        <div><p className="text-sm font-semibold text-gray-600 mb-2">Lấp đầy: {commandCenterStats.residentStats.occupancyRate.toFixed(0)}%</p><ProgressBar value={commandCenterStats.residentStats.occupancyRate} /></div>
                     </ModuleCard>
                 </div>
-                <div onClick={() => onNavigate('billing')} className="cursor-pointer transition-transform duration-200 ease-in-out hover:scale-[1.03] hover:shadow-lg rounded-xl">
+                <div onClick={() => onNavigate('billing')}>
                     <ModuleCard title="Tài chính" icon={<BanknotesIcon className="w-6 h-6 text-green-600"/>} borderColor="border-green-500">
                         <div><p className="text-sm text-gray-500">Thực thu tháng này</p><p className="text-3xl font-bold text-gray-800">{formatCurrency(commandCenterStats.financeStats.totalRevenue)}</p></div>
-                        <div><p className="text-sm font-semibold text-gray-600">Tỷ lệ thu: {commandCenterStats.financeStats.collectionRate.toFixed(0)}%</p><p className="text-sm text-gray-500 mt-1">Công nợ: <span className="font-bold text-red-600">{formatCurrency(commandCenterStats.financeStats.totalDebt)}</span></p></div>
+                        <div><p className="text-sm font-semibold text-gray-600">Tỷ lệ: {commandCenterStats.financeStats.collectionRate.toFixed(0)}%</p></div>
                     </ModuleCard>
                 </div>
-                <div onClick={() => onNavigate('vehicles')} className="cursor-pointer transition-transform duration-200 ease-in-out hover:scale-[1.03] hover:shadow-lg rounded-xl">
+                <div onClick={() => onNavigate('vehicles')}>
                     <ModuleCard title="Phương tiện" icon={<CarIcon className="w-6 h-6 text-orange-600"/>} borderColor="border-orange-500">
-                        <div><p className="text-sm text-gray-500">Tổng số ô tô</p><p className="text-3xl font-bold text-gray-800">{commandCenterStats.vehicleStats.carSlotsUsed}</p></div>
-                        <div><p className="text-sm font-semibold text-gray-600">Xe máy/Xe điện: {commandCenterStats.vehicleStats.motoCount}/{commandCenterStats.vehicleStats.ebikeCount}</p><p className="text-sm font-semibold text-gray-600">Xe đạp: {commandCenterStats.vehicleStats.bicycleCount}</p>{commandCenterStats.vehicleStats.waiting > 0 && (<p className="text-xs text-red-600 mt-1 font-bold">{commandCenterStats.vehicleStats.waiting} xe đang chờ lốt đỗ</p>)}</div>
+                        <div><p className="text-sm text-gray-500">Xe đang hoạt động</p><p className="text-3xl font-bold text-gray-800">{commandCenterStats.vehicleStats.activeCount}</p></div>
+                        <div className="text-xs text-gray-400 font-bold uppercase">Quản lý bãi đỗ xe</div>
                     </ModuleCard>
                 </div>
-                <div onClick={() => onNavigate('water')} className="cursor-pointer transition-transform duration-200 ease-in-out hover:scale-[1.03] hover:shadow-lg rounded-xl">
+                <div onClick={() => onNavigate('water')}>
                     <ModuleCard title="Nước sạch" icon={<DropletsIcon className="w-6 h-6 text-purple-600"/>} borderColor="border-purple-500">
-                        <div><p className="text-sm text-gray-500">Tổng tiêu thụ</p><p className="text-3xl font-bold text-gray-800">{commandCenterStats.waterStats.consumption.toLocaleString('vi-VN')} <span className="text-xl">m³</span></p></div>
-                        <div><p className="text-sm font-semibold text-gray-600">Đã chốt: {commandCenterStats.waterStats.recorded}/{commandCenterStats.waterStats.total} căn</p><p className={`text-xs mt-1 font-bold ${commandCenterStats.waterStats.trend >= 0 ? 'text-green-600' : 'text-red-600'}`}>{commandCenterStats.waterStats.trend >= 0 ? '+' : ''}{commandCenterStats.waterStats.trend.toFixed(1)}% so với tháng trước</p></div>
+                        <div><p className="text-sm text-gray-500">Tổng tiêu thụ</p><p className="text-3xl font-bold text-gray-800">{commandCenterStats.waterStats.consumption.toLocaleString('vi-VN')} m³</p></div>
+                        <div className={`text-xs font-bold ${commandCenterStats.waterStats.trend >= 0 ? 'text-green-600' : 'text-red-600'}`}>
+                            {commandCenterStats.waterStats.trend >= 0 ? '+' : ''}{commandCenterStats.waterStats.trend.toFixed(1)}% vs tháng trước
+                        </div>
                     </ModuleCard>
                 </div>
-                <div onClick={() => onNavigate('feedbackManagement')} className="cursor-pointer transition-transform duration-200 ease-in-out hover:scale-[1.03] hover:shadow-lg rounded-xl">
+                <div onClick={() => onNavigate('feedbackManagement')}>
                     <ModuleCard title="Phản hồi" icon={<ChatBubbleLeftEllipsisIcon className="w-6 h-6 text-rose-600"/>} borderColor="border-rose-500">
                         <div><p className="text-sm text-gray-500">Phản hồi mới</p><p className="text-3xl font-bold text-gray-800">{commandCenterStats.feedbackStats.new} tin</p></div>
-                        <div><p className="text-sm font-semibold text-gray-600">{commandCenterStats.feedbackStats.processing} đang xử lý</p></div>
+                        <div className="text-xs text-gray-400 font-bold uppercase">Chăm sóc cư dân</div>
                     </ModuleCard>
                 </div>
             </div>
@@ -313,7 +238,18 @@ const OverviewPage: React.FC<OverviewPageProps> = ({ allUnits, allOwners, allVeh
                 </div>
                 <div className="bg-white p-6 rounded-xl shadow-sm border border-gray-100">
                     <h3 className="font-bold text-lg text-gray-800 mb-4">Cảnh báo & Việc cần làm</h3>
-                    <ul className="space-y-4">{commandCenterStats.alertItems.map((item: any, index: number) => (<li key={index} className="flex items-center gap-3">{item.icon}<span className="text-sm font-medium text-gray-700">{item.text}</span></li>))}</ul>
+                    <ul className="space-y-4">
+                        {commandCenterStats.unrecordedWaterCount > 0 && (
+                            <li className="flex items-center gap-3">
+                                <WarningIcon className="w-5 h-5 text-red-500"/>
+                                <span className="text-sm font-medium text-gray-700">{commandCenterStats.unrecordedWaterCount} căn chưa chốt số nước</span>
+                            </li>
+                        )}
+                        <li className="flex items-center gap-3">
+                            <ClockIcon className="w-5 h-5 text-blue-500"/>
+                            <span className="text-sm font-medium text-gray-700">Kiểm tra thông báo phí kỳ mới</span>
+                        </li>
+                    </ul>
                 </div>
             </div>
             

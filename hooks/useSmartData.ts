@@ -4,16 +4,12 @@ import { doc, getDoc } from 'firebase/firestore';
 import { db } from '../firebaseConfig';
 import { 
     Unit, Owner, Vehicle, WaterReading, NewsItem,
-    TariffCollection, UserPermission, InvoiceSettings, Adjustment, ActivityLog, MonthlyStat, SystemMetadata, ChargeRaw, MiscRevenue, OperationalExpense, FeedbackItem
+    TariffCollection, UserPermission, InvoiceSettings, Adjustment, MonthlyStat, SystemMetadata, ChargeRaw
 } from '../types';
 import * as api from '../services/index'; 
-import { get, set } from 'idb-keyval';
-
-const CACHE_PREFIX = 'qhome_cache_v2_';
-const META_KEY = 'qhome_meta_version';
+import { cacheManager } from '../services/cacheManager';
 
 export const useSmartSystemData = (currentUser: UserPermission | null) => {
-    // Đảm bảo trạng thái ban đầu có đầy đủ các mảng rỗng
     const [data, setData] = useState<any>({
         units: [],
         owners: [],
@@ -27,76 +23,70 @@ export const useSmartSystemData = (currentUser: UserPermission | null) => {
         lockedWaterPeriods: [],
         invoiceSettings: null,
         tariffs: { service: [], parking: [], water: [] },
+        quickStats: { totalUnits: 0, activeVehicles: 0 },
         hasLoaded: false
     });
     const [loading, setLoading] = useState(true);
     const isFetching = useRef(false);
 
     const refreshSystemData = useCallback(async (force = false) => {
+        if (!currentUser) return;
         if (isFetching.current) return;
         isFetching.current = true;
         setLoading(true);
         
         try {
-            const isAdmin = currentUser && currentUser.Role !== 'Resident';
+            const isAdmin = currentUser.Role !== 'Resident';
             const currentPeriod = new Date().toISOString().slice(0, 7);
 
-            // 1. Fetch Metadata
-            const serverMeta = await api.getSystemMetadata();
-            const localMeta = (await get(CACHE_PREFIX + META_KEY)) as SystemMetadata || { units_version: 0, owners_version: 0, vehicles_version: 0, tariffs_version: 0, users_version: 0 };
-
-            // 2. Fetch Invoice Settings
+            // 1. Fetch Invoice Settings (Small object, fetch always or cache simple)
             const invoiceSettingsSnap = await getDoc(doc(db, 'settings', 'invoice'));
             const invoiceSettings = invoiceSettingsSnap.exists() ? invoiceSettingsSnap.data() as InvoiceSettings : null;
 
-            // 3. Logic Fetch Collection lớn dựa trên Version
-            const fetchOrCache = async (key: string, versionKey: keyof SystemMetadata, apiCall: () => Promise<any>) => {
-                const cached = await get(CACHE_PREFIX + key);
-                if (force || !cached || serverMeta[versionKey] > localMeta[versionKey]) {
-                    const fresh = await apiCall();
-                    await set(CACHE_PREFIX + key, fresh);
-                    return fresh;
-                }
-                return cached;
-            };
-
-            const fetchedUsers = await fetchOrCache('users', 'users_version', () => api.fetchCollection('users'));
+            // 2. Load News (Always check cache first)
             const fetchedNews = await api.fetchNews();
 
             if (!isAdmin) {
-                if (currentUser?.residentId) {
+                // RESIDENT SCOPE: Fetch only what's necessary
+                if (currentUser.residentId) {
                     const specific = await api.fetchResidentSpecificData(currentUser.residentId);
-                    const charges = await (api.fetchCollection('charges') as Promise<ChargeRaw[]>)
-                        .then(all => all.filter(c => c.UnitID === currentUser.residentId).slice(-3));
+                    const charges = await api.fetchChargesForResident(currentUser.residentId);
 
-                    setData({
+                    setData((prev: any) => ({
+                        ...prev,
                         units: specific.unit ? [specific.unit] : [],
                         owners: specific.owner ? [specific.owner] : [],
                         vehicles: specific.vehicles || [],
                         charges: charges || [],
                         news: fetchedNews || [],
-                        users: fetchedUsers || [],
                         invoiceSettings,
-                        tariffs: { service: [], parking: [], water: [] },
                         hasLoaded: true
-                    });
+                    }));
                 }
             } else {
-                const [units, owners, vehicles, tariffs] = await Promise.all([
-                    fetchOrCache('units', 'units_version', () => api.fetchCollection('units')),
-                    fetchOrCache('owners', 'owners_version', () => api.fetchCollection('owners')),
-                    fetchOrCache('vehicles', 'vehicles_version', () => api.fetchCollection('vehicles')),
-                    fetchOrCache('tariffs', 'tariffs_version', () => getDoc(doc(db, 'settings', 'tariffs')).then(s => s.data())),
+                // ADMIN SCOPE: Use Optimized Collection Fetching with Versioning
+                const serverMeta = await api.getSystemMetadata();
+                
+                const [units, owners, vehicles, fetchedUsers, tariffs] = await Promise.all([
+                    api.fetchCollectionOptimized<Unit>('units', 'units_version'),
+                    api.fetchCollectionOptimized<Owner>('owners', 'owners_version'),
+                    api.fetchCollectionOptimized<Vehicle>('vehicles', 'vehicles_version'),
+                    api.fetchCollectionOptimized<UserPermission>('users', 'users_version'),
+                    getDoc(doc(db, 'settings', 'tariffs')).then(s => s.data() as TariffCollection),
                 ]);
 
+                // Quick aggregated counts for dashboard
+                const quickStats = await api.getQuickStats();
+
                 const [stats, locks, recentAdjustments] = await Promise.all([
-                    api.fetchCollection('monthly_stats'),
+                    api.fetchCollectionOptimized<MonthlyStat>('monthly_stats'),
                     api.fetchWaterLocks(),
                     api.fetchRecentAdjustments(currentPeriod)
                 ]);
 
-                const allCharges = await (api.fetchCollection('charges') as Promise<ChargeRaw[]>)
-                    .then(all => all.filter(c => c.Period === currentPeriod || c.paymentStatus === 'unpaid'));
+                // Charges: Still pull recent, but limit to unpaid/current
+                const allCharges = await api.fetchCollectionOptimized<ChargeRaw>('charges');
+                const filteredCharges = allCharges.filter(c => c.Period === currentPeriod || c.paymentStatus === 'unpaid');
 
                 setData({
                     units: units || [],
@@ -109,11 +99,13 @@ export const useSmartSystemData = (currentUser: UserPermission | null) => {
                     monthlyStats: stats || [],
                     lockedWaterPeriods: locks || [],
                     adjustments: recentAdjustments || [],
-                    charges: allCharges || [],
+                    charges: filteredCharges || [],
+                    quickStats,
                     hasLoaded: true
                 });
 
-                await set(CACHE_PREFIX + META_KEY, serverMeta);
+                // Persist new meta for future version checks
+                await cacheManager.set('meta', serverMeta);
             }
         } catch (err) {
             console.error("Smart Sync Error:", err);
