@@ -61,7 +61,7 @@ const PasswordModal: React.FC<{ user: UserPermission, onSave: (pw: string) => vo
                 </div>
                 {error && <p className="text-red-600 text-sm">{error}</p>}
                 <div className="flex justify-end gap-2 pt-2 border-t">
-                    <button onClick={onClose} className="px-4 py-2 bg-gray-100 text-gray-700 rounded-lg hover:bg-gray-200">Hủy</button>
+                    <button onClick={onClose} className="px-4 py-2 bg-gray-100 text-gray-700 rounded-lg hover:bg-gray-200">Hủy hàng</button>
                     <button onClick={handleSubmit} className="px-4 py-2 bg-primary text-white rounded-lg hover:bg-primary-focus">Lưu thay đổi</button>
                 </div>
             </div>
@@ -465,11 +465,13 @@ const UsersPage: React.FC<UsersPageProps> = ({ users = [], setUsers, units = [],
                                 // SHOW CONTACT EMAIL (Safe Access)
                                 const emailToDisplay = user.contact_email; 
                                 const char = (displayName !== '-' ? displayName : username).charAt(0).toUpperCase();
+                                // Defensive check for Role.includes crash
+                                const isAdminRole = (user.Role || '').includes('Admin');
 
                                 return (
                                 <tr key={username} className="hover:bg-gray-50 transition-colors">
                                     <td className="px-6 py-4 text-center">
-                                        <input type="checkbox" checked={selectedUsers.has(username)} onChange={() => toggleSelectUser(username)} className="w-4 h-4 rounded text-primary focus:ring-primary" disabled={user.Role === 'Admin'} />
+                                        <input type="checkbox" checked={selectedUsers.has(username)} onChange={() => toggleSelectUser(username)} className="w-4 h-4 rounded text-primary focus:ring-primary" disabled={isAdminRole} />
                                     </td>
                                     <td className="px-6 py-4">
                                         <div className="flex items-center gap-3">
@@ -493,7 +495,7 @@ const UsersPage: React.FC<UsersPageProps> = ({ users = [], setUsers, units = [],
                                     </td>
                                     <td className="px-6 py-4">
                                         <span className={`px-2.5 py-0.5 rounded-full text-xs font-bold border ${
-                                            user.Role === 'Admin' ? 'bg-red-50 text-red-700 border-red-200' : 
+                                            isAdminRole ? 'bg-red-50 text-red-700 border-red-200' : 
                                             user.Role === 'Resident' ? 'bg-green-50 text-green-700 border-green-200' :
                                             'bg-blue-50 text-blue-700 border-blue-200'
                                         }`}>{user.Role}</span>
@@ -509,15 +511,15 @@ const UsersPage: React.FC<UsersPageProps> = ({ users = [], setUsers, units = [],
                                             {(user as ExtendedUser).permissions?.map(p => (
                                                 <span key={p} className="text-[10px] bg-gray-100 text-gray-600 px-1.5 py-0.5 rounded border border-gray-200">{AVAILABLE_MODULES.find(m=>m.id===p)?.label || p}</span>
                                             ))}
-                                            {(!user.Role.includes('Admin') && !(user as ExtendedUser).permissions?.length) && <span className="text-xs text-gray-400 italic">Cơ bản</span>}
-                                            {user.Role === 'Admin' && <span className="text-xs text-red-500 font-bold">Toàn quyền</span>}
+                                            {(!isAdminRole && !(user as ExtendedUser).permissions?.length) && <span className="text-xs text-gray-400 italic">Cơ bản</span>}
+                                            {isAdminRole && <span className="text-xs text-red-500 font-bold">Toàn quyền</span>}
                                         </div>
                                     </td>
                                     <td className="px-6 py-4 text-center">
                                         {isAdmin && (
                                             <div className="flex justify-center gap-2">
-                                                <button onClick={() => { setEditingUser(user); setIsUserModalOpen(true); }} disabled={user.Role === 'Admin' && user.Username !== currentUser?.Username} className="p-2 text-blue-600 hover:bg-blue-50 rounded-lg disabled:opacity-30"><PencilSquareIcon className="w-5 h-5" /></button>
-                                                <button onClick={() => setPasswordModalState({ isOpen: true, user })} disabled={user.Role === 'Admin' && user.Username !== currentUser?.Username} className="p-2 text-orange-600 hover:bg-orange-50 rounded-lg disabled:opacity-30"><KeyIcon className="w-5 h-5" /></button>
+                                                <button onClick={() => { setEditingUser(user); setIsUserModalOpen(true); }} disabled={isAdminRole && user.Username !== currentUser?.Username} className="p-2 text-blue-600 hover:bg-blue-50 rounded-lg disabled:opacity-30"><PencilSquareIcon className="w-5 h-5" /></button>
+                                                <button onClick={() => setPasswordModalState({ isOpen: true, user })} disabled={isAdminRole && user.Username !== currentUser?.Username} className="p-2 text-orange-600 hover:bg-orange-50 rounded-lg disabled:opacity-30"><KeyIcon className="w-5 h-5" /></button>
                                             </div>
                                         )}
                                     </td>

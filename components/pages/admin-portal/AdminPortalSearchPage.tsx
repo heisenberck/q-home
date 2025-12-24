@@ -13,26 +13,26 @@ interface AdminPortalSearchPageProps {
 }
 
 const AdminPortalSearchPage: React.FC<AdminPortalSearchPageProps> = ({ units, owners, vehicles, charges }) => {
-    const [query, setQuery] = useState('');
+    const [queryStr, setQueryStr] = useState('');
     const currentPeriod = new Date().toISOString().slice(0, 7);
 
     const results = useMemo(() => {
-        if (query.length < 2) return [];
-        const q = query.toLowerCase();
+        if (queryStr.length < 2) return [];
+        const q = queryStr.toLowerCase();
 
         // 1. Search by Unit ID
-        const matchedUnits = units.filter(u => u.UnitID.toLowerCase().includes(q));
+        const matchedUnits = units.filter(u => (u.UnitID || '').toLowerCase().includes(q));
 
         // 2. Search by Owner Name/Phone/Email
         const matchedOwners = owners.filter(o => 
-            o.OwnerName.toLowerCase().includes(q) || 
-            o.Phone.includes(q) || 
-            o.Email.toLowerCase().includes(q)
+            (o.OwnerName || '').toLowerCase().includes(q) || 
+            (o.Phone || '').includes(q) || 
+            (o.Email || '').toLowerCase().includes(q)
         );
 
         // 3. Search by Plate Number
         const matchedVehicles = vehicles.filter(v => 
-            v.isActive && v.PlateNumber.replace(/[^a-zA-Z0-9]/g, '').toLowerCase().includes(q.replace(/[^a-zA-Z0-9]/g, ''))
+            v.isActive && (v.PlateNumber || '').replace(/[^a-zA-Z0-9]/g, '').toLowerCase().includes(q.replace(/[^a-zA-Z0-9]/g, ''))
         );
 
         // Aggregate unique unit IDs
@@ -46,13 +46,13 @@ const AdminPortalSearchPage: React.FC<AdminPortalSearchPageProps> = ({ units, ow
 
         return Array.from(unitIds).map(id => {
             const unit = units.find(u => u.UnitID === id)!;
-            const owner = owners.find(o => o.OwnerID === unit.OwnerID);
+            const owner = owners.find(o => o.OwnerID === unit?.OwnerID);
             const unitVehicles = vehicles.filter(v => v.UnitID === id && v.isActive);
             const charge = charges.find(c => c.UnitID === id && c.Period === currentPeriod);
             return { id, unit, owner, vehicles: unitVehicles, charge };
         }).sort((a,b) => a.id.localeCompare(b.id));
 
-    }, [query, units, owners, vehicles, charges, currentPeriod]);
+    }, [queryStr, units, owners, vehicles, charges, currentPeriod]);
 
     return (
         <div className="p-4 space-y-4">
@@ -62,17 +62,17 @@ const AdminPortalSearchPage: React.FC<AdminPortalSearchPageProps> = ({ units, ow
                     <input 
                         type="text" 
                         placeholder="Tìm Căn hộ, Biển số, Tên, SĐT..." 
-                        value={query}
-                        onChange={(e) => setQuery(e.target.value)}
+                        value={queryStr}
+                        onChange={(e) => setQueryStr(e.target.value)}
                         className="w-full pl-12 pr-12 py-4 bg-white border border-gray-200 rounded-2xl shadow-sm focus:ring-2 focus:ring-primary outline-none text-lg font-medium"
                     />
-                    {query && (
-                        <button onClick={() => setQuery('')} className="absolute right-4 top-1/2 -translate-y-1/2 text-gray-400">
+                    {queryStr && (
+                        <button onClick={() => setQueryStr('')} className="absolute right-4 top-1/2 -translate-y-1/2 text-gray-400">
                             <XMarkIcon className="w-5 h-5" />
                         </button>
                     )}
                 </div>
-                {query.length > 0 && (
+                {queryStr.length > 0 && (
                     <p className="text-xs text-gray-500 mt-2 ml-2 font-bold uppercase tracking-widest">
                         Tìm thấy {results.length} kết quả
                     </p>
@@ -80,7 +80,7 @@ const AdminPortalSearchPage: React.FC<AdminPortalSearchPageProps> = ({ units, ow
             </div>
 
             <div className="space-y-4">
-                {results.length === 0 && query.length >= 2 && (
+                {results.length === 0 && queryStr.length >= 2 && (
                     <div className="bg-white p-8 rounded-2xl text-center border border-dashed">
                         <p className="text-gray-400">Không tìm thấy thông tin phù hợp.</p>
                     </div>
@@ -99,7 +99,7 @@ const AdminPortalSearchPage: React.FC<AdminPortalSearchPageProps> = ({ units, ow
                                     </div>
                                     <div>
                                         <h4 className={`font-black ${theme.text}`}>{res.owner?.OwnerName || 'N/A'}</h4>
-                                        <p className="text-xs text-gray-500 font-bold uppercase">{res.unit.Status}</p>
+                                        <p className="text-xs text-gray-500 font-bold uppercase">{res.unit?.Status || 'N/A'}</p>
                                     </div>
                                 </div>
                                 <div className="text-right">
@@ -132,7 +132,7 @@ const AdminPortalSearchPage: React.FC<AdminPortalSearchPageProps> = ({ units, ow
                                             {res.vehicles.map(v => (
                                                 <div key={v.VehicleId} className="bg-gray-50 px-2 py-1.5 rounded-lg border border-gray-200 flex items-center gap-2">
                                                     <span className="font-mono text-xs font-bold text-gray-800">{formatLicensePlate(v.PlateNumber)}</span>
-                                                    <span className="text-[10px] bg-white px-1.5 rounded border text-gray-500">{v.Type.includes('car') ? 'Ô tô' : 'Xe máy'}</span>
+                                                    <span className="text-[10px] bg-white px-1.5 rounded border text-gray-500">{(v.Type || '').includes('car') ? 'Ô tô' : 'Xe máy'}</span>
                                                 </div>
                                             ))}
                                         </div>
@@ -149,7 +149,7 @@ const AdminPortalSearchPage: React.FC<AdminPortalSearchPageProps> = ({ units, ow
                 })}
             </div>
 
-            {query.length === 0 && (
+            {queryStr.length === 0 && (
                 <div className="py-20 flex flex-col items-center justify-center text-gray-400 space-y-4">
                     <div className="w-20 h-20 bg-white rounded-full flex items-center justify-center shadow-sm">
                         <SearchIcon className="w-10 h-10 text-gray-200" />
