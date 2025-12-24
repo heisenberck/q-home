@@ -31,16 +31,15 @@ const getStatusVN = (status: string) => {
         case 'Owner': return 'Chính chủ';
         case 'Rent': return 'Hộ thuê';
         case 'Business': return 'Kinh doanh';
-        default: return status || 'N/A';
+        default: return status;
     }
 };
 
 const getVehicleIcon = (type: string) => {
-    const t = (type || '').toLowerCase();
-    if (t === 'car' || t === 'car_a') return <CarIcon className="w-5 h-5" />;
-    if (t === 'motorbike') return <MotorbikeIcon className="w-5 h-5" />;
-    if (t === 'ebike') return <EBikeIcon className="w-5 h-5" />;
-    if (t === 'bicycle') return <BikeIcon className="w-5 h-5" />;
+    if (type === 'car' || type === 'car_a') return <CarIcon className="w-5 h-5" />;
+    if (type === 'motorbike') return <MotorbikeIcon className="w-5 h-5" />;
+    if (type === 'ebike') return <EBikeIcon className="w-5 h-5" />;
+    if (type === 'bicycle') return <BikeIcon className="w-5 h-5" />;
     return <CarIcon className="w-5 h-5" />;
 };
 
@@ -99,7 +98,7 @@ const AdminPortalHomePage: React.FC<AdminPortalHomePageProps> = ({
         
         const matchedUnits = units.filter(u => {
             const owner = owners.find(o => o.OwnerID === u.OwnerID);
-            return (u.UnitID || '').toLowerCase().includes(q) || (owner?.OwnerName || '').toLowerCase().includes(q);
+            return u.UnitID.toLowerCase().includes(q) || (owner?.OwnerName || '').toLowerCase().includes(q);
         });
 
         matchedUnits.forEach(u => {
@@ -110,7 +109,7 @@ const AdminPortalHomePage: React.FC<AdminPortalHomePageProps> = ({
 
         const matchedVehicles = vehicles.filter(v => 
             v.isActive && 
-            (v.PlateNumber || '').toLowerCase().replace(/[^a-zA-Z0-9]/g, '').includes(q.replace(/[^a-zA-Z0-9]/g, '')) &&
+            v.PlateNumber.toLowerCase().replace(/[^a-zA-Z0-9]/g, '').includes(q.replace(/[^a-zA-Z0-9]/g, '')) &&
             !matchedUnits.some(u => u.UnitID === v.UnitID)
         );
 
@@ -140,6 +139,7 @@ const AdminPortalHomePage: React.FC<AdminPortalHomePageProps> = ({
             <div className="grid grid-cols-2 gap-3 shrink-0">
                 <StatCard label="Thực thu tháng" value={formatCurrency(stats.totalPaid)} subValue={formatCurrency(stats.totalDue)} icon={<BanknotesIcon />} color="text-emerald-600" bgColor="bg-emerald-50" onClick={() => onNavigate?.('adminPortalBilling')} />
                 <StatCard label="Tiến độ thu" value={`${Math.round((stats.paidCount / (stats.totalUnits || 1)) * 100)}%`} subValue={`${stats.paidCount}/${stats.totalUnits}`} icon={<CheckCircleIcon />} color="text-primary" bgColor="bg-primary/10" onClick={() => onNavigate?.('adminPortalBilling')} />
+                {/* Cập nhật điều hướng trực tiếp bên dưới */}
                 <StatCard label="Doanh thu GTGT" value={formatCurrency(stats.vasTotal)} icon={<SparklesIcon />} color="text-amber-600" bgColor="bg-amber-50" onClick={() => onNavigate?.('adminPortalVAS')} />
                 <StatCard label="Chi phí VH" value={formatCurrency(stats.expenseTotal)} icon={<TrendingDownIcon />} color="text-rose-600" bgColor="bg-rose-50" onClick={() => onNavigate?.('adminPortalExpenses')} />
             </div>
@@ -184,7 +184,7 @@ const AdminPortalHomePage: React.FC<AdminPortalHomePageProps> = ({
                             const isExpanded = expandedResultId === res.id;
                             const theme = getPastelColorForName(res.targetId || 'HUD3');
                             const vType = res.type === 'vehicle' ? res.vehicle?.Type : '';
-                            const isCar = (vType || '').includes('car');
+                            const isCar = vType === 'car' || vType === 'car_a';
                             
                             return (
                                 <div key={res.id} className={`transition-all ${isExpanded ? 'bg-slate-50 shadow-inner' : 'bg-white'}`}>

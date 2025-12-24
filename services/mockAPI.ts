@@ -330,19 +330,6 @@ export const setLockStatus = async (month: string, status: boolean): Promise<voi
 export const getBillingLockStatus = async (period: string): Promise<boolean> => Promise.resolve(billingLocks.get(period) ?? false);
 export const setBillingLockStatus = async (period: string, status: boolean): Promise<void> => { billingLocks.set(period, status); saveBillingLocks(); return Promise.resolve(); };
 export const resetUserPassword = async (email: string): Promise<void> => Promise.resolve();
-
-// Add missing exports for useSmartData
-export const fetchCollectionOptimized = async <T>(colName: string, _versionKey?: keyof SystemMetadata): Promise<T[]> => {
-    return fetchCollection<T>(colName);
-};
-
-export const getQuickStats = async () => {
-    return Promise.resolve({
-        totalUnits: units.length,
-        activeVehicles: vehicles.filter(v => v.isActive).length
-    });
-};
-
 export const getPendingProfileRequest = async (residentId: string): Promise<ProfileRequest | null> => Promise.resolve(null);
 export const getAllPendingProfileRequests = async (): Promise<ProfileRequest[]> => Promise.resolve([]);
 export const submitUserProfileUpdate = async (userAuthEmail: string, residentId: string, ownerId: string, newData: any) => Promise.resolve({} as ProfileRequest);
