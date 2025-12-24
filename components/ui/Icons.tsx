@@ -1,3 +1,4 @@
+
 import React from 'react';
 import { 
   LayoutDashboard, 
@@ -65,13 +66,16 @@ import {
   TrendingUp,
   Menu,
   Store,
-  Inbox
+  Inbox,
+  ClipboardCheck
 } from 'lucide-react';
 
 interface IconProps {
     className?: string;
     size?: number;
     fill?: string;
+    // Fix: Added strokeWidth to support custom thickness for icons
+    strokeWidth?: number;
 }
 
 // Global default size reduced to 14px for a more refined look
@@ -81,7 +85,8 @@ const DEFAULT_SIZE = 14;
 export const PieChartIcon: React.FC<IconProps> = ({ className = DEFAULT_CLASS, size = DEFAULT_SIZE }) => <LayoutDashboard className={className} size={size} />;
 export const UserCircleIcon: React.FC<IconProps> = ({ className = DEFAULT_CLASS, size = DEFAULT_SIZE }) => <UserCircle className={className} size={size} />;
 export const ArrowRightOnRectangleIcon: React.FC<IconProps> = ({ className = DEFAULT_CLASS, size = DEFAULT_SIZE }) => <LogOut className={className} size={size} />;
-export const CheckIcon: React.FC<IconProps> = ({ className = DEFAULT_CLASS, size = DEFAULT_SIZE }) => <Check className={className} size={size} />;
+// Fix: Added strokeWidth destructuring to pass to Lucide Check component
+export const CheckIcon: React.FC<IconProps> = ({ className = DEFAULT_CLASS, size = DEFAULT_SIZE, strokeWidth }) => <Check className={className} size={size} strokeWidth={strokeWidth} />;
 export const UserIcon: React.FC<IconProps> = ({ className = DEFAULT_CLASS, size = DEFAULT_SIZE }) => <User className={className} size={size} />;
 export const UsersIcon: React.FC<IconProps> = ({ className = DEFAULT_CLASS, size = DEFAULT_SIZE }) => <Users className={className} size={size} />;
 export const PaperAirplaneIcon: React.FC<IconProps> = ({ className = DEFAULT_CLASS, size = DEFAULT_SIZE }) => <Send className={className} size={size} />;
@@ -168,5 +173,5 @@ export const TrendingDownIcon: React.FC<IconProps> = ({ className = DEFAULT_CLAS
 export const MenuIcon: React.FC<IconProps> = ({ className = DEFAULT_CLASS, size = DEFAULT_SIZE }) => <Menu className={className} size={size} />;
 export const ZapIcon: React.FC<IconProps> = ({ className = DEFAULT_CLASS, size = DEFAULT_SIZE }) => <Zap className={className} size={size} />;
 export const InfoIcon: React.FC<IconProps> = ({ className = DEFAULT_CLASS, size = DEFAULT_SIZE }) => <Info className={className} size={size} />;
-/* Fix: Export InboxIcon from lucide-react */
 export const InboxIcon: React.FC<IconProps> = ({ className = DEFAULT_CLASS, size = DEFAULT_SIZE }) => <Inbox className={className} size={size} />;
+export const ClipboardCheckIcon: React.FC<IconProps> = ({ className = DEFAULT_CLASS, size = DEFAULT_SIZE }) => <ClipboardCheck className={className} size={size} />;

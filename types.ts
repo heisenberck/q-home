@@ -227,6 +227,37 @@ export interface FeedbackItem {
     imageUrl?: string;
 }
 
+// NEW: Service Registration Types
+export type RegistrationStatus = 'Pending' | 'Approved' | 'Rejected';
+export type RegistrationType = 'Construction' | 'Vehicle';
+
+export interface ServiceRegistration {
+    id: string;
+    residentId: string;
+    type: RegistrationType;
+    status: RegistrationStatus;
+    date: string;
+    details: {
+        // Construction fields
+        constructionItem?: string;
+        constructionTime?: string;
+        contractor?: string;
+        description?: string;
+        // Vehicle fields
+        vehicleType?: 'moto' | 'car';
+        plate?: string;
+        model?: string;
+        color?: string;
+    };
+    documents: {
+        name: string;
+        url: string;
+    }[];
+    rejectionReason?: string;
+    processedBy?: string;
+    processedAt?: string;
+}
+
 export interface UserPermission {
     Email: string;
     Username?: string;
