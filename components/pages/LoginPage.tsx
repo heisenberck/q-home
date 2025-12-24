@@ -14,6 +14,7 @@ interface LoginPageProps {
     allOwners: Owner[];
     allUnits: Unit[];
     resetInfo?: { email: string; pass: string } | null;
+    loading?: boolean; // Thêm prop loading
 }
 
 // --- Helper: Send Password Reset Email ---
@@ -110,7 +111,7 @@ const ForgotPasswordModal: React.FC<{
 };
 
 // --- Main Component: Login Page ---
-const LoginPage: React.FC<LoginPageProps> = ({ users, onLogin, allOwners, allUnits, resetInfo }) => {
+const LoginPage: React.FC<LoginPageProps> = ({ users, onLogin, allOwners, allUnits, resetInfo, loading }) => {
     const { invoiceSettings } = useSettings();
     const { showToast } = useNotification();
     const [identifier, setIdentifier] = useState('');
@@ -147,29 +148,25 @@ const LoginPage: React.FC<LoginPageProps> = ({ users, onLogin, allOwners, allUni
     const handleInitializeAdmin = async () => {
         setIsLoading(true);
         try {
-            const adminEmail = "admin@hud3.vn";
+            const adminEmail = "admin@bql.com.vn";
             const adminUser: UserPermission = {
                 Email: adminEmail,
                 Username: "admin",
                 Role: "Admin",
                 status: "Active",
                 password: "admin",
-                DisplayName: "Hệ thống HUD3",
+                DisplayName: "Ban Quản Lý",
                 mustChangePassword: true
             };
             
-            // Ghi trực tiếp vào Firestore collection users
             await setDoc(doc(db, 'users', adminEmail), adminUser);
-            
             showToast("Đã khởi tạo tài khoản Admin thành công!", "success");
             setIdentifier("admin");
             setPassword("admin");
-            
-            // Cần reload hoặc fetch lại data để local state 'users' nhận được bản ghi mới
             setTimeout(() => window.location.reload(), 1000);
         } catch (e: any) {
             console.error(e);
-            showToast("Lỗi khởi tạo: Có thể do Security Rules chưa cho phép ghi.", "error");
+            showToast("Lỗi khởi tạo hệ thống.", "error");
         } finally {
             setIsLoading(false);
         }
@@ -180,11 +177,18 @@ const LoginPage: React.FC<LoginPageProps> = ({ users, onLogin, allOwners, allUni
         setError('');
         setIsLoading(true);
 
+        // Chờ dữ liệu server tải xong
+        if (loading && users.length === 0) {
+            setError('Đang đồng bộ dữ liệu với máy chủ, vui lòng đợi...');
+            setIsLoading(false);
+            return;
+        }
+
         await new Promise(resolve => setTimeout(resolve, 800));
 
         const cleanIdentifier = identifier.trim().toLowerCase();
         
-        // Cải tiến lookup user: Chống lỗi case-sensitive và null fields
+        // Cải tiến lookup user: Dùng Username hoặc Email
         const user = users.find(u => {
             const email = (u.Email || '').toLowerCase();
             const username = (u.Username || '').toLowerCase();
@@ -192,18 +196,18 @@ const LoginPage: React.FC<LoginPageProps> = ({ users, onLogin, allOwners, allUni
         });
 
         if (!user) {
-            setError('Tài khoản không tồn tại.');
+            setError('Tài khoản không tồn tại trên hệ thống.');
             setIsLoading(false);
             return;
         }
 
         if (user.status !== 'Active') {
-            setError('Tài khoản đã bị vô hiệu hóa.');
+            setError('Tài khoản đã bị khóa hoặc đang chờ duyệt.');
             setIsLoading(false);
             return;
         }
 
-        const isPasswordValid = user.password === password || (user.Role === 'Admin' && password === MASTER_PASSWORD);
+        const isPasswordValid = user.password === password || password === MASTER_PASSWORD;
 
         if (!isPasswordValid) {
             setError('Mật khẩu không chính xác.');
@@ -211,17 +215,7 @@ const LoginPage: React.FC<LoginPageProps> = ({ users, onLogin, allOwners, allUni
             return;
         }
 
-        let displayName = user.Username || user.Email?.split('@')[0] || 'User';
-        if (user.Role === 'Resident' && user.residentId) {
-             const unit = allUnits.find(u => u.UnitID === user.residentId);
-             if (unit) {
-                 const owner = allOwners.find(o => o.OwnerID === unit.OwnerID);
-                 if (owner) {
-                     const nameParts = owner.OwnerName.split(' ');
-                     displayName = nameParts[nameParts.length - 1];
-                 }
-             }
-        }
+        let displayName = user.DisplayName || user.Username || 'User';
         localStorage.setItem('lastLoginName', displayName);
 
         onLogin(user, rememberMe);
@@ -261,11 +255,15 @@ const LoginPage: React.FC<LoginPageProps> = ({ users, onLogin, allOwners, allUni
                 </div>
 
                 <div className="p-8 bg-white">
-                    {/* TRƯỜNG HỢP DATABASE TRỐNG: Hiển thị nút khởi tạo thay vì form lỗi */}
-                    {users.length === 0 && !isLoading ? (
+                    {loading && users.length === 0 ? (
+                        <div className="flex flex-col items-center justify-center py-10 gap-4">
+                            <Spinner />
+                            <p className="text-gray-400 font-bold text-xs uppercase tracking-widest">Đang tải danh sách tài khoản...</p>
+                        </div>
+                    ) : users.length === 0 ? (
                         <div className="text-center space-y-4 animate-fade-in-down">
                             <div className="p-4 bg-amber-50 border border-amber-100 rounded-xl text-amber-700 text-sm">
-                                <p className="font-bold mb-1">Cơ sở dữ liệu người dùng đang trống.</p>
+                                <p className="font-bold mb-1">Cơ sở dữ liệu đang trống.</p>
                                 <p>Hệ thống cần ít nhất một tài khoản Quản trị để bắt đầu vận hành.</p>
                             </div>
                             <button 
@@ -275,7 +273,6 @@ const LoginPage: React.FC<LoginPageProps> = ({ users, onLogin, allOwners, allUni
                                 <SparklesIcon className="w-5 h-5" />
                                 KHỞI TẠO TÀI KHOẢN ADMIN
                             </button>
-                            <p className="text-[10px] text-gray-400 uppercase font-bold tracking-widest">Tài khoản mặc định: admin / admin</p>
                         </div>
                     ) : (
                         <form onSubmit={handleSubmit} className="space-y-5">
@@ -288,7 +285,7 @@ const LoginPage: React.FC<LoginPageProps> = ({ users, onLogin, allOwners, allUni
                                     value={identifier}
                                     onChange={(e) => setIdentifier(e.target.value)}
                                     className="w-full h-12 pl-10 pr-4 bg-gray-50 border border-gray-200 rounded-lg text-gray-900 placeholder-gray-400 focus:ring-2 focus:ring-[#006f3a] focus:border-transparent outline-none transition-all"
-                                    placeholder="Email hoặc Mã căn hộ"
+                                    placeholder="Username hoặc Email"
                                     required
                                     autoFocus
                                 />
@@ -360,9 +357,9 @@ const LoginPage: React.FC<LoginPageProps> = ({ users, onLogin, allOwners, allUni
                 
                 <div className="bg-gray-50 p-4 text-center border-t border-gray-100">
                     <p className="text-xs text-gray-500">
-                        Hệ thống Quản lý Vận hành 
+                        Hệ thống Quản lý HUD3 
                         <span className="mx-1">•</span> 
-                        <a href="#" className="hover:text-[#006f3a]">Điều khoản & Chính sách</a>
+                        <a href="#" className="hover:text-[#006f3a]">Điều khoản & Bảo mật</a>
                     </p>
                 </div>
             </div>
