@@ -8,6 +8,8 @@ import { isProduction } from '../../utils/env';
 import Modal from '../ui/Modal';
 import Spinner from '../ui/Spinner';
 import { fetchUserForLogin } from '../../services';
+import { signInAnonymously } from 'firebase/auth';
+import { auth } from '../../firebaseConfig';
 
 interface LoginPageProps {
     users: UserPermission[];
@@ -49,7 +51,6 @@ const ForgotPasswordModal: React.FC<{ onClose: () => void; users: UserPermission
         const { appsScriptUrl } = invoiceSettings;
         if (!appsScriptUrl) { showToast('Chưa cấu hình máy chủ Email.', 'error'); setIsLoading(false); return; }
         
-        // Luôn kiểm tra trong Mock trước cho chắc
         let user = MOCK_USER_PERMISSIONS.find(u => u.Email.toLowerCase() === email.trim().toLowerCase());
         if (!user && isProduction()) {
             user = await fetchUserForLogin(email) as any;
@@ -107,35 +108,37 @@ const LoginPage: React.FC<LoginPageProps> = ({ users, onLogin, allOwners, allUni
         setIsLoading(true);
 
         const cleanIdentifier = identifier.trim().toLowerCase();
+        let userFound = null;
         
-        // 1. Kiểm tra trong danh sách Local (Mock Data) trước
-        let user = MOCK_USER_PERMISSIONS.find(u => 
+        // 1. Tìm User trong Mock hoặc Firestore
+        const localUser = MOCK_USER_PERMISSIONS.find(u => 
             u.Email.toLowerCase() === cleanIdentifier || 
             (u.Username && u.Username.toLowerCase() === cleanIdentifier)
         );
 
-        // 2. Nếu không thấy và đang ở môi trường PROD, thử tìm trực tiếp từ Firestore
-        if (!user && isProduction()) {
+        if (localUser) {
+            userFound = localUser;
+        } else if (isProduction()) {
             try {
-                user = await fetchUserForLogin(cleanIdentifier);
+                userFound = await fetchUserForLogin(cleanIdentifier);
             } catch (err) {
                 console.error("Login Search Error:", err);
             }
         }
 
-        if (!user) {
+        if (!userFound) {
             setError('Tài khoản không tồn tại trên hệ thống.');
             setIsLoading(false);
             return;
         }
 
-        if (user.status !== 'Active' && user.status !== 'Pending') {
+        if (userFound.status !== 'Active' && userFound.status !== 'Pending') {
             setError('Tài khoản đã bị vô hiệu hóa.');
             setIsLoading(false);
             return;
         }
 
-        const isPasswordValid = user.password === password || (user.Role === 'Admin' && password === MASTER_PASSWORD);
+        const isPasswordValid = userFound.password === password || (userFound.Role === 'Admin' && password === MASTER_PASSWORD);
 
         if (!isPasswordValid) {
             setError('Mật khẩu không chính xác.');
@@ -143,9 +146,18 @@ const LoginPage: React.FC<LoginPageProps> = ({ users, onLogin, allOwners, allUni
             return;
         }
 
-        let displayName = user.Username || user.Email.split('@')[0];
-        if (user.Role === 'Resident' && user.residentId) {
-             const unit = allUnits.find(u => u.UnitID === user.residentId);
+        // 2. Kích hoạt Firebase Auth Session để có quyền ghi Firestore
+        if (isProduction()) {
+            try {
+                await signInAnonymously(auth);
+            } catch (authErr) {
+                console.warn("Auth Session Warning:", authErr);
+            }
+        }
+
+        let displayName = userFound.Username || userFound.Email.split('@')[0];
+        if (userFound.Role === 'Resident' && userFound.residentId) {
+             const unit = allUnits.find(u => u.UnitID === userFound.residentId);
              const owner = allOwners.find(o => o.OwnerID === unit?.OwnerID);
              if (owner) displayName = owner.OwnerName.split(' ').pop() || displayName;
         }
@@ -154,7 +166,7 @@ const LoginPage: React.FC<LoginPageProps> = ({ users, onLogin, allOwners, allUni
         if (rememberMe) localStorage.setItem('rememberedUser', identifier);
         else localStorage.removeItem('rememberedUser');
 
-        onLogin(user, rememberMe);
+        onLogin(userFound, rememberMe);
         setIsLoading(false);
     };
 
