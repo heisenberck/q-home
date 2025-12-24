@@ -93,7 +93,7 @@ const ServiceRegistrationPage: React.FC<ServiceRegistrationPageProps> = ({ role 
     };
 
     return (
-        <div className="space-y-6 animate-fade-in-down">
+        <div className="space-y-4 animate-fade-in-down">
             <style>{`
                 @keyframes pulse-glow {
                     0% { box-shadow: 0 0 0 0 rgba(249, 115, 22, 0.4); transform: scale(1); }
@@ -105,13 +105,6 @@ const ServiceRegistrationPage: React.FC<ServiceRegistrationPageProps> = ({ role 
                 }
             `}</style>
             
-            <div className="flex flex-col md:flex-row md:items-end justify-between gap-4">
-                <div>
-                    <h1 className="text-2xl font-black text-gray-800 tracking-tight">Xét duyệt Đăng ký Dịch vụ</h1>
-                    <p className="text-sm text-gray-500 font-medium">Quản lý hồ sơ thi công và phương tiện từ Portal Cư dân.</p>
-                </div>
-            </div>
-
             {/* Filters Bar */}
             <div className="bg-white p-3 rounded-2xl shadow-sm border border-gray-100 flex flex-col lg:flex-row gap-3 items-center">
                 <div className="flex bg-gray-100 p-1 rounded-xl w-full lg:w-auto border border-gray-200 shadow-inner">

@@ -13,7 +13,7 @@ import { get, set } from 'idb-keyval';
 const CACHE_PREFIX = 'qhome_cache_v2_';
 const META_KEY = 'qhome_meta_version';
 
-export const useSmartSystemData = (currentUser: UserPermission | null) => {
+export const useSmartSystemData = (currentUser: UserPermission | null, authLoading: boolean = false) => {
     
     const [data, setData] = useState<{
         units: Unit[];
@@ -44,6 +44,13 @@ export const useSmartSystemData = (currentUser: UserPermission | null) => {
     const [error, setError] = useState<string | null>(null);
 
     const refreshSystemData = useCallback(async (force = false) => {
+        // --- CRITICAL: Wait for Auth before fetching from secure Firestore ---
+        if (authLoading) return;
+        if (isProduction() && !currentUser) {
+            setLoading(false);
+            return;
+        }
+
         setLoading(true);
         setError(null);
         
@@ -60,7 +67,6 @@ export const useSmartSystemData = (currentUser: UserPermission | null) => {
 
             const cachedUsers = await get(CACHE_PREFIX + 'users');
             const shouldFetchUsers = force || serverMeta.users_version > localMeta.users_version || !cachedUsers;
-            // Fix: Untyped function calls may not accept type arguments. Removed <UserPermission> and added type assertion.
             const fetchedUsers = shouldFetchUsers ? await (api.fetchCollection('users') as Promise<UserPermission[]>) : cachedUsers;
             if (shouldFetchUsers) await set(CACHE_PREFIX + 'users', fetchedUsers);
 
@@ -77,7 +83,6 @@ export const useSmartSystemData = (currentUser: UserPermission | null) => {
             const shouldFetchTariffs = force || serverMeta.tariffs_version > localMeta.tariffs_version || !cachedTariffs;
             promises.push(shouldFetchTariffs ? getDoc(doc(db, 'settings', 'tariffs')).then(s => s.exists() ? s.data() : null) : Promise.resolve(cachedTariffs));
             promises.push(api.fetchWaterLocks());
-            // Fix: Untyped function calls may not accept type arguments. Removed <MonthlyStat> and added type assertion.
             promises.push(api.fetchCollection('monthly_stats') as Promise<MonthlyStat[]>);
 
             let fetchedUnits: Unit[] = [];
@@ -97,18 +102,13 @@ export const useSmartSystemData = (currentUser: UserPermission | null) => {
                 const shouldFetchOwnersFlag = force || serverMeta.owners_version > localMeta.owners_version || !cachedOwners;
                 const shouldFetchVehiclesFlag = force || serverMeta.vehicles_version > localMeta.vehicles_version || !cachedVehicles;
 
-                // Fix: Untyped function calls may not accept type arguments. Removed <Unit> and added type assertion.
                 promises.push(shouldFetchUnitsFlag ? (api.fetchCollection('units') as Promise<Unit[]>) : Promise.resolve(cachedUnits));
-                // Fix: Untyped function calls may not accept type arguments. Removed <Owner> and added type assertion.
                 promises.push(shouldFetchOwnersFlag ? (api.fetchCollection('owners') as Promise<Owner[]>) : Promise.resolve(cachedOwners));
-                // Fix: Untyped function calls may not accept type arguments. Removed <Vehicle> and added type assertion.
                 promises.push(shouldFetchVehiclesFlag ? (api.fetchCollection('vehicles') as Promise<Vehicle[]>) : Promise.resolve(cachedVehicles));
                 promises.push(api.fetchRecentAdjustments(currentPeriod)); 
                 promises.push(api.fetchRecentWaterReadings([currentPeriod]));
-                // Fix: Untyped function calls may not accept type arguments. Removed <ChargeRaw> and added type assertion.
                 promises.push(api.fetchCollection('charges') as Promise<ChargeRaw[]>);
                 promises.push(api.getMonthlyMiscRevenues(currentPeriod));
-                // Fix: Untyped function calls may not accept type arguments. Removed <OperationalExpense> and added type assertion.
                 promises.push((api.fetchCollection('operational_expenses') as Promise<OperationalExpense[]>).then(all => all.filter(e => e.date.startsWith(currentPeriod))));
 
                 const results = await Promise.all(promises);
@@ -140,7 +140,6 @@ export const useSmartSystemData = (currentUser: UserPermission | null) => {
             } else {
                 if (residentId) {
                     const specificData = await api.fetchResidentSpecificData(residentId);
-                    // Fix: Untyped function calls may not accept type arguments. Removed <ChargeRaw> and added type assertion.
                     const charges = await (api.fetchCollection('charges') as Promise<ChargeRaw[]>).then(all => all.filter(c => c.UnitID === residentId));
 
                     setData(prev => ({
@@ -162,8 +161,8 @@ export const useSmartSystemData = (currentUser: UserPermission | null) => {
         } finally {
             setLoading(false);
         }
-    }, [currentUser]); 
+    }, [currentUser, authLoading]); 
 
-    useEffect(() => { refreshSystemData(false); }, [currentUser, refreshSystemData]);
+    useEffect(() => { refreshSystemData(false); }, [currentUser, authLoading, refreshSystemData]);
     return { ...data, loading, error, refreshSystemData };
 };
