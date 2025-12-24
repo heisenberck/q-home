@@ -1,14 +1,29 @@
 
-import { doc, getDoc, setDoc, collection, getDocs, writeBatch, query, deleteDoc, updateDoc, limit, orderBy, where, serverTimestamp, startAfter, addDoc } from 'firebase/firestore';
+import { 
+    doc, 
+    getDoc, 
+    setDoc, 
+    collection, 
+    getDocs, 
+    writeBatch, 
+    query, 
+    deleteDoc, 
+    updateDoc, 
+    limit, 
+    orderBy, 
+    where, 
+    serverTimestamp, 
+    startAfter, 
+    addDoc,
+    Timestamp 
+} from 'firebase/firestore';
 import { db } from '../firebaseConfig';
-export { logActivity } from './logService';
-import { logActivity } from './logService';
 import type { 
     InvoiceSettings, Unit, Owner, Vehicle, WaterReading, 
     ChargeRaw, Adjustment, UserPermission, ActivityLog, 
     AllData, PaymentStatus, MonthlyStat, SystemMetadata, 
     ProfileRequest, MiscRevenue, TariffCollection, AdminNotification,
-    Role, NewsItem, ResidentNotification
+    Role, NewsItem
 } from '../types';
 
 /**
@@ -35,7 +50,6 @@ export const fetchUserForLogin = async (identifier: string): Promise<UserPermiss
     return null;
 };
 
-// --- NEW SCOPED QUERIES FOR RESIDENTS ---
 export const fetchChargesForResident = async (residentId: string): Promise<ChargeRaw[]> => {
     const q = query(collection(db, 'charges'), where('UnitID', '==', residentId), orderBy('Period', 'desc'));
     const snap = await getDocs(q);
@@ -71,10 +85,31 @@ const bumpVersion = (batch: any, field: keyof SystemMetadata) => {
 const injectLogAndNotif = (batch: any, log: any) => {
     const logId = `log_${Date.now()}_${Math.random().toString(36).substr(2, 5)}`;
     const logRef = doc(db, 'activity_logs', logId);
-    const logData = { id: logId, actionType: log.action || 'UPDATE', module: log.module || 'System', description: log.summary || '', timestamp: serverTimestamp(), performedBy: { email: log.actor_email || 'system', name: log.actor_name || 'Quản trị viên', uid: 'system' } };
+    
+    const logData = { 
+        id: logId, 
+        actionType: log.action || 'UPDATE', 
+        module: log.module || 'System', 
+        description: log.summary || '', 
+        timestamp: serverTimestamp(), 
+        performedBy: { 
+            email: log.actor_email || 'system', 
+            name: log.actor_name || 'Quản trị viên', 
+            uid: 'system' 
+        } 
+    };
     batch.set(logRef, logData);
-    const notifRef = doc(collection(db, 'admin_notifications'));
-    const notifData: AdminNotification = { id: notifRef.id, type: log.type || 'system', title: log.title || 'Cập nhật hệ thống', message: log.summary || '', isRead: false, createdAt: serverTimestamp() };
+
+    const notifCol = collection(db, 'admin_notifications');
+    const notifRef = doc(notifCol);
+    const notifData: AdminNotification = { 
+        id: notifRef.id, 
+        type: log.type || 'system', 
+        title: log.title || 'Cập nhật hệ thống', 
+        message: log.summary || '', 
+        isRead: false, 
+        createdAt: serverTimestamp() 
+    };
     batch.set(notifRef, notifData);
 };
 
@@ -86,8 +121,14 @@ export const fetchNews = async (): Promise<NewsItem[]> => {
 
 export const saveNewsItem = async (item: NewsItem): Promise<string> => {
     const { id, ...data } = item;
-    if (id && !id.startsWith('news_mock')) { await setDoc(doc(db, 'news', id), data, { merge: true }); return id; }
-    else { const docRef = await addDoc(collection(db, 'news'), data); return docRef.id; }
+    if (id && !id.startsWith('news_mock')) { 
+        await setDoc(doc(db, 'news', id), data, { merge: true }); 
+        return id; 
+    }
+    else { 
+        const docRef = await addDoc(collection(db, 'news'), data); 
+        return docRef.id; 
+    }
 };
 
 export const deleteNewsItem = async (id: string): Promise<void> => { await deleteDoc(doc(db, 'news', id)); };
@@ -99,18 +140,43 @@ export const updateResidentData = async (currentUnits: Unit[], currentOwners: Ow
     batch.set(doc(db, 'owners', data.owner.OwnerID), data.owner);
     const activeIds = new Set<string>();
     const platesUpdated: string[] = [];
+    
     data.vehicles.forEach(v => {
         let vehicleId = v.VehicleId;
         let vehicleToSave = { ...v, isActive: true, updatedAt: new Date().toISOString() };
         platesUpdated.push(v.PlateNumber);
-        if (vehicleId.startsWith('VEH_NEW_')) { const newRef = doc(collection(db, "vehicles")); vehicleToSave.VehicleId = newRef.id; batch.set(newRef, vehicleToSave); activeIds.add(newRef.id); }
-        else { batch.set(doc(db, 'vehicles', vehicleId), vehicleToSave); activeIds.add(vehicleId); }
+        if (!vehicleId || vehicleId.startsWith('VEH_NEW_')) { 
+            const newRef = doc(collection(db, "vehicles")); 
+            vehicleToSave.VehicleId = newRef.id; 
+            batch.set(newRef, vehicleToSave); 
+            activeIds.add(newRef.id); 
+        }
+        else { 
+            batch.set(doc(db, 'vehicles', vehicleId), vehicleToSave); 
+            activeIds.add(vehicleId); 
+        }
     });
-    currentVehicles.filter(v => v.UnitID === data.unit.UnitID && v.isActive && !activeIds.has(v.VehicleId)).forEach(v => { batch.update(doc(db, 'vehicles', v.VehicleId), { isActive: false }); });
+
+    currentVehicles.filter(v => v.UnitID === data.unit.UnitID && v.isActive && !activeIds.has(v.VehicleId)).forEach(v => { 
+        batch.update(doc(db, 'vehicles', v.VehicleId), { isActive: false }); 
+    });
+
     const logSummary = `${platesUpdated.length > 0 ? `Xe: ${platesUpdated.join(', ')}` : 'Cập nhật hồ sơ'}. ${reason ? `Lý do: ${reason}` : ''}`;
-    injectLogAndNotif(batch, { actor_email: actor?.email, module: 'Cư dân', action: 'UPDATE', title: `Cập nhật Căn ${data.unit.UnitID}`, summary: logSummary, type: 'request' });
-    bumpVersion(batch, 'units_version'); bumpVersion(batch, 'owners_version'); bumpVersion(batch, 'vehicles_version');
-    await batch.commit(); return true; 
+    injectLogAndNotif(batch, { 
+        actor_email: actor?.email, 
+        module: 'Cư dân', 
+        action: 'UPDATE', 
+        title: `Cập nhật Căn ${data.unit.UnitID}`, 
+        summary: logSummary, 
+        type: 'request' 
+    });
+    
+    bumpVersion(batch, 'units_version'); 
+    bumpVersion(batch, 'owners_version'); 
+    bumpVersion(batch, 'vehicles_version');
+    
+    await batch.commit(); 
+    return true; 
 };
 
 export const saveVehicles = async (d: Vehicle[], actor?: { email: string, role: Role }, reason?: string) => {
@@ -120,7 +186,8 @@ export const saveVehicles = async (d: Vehicle[], actor?: { email: string, role: 
     const details = d.map(v => `${v.Type.includes('car') ? 'Ô tô' : 'Xe máy'} [${v.PlateNumber}]`).join(', ');
     d.forEach(v => { batch.set(doc(db, 'vehicles', v.VehicleId), v); });
     injectLogAndNotif(batch, { actor_email: actor?.email, module: 'Phương tiện', action: 'UPDATE', title: `Cập nhật Căn ${unitId}`, summary: `Căn ${unitId}: Cập nhật ${details}${reason ? `. Lý do: ${reason}` : ''}`, type: 'system' });
-    bumpVersion(batch, 'vehicles_version'); return batch.commit();
+    bumpVersion(batch, 'vehicles_version'); 
+    return batch.commit();
 };
 
 export const fetchCollection = async <T>(colName: string): Promise<T[]> => {
@@ -133,7 +200,23 @@ export const fetchLatestLogs = async (limitCount: number = 20): Promise<Activity
     const snap = await getDocs(q);
     return snap.docs.map(d => {
         const data = d.data();
-        return { id: d.id, ts: data.timestamp?.toDate?.()?.toISOString() || new Date().toISOString(), actor_email: data.performedBy?.email || 'system', summary: data.description, module: data.module, action: data.actionType } as any;
+        let tsString = new Date().toISOString();
+        if (data.timestamp instanceof Timestamp) {
+            tsString = data.timestamp.toDate().toISOString();
+        } else if (data.timestamp && typeof data.timestamp.toDate === 'function') {
+            tsString = data.timestamp.toDate().toISOString();
+        } else if (data.timestamp) {
+            tsString = new Date(data.timestamp).toISOString();
+        }
+
+        return { 
+            id: d.id, 
+            ts: tsString, 
+            actor_email: data.performedBy?.email || 'system', 
+            summary: data.description || '', 
+            module: data.module || 'System', 
+            action: data.actionType || 'UPDATE' 
+        } as any;
     });
 };
 
