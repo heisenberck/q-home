@@ -7,7 +7,6 @@ import {
 import { subscribeToUnreadNotifications, markAsRead, markAllAsRead } from '../../services/notificationService';
 import type { AdminNotification } from '../../types';
 import { timeAgo } from '../../utils/helpers';
-import { useAuth } from '../../App';
 
 const TypeIcon = ({ type, className }: { type: string, className: string }) => {
     switch (type) {
@@ -23,7 +22,6 @@ const TypeIcon = ({ type, className }: { type: string, className: string }) => {
 };
 
 const NotificationBell: React.FC = () => {
-    const { user } = useAuth();
     const [realtimeUnread, setRealtimeUnread] = useState<AdminNotification[]>([]);
     const [displayList, setDisplayList] = useState<AdminNotification[]>([]);
     const [isOpen, setIsOpen] = useState(false);
@@ -31,9 +29,6 @@ const NotificationBell: React.FC = () => {
 
     // 1. Lắng nghe dữ liệu Real-time
     useEffect(() => {
-        // Chỉ đăng ký nếu user có quyền Admin/Staff
-        if (!user || user.Role === 'Resident') return;
-
         const unsubscribe = subscribeToUnreadNotifications((data) => {
             setRealtimeUnread(data);
         });
@@ -49,7 +44,7 @@ const NotificationBell: React.FC = () => {
             unsubscribe();
             document.removeEventListener('mousedown', handleClickOutside);
         };
-    }, [user?.Role]);
+    }, []);
 
     // 2. Xử lý mở Dropdown & Freeze dữ liệu
     const handleToggle = async () => {
@@ -77,9 +72,6 @@ const NotificationBell: React.FC = () => {
         // Logic điều hướng nếu cần (notif.linkTo)
         setIsOpen(false);
     };
-
-    // Chỉ hiển thị chuông nếu là Admin/Staff
-    if (!user || user.Role === 'Resident') return null;
 
     return (
         <div className="relative" ref={dropdownRef}>

@@ -4,15 +4,14 @@ import {
     PieChartIcon, CalculatorIcon, UsersIcon, WaterIcon, ReceiptIcon, 
     CarIcon, MegaphoneIcon, ChatBubbleLeftEllipsisIcon,
     ChevronLeftIcon, ChevronRightIcon, ChevronDownIcon, ChevronUpIcon,
-    ArrowPathIcon, BanknotesIcon, WalletIcon, TrendingDownIcon,
-    ClipboardCheckIcon
+    ArrowPathIcon, BanknotesIcon, WalletIcon, TrendingDownIcon
 } from '../ui/Icons';
 import type { Role, UserPermission } from '../../types';
 import { useSettings, useAuth } from '../../App';
 import { isProduction } from '../../utils/env';
 import InstallPWA from '../common/InstallPWA';
 
-type Page = 'overview' | 'billing' | 'residents' | 'vehicles' | 'water' | 'pricing' | 'users' | 'settings' | 'backup' | 'activityLog' | 'newsManagement' | 'feedbackManagement' | 'vas' | 'expenses' | 'serviceRegistration';
+type Page = 'overview' | 'billing' | 'residents' | 'vehicles' | 'water' | 'pricing' | 'users' | 'settings' | 'backup' | 'activityLog' | 'newsManagement' | 'feedbackManagement' | 'vas' | 'expenses';
 
 interface SidebarProps {
   activePage: Page;
@@ -55,10 +54,9 @@ const menuGroups: (MenuItem | MenuGroup)[] = [
     },
     {
         id: 'comm_group',
-        label: 'Thông báo & Đăng ký',
+        label: 'Thông báo',
         items: [
             { id: 'newsManagement', label: 'Quản lý Tin tức', icon: <MegaphoneIcon /> },
-            { id: 'serviceRegistration', label: 'Quản lý đăng ký', icon: <ClipboardCheckIcon /> },
             { id: 'feedbackManagement', label: 'Quản lý Phản hồi', icon: <ChatBubbleLeftEllipsisIcon /> },
         ]
     }
@@ -96,7 +94,6 @@ const Sidebar: React.FC<SidebarProps> = ({ activePage, setActivePage, role }) =>
                   if (item.id === 'pricing') permissionKey = 'billing';
                   if (item.id === 'vas') permissionKey = 'billing';
                   if (item.id === 'expenses') permissionKey = 'billing';
-                  if (item.id === 'serviceRegistration') permissionKey = 'feedbackManagement'; // Shared perm
 
                   return userPermissions.has(permissionKey);
               });

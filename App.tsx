@@ -25,7 +25,6 @@ import NewsManagementPage from './components/pages/NewsManagementPage';
 import FeedbackManagementPage from './components/pages/FeedbackManagementPage';
 import ValueAddedServicesPage from './components/pages/ValueAddedServicesPage';
 import ExpenseManagementPage from './components/pages/ExpenseManagementPage';
-import ServiceRegistrationPage from './components/pages/ServiceRegistration';
 import ResidentLayout, { PortalPage } from './components/layout/ResidentLayout';
 import AdminMobileLayout, { AdminPortalPage } from './components/layout/AdminMobileLayout';
 import PortalHomePage from './components/pages/portal/PortalHomePage';
@@ -45,7 +44,7 @@ import ChangePasswordModal from './components/pages/ChangePasswordModal';
 import NotificationListener from './components/common/NotificationListener';
 
 // --- Types ---
-export type AdminPage = 'overview' | 'billing' | 'residents' | 'vehicles' | 'water' | 'pricing' | 'users' | 'settings' | 'backup' | 'activityLog' | 'newsManagement' | 'feedbackManagement' | 'vas' | 'expenses' | 'serviceRegistration';
+export type AdminPage = 'overview' | 'billing' | 'residents' | 'vehicles' | 'water' | 'pricing' | 'users' | 'settings' | 'backup' | 'activityLog' | 'newsManagement' | 'feedbackManagement' | 'vas' | 'expenses';
 
 export interface LogPayload {
     module: string;
@@ -70,8 +69,7 @@ const ADMIN_PAGE_TITLES: Record<AdminPage, string> = {
     newsManagement: 'Quản lý Tin tức',
     feedbackManagement: 'Phản hồi Cư dân',
     vas: 'Dịch vụ Gia tăng (VAS)',
-    expenses: 'Quản lý Chi phí Vận hành',
-    serviceRegistration: 'Quản lý đăng ký dịch vụ'
+    expenses: 'Quản lý Chi phí Vận hành'
 };
 
 // --- Contexts ---
@@ -343,7 +341,6 @@ const App: React.FC = () => {
             case 'activityLog': return <ActivityLogPage logs={activityLogs} onUndo={()=>{}} role={user!.Role} />;
             case 'newsManagement': return <NewsManagementPage news={localNews} setNews={setLocalNews} role={user!.Role} users={localUsers} />;
             case 'feedbackManagement': return <FeedbackManagementPage role={user!.Role} units={localUnits} owners={localOwners} />;
-            case 'serviceRegistration': return <ServiceRegistrationPage role={user!.Role} />;
             default: return <OverviewPage allUnits={localUnits} allOwners={localOwners} allVehicles={localVehicles} allWaterReadings={localWaterReadings} charges={localCharges} activityLogs={activityLogs} feedback={localFeedback} onNavigate={(p) => setActivePage(p as AdminPage)} monthlyStats={monthlyStats} />;
         }
     };
@@ -374,7 +371,6 @@ const App: React.FC = () => {
                 <div className="p-4 space-y-4">
                     <button onClick={() => setActivePage('adminPortalVAS')} className="w-full p-4 bg-white rounded-xl shadow-sm border flex justify-between items-center font-bold text-gray-800">Doanh thu GTGT <span>→</span></button>
                     <button onClick={() => setActivePage('adminPortalExpenses')} className="w-full p-4 bg-white rounded-xl shadow-sm border flex justify-between items-center font-bold text-gray-800">Chi phí vận hành <span>→</span></button>
-                    <button onClick={() => setActivePage('serviceRegistration')} className="w-full p-4 bg-white rounded-xl shadow-sm border flex justify-between items-center font-bold text-gray-800">Quản lý đăng ký <span>→</span></button>
                     <button onClick={() => setActivePage('newsManagement')} className="w-full p-4 bg-white rounded-xl shadow-sm border flex justify-between items-center font-bold text-gray-800">Quản lý Tin tức <span>→</span></button>
                     <button onClick={() => setActivePage('feedbackManagement')} className="w-full p-4 bg-white rounded-xl shadow-sm border flex justify-between items-center font-bold text-gray-800">Phản hồi Cư dân <span>→</span></button>
                     <button onClick={() => handleLogout()} className="w-full p-4 bg-red-50 text-red-600 rounded-xl shadow-sm border flex justify-between items-center font-black">Đăng xuất <span>⏻</span></button>

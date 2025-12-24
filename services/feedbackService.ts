@@ -38,39 +38,41 @@ export const submitFeedback = async (feedback: Omit<FeedbackItem, 'id'>) => {
 
 /**
  * Lắng nghe phản hồi "Đang hoạt động" (Pending/Processing)
+ * Đã loại bỏ orderBy('date') để tránh lỗi thiếu Index. 
+ * Sắp xếp được thực hiện phía Client.
  */
 export const subscribeToActiveFeedback = (callback: (feedback: FeedbackItem[]) => void) => {
-    // Chỉ fetch theo trạng thái để tránh yêu cầu Index phức tạp lúc đầu
     const q = query(
         collection(db, COLLECTION_NAME),
         where('status', 'in', ['Pending', 'Processing']),
-        limit(50)
+        limit(100) // Tăng limit một chút để cover đủ dữ liệu trước khi sort local
     );
 
     return onSnapshot(q, (snapshot) => {
         const items = snapshot.docs.map(d => ({ ...d.data(), id: d.id } as FeedbackItem));
         
-        // Sắp xếp phía client để đảm bảo mượt mà và không lỗi Index
+        // Sắp xếp phía client: Mới nhất lên đầu
         const sortedItems = items.sort((a, b) => 
             new Date(b.date).getTime() - new Date(a.date).getTime()
         );
         
         callback(sortedItems);
     }, (error) => {
-        // Nếu lỗi do thiếu quyền, có thể do user chưa Auth hoặc role không khớp
-        console.warn("Lỗi listener feedback (có thể do phân quyền):", error.message);
-        callback([]); // Trả về mảng rỗng thay vì crash
+        console.error("Lỗi listener feedback:", error);
     });
 };
 
 /**
  * Tải phản hồi cũ (Resolved) theo tháng
+ * Đã loại bỏ các filter phức tạp gây lỗi Index.
+ * Thực hiện lọc theo ngày và sắp xếp phía Client.
  */
 export const fetchResolvedFeedback = async (period: string): Promise<FeedbackItem[]> => {
+    // Chỉ fetch theo trạng thái để sử dụng index đơn (mặc định)
     const q = query(
         collection(db, COLLECTION_NAME),
         where('status', '==', 'Resolved'),
-        limit(100)
+        limit(200)
     );
     
     try {

@@ -5,7 +5,7 @@ import { WarningIcon, CheckCircleIcon, SparklesIcon } from '../../ui/Icons';
 import { formatCurrency, timeAgo } from '../../../utils/helpers';
 import { PortalPage } from '../../layout/ResidentLayout';
 import { doc, onSnapshot, collection, query, where, limit } from 'firebase/firestore';
-import { db, auth } from '../../../firebaseConfig';
+import { db } from '../../../firebaseConfig';
 import { isProduction } from '../../../utils/env';
 
 interface PortalHomePageProps {
@@ -24,8 +24,7 @@ const PortalHomePage: React.FC<PortalHomePageProps> = ({ user, charges, news, se
     const [loadingCharge, setLoadingCharge] = useState(false);
 
     useEffect(() => {
-        // Chỉ bắt đầu lắng nghe khi user có residentId và đã được Firebase xác thực hoàn tất
-        if (!user.residentId || !auth.currentUser) return;
+        if (!user.residentId) return;
 
         const propCharge = charges.find(c => c.UnitID === user.residentId && c.Period === currentPeriod);
         if (propCharge) setCurrentCharge(propCharge);
@@ -38,7 +37,6 @@ const PortalHomePage: React.FC<PortalHomePageProps> = ({ user, charges, news, se
                 where('Period', '==', currentPeriod),
                 limit(1)
             );
-            
             const unsubscribe = onSnapshot(q, (snapshot) => {
                 if (!snapshot.empty) {
                     const data = snapshot.docs[0].data() as ChargeRaw;
@@ -48,15 +46,9 @@ const PortalHomePage: React.FC<PortalHomePageProps> = ({ user, charges, news, se
                 }
                 setLoadingCharge(false);
             }, (err) => {
-                // Xử lý lỗi phân quyền một cách êm ái
-                if (err.code === 'permission-denied') {
-                    console.warn("PortalHome: Chờ xác thực quyền truy cập...");
-                } else {
-                    console.error("PortalHome Snapshot Error:", err);
-                }
+                console.error("Real-time charge fetch error", err);
                 setLoadingCharge(false);
             });
-            
             return () => unsubscribe();
         }
     }, [user.residentId, currentPeriod, IS_PROD, charges]);

@@ -3,14 +3,11 @@
 import * as firebaseAPI from './firebaseAPI';
 import * as mockAPI from './mockAPI';
 import * as feedbackAPI from './feedbackService';
-import * as regAPI from './registrationService';
 import { isProduction } from '../utils/env';
 
 const IS_PROD = isProduction();
 
-const api = IS_PROD 
-    ? { ...firebaseAPI, ...feedbackAPI, ...regAPI } 
-    : { ...mockAPI, ...feedbackAPI, ...regAPI };
+const api = IS_PROD ? { ...firebaseAPI, ...feedbackAPI } : { ...mockAPI, ...feedbackAPI };
 
 export const {
     loadAllData,
@@ -56,15 +53,8 @@ export const {
     fetchRecentAdjustments,
     fetchRecentWaterReadings,
     fetchResidentSpecificData,
-    fetchChargesForResident,
-    // New function for direct login check
-    fetchUserForLogin,
     // Feedback
     submitFeedback,
     replyFeedback,
-    subscribeToActiveFeedback,
-    // Registration
-    submitServiceRegistration,
-    subscribeToRegistrations,
-    processRegistrationAction
+    subscribeToActiveFeedback
 } = api as any;
