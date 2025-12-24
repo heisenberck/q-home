@@ -1,6 +1,6 @@
 
 import { useState, useEffect, useCallback } from 'react';
-import { doc, getDoc, collection, getDocs } from 'firebase/firestore'; 
+import { doc, getDoc } from 'firebase/firestore'; 
 import { db } from '../firebaseConfig';
 import { isProduction } from '../utils/env';
 import { 
@@ -44,10 +44,13 @@ export const useSmartSystemData = (currentUser: UserPermission | null, authLoadi
     const [error, setError] = useState<string | null>(null);
 
     const refreshSystemData = useCallback(async (force = false) => {
+        // --- CRITICAL: Wait for Auth before fetching from secure Firestore ---
         if (authLoading) return;
-        
-        // Ở màn hình Login (currentUser == null), vẫn phải cho phép fetch Users nếu ở Prod
-        // Để check quyền đăng nhập.
+        if (isProduction() && !currentUser) {
+            setLoading(false);
+            return;
+        }
+
         setLoading(true);
         setError(null);
         
@@ -56,36 +59,29 @@ export const useSmartSystemData = (currentUser: UserPermission | null, authLoadi
             const residentId = currentUser?.residentId;
             const currentPeriod = new Date().toISOString().slice(0, 7);
 
-            // 1. Fetch BASIC public data (News, Users list for login, Settings)
-            let fetchedUsers: UserPermission[] = [];
-            try {
-                const usersSnap = await getDocs(collection(db, 'users'));
-                fetchedUsers = usersSnap.docs.map(d => d.data() as UserPermission);
-            } catch (e) {
-                console.warn("Could not fetch users (maybe Rules issue):", e);
-            }
+            const serverMeta = await api.getSystemMetadata();
+            const localMeta = (await get(CACHE_PREFIX + META_KEY)) as SystemMetadata || { units_version: 0, owners_version: 0, vehicles_version: 0, tariffs_version: 0, users_version: 0 };
 
             const invoiceSettingsSnap = await getDoc(doc(db, 'settings', 'invoice'));
             const invoiceSettings = invoiceSettingsSnap.exists() ? invoiceSettingsSnap.data() as InvoiceSettings : null;
+
+            const cachedUsers = await get(CACHE_PREFIX + 'users');
+            const shouldFetchUsers = force || serverMeta.users_version > localMeta.users_version || !cachedUsers;
+            const fetchedUsers = shouldFetchUsers ? await (api.fetchCollection('users') as Promise<UserPermission[]>) : cachedUsers;
+            if (shouldFetchUsers) await set(CACHE_PREFIX + 'users', fetchedUsers);
+
             const fetchedNews = await api.fetchNews();
 
-            // Nếu chưa đăng nhập, chỉ trả về dữ liệu cơ bản để login
             if (!currentUser) {
-                setData(prev => ({ 
-                    ...prev, 
-                    users: fetchedUsers, 
-                    news: fetchedNews, 
-                    invoiceSettings, 
-                    hasLoaded: true 
-                }));
+                setData(prev => ({ ...prev, users: fetchedUsers, news: fetchedNews, invoiceSettings, hasLoaded: true }));
                 setLoading(false);
                 return;
             }
 
-            // 2. Fetch SECURE data (only when logged in)
-            const serverMeta = await api.getSystemMetadata();
             const promises: Promise<any>[] = [];
-            
+            const cachedTariffs = await get(CACHE_PREFIX + 'tariffs');
+            const shouldFetchTariffs = force || serverMeta.tariffs_version > localMeta.tariffs_version || !cachedTariffs;
+            promises.push(shouldFetchTariffs ? getDoc(doc(db, 'settings', 'tariffs')).then(s => s.exists() ? s.data() : null) : Promise.resolve(cachedTariffs));
             promises.push(api.fetchWaterLocks());
             promises.push(api.fetchCollection('monthly_stats') as Promise<MonthlyStat[]>);
 
@@ -99,36 +95,47 @@ export const useSmartSystemData = (currentUser: UserPermission | null, authLoadi
             let fetchedExpenses: OperationalExpense[] = [];
 
             if (isAdmin) {
-                promises.push(api.fetchCollection('units') as Promise<Unit[]>);
-                promises.push(api.fetchCollection('owners') as Promise<Owner[]>);
-                promises.push(api.fetchCollection('vehicles') as Promise<Vehicle[]>);
+                const [cachedUnits, cachedOwners, cachedVehicles] = await Promise.all([
+                    get(CACHE_PREFIX + 'units'), get(CACHE_PREFIX + 'owners'), get(CACHE_PREFIX + 'vehicles')
+                ]);
+                const shouldFetchUnitsFlag = force || serverMeta.units_version > localMeta.units_version || !cachedUnits;
+                const shouldFetchOwnersFlag = force || serverMeta.owners_version > localMeta.owners_version || !cachedOwners;
+                const shouldFetchVehiclesFlag = force || serverMeta.vehicles_version > localMeta.vehicles_version || !cachedVehicles;
+
+                promises.push(shouldFetchUnitsFlag ? (api.fetchCollection('units') as Promise<Unit[]>) : Promise.resolve(cachedUnits));
+                promises.push(shouldFetchOwnersFlag ? (api.fetchCollection('owners') as Promise<Owner[]>) : Promise.resolve(cachedOwners));
+                promises.push(shouldFetchVehiclesFlag ? (api.fetchCollection('vehicles') as Promise<Vehicle[]>) : Promise.resolve(cachedVehicles));
                 promises.push(api.fetchRecentAdjustments(currentPeriod)); 
                 promises.push(api.fetchRecentWaterReadings([currentPeriod]));
                 promises.push(api.fetchCollection('charges') as Promise<ChargeRaw[]>);
                 promises.push(api.getMonthlyMiscRevenues(currentPeriod));
-                promises.push((api.fetchCollection('operational_expenses') as Promise<OperationalExpense[]>));
-                promises.push(getDoc(doc(db, 'settings', 'tariffs')).then(s => s.exists() ? s.data() : null));
+                promises.push((api.fetchCollection('operational_expenses') as Promise<OperationalExpense[]>).then(all => all.filter(e => e.date.startsWith(currentPeriod))));
 
                 const results = await Promise.all(promises);
-                
+                const tariffs = results[0] || { service: [], parking: [], water: [] };
+                const lockedWaterPeriods = results[1] || [];
+                const monthlyStats = results[2] || [];
+                fetchedUnits = results[3] || [];
+                fetchedOwners = results[4] || [];
+                fetchedVehicles = results[5] || [];
+                fetchedAdjustments = results[6] || [];
+                fetchedWaterReadings = results[7] || [];
+                fetchedCharges = results[8] || [];
+                fetchedMisc = results[9] || [];
+                fetchedExpenses = results[10] || [];
+
+                if (shouldFetchUnitsFlag) await set(CACHE_PREFIX + 'units', fetchedUnits);
+                if (shouldFetchOwnersFlag) await set(CACHE_PREFIX + 'owners', fetchedOwners);
+                if (shouldFetchVehiclesFlag) await set(CACHE_PREFIX + 'vehicles', fetchedVehicles);
+                await set(CACHE_PREFIX + 'tariffs', tariffs);
+                await set(CACHE_PREFIX + META_KEY, serverMeta);
+
                 setData({
-                    lockedWaterPeriods: results[0] || [],
-                    monthlyStats: results[1] || [],
-                    units: results[2] || [],
-                    owners: results[3] || [],
-                    vehicles: results[4] || [],
-                    adjustments: results[5] || [],
-                    waterReadings: results[6] || [],
-                    charges: results[7] || [],
-                    miscRevenues: results[8] || [],
-                    expenses: results[9] || [],
-                    tariffs: results[10] || { service: [], parking: [], water: [] },
-                    users: fetchedUsers, 
-                    news: fetchedNews, 
-                    feedback: [],
-                    invoiceSettings, 
-                    activityLogs: [], 
-                    hasLoaded: true
+                    units: fetchedUnits, owners: fetchedOwners, vehicles: fetchedVehicles, tariffs, 
+                    users: fetchedUsers, news: fetchedNews, feedback: [],
+                    invoiceSettings, adjustments: fetchedAdjustments, waterReadings: fetchedWaterReadings, 
+                    activityLogs: [], monthlyStats, lockedWaterPeriods, charges: fetchedCharges, 
+                    miscRevenues: fetchedMisc, expenses: fetchedExpenses, hasLoaded: true
                 });
             } else {
                 if (residentId) {
