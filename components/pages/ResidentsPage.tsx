@@ -198,7 +198,7 @@ const ProfileChangeReview: React.FC<{
                         <p className="text-xs text-emerald-600">Vui lòng chọn lý do điều chỉnh và nhấn nút "Lưu thay đổi" bên dưới để hoàn tất.</p>
                     </div>
                 </div>
-                <button type="button" onClick={onReject} className="text-xs font-bold text-gray-400 hover:text-red-500 underline uppercase tracking-widest">Hủy & Đóng</button>
+                <button type="button" onClick={onReject} className="text-xs font-bold text-gray-400 hover:text-red-500 underline uppercase tracking-widest">Hoàn tác & Đóng</button>
             </div>
         );
     }
@@ -337,6 +337,7 @@ const ResidentDetailModal: React.FC<{
         const updatedUnit = { ...formData.unit };
 
         if (changes.OwnerName) updatedOwner.OwnerName = changes.OwnerName;
+        if (changes.DisplayName) updatedOwner.OwnerName = changes.DisplayName;
         if (changes.Phone) updatedOwner.Phone = changes.Phone;
         if (changes.Email) updatedOwner.Email = changes.Email;
         if (changes.secondOwnerName) updatedOwner.secondOwnerName = changes.secondOwnerName;
@@ -356,6 +357,18 @@ const ResidentDetailModal: React.FC<{
     };
 
     const handleRejectRequestImmediate = () => {
+        if (pendingResolution) {
+            // Hoàn tác áp dụng
+            setFormData({
+                unit: { ...resident.unit },
+                owner: { ...resident.owner, documents: resident.owner.documents || { others: [] } },
+                vehicles: JSON.parse(JSON.stringify((resident.vehicles || []).filter(v => v.isActive)))
+            });
+            setPendingResolution(null);
+            showToast("Đã hoàn tác thay đổi.", "info");
+            return;
+        }
+
         if (window.confirm("Từ chối yêu cầu cập nhật này của cư dân?")) {
             onResolveRequest(resident.pendingRequest!, 'reject');
             onClose();
@@ -943,16 +956,16 @@ const ResidentsPage: React.FC<ResidentsPageProps> = ({ units = [], owners = [], 
     const handleCloseModal = () => setModalState({ type: null, data: null });
     
     /**
-     * REFACTORED: Hỗ trợ lưu hồ sơ và đóng yêu cầu cùng lúc.
+     * Nâng cấp: Luôn fetch lại pendingRequests sau khi lưu/phê duyệt thành công.
      */
     const handleSaveResident = async (data: { unit: Unit; owner: Owner; vehicles: Vehicle[] }, reason: string, resolution?: { requestId: string, status: 'APPROVED' | 'REJECTED' }) => {
         setIsLoading(true);
         try {
-            // Mở rộng hàm service để xử lý resolution nếu có
             await updateResidentData(units, owners, vehicles, data, { email: currentUser.Email, role: currentUser.Role }, reason, resolution);
             showToast('Đã lưu thông tin cư dân thành công.', 'success');
             handleCloseModal();
-            fetchPendingRequests();
+            // Cập nhật state cục bộ để xóa dấu hiệu ngay lập tức
+            await fetchPendingRequests();
             refreshData(true);
         } catch (e: any) {
             showToast('Lỗi khi lưu dữ liệu: ' + e.message, 'error');
@@ -973,7 +986,7 @@ const ResidentsPage: React.FC<ResidentsPageProps> = ({ units = [], owners = [], 
         try {
             await resolveProfileRequest(req, action, currentUser.Email, changes);
             showToast(action === 'approve' ? 'Đã phê duyệt yêu cầu.' : 'Đã từ chối yêu cầu.', 'success');
-            fetchPendingRequests();
+            await fetchPendingRequests();
             refreshData();
             handleCloseModal();
         } catch (error) {
@@ -1041,7 +1054,7 @@ const ResidentsPage: React.FC<ResidentsPageProps> = ({ units = [], owners = [], 
                                             <td className="font-bold px-4 py-3 text-sm text-gray-900">{r.unit.UnitID}</td>
                                             <td className="px-4 py-3 text-sm text-gray-600 font-mono">{r.unit.Area_m2} m²</td>
                                             <td className="px-4 py-3 text-sm font-medium text-gray-800 flex items-center gap-2">
-                                                {hasPending && <span className="w-2.5 h-2.5 bg-red-600 rounded-full animate-pulse" title="Có yêu cầu cập nhật hồ sơ"></span>}
+                                                {hasPending && <span className="w-2.5 h-2.5 bg-orange-600 rounded-full animate-pulse shadow-[0_0_10px_rgba(234,88,12,0.6)]" title="Có yêu cầu cập nhật hồ sơ"></span>}
                                                 {r.owner.OwnerName}
                                             </td>
                                             <td className="px-4 py-3 text-sm text-gray-600 font-mono">{r.owner.Phone}</td>

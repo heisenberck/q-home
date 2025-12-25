@@ -1,4 +1,3 @@
-
 import React, { useState, useEffect, useMemo } from 'react';
 import type { Owner, UserPermission, ProfileRequest, Vehicle } from '../../../types';
 import { useAuth, useNotification } from '../../../App';
@@ -14,6 +13,9 @@ import { useSmartSystemData } from '../../../hooks/useSmartData';
 import { isProduction } from '../../../utils/env';
 import { translateVehicleType } from '../../../utils/helpers';
 import Spinner from '../../ui/Spinner';
+// Import limit to fix line 176 error
+import { collection, query, where, onSnapshot, limit } from 'firebase/firestore';
+import { db } from '../../../firebaseConfig';
 
 interface PortalProfilePageProps {
     user: UserPermission;
@@ -111,20 +113,18 @@ const PortalProfilePage: React.FC<PortalProfilePageProps> = ({ user, owner, onUp
     const { units, vehicles, refreshSystemData } = useSmartSystemData(user); 
     const IS_PROD = isProduction();
 
-    // 1. Khởi tạo state formData an toàn (Nếu owner là null, dùng giá trị mặc định)
     const [formData, setFormData] = useState({
         DisplayName: user?.DisplayName || owner?.OwnerName || '',
         Phone: owner?.Phone || '',
         Email: user?.contact_email || owner?.Email || '',
         title: (user as any)?.title || owner?.title || 'Anh',
-        secondOwnerName: (user as any)?.spouseName || owner?.secondOwnerName || '',
-        secondOwnerPhone: (user as any)?.spousePhone || owner?.secondOwnerPhone || '',
+        secondOwnerName: owner?.secondOwnerName || '',
+        secondOwnerPhone: owner?.secondOwnerPhone || '',
         UnitStatus: 'Owner'
     });
 
     const currentUnit = useMemo(() => units.find(u => u.UnitID === user.residentId), [units, user.residentId]);
     
-    // Cập nhật UnitStatus khi currentUnit đã tải xong
     useEffect(() => {
         if (currentUnit) {
             setFormData(prev => ({ ...prev, UnitStatus: currentUnit.Status }));
@@ -163,13 +163,28 @@ const PortalProfilePage: React.FC<PortalProfilePageProps> = ({ user, owner, onUp
         }
     }, [user, owner, currentUnit, isEditing]);
 
+    /**
+     * Nâng cấp: Lắng nghe Real-time trạng thái yêu cầu phê duyệt
+     */
     useEffect(() => {
-        const checkPending = async () => {
-            if (!IS_PROD || !user.residentId) return;
-            const request = await getPendingProfileRequest(user.residentId);
-            if (request) setPendingRequest(request);
-        };
-        checkPending();
+        if (!IS_PROD || !user.residentId) return;
+
+        const q = query(
+            collection(db, 'profileRequests'), 
+            where('residentId', '==', user.residentId), 
+            where('status', '==', 'PENDING'), 
+            limit(1)
+        );
+
+        const unsubscribe = onSnapshot(q, (snapshot) => {
+            if (!snapshot.empty) {
+                setPendingRequest(snapshot.docs[0].data() as ProfileRequest);
+            } else {
+                setPendingRequest(null);
+            }
+        });
+
+        return () => unsubscribe();
     }, [IS_PROD, user.residentId]);
 
     if (!owner) {
@@ -265,7 +280,7 @@ const PortalProfilePage: React.FC<PortalProfilePageProps> = ({ user, owner, onUp
             setPendingRequest(newReq);
             refreshSystemData(true); 
             setIsEditing(false);
-            showToast('Đã lưu hồ sơ và gửi yêu cầu cập nhật tới BQL.', 'success');
+            showToast('Đã gửi yêu cầu cập nhật hồ sơ tới BQL.', 'success');
         } catch (error) {
             showToast('Lỗi khi lưu hồ sơ.', 'error');
         } finally {

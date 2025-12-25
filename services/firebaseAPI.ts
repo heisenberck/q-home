@@ -13,7 +13,6 @@ import {
     orderBy, 
     where, 
     serverTimestamp, 
-    startAfter, 
     addDoc,
     Timestamp,
     getCountFromServer,
@@ -25,7 +24,7 @@ import type {
     InvoiceSettings, Unit, Owner, Vehicle, WaterReading, 
     ChargeRaw, Adjustment, UserPermission, ActivityLog, 
     AllData, PaymentStatus, MonthlyStat, SystemMetadata, 
-    ProfileRequest, MiscRevenue, TariffCollection, AdminNotification,
+    ProfileRequest, TariffCollection, AdminNotification,
     Role, NewsItem
 } from '../types';
 
@@ -43,9 +42,6 @@ const bumpVersion = (batch: any, field: keyof SystemMetadata) => {
     batch.set(metaRef, { [field]: Date.now() }, { merge: true });
 };
 
-/**
- * FIX: Đảm bảo linkTo không bao giờ bị undefined để tránh lỗi Firebase
- */
 const injectLogAndNotif = (batch: any, log: any) => {
     const logRef = doc(collection(db, 'activity_logs'));
     const logData = { 
@@ -70,7 +66,7 @@ const injectLogAndNotif = (batch: any, log: any) => {
         message: log.summary || '', 
         isRead: false, 
         createdAt: serverTimestamp(),
-        linkTo: log.linkTo || '' // FIX: Luôn để chuỗi rỗng thay vì undefined
+        linkTo: log.linkTo || '' // Fix: Đảm bảo không undefined
     };
     batch.set(notifRef, notifData);
 };
@@ -140,35 +136,89 @@ export const saveNewsItem = async (item: NewsItem): Promise<string> => {
 export const deleteNewsItem = async (id: string): Promise<void> => { await deleteDoc(doc(db, 'news', id)); };
 export const updateUserProfile = async (email: string, updates: Partial<UserPermission>) => { const userRef = doc(db, 'users', email); await updateDoc(userRef, updates); };
 
-export const updateResidentData = async (currentUnits: Unit[], currentOwners: Owner[], currentVehicles: Vehicle[], data: { unit: Unit; owner: Owner; vehicles: Vehicle[] }, actor?: { email: string, role: Role }, reason?: string) => {
+/**
+ * Hàm cập nhật dữ liệu cư dân hợp nhất: 
+ * Xử lý Unit, Owner, Vehicles và đóng ProfileRequest (resolution) trong cùng một Batch.
+ */
+export const updateResidentData = async (
+    currentUnits: Unit[], 
+    currentOwners: Owner[], 
+    currentVehicles: Vehicle[], 
+    data: { unit: Unit; owner: Owner; vehicles: Vehicle[] }, 
+    actor?: { email: string, role: Role }, 
+    reason?: string,
+    resolution?: { requestId: string, status: 'APPROVED' | 'REJECTED' }
+) => {
     const batch = writeBatch(db);
-    const unitRef = doc(db, 'units', data.unit.UnitID);
-    batch.set(unitRef, data.unit, { merge: true });
-    const ownerRef = doc(db, 'owners', data.owner.OwnerID);
-    batch.set(ownerRef, data.owner, { merge: true });
+    const now = new Date().toISOString();
+
+    // 1. Cập nhật Unit & Owner
+    batch.set(doc(db, 'units', data.unit.UnitID), data.unit, { merge: true });
+    batch.set(doc(db, 'owners', data.owner.OwnerID), data.owner, { merge: true });
+
+    // 2. Cập nhật Phương tiện
     const activeIds = new Set<string>();
-    const platesUpdated: string[] = [];
     data.vehicles.forEach(v => {
-        let vehicleId = v.VehicleId;
-        let vehicleToSave = { ...v, isActive: true, updatedAt: new Date().toISOString() };
-        platesUpdated.push(v.PlateNumber);
-        if (!vehicleId || vehicleId.startsWith('VEH_NEW_')) { const newRef = doc(collection(db, "vehicles")); vehicleToSave.VehicleId = newRef.id; batch.set(newRef, vehicleToSave); activeIds.add(newRef.id); }
-        else { const vRef = doc(db, 'vehicles', vehicleId); batch.set(vRef, vehicleToSave, { merge: true }); activeIds.add(vehicleId); }
+        let vId = v.VehicleId;
+        let vSave = { ...v, isActive: true, updatedAt: now };
+        if (!vId || vId.startsWith('VEH_NEW_')) { 
+            const newRef = doc(collection(db, "vehicles")); 
+            vSave.VehicleId = newRef.id; 
+            batch.set(newRef, vSave); 
+            activeIds.add(newRef.id); 
+        } else { 
+            batch.set(doc(db, 'vehicles', vId), vSave, { merge: true }); 
+            activeIds.add(vId); 
+        }
     });
-    currentVehicles.filter(v => v.UnitID === data.unit.UnitID && v.isActive && !activeIds.has(v.VehicleId)).forEach(v => { const vRef = doc(db, 'vehicles', v.VehicleId); batch.update(vRef, { isActive: false }); });
-    const logSummary = `${platesUpdated.length > 0 ? `Xe: ${platesUpdated.join(', ')}` : 'Cập nhật hồ sơ'}. ${reason ? `Lý do: ${reason}` : ''}`;
-    injectLogAndNotif(batch, { actor_email: actor?.email, module: 'Cư dân', action: 'UPDATE', title: `Cập nhật Căn ${data.unit.UnitID}`, summary: logSummary, type: 'request' });
-    bumpVersion(batch, 'units_version'); bumpVersion(batch, 'owners_version'); bumpVersion(batch, 'vehicles_version');
-    await batch.commit(); return true; 
+    currentVehicles.filter(v => v.UnitID === data.unit.UnitID && v.isActive && !activeIds.has(v.VehicleId)).forEach(v => { 
+        batch.update(doc(db, 'vehicles', v.VehicleId), { isActive: false, updatedAt: now }); 
+    });
+
+    // 3. Đóng ProfileRequest - QUAN TRỌNG ĐỂ XÓA DẤU HIỆU PENDING
+    if (resolution) {
+        batch.update(doc(db, 'profileRequests', resolution.requestId), { 
+            status: resolution.status, 
+            updatedAt: now 
+        });
+
+        // Gửi thông báo chuông cho cư dân
+        batch.set(doc(collection(db, 'notifications')), {
+            userId: data.unit.UnitID,
+            title: resolution.status === 'APPROVED' ? 'Yêu cầu cập nhật đã được duyệt' : 'Yêu cầu cập nhật bị từ chối',
+            body: resolution.status === 'APPROVED' ? 'Thông tin cá nhân của bạn đã được BQL cập nhật chính thức.' : 'Rất tiếc, yêu cầu thay đổi thông tin của bạn không được phê duyệt.',
+            type: 'profile',
+            link: 'portalProfile',
+            isRead: false,
+            createdAt: serverTimestamp()
+        });
+    }
+
+    // 4. Nhật ký & Bump Versions
+    const logSummary = `${resolution ? `[Duyệt] ` : ''}Cập nhật Căn ${data.unit.UnitID}. ${reason || ''}`;
+    injectLogAndNotif(batch, { 
+        actor_email: actor?.email, 
+        module: 'Cư dân', 
+        action: 'UPDATE', 
+        title: `Cập nhật Căn ${data.unit.UnitID}`, 
+        summary: logSummary, 
+        type: resolution ? 'request' : 'system',
+        linkTo: 'residents' 
+    });
+    bumpVersion(batch, 'units_version'); 
+    bumpVersion(batch, 'owners_version'); 
+    bumpVersion(batch, 'vehicles_version');
+
+    await batch.commit(); 
+    return true; 
 };
 
 export const saveVehicles = async (d: Vehicle[], actor?: { email: string, role: Role }, reason?: string) => {
     if (d.length === 0) return;
     const batch = writeBatch(db);
     const unitId = d[0].UnitID;
-    const details = d.map(v => `${v.Type.includes('car') ? 'Ô tô' : 'Xe máy'} [${v.PlateNumber}]`).join(', ');
-    d.forEach(v => { const vRef = doc(db, 'vehicles', v.VehicleId); batch.set(vRef, v, { merge: true }); });
-    injectLogAndNotif(batch, { actor_email: actor?.email, module: 'Phương tiện', action: 'UPDATE', title: `Cập nhật Căn ${unitId}`, summary: `Căn ${unitId}: Cập nhật ${details}${reason ? `. Lý do: ${reason}` : ''}`, type: 'system' });
+    d.forEach(v => { batch.set(doc(db, 'vehicles', v.VehicleId), v, { merge: true }); });
+    injectLogAndNotif(batch, { actor_email: actor?.email, module: 'Phương tiện', action: 'UPDATE', title: `Cập nhật Căn ${unitId}`, summary: `Căn ${unitId}: Cập nhật xe${reason ? `. Lý do: ${reason}` : ''}`, type: 'system', linkTo: 'vehicles' });
     bumpVersion(batch, 'vehicles_version'); return batch.commit();
 };
 
@@ -183,9 +233,7 @@ export const fetchLatestLogs = async (limitCount: number = 20): Promise<Activity
     return snap.docs.map(d => {
         const data = d.data();
         let tsString = new Date().toISOString();
-        if (data.timestamp instanceof Timestamp) { tsString = data.timestamp.toDate().toISOString(); } 
-        else if (data.timestamp && typeof data.timestamp.toDate === 'function') { tsString = data.timestamp.toDate().toISOString(); } 
-        else if (data.timestamp) { tsString = new Date(data.timestamp).toISOString(); }
+        if (data.timestamp instanceof Timestamp) tsString = data.timestamp.toDate().toISOString();
         return { id: d.id, ts: tsString, actor_email: data.performedBy?.email || 'system', summary: data.description || '', module: data.module || 'System', action: data.actionType || 'UPDATE' } as any;
     });
 };
@@ -240,68 +288,19 @@ export const getPendingProfileRequest = async (residentId: string): Promise<Prof
 export const resolveProfileRequest = async (request: ProfileRequest, action: 'approve' | 'reject', adminEmail: string, approvedChanges?: any) => {
     const batch = writeBatch(db);
     const now = new Date().toISOString();
-    const reqRef = doc(db, 'profileRequests', request.id);
-    
-    batch.update(reqRef, { 
-        status: action === 'approve' ? 'APPROVED' : 'REJECTED', 
-        updatedAt: now 
+    batch.update(doc(db, 'profileRequests', request.id), { status: action === 'approve' ? 'APPROVED' : 'REJECTED', updatedAt: now });
+
+    // Gửi thông báo cho cư dân
+    const resNotifRef = doc(collection(db, 'notifications'));
+    batch.set(resNotifRef, {
+        userId: request.residentId,
+        title: action === 'approve' ? 'Yêu cầu cập nhật đã được duyệt' : 'Yêu cầu bị từ chối',
+        body: action === 'approve' ? 'Thông tin cá nhân của bạn đã được cập nhật thành công.' : 'BQL đã xem xét và không phê duyệt yêu cầu thay đổi thông tin của bạn.',
+        type: 'profile',
+        link: 'portalProfile',
+        isRead: false,
+        createdAt: serverTimestamp()
     });
-
-    if (action === 'approve') {
-        const changesToApply = approvedChanges || request.changes;
-        const ownerRef = doc(db, 'owners', request.ownerId);
-        
-        const ownerUpdates: any = {};
-        if (changesToApply.OwnerName !== undefined) ownerUpdates.OwnerName = changesToApply.OwnerName;
-        if (changesToApply.Phone !== undefined) ownerUpdates.Phone = changesToApply.Phone;
-        if (changesToApply.Email !== undefined) ownerUpdates.Email = changesToApply.Email;
-        if (changesToApply.secondOwnerName !== undefined) ownerUpdates.secondOwnerName = changesToApply.secondOwnerName;
-        if (changesToApply.secondOwnerPhone !== undefined) ownerUpdates.secondOwnerPhone = changesToApply.secondOwnerPhone;
-        if (changesToApply.avatarUrl !== undefined) ownerUpdates.avatarUrl = changesToApply.avatarUrl;
-        ownerUpdates.updatedAt = now;
-
-        if (Object.keys(ownerUpdates).length > 0) {
-            batch.update(ownerRef, ownerUpdates);
-            bumpVersion(batch, 'owners_version');
-        }
-
-        if (changesToApply.UnitStatus) {
-            batch.update(doc(db, 'units', request.residentId), { Status: changesToApply.UnitStatus });
-            bumpVersion(batch, 'units_version');
-        }
-
-        injectLogAndNotif(batch, { 
-            actor_email: adminEmail, 
-            actor_role: 'Admin', 
-            module: 'Cư dân', 
-            action: 'APPROVE_PROFILE', 
-            summary: `Đã duyệt cập nhật hồ sơ Căn ${request.residentId}`, 
-            ids: [request.residentId],
-            linkTo: 'residents' // Đảm bảo linkTo hợp lệ
-        });
-
-        const resNotifRef = doc(collection(db, 'notifications'));
-        batch.set(resNotifRef, {
-            userId: request.residentId,
-            title: 'Hồ sơ đã được cập nhật',
-            body: 'Ban quản lý đã phê duyệt và cập nhật thông tin cá nhân của bạn.',
-            type: 'profile',
-            link: 'portalProfile',
-            isRead: false,
-            createdAt: serverTimestamp()
-        });
-    } else {
-        const resNotifRef = doc(collection(db, 'notifications'));
-        batch.set(resNotifRef, {
-            userId: request.residentId,
-            title: 'Yêu cầu cập nhật bị từ chối',
-            body: 'Yêu cầu thay đổi thông tin của bạn không được phê duyệt. Vui lòng liên hệ BQL.',
-            type: 'profile',
-            link: 'portalProfile',
-            isRead: false,
-            createdAt: serverTimestamp()
-        });
-    }
 
     await batch.commit();
 };
@@ -318,19 +317,8 @@ export const submitUserProfileUpdate = async (userAuthEmail: string, residentId:
     const requestRef = doc(db, 'profileRequests', requestId);
     const profileRequest: ProfileRequest = { id: requestId, residentId, ownerId, status: 'PENDING', changes: newData, createdAt: now, updatedAt: now };
     batch.set(requestRef, profileRequest, { merge: true });
-    
-    // FIX: Không truyền linkTo bị undefined vào đây
     const adminNotifRef = doc(collection(db, 'admin_notifications'));
-    batch.set(adminNotifRef, { 
-        id: adminNotifRef.id, 
-        type: 'request', 
-        title: `Cập nhật hồ sơ - Căn ${residentId}`, 
-        message: `Cư dân yêu cầu thay đổi thông tin cá nhân.`, 
-        isRead: false, 
-        createdAt: serverTimestamp(), 
-        linkTo: 'residents' 
-    });
-
+    batch.set(adminNotifRef, { id: adminNotifRef.id, type: 'request', title: `Yêu cầu hồ sơ - Căn ${residentId}`, message: `Cư dân yêu cầu thay đổi thông tin.`, isRead: false, createdAt: serverTimestamp(), linkTo: 'residents' });
     await batch.commit(); return profileRequest;
 };
 
