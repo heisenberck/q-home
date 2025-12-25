@@ -1,9 +1,6 @@
 
-import React, { useState, useCallback, useMemo, useRef, useEffect } from 'react';
-import type { ChargeRaw, Adjustment, AllData, Role, PaymentStatus, InvoiceSettings, Owner, MonthlyStat } from '../../types';
-import { UnitType } from '../../types';
-import { LogPayload } from '../../App';
-import { useNotification } from '../../App';
+// Fix: Added missing React imports
+import React, { useState, useRef, useEffect, useMemo } from 'react';
 import { 
     confirmSinglePayment,
     updateChargePayments,
@@ -30,6 +27,14 @@ import { formatCurrency, parseUnitCode, renderInvoiceHTMLForPdf, formatNumber } 
 import { writeBatch, collection, query, where, getDocs, doc, addDoc, serverTimestamp, increment, updateDoc } from 'firebase/firestore';
 import { db } from '../../firebaseConfig';
 import { isProduction } from '../../utils/env';
+// Fix: Added missing type imports
+import type { 
+    ChargeRaw, InvoiceSettings, AllData, Adjustment, 
+    Role, Owner, PaymentStatus, MonthlyStat 
+} from '../../types';
+import { UnitType } from '../../types';
+// Fix: Added missing useNotification hook import
+import { useNotification } from '../../App';
 
 // --- Types & Globals ---
 declare const jspdf: any;
@@ -167,9 +172,9 @@ const MonthPickerPopover: React.FC<{
 
 interface BillingPageProps {
     charges: ChargeRaw[];
-    setCharges: (updater: React.SetStateAction<ChargeRaw[]>, logPayload?: LogPayload) => void;
+    setCharges: (updater: React.SetStateAction<ChargeRaw[]>, logPayload?: any) => void;
     allData: AllData;
-    onUpdateAdjustments: (updater: React.SetStateAction<Adjustment[]>, logPayload?: LogPayload) => void;
+    onUpdateAdjustments: (updater: React.SetStateAction<Adjustment[]>, logPayload?: any) => void;
     role: Role;
     invoiceSettings: InvoiceSettings;
     onRefresh?: () => void;
@@ -259,20 +264,40 @@ const BillingPage: React.FC<BillingPageProps> = ({ charges, setCharges, allData,
         });
     }, [charges, period, searchTerm, statusFilter, floorFilter]);
 
-    // Stats
+    // Updated Stats Logic: Calculated based on Payment Status
     const stats = useMemo(() => {
         const currentCharges = charges.filter(c => c.Period === period);
         const totalDue = currentCharges.reduce((sum, c) => sum + (c.TotalDue || 0), 0);
-        const totalPaid = currentCharges.reduce((sum, c) => sum + (c.TotalPaid || 0), 0);
-        const debt = totalDue - totalPaid;
+        
+        // Thực thu: Chỉ tính các căn có trạng thái đã nộp
+        const actualCollected = currentCharges.reduce((sum, c) => {
+            if (['paid', 'paid_tm', 'paid_ck'].includes(c.paymentStatus)) {
+                return sum + (c.TotalPaid || 0);
+            }
+            return sum;
+        }, 0);
+
+        // Công nợ: Tính chênh lệch (nợ đọng) của những căn có chênh lệch và đã thu tiền (nộp thiếu)
+        const activeDebt = currentCharges.reduce((sum, c) => {
+            if (['paid', 'paid_tm', 'paid_ck'].includes(c.paymentStatus)) {
+                const diff = (c.TotalDue || 0) - (c.TotalPaid || 0);
+                return sum + (diff > 0 ? diff : 0);
+            }
+            // Nếu muốn tính cả công nợ của những người chưa nộp tí nào:
+            if (c.paymentStatus === 'pending' || c.paymentStatus === 'unpaid') {
+                return sum + (c.TotalDue || 0);
+            }
+            return sum;
+        }, 0);
+
         const count = currentCharges.length;
         const paidCount = currentCharges.filter(c => ['paid', 'paid_tm', 'paid_ck'].includes(c.paymentStatus)).length;
         
         return { 
             totalDue, 
-            totalPaid, 
-            debt, 
-            progress: count > 0 ? (paidCount / count) * 100 : 0,
+            totalPaid: actualCollected, 
+            debt: activeDebt, 
+            progress: totalDue > 0 ? (actualCollected / totalDue) * 100 : 0,
             count,
             paidCount
         };
@@ -342,6 +367,8 @@ const BillingPage: React.FC<BillingPageProps> = ({ charges, setCharges, allData,
         } catch (e: any) {
             showToast(`Lỗi: ${e.message}`, 'error');
         } finally {
+            }
+        finally {
             setIsLoading(false);
         }
     };
@@ -744,7 +771,7 @@ const BillingPage: React.FC<BillingPageProps> = ({ charges, setCharges, allData,
 
                                     return (
                                         <tr key={charge.UnitID} className={`hover:bg-gray-50 transition-colors ${selectedUnits.has(charge.UnitID) ? 'bg-blue-50' : ''}`}>
-                                            <td className="px-4 py-3 text-center"><input type="checkbox" checked={selectedUnits.has(charge.UnitID)} onChange={() => setSelectedUnits(p => { const n = new Set(p); if(n.has(charge.UnitID)) n.delete(charge.UnitID); else n.add(charge.UnitID); return n; })} className="w-4 h-4 rounded text-primary focus:ring-primary cursor-pointer"/></td>
+                                            <td className="px-4 py-3 text-center"><input type="checkbox" checked={selectedUnits.has(charge.UnitID)} onChange={() => setSelectedUnits(p => { const n = new Set(p); if(n.has(charge.UnitID)) n.delete(id); else n.add(id); const id = charge.UnitID; if(n.has(id)) n.delete(id); else n.add(id); return n; })} className="w-4 h-4 rounded text-primary focus:ring-primary cursor-pointer"/></td>
                                             <td className="px-4 py-3 font-bold text-gray-900">{charge.UnitID}</td>
                                             <td className="px-4 py-3 text-gray-700 flex items-center gap-2">{charge.paymentStatus === 'reconciling' && <div className="w-2 h-2 rounded-full bg-blue-500 animate-pulse" title="Có biên lai cần duyệt"></div>}{charge.OwnerName}</td>
                                             <td className="px-4 py-3 text-right font-medium text-gray-900">{formatNumber(charge.TotalDue)}</td>
