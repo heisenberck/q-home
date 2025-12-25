@@ -121,12 +121,11 @@ const QRModal: React.FC<{
             const base64 = await compressImageToWebP(file);
 
             // 3. Perform OCR with Production-Safe Configuration
-            // FORCE load worker & core from CDN to bypass build path issues
             const worker = await Tesseract.createWorker('vie', 1, {
                 logger: (m: any) => console.log(m),
                 workerPath: 'https://cdn.jsdelivr.net/npm/tesseract.js@5/dist/worker.min.js',
                 corePath: 'https://cdn.jsdelivr.net/npm/tesseract.js-core@5/tesseract-core.wasm.js',
-                langPath: 'https://tessdata.projectnaptha.com/4.0.0', // Reliable language data source
+                langPath: 'https://tessdata.projectnaptha.com/4.0.0', 
                 errorHandler: (err: any) => console.error(err)
             });
 
@@ -138,25 +137,22 @@ const QRModal: React.FC<{
             const successKeywords = ['thành công', 'successful', 'hoàn tất', 'đã chuyển', 'success'];
             const isSuccess = successKeywords.some(kw => text.includes(kw));
             
-            // Simple Number Extraction (remove non-digits, look for sequence resembling amount)
-            // This is naive but works for clear screenshots
             const numbers = text.match(/\d{1,3}(?:[.,]\d{3})*(?:[.,]\d+)?/g) || [];
             const cleanNumbers = numbers.map((n: string) => parseFloat(n.replace(/[.,]/g, '')));
             
-            // Allow matching if exact amount found OR within 5% error (OCR glitch)
             const matchedAmount = cleanNumbers.find((n: number) => Math.abs(n - amount) < (amount * 0.05));
             
             const ocrResult = {
                 scannedAmount: matchedAmount || 0,
                 isMatch: !!matchedAmount,
-                rawText: text.substring(0, 200) // Store snippet
+                rawText: text.substring(0, 200) 
             };
 
             // 5. Submit to Firestore
             if (IS_PROD) {
                 const chargeId = `${period}_${unitId}`;
                 await updateDoc(doc(db, 'charges', chargeId), {
-                    paymentStatus: 'reconciling', // Wait for Admin to verify
+                    paymentStatus: 'reconciling', 
                     proofImage: base64,
                     ocrResult: ocrResult,
                     submittedAt: new Date().toISOString()
@@ -173,21 +169,7 @@ const QRModal: React.FC<{
 
         } catch (error: any) {
             console.error("OCR Full Error:", error);
-            
-            // Smart error parsing
-            let errorMessage = "Không xác định";
-            if (typeof error === 'string') {
-                errorMessage = error;
-            } else if (error instanceof Error) {
-                errorMessage = error.message;
-            } else if (error && typeof error === 'object') {
-                try {
-                    errorMessage = JSON.stringify(error);
-                } catch (e) {
-                    errorMessage = "Lỗi không thể đọc chi tiết";
-                }
-            }
-
+            let errorMessage = error?.message || "Lỗi không thể đọc chi tiết";
             showToast(`Lỗi xử lý ảnh: ${errorMessage}`, 'error');
         } finally {
             setIsScanning(false);
@@ -274,9 +256,8 @@ const PortalBillingPage: React.FC<PortalBillingPageProps> = ({ charges, user }) 
   const { invoiceSettings } = useSettings();
   const { showToast } = useNotification();
   const [showQR, setShowQR] = useState(false);
-  const [isPaymentSubmitted, setIsPaymentSubmitted] = useState(false); // Changed to submitted state
+  const [isPaymentSubmitted, setIsPaymentSubmitted] = useState(false); 
 
-  // 1. Logic: Filter & Sort Data
   const sortedCharges = useMemo(() => 
     charges
         .filter(c => c.UnitID === user.residentId)
@@ -291,7 +272,6 @@ const PortalBillingPage: React.FC<PortalBillingPageProps> = ({ charges, user }) 
       fullDate: c.Period
   }));
 
-  // 2. Logic: Payment Info
   const paymentContent = currentCharge ? generateTransferContent(currentCharge, invoiceSettings) : '';
   const bankId = invoiceSettings.bankName?.split('-')[0]?.trim().replace(/\s/g, '') || 'MB'; 
   const accountName = encodeURIComponent(invoiceSettings.accountName || '');
@@ -319,7 +299,6 @@ const PortalBillingPage: React.FC<PortalBillingPageProps> = ({ charges, user }) 
   const isPaid = ['paid', 'paid_tm', 'paid_ck'].includes(currentCharge.paymentStatus);
   const isReconciling = currentCharge.paymentStatus === 'reconciling' || isPaymentSubmitted;
   
-  // Safe access for optional properties
   const sentCount = (currentCharge as any).sentCount || 1;
   const [year, month] = currentCharge.Period.split('-');
   const deadline = `20/${month}/${year}`;
@@ -337,7 +316,6 @@ const PortalBillingPage: React.FC<PortalBillingPageProps> = ({ charges, user }) 
             />
         )}
 
-        {/* SECTION A: BILL SUMMARY CARD */}
         <section className="bg-white rounded-2xl shadow-sm border border-gray-100 overflow-hidden relative">
             {isPaid && (
                 <div className="absolute top-4 right-4 z-10">
@@ -354,7 +332,6 @@ const PortalBillingPage: React.FC<PortalBillingPageProps> = ({ charges, user }) 
                 </div>
             )}
             
-            {/* Header Pattern */}
             <div className="h-2 bg-gradient-to-r from-primary to-emerald-400"></div>
             
             <div className="p-5">
@@ -384,7 +361,6 @@ const PortalBillingPage: React.FC<PortalBillingPageProps> = ({ charges, user }) 
             </div>
         </section>
 
-        {/* SECTION B: SMART PAY */}
         {!isPaid && (
             <section className="bg-white rounded-2xl shadow-sm border border-gray-100 p-5 space-y-4">
                 <div className="flex items-center gap-3 mb-2">
@@ -433,10 +409,9 @@ const PortalBillingPage: React.FC<PortalBillingPageProps> = ({ charges, user }) 
             </section>
         )}
 
-        {/* SECTION C: HISTORY CHART */}
         <section className="bg-white rounded-2xl shadow-sm border border-gray-100 p-5">
             <h3 className="font-bold text-gray-800 mb-4 text-sm uppercase tracking-wider">Lịch sử 6 tháng</h3>
-            <div className="h-48 w-full -ml-2">
+            <div className="h-48 w-full -ml-2 min-h-[192px]">
                 <ResponsiveContainer width="100%" height="100%">
                     <LineChart data={historyData}>
                         <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#f3f4f6" />

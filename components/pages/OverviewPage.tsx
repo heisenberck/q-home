@@ -301,7 +301,7 @@ const OverviewPage: React.FC<OverviewPageProps> = ({ allUnits = [], allOwners = 
             <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
                 <div className="lg:col-span-2 bg-white p-6 rounded-xl shadow-sm border border-gray-100">
                     <h3 className="font-bold text-lg text-gray-800 mb-4">Biểu đồ doanh thu (6 tháng gần nhất)</h3>
-                    <div className="h-[250px] w-full">
+                    <div className="h-[250px] w-full min-h-[250px]">
                         <ResponsiveContainer width="100%" height="100%">
                             <BarChart data={commandCenterStats.revenueChartData} margin={{ top: 5, right: 20, left: -10, bottom: 5 }}>
                                 <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#e5e7eb" /><XAxis dataKey="name" tick={{ fill: '#6b7280', fontSize: 12 }} axisLine={false} tickLine={false} /><YAxis tickFormatter={formatYAxis} tick={{ fill: '#6b7280', fontSize: 12 }} axisLine={false} tickLine={false} /><Tooltip content={<CustomTooltip />} cursor={{ fill: 'rgba(243, 244, 246, 0.7)' }} /><Legend wrapperStyle={{ fontSize: '12px', paddingTop: '10px' }} iconSize={10} /><Bar dataKey="Dịch vụ" stackId="revenue" fill="#3b82f6" /><Bar dataKey="Gửi xe" stackId="revenue" fill="#10b981" /><Bar dataKey="Nước" stackId="revenue" fill="#f59e0b" radius={[4, 4, 0, 0]} />
