@@ -1,5 +1,5 @@
 
-import React, { useState, useMemo, useEffect, useRef } from 'react';
+import React, { useState, useMemo, useEffect, useCallback, useRef } from 'react';
 import type { FeedbackItem, FeedbackReply, Role, Unit, Owner } from '../../types';
 import { useNotification, useAuth } from '../../App';
 import Modal from '../ui/Modal';
@@ -11,7 +11,7 @@ import {
     EyeIcon, CalendarDaysIcon, ChevronDownIcon
 } from '../ui/Icons';
 import Spinner from '../ui/Spinner';
-import { subscribeToActiveFeedback, fetchResolvedFeedback, replyFeedback } from '../../services/feedbackService';
+import { fetchActiveFeedback, fetchResolvedFeedback, replyFeedback } from '../../services/feedbackService';
 
 interface FeedbackManagementPageProps {
   role: Role;
@@ -35,7 +35,6 @@ const categoryConfig: Record<string, { label: string, icon: React.ReactNode, col
     other: { label: 'Khác', icon: <InformationCircleIcon />, color: 'text-gray-700 bg-gray-100 border-gray-200' },
 };
 
-// --- MonthPickerPopover Component ---
 const MonthPickerPopover: React.FC<{
     currentPeriod: string;
     onSelectPeriod: (period: string) => void;
@@ -136,7 +135,7 @@ const FeedbackDetailModal: React.FC<{
 
                 <div className="flex-1 flex flex-col p-6 overflow-hidden">
                     <div className="mb-4">
-                        <span className={`px-2 py-0.5 rounded-full text-[10px] font-black uppercase border mb-2 inline-block ${categoryConfig[item.category]?.color}`}>
+                        <span className={`px-2.5 py-1 rounded-full text-[10px] font-black uppercase border mb-2 inline-block ${categoryConfig[item.category]?.color}`}>
                             {categoryConfig[item.category]?.label}
                         </span>
                         <h2 className="text-lg font-black text-gray-800 leading-tight">{item.subject}</h2>
@@ -179,19 +178,26 @@ const FeedbackManagementPage: React.FC<FeedbackManagementPageProps> = ({ units, 
   const [searchTerm, setSearchTerm] = useState('');
   const [period, setPeriod] = useState(new Date().toISOString().slice(0, 7));
   const [isMonthPickerOpen, setIsMonthPickerOpen] = useState(false);
+  const [loading, setLoading] = useState(false);
 
-  // 1. Logic: Listen to Active Feedback (Pending/Processing)
-  useEffect(() => {
-      const unsub = subscribeToActiveFeedback((data) => setActiveFeedback(data));
-      return () => unsub();
-  }, []);
-
-  // 2. Logic: Fetch Resolved on demand (To save Quota)
-  useEffect(() => {
-      if (statusFilter === 'Resolved') {
-          fetchResolvedFeedback(period).then(setResolvedFeedback);
+  const refreshData = useCallback(async () => {
+      setLoading(true);
+      try {
+          if (statusFilter === 'active') {
+              const data = await fetchActiveFeedback();
+              setActiveFeedback(data);
+          } else {
+              const data = await fetchResolvedFeedback(period);
+              setResolvedFeedback(data);
+          }
+      } finally {
+          setLoading(false);
       }
   }, [statusFilter, period]);
+
+  useEffect(() => {
+      refreshData();
+  }, [refreshData]);
 
   const displayedList = useMemo(() => {
       const base = statusFilter === 'active' ? activeFeedback : resolvedFeedback;
@@ -205,6 +211,7 @@ const FeedbackManagementPage: React.FC<FeedbackManagementPageProps> = ({ units, 
     try {
         await replyFeedback(id, replies, status, resId);
         showToast('Đã cập nhật phản hồi.', 'success');
+        refreshData();
     } catch {
         showToast('Lỗi khi cập nhật.', 'error');
     }
@@ -225,9 +232,12 @@ const FeedbackManagementPage: React.FC<FeedbackManagementPageProps> = ({ units, 
                 <button onClick={() => setStatusFilter('Resolved')} className={`flex-1 md:w-36 py-2 rounded-lg text-xs font-black uppercase transition-all ${statusFilter === 'Resolved' ? 'bg-white shadow-sm text-primary' : 'text-gray-500 hover:text-gray-700'}`}>Đã xong</button>
             </div>
 
-            <div className="relative flex-grow max-w-md w-full">
-                <SearchIcon className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-gray-400" />
-                <input type="text" placeholder="Tìm mã căn, chủ đề..." value={searchTerm} onChange={e => setSearchTerm(e.target.value)} className="w-full h-10 pl-9 pr-3 border rounded-xl text-sm outline-none focus:ring-4 focus:ring-primary/5 bg-white border-gray-200" />
+            <div className="relative flex-grow max-w-md w-full flex gap-2">
+                <div className="relative flex-1">
+                    <SearchIcon className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-gray-400" />
+                    <input type="text" placeholder="Tìm mã căn, chủ đề..." value={searchTerm} onChange={e => setSearchTerm(e.target.value)} className="w-full h-10 pl-9 pr-3 border rounded-xl text-sm outline-none focus:ring-4 focus:ring-primary/5 bg-white border-gray-200" />
+                </div>
+                <button onClick={refreshData} disabled={loading} className="p-2.5 bg-gray-100 text-gray-500 rounded-xl active:scale-95 transition-all"><ArrowPathIcon className={`w-5 h-5 ${loading ? 'animate-spin' : ''}`} /></button>
             </div>
 
             {statusFilter === 'Resolved' && (

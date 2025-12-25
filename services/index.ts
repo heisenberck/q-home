@@ -4,14 +4,16 @@ import * as firebaseAPI from './firebaseAPI';
 import * as mockAPI from './mockAPI';
 import * as feedbackAPI from './feedbackService';
 import * as regAPI from './registrationService';
-import * as revenueAPI from './revenueService'; // New
+import * as revenueAPI from './revenueService';
+import * as logAPI from './logService';
 import { isProduction } from '../utils/env';
 
 const IS_PROD = isProduction();
 
+// Merge all APIs based on environment
 const api = IS_PROD 
-    ? { ...firebaseAPI, ...feedbackAPI, ...regAPI, ...revenueAPI } 
-    : { ...mockAPI, ...feedbackAPI, ...regAPI, ...revenueAPI };
+    ? { ...firebaseAPI, ...feedbackAPI, ...regAPI, ...revenueAPI, ...logAPI } 
+    : { ...mockAPI, ...feedbackAPI, ...regAPI, ...revenueAPI, ...logAPI };
 
 export const {
     loadAllData,
@@ -35,7 +37,7 @@ export const {
     getBillingLockStatus,
     setBillingLockStatus,
     resetUserPassword,
-    logActivity,
+    logActivity, // Fix: Now correctly imported from logAPI
     fetchLatestLogs,
     createProfileRequest,
     submitUserProfileUpdate,
@@ -45,7 +47,7 @@ export const {
     updateResidentAvatar,
     fetchWaterLocks,
     addMiscRevenue,
-    getMiscRevenues, // Vẫn giữ nếu cần cho logic khác
+    getMiscRevenues,
     getMonthlyMiscRevenues,
     deleteMiscRevenue,
     updateUserProfile,
@@ -61,8 +63,11 @@ export const {
     fetchUserForLogin,
     submitFeedback,
     replyFeedback,
-    subscribeToActiveFeedback,
+    fetchActiveFeedback, // Updated from subscribeToActiveFeedback
+    fetchResolvedFeedback,
     submitServiceRegistration,
-    subscribeToRegistrations,
-    processRegistrationAction
+    fetchRegistrations, // Updated from subscribeToRegistrations to fix TypeError
+    processRegistrationAction,
+    fetchActiveCharges,
+    getDashboardCounts
 } = api as any;

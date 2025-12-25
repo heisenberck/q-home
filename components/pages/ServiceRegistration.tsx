@@ -1,20 +1,21 @@
 
-import React, { useState, useMemo, useEffect } from 'react';
+import React, { useState, useMemo, useEffect, useCallback } from 'react';
 import type { Role, ServiceRegistration, RegistrationStatus, RegistrationType } from '../../types';
 import { useNotification, useAuth } from '../../App';
 import Modal from '../ui/Modal';
 import { 
     SearchIcon, CheckCircleIcon, XMarkIcon, EyeIcon, 
-    HomeIcon, CarIcon, HammerIcon, ClockIcon,
-    WarningIcon, ChevronDownIcon, CalendarDaysIcon,
-    UserIcon, InformationCircleIcon, CloudArrowUpIcon,
-    FileTextIcon, BikeIcon, DocumentArrowDownIcon,
-    CheckIcon, ClipboardCheckIcon
+    CarIcon, HammerIcon, ClockIcon,
+    WarningIcon, ChevronDownIcon,
+    InformationCircleIcon, CloudArrowUpIcon,
+    FileTextIcon, ArrowPathIcon,
+    CheckIcon, ClipboardCheckIcon,
+    DocumentArrowDownIcon
 } from '../ui/Icons';
 import Spinner from '../ui/Spinner';
 import StatCard from '../ui/StatCard';
 import { translateVehicleType, timeAgo } from '../../utils/helpers';
-import { subscribeToRegistrations, processRegistrationAction } from '../../services';
+import { fetchRegistrations, processRegistrationAction } from '../../services';
 
 interface ServiceRegistrationPageProps {
     role: Role;
@@ -26,7 +27,7 @@ const ServiceRegistrationPage: React.FC<ServiceRegistrationPageProps> = ({ role 
     
     // --- Data State ---
     const [registrations, setRegistrations] = useState<ServiceRegistration[]>([]);
-    const [isLoading, setIsLoading] = useState(true);
+    const [isLoading, setIsLoading] = useState(false);
 
     // --- UI States ---
     const [activeTab, setActiveTab] = useState<RegistrationType>('Construction');
@@ -37,15 +38,22 @@ const ServiceRegistrationPage: React.FC<ServiceRegistrationPageProps> = ({ role 
     const [isProcessing, setIsProcessing] = useState(false);
     const [previewDoc, setPreviewDoc] = useState<{name: string, url: string} | null>(null);
 
-    // 1. Logic: Listen to Firestore
-    useEffect(() => {
+    // 1. Logic: Optimized Fetch (One-time instead of Real-time)
+    const refreshData = useCallback(async () => {
         setIsLoading(true);
-        const unsubscribe = subscribeToRegistrations((data) => {
+        try {
+            const data = await fetchRegistrations();
             setRegistrations(data);
+        } catch (error) {
+            showToast('Không thể tải danh sách đăng ký.', 'error');
+        } finally {
             setIsLoading(false);
-        });
-        return () => unsubscribe();
-    }, []);
+        }
+    }, [showToast]);
+
+    useEffect(() => {
+        refreshData();
+    }, [refreshData]);
 
     // 2. Logic: Data Filtering
     const filteredData = useMemo(() => {
@@ -88,6 +96,7 @@ const ServiceRegistrationPage: React.FC<ServiceRegistrationPageProps> = ({ role 
             showToast(`Đã ${action === 'Approved' ? 'duyệt' : 'từ chối'} yêu cầu căn ${reviewItem.residentId}`, 'success');
             setReviewItem(null);
             setAdminNote('');
+            refreshData(); // Reload data after action
         } catch (error) {
             showToast('Lỗi khi cập nhật trạng thái.', 'error');
         } finally {
@@ -167,15 +176,25 @@ const ServiceRegistrationPage: React.FC<ServiceRegistrationPageProps> = ({ role 
                     </button>
                 </div>
 
-                <div className="relative flex-1 w-full">
-                    <SearchIcon className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400 w-4 h-4" />
-                    <input 
-                        type="text" 
-                        placeholder="Tìm mã căn hộ..." 
-                        value={searchTerm}
-                        onChange={(e) => setSearchTerm(e.target.value)}
-                        className="w-full pl-9 p-2.5 bg-gray-50 border border-gray-200 rounded-xl outline-none text-sm focus:ring-4 focus:ring-primary/5 transition-all font-bold"
-                    />
+                <div className="relative flex-1 w-full flex gap-2">
+                    <div className="relative flex-1">
+                        <SearchIcon className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400 w-4 h-4" />
+                        <input 
+                            type="text" 
+                            placeholder="Tìm mã căn hộ..." 
+                            value={searchTerm}
+                            onChange={(e) => setSearchTerm(e.target.value)}
+                            className="w-full pl-9 p-2.5 bg-gray-50 border border-gray-200 rounded-xl outline-none text-sm focus:ring-4 focus:ring-primary/5 transition-all font-bold"
+                        />
+                    </div>
+                    <button 
+                        onClick={refreshData} 
+                        disabled={isLoading}
+                        className="p-2.5 bg-gray-100 text-gray-500 rounded-xl active:scale-95 transition-all border border-gray-200"
+                        title="Làm mới dữ liệu"
+                    >
+                        <ArrowPathIcon className={`w-5 h-5 ${isLoading ? 'animate-spin' : ''}`} />
+                    </button>
                 </div>
 
                 <select 
@@ -192,94 +211,89 @@ const ServiceRegistrationPage: React.FC<ServiceRegistrationPageProps> = ({ role 
 
             {/* 3. Table Area */}
             <div className="bg-white rounded-2xl shadow-sm border border-gray-100 overflow-hidden flex-1 flex flex-col min-h-0">
-                {isLoading ? (
-                    <div className="py-20 flex justify-center"><Spinner /></div>
-                ) : (
-                    <div className="overflow-y-auto">
-                        <table className="min-w-full text-sm">
-                            <thead className="bg-gray-50 border-b sticky top-0 z-10">
-                                <tr>
-                                    <th className="px-6 py-4 text-left font-black text-gray-400 uppercase tracking-widest text-[10px]">Căn hộ</th>
-                                    <th className="px-6 py-4 text-left font-black text-gray-400 uppercase tracking-widest text-[10px]">
-                                        {activeTab === 'Construction' ? 'Nội dung thi công' : 'Loại xe / Biển số'}
-                                    </th>
-                                    <th className="px-6 py-4 text-left font-black text-gray-400 uppercase tracking-widest text-[10px]">
-                                        Thời gian nhận
-                                    </th>
-                                    <th className="px-6 py-4 text-center font-black text-gray-400 uppercase tracking-widest text-[10px]">Trạng thái</th>
-                                    <th className="px-6 py-4 text-center font-black text-gray-400 uppercase tracking-widest text-[10px]">Hành động</th>
-                                </tr>
-                            </thead>
-                            <tbody className="divide-y divide-gray-50">
-                                {filteredData.map(item => (
-                                    <tr key={item.id} className="hover:bg-slate-50 transition-colors group">
-                                        <td className="px-6 py-4">
+                <div className="overflow-y-auto">
+                    <table className="min-w-full text-sm">
+                        <thead className="bg-gray-50 border-b sticky top-0 z-10">
+                            <tr>
+                                <th className="px-6 py-4 text-left font-black text-gray-400 uppercase tracking-widest text-[10px]">Căn hộ</th>
+                                <th className="px-6 py-4 text-left font-black text-gray-400 uppercase tracking-widest text-[10px]">
+                                    {activeTab === 'Construction' ? 'Nội dung thi công' : 'Loại xe / Biển số'}
+                                </th>
+                                <th className="px-6 py-4 text-left font-black text-gray-400 uppercase tracking-widest text-[10px]">
+                                    Thời gian nhận
+                                </th>
+                                <th className="px-6 py-4 text-center font-black text-gray-400 uppercase tracking-widest text-[10px]">Trạng thái</th>
+                                <th className="px-6 py-4 text-center font-black text-gray-400 uppercase tracking-widest text-[10px]">Hành động</th>
+                            </tr>
+                        </thead>
+                        <tbody className="divide-y divide-gray-50">
+                            {filteredData.map(item => (
+                                <tr key={item.id} className="hover:bg-slate-50 transition-colors group">
+                                    <td className="px-6 py-4">
+                                        <div className="flex items-center gap-3">
+                                            <div className="w-10 h-10 rounded-xl bg-primary/5 text-primary flex items-center justify-center font-black text-xs border border-primary/10 shadow-inner">
+                                                {item.residentId}
+                                            </div>
+                                            <div className="text-[10px] text-gray-400 font-bold uppercase tracking-tighter">
+                                                {new Date(item.date).toLocaleDateString('vi-VN')}
+                                            </div>
+                                        </div>
+                                    </td>
+                                    <td className="px-6 py-4">
+                                        {activeTab === 'Construction' ? (
+                                            <div className="max-w-xs">
+                                                <p className="font-bold text-gray-800 truncate">{item.details.constructionItem}</p>
+                                                <p className="text-[10px] font-bold text-gray-400 uppercase tracking-wider">{item.details.contractor}</p>
+                                            </div>
+                                        ) : (
                                             <div className="flex items-center gap-3">
-                                                <div className="w-10 h-10 rounded-xl bg-primary/5 text-primary flex items-center justify-center font-black text-xs border border-primary/10 shadow-inner">
-                                                    {item.residentId}
-                                                </div>
-                                                <div className="text-[10px] text-gray-400 font-bold uppercase tracking-tighter">
-                                                    {new Date(item.date).toLocaleDateString('vi-VN')}
-                                                </div>
+                                                <span className="font-mono font-black text-gray-900 bg-gray-100 px-3 py-1 rounded border border-gray-200 tracking-tight uppercase shadow-sm">
+                                                    {item.details.plate}
+                                                </span>
+                                                <span className="text-[10px] font-black text-gray-400 uppercase bg-slate-50 px-1.5 py-0.5 rounded border border-gray-100">
+                                                    {item.details.model}
+                                                </span>
                                             </div>
-                                        </td>
-                                        <td className="px-6 py-4">
-                                            {activeTab === 'Construction' ? (
-                                                <div className="max-w-xs">
-                                                    <p className="font-bold text-gray-800 truncate">{item.details.constructionItem}</p>
-                                                    <p className="text-[10px] font-bold text-gray-400 uppercase tracking-wider">{item.details.contractor}</p>
-                                                </div>
-                                            ) : (
-                                                <div className="flex items-center gap-3">
-                                                    <span className="font-mono font-black text-gray-900 bg-gray-100 px-3 py-1 rounded border border-gray-200 tracking-tight uppercase shadow-sm">
-                                                        {item.details.plate}
-                                                    </span>
-                                                    <span className="text-[10px] font-black text-gray-400 uppercase bg-slate-50 px-1.5 py-0.5 rounded border border-gray-100">
-                                                        {item.details.model}
-                                                    </span>
-                                                </div>
-                                            )}
-                                        </td>
-                                        <td className="px-6 py-4 text-gray-500 font-bold text-xs">
-                                            {timeAgo(item.date)}
-                                        </td>
-                                        <td className="px-6 py-4 text-center">
-                                            <div className="flex justify-center">
-                                                {statusBadge(item.status)}
-                                            </div>
-                                        </td>
-                                        <td className="px-6 py-4 text-center">
-                                            <button 
-                                                onClick={() => {
-                                                    setReviewItem(item);
-                                                    setAdminNote(item.rejectionReason || '');
-                                                }}
-                                                className={`p-2.5 rounded-xl transition-all active:scale-90 border shadow-sm ${
-                                                    item.status === 'Pending' 
-                                                        ? 'bg-orange-600 text-white border-orange-700 btn-glow' 
-                                                        : 'bg-white text-gray-400 border-gray-100 hover:text-primary hover:border-primary/20'
-                                                }`}
-                                            >
-                                                {/* Fixed error: strokeWidth is not a valid prop for CheckIcon wrapper */}
-                                                {item.status === 'Pending' ? <CheckIcon className="w-5 h-5" /> : <EyeIcon className="w-5 h-5" />}
-                                            </button>
-                                        </td>
-                                    </tr>
-                                ))}
-                                {filteredData.length === 0 && (
-                                    <tr>
-                                        <td colSpan={5} className="py-24 text-center">
-                                            <div className="flex flex-col items-center gap-2 opacity-30">
-                                                <WarningIcon className="w-12 h-12" />
-                                                <p className="font-black uppercase tracking-widest text-xs">Không tìm thấy yêu cầu đăng ký nào.</p>
-                                            </div>
-                                        </td>
-                                    </tr>
-                                )}
-                            </tbody>
-                        </table>
-                    </div>
-                )}
+                                        )}
+                                    </td>
+                                    <td className="px-6 py-4 text-gray-500 font-bold text-xs">
+                                        {timeAgo(item.date)}
+                                    </td>
+                                    <td className="px-6 py-4 text-center">
+                                        <div className="flex justify-center">
+                                            {statusBadge(item.status)}
+                                        </div>
+                                    </td>
+                                    <td className="px-6 py-4 text-center">
+                                        <button 
+                                            onClick={() => {
+                                                setReviewItem(item);
+                                                setAdminNote(item.rejectionReason || '');
+                                            }}
+                                            className={`p-2.5 rounded-xl transition-all active:scale-90 border shadow-sm ${
+                                                item.status === 'Pending' 
+                                                    ? 'bg-orange-600 text-white border-orange-700 btn-glow' 
+                                                    : 'bg-white text-gray-400 border-gray-100 hover:text-primary hover:border-primary/20'
+                                            }`}
+                                        >
+                                            {item.status === 'Pending' ? <CheckIcon className="w-5 h-5" /> : <EyeIcon className="w-5 h-5" />}
+                                        </button>
+                                    </td>
+                                </tr>
+                            ))}
+                            {filteredData.length === 0 && !isLoading && (
+                                <tr>
+                                    <td colSpan={5} className="py-24 text-center">
+                                        <div className="flex flex-col items-center gap-2 opacity-30">
+                                            <WarningIcon className="w-12 h-12" />
+                                            <p className="font-black uppercase tracking-widest text-xs">Không tìm thấy yêu cầu đăng ký nào.</p>
+                                        </div>
+                                    </td>
+                                </tr>
+                            )}
+                        </tbody>
+                    </table>
+                </div>
             </div>
 
             {/* Review Modal */}

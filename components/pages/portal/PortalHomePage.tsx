@@ -1,10 +1,10 @@
 
-import React, { useState, useEffect, useMemo } from 'react';
+import React, { useState, useEffect, useMemo, useRef } from 'react';
 import type { UserPermission, NewsItem, ChargeRaw, Owner } from '../../../types';
-import { WarningIcon, CheckCircleIcon, SparklesIcon } from '../../ui/Icons';
+import { WarningIcon, CheckCircleIcon, SparklesIcon, ArrowPathIcon } from '../../ui/Icons';
 import { formatCurrency, timeAgo } from '../../../utils/helpers';
 import { PortalPage } from '../../layout/ResidentLayout';
-import { doc, onSnapshot, collection, query, where, limit } from 'firebase/firestore';
+import { collection, query, where, limit, getDocs } from 'firebase/firestore';
 import { db } from '../../../firebaseConfig';
 import { isProduction } from '../../../utils/env';
 
@@ -16,42 +16,55 @@ interface PortalHomePageProps {
   setActivePage: (page: PortalPage) => void;
 }
 
-const PortalHomePage: React.FC<PortalHomePageProps> = ({ user, charges, news, setActivePage }) => {
+// In-memory cache for resident bills to prevent spamming Firestore
+const BILL_CACHE: Record<string, { data: ChargeRaw | null, ts: number }> = {};
+const CACHE_TTL = 2 * 60 * 1000; // 2 minutes
+
+const PortalHomePage: React.FC<PortalHomePageProps> = ({ user, news, setActivePage }) => {
     const currentPeriod = useMemo(() => new Date().toISOString().slice(0, 7), []);
     const IS_PROD = isProduction();
 
     const [currentCharge, setCurrentCharge] = useState<ChargeRaw | null>(null);
     const [loadingCharge, setLoadingCharge] = useState(false);
+    const isInitialMount = useRef(true);
 
-    useEffect(() => {
-        if (!user.residentId) return;
+    const fetchBill = async (force = false) => {
+        if (!user.residentId || !IS_PROD) return;
 
-        const propCharge = charges.find(c => c.UnitID === user.residentId && c.Period === currentPeriod);
-        if (propCharge) setCurrentCharge(propCharge);
+        const cacheKey = `${user.residentId}_${currentPeriod}`;
+        const now = Date.now();
 
-        if (IS_PROD) {
-            setLoadingCharge(true);
+        if (!force && BILL_CACHE[cacheKey] && (now - BILL_CACHE[cacheKey].ts < CACHE_TTL)) {
+            setCurrentCharge(BILL_CACHE[cacheKey].data);
+            return;
+        }
+
+        setLoadingCharge(true);
+        try {
             const q = query(
                 collection(db, 'charges'), 
                 where('UnitID', '==', user.residentId), 
                 where('Period', '==', currentPeriod),
                 limit(1)
             );
-            const unsubscribe = onSnapshot(q, (snapshot) => {
-                if (!snapshot.empty) {
-                    const data = snapshot.docs[0].data() as ChargeRaw;
-                    setCurrentCharge(data);
-                } else {
-                    setCurrentCharge(null);
-                }
-                setLoadingCharge(false);
-            }, (err) => {
-                console.error("Real-time charge fetch error", err);
-                setLoadingCharge(false);
-            });
-            return () => unsubscribe();
+            const snapshot = await getDocs(q);
+            const data = !snapshot.empty ? snapshot.docs[0].data() as ChargeRaw : null;
+            
+            BILL_CACHE[cacheKey] = { data, ts: now };
+            setCurrentCharge(data);
+        } catch (err) {
+            console.error("Error fetching bill:", err);
+        } finally {
+            setLoadingCharge(false);
         }
-    }, [user.residentId, currentPeriod, IS_PROD, charges]);
+    };
+
+    useEffect(() => {
+        if (isInitialMount.current) {
+            fetchBill();
+            isInitialMount.current = false;
+        }
+    }, [user.residentId, currentPeriod]);
 
     const latestNews = useMemo(() => {
         return [...news]
@@ -61,14 +74,19 @@ const PortalHomePage: React.FC<PortalHomePageProps> = ({ user, charges, news, se
     }, [news]);
 
     const renderBillStatus = () => {
+        if (loadingCharge) return <div className="animate-pulse bg-gray-100 h-24 rounded-xl"></div>;
+
         if (!currentCharge) {
              return (
-                <div className="bg-green-50 border border-green-200 p-4 rounded-xl flex items-center gap-4">
-                     <div className="p-2 bg-green-100 rounded-full"><CheckCircleIcon className="w-6 h-6 text-green-600"/></div>
-                    <div>
-                        <p className="font-bold text-green-800">Thông báo phí</p>
-                        <p className="text-sm text-green-700">Chưa có thông báo phí cho kỳ {currentPeriod}.</p>
+                <div className="bg-green-50 border border-green-200 p-4 rounded-xl flex items-center justify-between gap-4">
+                    <div className="flex items-center gap-4">
+                        <div className="p-2 bg-green-100 rounded-full"><CheckCircleIcon className="w-6 h-6 text-green-600"/></div>
+                        <div>
+                            <p className="font-bold text-green-800">Hóa đơn sạch</p>
+                            <p className="text-sm text-green-700">Chưa có thông báo phí cho kỳ này.</p>
+                        </div>
                     </div>
+                    <button onClick={() => fetchBill(true)} className="text-green-600 p-2 active:scale-90"><ArrowPathIcon className="w-4 h-4" /></button>
                 </div>
             );
         }
@@ -76,25 +94,29 @@ const PortalHomePage: React.FC<PortalHomePageProps> = ({ user, charges, news, se
         const isPaid = ['paid', 'paid_tm', 'paid_ck'].includes(currentCharge.paymentStatus);
         if (isPaid) {
              return (
-                <div className="bg-green-50 border border-green-200 p-4 rounded-xl flex items-center gap-4">
-                     <div className="p-2 bg-green-100 rounded-full"><CheckCircleIcon className="w-6 h-6 text-green-600"/></div>
-                    <div>
-                        <p className="font-bold text-green-800">Đã thanh toán</p>
-                        <p className="text-sm text-green-700">Bạn đã thanh toán phí dịch vụ tháng này. Cảm ơn cư dân!</p>
+                <div className="bg-green-50 border border-green-200 p-4 rounded-xl flex items-center justify-between gap-4">
+                    <div className="flex items-center gap-4">
+                        <div className="p-2 bg-green-100 rounded-full"><CheckCircleIcon className="w-6 h-6 text-green-600"/></div>
+                        <div>
+                            <p className="font-bold text-green-800">Đã thanh toán</p>
+                            <p className="text-sm text-green-700">Cảm ơn cư dân đã hoàn thành nghĩa vụ phí!</p>
+                        </div>
                     </div>
+                    <button onClick={() => fetchBill(true)} className="text-green-600 p-2 active:scale-90"><ArrowPathIcon className="w-4 h-4" /></button>
                 </div>
             );
         }
 
         return (
-            <div className="bg-red-50 border border-red-200 p-4 rounded-xl flex items-center gap-4 cursor-pointer hover:bg-red-100 transition-colors" onClick={() => setActivePage('portalBilling')}>
-                <div className="p-2 bg-red-100 rounded-full"><WarningIcon className="w-6 h-6 text-red-600"/></div>
-                <div>
-                    <p className="font-bold text-red-800">Thông báo phí T{currentPeriod.split('-')[1]}</p>
-                    <p className="text-sm text-red-700">
-                        Bạn có hóa đơn chưa thanh toán: <span className="font-bold">{formatCurrency(currentCharge.TotalDue)}</span>
-                    </p>
+            <div className="bg-red-50 border border-red-200 p-4 rounded-xl flex items-center justify-between gap-4">
+                <div className="flex items-center gap-4 cursor-pointer flex-1" onClick={() => setActivePage('portalBilling')}>
+                    <div className="p-2 bg-red-100 rounded-full"><WarningIcon className="w-6 h-6 text-red-600"/></div>
+                    <div>
+                        <p className="font-bold text-red-800">Chưa nộp: T{currentPeriod.split('-')[1]}</p>
+                        <p className="text-sm text-red-700 font-bold">{formatCurrency(currentCharge.TotalDue)}</p>
+                    </div>
                 </div>
+                <button onClick={() => fetchBill(true)} className="text-red-600 p-2 active:scale-90"><ArrowPathIcon className="w-4 h-4" /></button>
             </div>
         );
     };

@@ -81,7 +81,35 @@ export const loadAllData = async () => {
     });
 };
 
-// --- Missing functions for useSmartData ---
+/**
+ * MOCK optimized fetch for Dashboard
+ */
+export const getDashboardCounts = async () => {
+    return Promise.resolve({
+        totalUnits: units.length,
+        activeVehicles: vehicles.filter(v => v.isActive).length,
+        waitingVehicles: vehicles.filter(v => v.isActive && v.parkingStatus === 'Xếp lốt').length
+    });
+};
+
+/**
+ * MOCK optimized fetch for specific periods
+ */
+export const fetchActiveCharges = async (periods: string[]): Promise<ChargeRaw[]> => {
+    return Promise.resolve(charges.filter(c => 
+        periods.includes(c.Period) || 
+        ['unpaid', 'reconciling', 'pending'].includes(c.paymentStatus)
+    ));
+};
+
+export const fetchChargesForResident = async (residentId: string): Promise<ChargeRaw[]> => {
+    return Promise.resolve(
+        charges
+            .filter(c => c.UnitID === residentId)
+            .sort((a, b) => b.Period.localeCompare(a.Period))
+            .slice(0, 12)
+    );
+};
 
 export const getSystemMetadata = async (): Promise<SystemMetadata> => {
     return Promise.resolve({

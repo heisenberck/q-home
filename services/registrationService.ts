@@ -1,5 +1,5 @@
 
-import { collection, query, where, limit, onSnapshot, getDocs, doc, updateDoc, serverTimestamp, writeBatch, orderBy } from 'firebase/firestore';
+import { collection, query, where, limit, getDocs, doc, serverTimestamp, writeBatch, orderBy } from 'firebase/firestore';
 import { db } from '../firebaseConfig';
 import type { ServiceRegistration, RegistrationStatus } from '../types';
 
@@ -32,26 +32,29 @@ export const submitServiceRegistration = async (registration: Omit<ServiceRegist
 };
 
 /**
- * TỐI ƯU: Chỉ lắng nghe các yêu cầu Chưa xử lý (Pending) + 20 yêu cầu gần nhất
+ * TỐI ƯU: Sử dụng getDocs thay vì onSnapshot. 
+ * Đăng ký dịch vụ không cần cập nhật tức thời theo giây, giúp tiết kiệm chi phí Firestore đáng kể.
  */
-export const subscribeToRegistrations = (callback: (items: ServiceRegistration[]) => void) => {
-    // Chỉ lấy 50 mục gần nhất/đang chờ để tiết kiệm Read
+export const fetchRegistrations = async (): Promise<ServiceRegistration[]> => {
     const q = query(
         collection(db, COLLECTION_NAME),
         orderBy('date', 'desc'),
         limit(50)
     );
 
-    return onSnapshot(q, (snapshot) => {
+    try {
+        const snapshot = await getDocs(q);
         const items = snapshot.docs.map(d => ({ ...d.data() } as ServiceRegistration));
-        // Sắp xếp local để đưa Pending lên đầu
-        const sorted = items.sort((a, b) => {
+        
+        return items.sort((a, b) => {
             if (a.status === 'Pending' && b.status !== 'Pending') return -1;
             if (a.status !== 'Pending' && b.status === 'Pending') return 1;
             return 0;
         });
-        callback(sorted);
-    });
+    } catch (error) {
+        console.error("Lỗi fetch registrations:", error);
+        return [];
+    }
 };
 
 export const processRegistrationAction = async (regId: string, status: RegistrationStatus, adminNote: string, adminEmail: string, residentId: string) => {

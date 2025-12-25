@@ -70,8 +70,8 @@ export const useSmartSystemData = (currentUser: UserPermission | null) => {
                 // Portal dành cho Cư dân
                 if (currentUser?.residentId) {
                     const specific = await api.fetchResidentSpecificData(currentUser.residentId);
-                    const charges = await (api.fetchCollection('charges') as Promise<ChargeRaw[]>)
-                        .then(all => (all || []).filter(c => c.UnitID === currentUser.residentId).slice(-3)) || [];
+                    // Optimized: Only fetch last 12 months for resident, not everything
+                    const charges = await api.fetchChargesForResident(currentUser.residentId);
 
                     setData({
                         units: specific.unit ? [specific.unit] : [],
@@ -103,22 +103,23 @@ export const useSmartSystemData = (currentUser: UserPermission | null) => {
                     })),
                 ]);
 
-                // Lấy danh sách kỳ cần tải số nước (Hiện tại và 2 tháng trước)
                 const p1 = currentPeriod;
                 const p2 = getPreviousPeriod(p1);
                 const p3 = getPreviousPeriod(p2);
+                const p4 = getPreviousPeriod(p3);
+                const p5 = getPreviousPeriod(p4);
+                const p6 = getPreviousPeriod(p5);
 
-                const [stats, locks, recentAdjustments, misc, exps, water] = await Promise.all([
+                const [stats, locks, recentAdjustments, misc, exps, water, charges] = await Promise.all([
                     api.fetchCollection('monthly_stats'),
                     api.fetchWaterLocks(),
                     api.fetchRecentAdjustments(currentPeriod),
                     api.getMonthlyMiscRevenues(currentPeriod),
                     api.fetchCollection('operational_expenses'),
-                    api.fetchRecentWaterReadings([p1, p2, p3]) // Tải chỉ số nước thực tế
+                    api.fetchRecentWaterReadings([p1, p2, p3]),
+                    // Optimized: Only pull charges for current chart (last 6 months) and any historical debts
+                    api.fetchActiveCharges([p1, p2, p3, p4, p5, p6])
                 ]);
-
-                const allCharges = await (api.fetchCollection('charges') as Promise<ChargeRaw[]>)
-                    .then(all => (all || []).filter(c => c.Period === currentPeriod || c.paymentStatus === 'unpaid')) || [];
 
                 setData({
                     units: units || [],
@@ -131,8 +132,8 @@ export const useSmartSystemData = (currentUser: UserPermission | null) => {
                     monthlyStats: stats || [],
                     lockedWaterPeriods: locks || [],
                     adjustments: recentAdjustments || [],
-                    charges: allCharges,
-                    waterReadings: water || [], // Cập nhật dữ liệu nước thật
+                    charges: charges || [],
+                    waterReadings: water || [],
                     miscRevenues: misc || [],
                     expenses: exps || [],
                     hasLoaded: true

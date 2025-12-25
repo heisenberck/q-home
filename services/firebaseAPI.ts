@@ -15,7 +15,10 @@ import {
     serverTimestamp, 
     startAfter, 
     addDoc,
-    Timestamp 
+    Timestamp,
+    getCountFromServer,
+    or,
+    and
 } from 'firebase/firestore';
 import { db } from '../firebaseConfig';
 import type { 
@@ -27,31 +30,60 @@ import type {
 } from '../types';
 
 /**
- * Tìm kiếm 1 tài khoản cụ thể để đăng nhập (Dùng cho PROD)
+ * Optimized: Fetches only charges for a specific period range OR unpaid status
+ * This prevents reading thousands of historical paid records.
  */
+export const fetchActiveCharges = async (periods: string[]): Promise<ChargeRaw[]> => {
+    const chargesRef = collection(db, 'charges');
+    // Query for specific months OR any unpaid bill (debt recovery)
+    const q = query(
+        chargesRef,
+        or(
+            where('Period', 'in', periods),
+            where('paymentStatus', '==', 'unpaid'),
+            where('paymentStatus', '==', 'reconciling')
+        )
+    );
+    const snap = await getDocs(q);
+    return snap.docs.map(d => d.data() as ChargeRaw);
+};
+
+/**
+ * Aggregation: Get counts for Dashboard without fetching documents
+ */
+export const getDashboardCounts = async () => {
+    const unitsRef = collection(db, 'units');
+    const vehiclesRef = collection(db, 'vehicles');
+    
+    const [unitsSnap, vehiclesSnap, waitingVehiclesSnap] = await Promise.all([
+        getCountFromServer(unitsRef),
+        getCountFromServer(query(vehiclesRef, where('isActive', '==', true))),
+        getCountFromServer(query(vehiclesRef, and(where('isActive', '==', true), where('parkingStatus', '==', 'Xếp lốt'))))
+    ]);
+
+    return {
+        totalUnits: unitsSnap.data().count,
+        activeVehicles: vehiclesSnap.data().count,
+        waitingVehicles: waitingVehiclesSnap.data().count
+    };
+};
+
 export const fetchUserForLogin = async (identifier: string): Promise<UserPermission | null> => {
     const cleanId = identifier.trim().toLowerCase();
-    
-    // 1. Tìm theo Username (Mã căn)
     const qUsername = query(collection(db, 'users'), where('Username', '==', cleanId), limit(1));
     const snapUsername = await getDocs(qUsername);
     if (!snapUsername.empty) return snapUsername.docs[0].data() as UserPermission;
-
-    // 2. Tìm theo Email hệ thống
     const qEmail = query(collection(db, 'users'), where('Email', '==', cleanId), limit(1));
     const snapEmail = await getDocs(qEmail);
     if (!snapEmail.empty) return snapEmail.docs[0].data() as UserPermission;
-    
-    // 3. Tìm theo Email liên hệ (contact_email)
     const qContact = query(collection(db, 'users'), where('contact_email', '==', cleanId), limit(1));
     const snapContact = await getDocs(qContact);
     if (!snapContact.empty) return snapContact.docs[0].data() as UserPermission;
-
     return null;
 };
 
 export const fetchChargesForResident = async (residentId: string): Promise<ChargeRaw[]> => {
-    const q = query(collection(db, 'charges'), where('UnitID', '==', residentId), orderBy('Period', 'desc'));
+    const q = query(collection(db, 'charges'), where('UnitID', '==', residentId), orderBy('Period', 'desc'), limit(12));
     const snap = await getDocs(q);
     return snap.docs.map(d => d.data() as ChargeRaw);
 };
@@ -111,7 +143,7 @@ const injectLogAndNotif = (batch: any, log: any) => {
 };
 
 export const fetchNews = async (): Promise<NewsItem[]> => {
-    const q = query(collection(db, 'news'), orderBy('date', 'desc'));
+    const q = query(collection(db, 'news'), orderBy('date', 'desc'), limit(20));
     const snap = await getDocs(q);
     return snap.docs.map(d => ({ id: d.id, ...d.data() } as NewsItem));
 };

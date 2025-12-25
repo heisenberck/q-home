@@ -1,5 +1,5 @@
 
-import { collection, query, where, limit, onSnapshot, getDocs, doc, updateDoc, serverTimestamp, writeBatch } from 'firebase/firestore';
+import { collection, query, where, limit, getDocs, doc, updateDoc, serverTimestamp, writeBatch } from 'firebase/firestore';
 import { db } from '../firebaseConfig';
 import type { FeedbackItem, FeedbackReply } from '../types';
 
@@ -37,49 +37,41 @@ export const submitFeedback = async (feedback: Omit<FeedbackItem, 'id'>) => {
 };
 
 /**
- * Lắng nghe phản hồi "Đang hoạt động" (Pending/Processing)
- * Đã loại bỏ orderBy('date') để tránh lỗi thiếu Index. 
- * Sắp xếp được thực hiện phía Client.
+ * Tối ưu: Chuyển sang getDocs thay vì onSnapshot để tiết kiệm Quota.
+ * Admin sẽ bấm nút "Làm mới" hoặc load lại trang để thấy dữ liệu mới.
  */
-export const subscribeToActiveFeedback = (callback: (feedback: FeedbackItem[]) => void) => {
+export const fetchActiveFeedback = async (): Promise<FeedbackItem[]> => {
     const q = query(
         collection(db, COLLECTION_NAME),
         where('status', 'in', ['Pending', 'Processing']),
-        limit(100) // Tăng limit một chút để cover đủ dữ liệu trước khi sort local
+        limit(50)
     );
 
-    return onSnapshot(q, (snapshot) => {
-        const items = snapshot.docs.map(d => ({ ...d.data(), id: d.id } as FeedbackItem));
-        
-        // Sắp xếp phía client: Mới nhất lên đầu
-        const sortedItems = items.sort((a, b) => 
-            new Date(b.date).getTime() - new Date(a.date).getTime()
-        );
-        
-        callback(sortedItems);
-    }, (error) => {
-        console.error("Lỗi listener feedback:", error);
-    });
+    try {
+        const snapshot = await getDocs(q);
+        return snapshot.docs
+            .map(d => ({ ...d.data(), id: d.id } as FeedbackItem))
+            .sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime());
+    } catch (error) {
+        console.error("Lỗi fetch feedback:", error);
+        return [];
+    }
 };
 
 /**
  * Tải phản hồi cũ (Resolved) theo tháng
- * Đã loại bỏ các filter phức tạp gây lỗi Index.
- * Thực hiện lọc theo ngày và sắp xếp phía Client.
  */
 export const fetchResolvedFeedback = async (period: string): Promise<FeedbackItem[]> => {
-    // Chỉ fetch theo trạng thái để sử dụng index đơn (mặc định)
     const q = query(
         collection(db, COLLECTION_NAME),
         where('status', '==', 'Resolved'),
-        limit(200)
+        limit(100)
     );
     
     try {
         const snap = await getDocs(q);
         const allResolved = snap.docs.map(d => ({ ...d.data(), id: d.id } as FeedbackItem));
         
-        // Lọc theo tháng (period: YYYY-MM) và sắp xếp phía client
         return allResolved
             .filter(item => item.date.startsWith(period))
             .sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime());
