@@ -29,77 +29,6 @@ import type {
     Role, NewsItem
 } from '../types';
 
-/**
- * Optimized: Fetches only charges for a specific period range OR unpaid status
- * This prevents reading thousands of historical paid records.
- */
-export const fetchActiveCharges = async (periods: string[]): Promise<ChargeRaw[]> => {
-    const chargesRef = collection(db, 'charges');
-    // Query for specific months OR any unpaid bill (debt recovery)
-    const q = query(
-        chargesRef,
-        or(
-            where('Period', 'in', periods),
-            where('paymentStatus', '==', 'unpaid'),
-            where('paymentStatus', '==', 'reconciling')
-        )
-    );
-    const snap = await getDocs(q);
-    return snap.docs.map(d => d.data() as ChargeRaw);
-};
-
-/**
- * Aggregation: Get counts for Dashboard without fetching documents
- */
-export const getDashboardCounts = async () => {
-    const unitsRef = collection(db, 'units');
-    const vehiclesRef = collection(db, 'vehicles');
-    
-    const [unitsSnap, vehiclesSnap, waitingVehiclesSnap] = await Promise.all([
-        getCountFromServer(unitsRef),
-        getCountFromServer(query(vehiclesRef, where('isActive', '==', true))),
-        getCountFromServer(query(vehiclesRef, and(where('isActive', '==', true), where('parkingStatus', '==', 'Xếp lốt'))))
-    ]);
-
-    return {
-        totalUnits: unitsSnap.data().count,
-        activeVehicles: vehiclesSnap.data().count,
-        waitingVehicles: waitingVehiclesSnap.data().count
-    };
-};
-
-export const fetchUserForLogin = async (identifier: string): Promise<UserPermission | null> => {
-    const cleanId = identifier.trim().toLowerCase();
-    const qUsername = query(collection(db, 'users'), where('Username', '==', cleanId), limit(1));
-    const snapUsername = await getDocs(qUsername);
-    if (!snapUsername.empty) return snapUsername.docs[0].data() as UserPermission;
-    const qEmail = query(collection(db, 'users'), where('Email', '==', cleanId), limit(1));
-    const snapEmail = await getDocs(qEmail);
-    if (!snapEmail.empty) return snapEmail.docs[0].data() as UserPermission;
-    const qContact = query(collection(db, 'users'), where('contact_email', '==', cleanId), limit(1));
-    const snapContact = await getDocs(qContact);
-    if (!snapContact.empty) return snapContact.docs[0].data() as UserPermission;
-    return null;
-};
-
-export const fetchChargesForResident = async (residentId: string): Promise<ChargeRaw[]> => {
-    const q = query(collection(db, 'charges'), where('UnitID', '==', residentId), orderBy('Period', 'desc'), limit(12));
-    const snap = await getDocs(q);
-    return snap.docs.map(d => d.data() as ChargeRaw);
-};
-
-export const fetchResidentSpecificData = async (residentId: string) => {
-    const unitSnap = await getDoc(doc(db, 'units', residentId));
-    if (!unitSnap.exists()) return { unit: null, owner: null, vehicles: [] };
-    const unit = unitSnap.data() as Unit;
-    const ownerSnap = await getDoc(doc(db, 'owners', unit.OwnerID));
-    const owner = ownerSnap.exists() ? ownerSnap.data() as Owner : null;
-    const vq = query(collection(db, 'vehicles'), where('UnitID', '==', residentId), where('isActive', '==', true));
-    const vSnap = await getDocs(vq);
-    const vehicles = vSnap.docs.map(d => d.data() as Vehicle);
-    return { unit, owner, vehicles };
-};
-
 const METADATA_DOC_ID = 'metadata';
 const SETTINGS_COLLECTION = 'settings';
 
@@ -137,9 +66,60 @@ const injectLogAndNotif = (batch: any, log: any) => {
         title: log.title || 'Cập nhật hệ thống', 
         message: log.summary || '', 
         isRead: false, 
-        createdAt: serverTimestamp() 
+        createdAt: serverTimestamp(),
+        linkTo: log.linkTo
     };
     batch.set(notifRef, notifData);
+};
+
+export const fetchActiveCharges = async (periods: string[]): Promise<ChargeRaw[]> => {
+    const chargesRef = collection(db, 'charges');
+    const q = query(chargesRef, or(where('Period', 'in', periods), where('paymentStatus', '==', 'unpaid'), where('paymentStatus', '==', 'reconciling')));
+    const snap = await getDocs(q);
+    return snap.docs.map(d => d.data() as ChargeRaw);
+};
+
+export const getDashboardCounts = async () => {
+    const unitsRef = collection(db, 'units');
+    const vehiclesRef = collection(db, 'vehicles');
+    const [unitsSnap, vehiclesSnap, waitingVehiclesSnap] = await Promise.all([
+        getCountFromServer(unitsRef),
+        getCountFromServer(query(vehiclesRef, where('isActive', '==', true))),
+        getCountFromServer(query(vehiclesRef, and(where('isActive', '==', true), where('parkingStatus', '==', 'Xếp lốt'))))
+    ]);
+    return { totalUnits: unitsSnap.data().count, activeVehicles: vehiclesSnap.data().count, waitingVehicles: waitingVehiclesSnap.data().count };
+};
+
+export const fetchUserForLogin = async (identifier: string): Promise<UserPermission | null> => {
+    const cleanId = identifier.trim().toLowerCase();
+    const qUsername = query(collection(db, 'users'), where('Username', '==', cleanId), limit(1));
+    const snapUsername = await getDocs(qUsername);
+    if (!snapUsername.empty) return snapUsername.docs[0].data() as UserPermission;
+    const qEmail = query(collection(db, 'users'), where('Email', '==', cleanId), limit(1));
+    const snapEmail = await getDocs(qEmail);
+    if (!snapEmail.empty) return snapEmail.docs[0].data() as UserPermission;
+    const qContact = query(collection(db, 'users'), where('contact_email', '==', cleanId), limit(1));
+    const snapContact = await getDocs(qContact);
+    if (!snapContact.empty) return snapContact.docs[0].data() as UserPermission;
+    return null;
+};
+
+export const fetchChargesForResident = async (residentId: string): Promise<ChargeRaw[]> => {
+    const q = query(collection(db, 'charges'), where('UnitID', '==', residentId), orderBy('Period', 'desc'), limit(12));
+    const snap = await getDocs(q);
+    return snap.docs.map(d => d.data() as ChargeRaw);
+};
+
+export const fetchResidentSpecificData = async (residentId: string) => {
+    const unitSnap = await getDoc(doc(db, 'units', residentId));
+    if (!unitSnap.exists()) return { unit: null, owner: null, vehicles: [] };
+    const unit = unitSnap.data() as Unit;
+    const ownerSnap = await getDoc(doc(db, 'owners', unit.OwnerID));
+    const owner = ownerSnap.exists() ? ownerSnap.data() as Owner : null;
+    const vq = query(collection(db, 'vehicles'), where('UnitID', '==', residentId), where('isActive', '==', true));
+    const vSnap = await getDocs(vq);
+    const vehicles = vSnap.docs.map(d => d.data() as Vehicle);
+    return { unit, owner, vehicles };
 };
 
 export const fetchNews = async (): Promise<NewsItem[]> => {
@@ -150,14 +130,8 @@ export const fetchNews = async (): Promise<NewsItem[]> => {
 
 export const saveNewsItem = async (item: NewsItem): Promise<string> => {
     const { id, ...data } = item;
-    if (id && !id.startsWith('news_mock')) { 
-        await setDoc(doc(db, 'news', id), data, { merge: true }); 
-        return id; 
-    }
-    else { 
-        const docRef = await addDoc(collection(db, 'news'), data); 
-        return docRef.id; 
-    }
+    if (id && !id.startsWith('news_mock')) { await setDoc(doc(db, 'news', id), data, { merge: true }); return id; }
+    else { const docRef = await addDoc(collection(db, 'news'), data); return docRef.id; }
 };
 
 export const deleteNewsItem = async (id: string): Promise<void> => { await deleteDoc(doc(db, 'news', id)); };
@@ -175,29 +149,14 @@ export const updateResidentData = async (currentUnits: Unit[], currentOwners: Ow
         let vehicleId = v.VehicleId;
         let vehicleToSave = { ...v, isActive: true, updatedAt: new Date().toISOString() };
         platesUpdated.push(v.PlateNumber);
-        if (!vehicleId || vehicleId.startsWith('VEH_NEW_')) { 
-            const newRef = doc(collection(db, "vehicles")); 
-            vehicleToSave.VehicleId = newRef.id; 
-            batch.set(newRef, vehicleToSave); 
-            activeIds.add(newRef.id); 
-        }
-        else { 
-            const vRef = doc(db, 'vehicles', vehicleId);
-            batch.set(vRef, vehicleToSave, { merge: true }); 
-            activeIds.add(vehicleId); 
-        }
+        if (!vehicleId || vehicleId.startsWith('VEH_NEW_')) { const newRef = doc(collection(db, "vehicles")); vehicleToSave.VehicleId = newRef.id; batch.set(newRef, vehicleToSave); activeIds.add(newRef.id); }
+        else { const vRef = doc(db, 'vehicles', vehicleId); batch.set(vRef, vehicleToSave, { merge: true }); activeIds.add(vehicleId); }
     });
-    currentVehicles.filter(v => v.UnitID === data.unit.UnitID && v.isActive && !activeIds.has(v.VehicleId)).forEach(v => { 
-        const vRef = doc(db, 'vehicles', v.VehicleId);
-        batch.update(vRef, { isActive: false }); 
-    });
+    currentVehicles.filter(v => v.UnitID === data.unit.UnitID && v.isActive && !activeIds.has(v.VehicleId)).forEach(v => { const vRef = doc(db, 'vehicles', v.VehicleId); batch.update(vRef, { isActive: false }); });
     const logSummary = `${platesUpdated.length > 0 ? `Xe: ${platesUpdated.join(', ')}` : 'Cập nhật hồ sơ'}. ${reason ? `Lý do: ${reason}` : ''}`;
     injectLogAndNotif(batch, { actor_email: actor?.email, module: 'Cư dân', action: 'UPDATE', title: `Cập nhật Căn ${data.unit.UnitID}`, summary: logSummary, type: 'request' });
-    bumpVersion(batch, 'units_version'); 
-    bumpVersion(batch, 'owners_version'); 
-    bumpVersion(batch, 'vehicles_version');
-    await batch.commit(); 
-    return true; 
+    bumpVersion(batch, 'units_version'); bumpVersion(batch, 'owners_version'); bumpVersion(batch, 'vehicles_version');
+    await batch.commit(); return true; 
 };
 
 export const saveVehicles = async (d: Vehicle[], actor?: { email: string, role: Role }, reason?: string) => {
@@ -205,13 +164,9 @@ export const saveVehicles = async (d: Vehicle[], actor?: { email: string, role: 
     const batch = writeBatch(db);
     const unitId = d[0].UnitID;
     const details = d.map(v => `${v.Type.includes('car') ? 'Ô tô' : 'Xe máy'} [${v.PlateNumber}]`).join(', ');
-    d.forEach(v => { 
-        const vRef = doc(db, 'vehicles', v.VehicleId);
-        batch.set(vRef, v, { merge: true }); 
-    });
+    d.forEach(v => { const vRef = doc(db, 'vehicles', v.VehicleId); batch.set(vRef, v, { merge: true }); });
     injectLogAndNotif(batch, { actor_email: actor?.email, module: 'Phương tiện', action: 'UPDATE', title: `Cập nhật Căn ${unitId}`, summary: `Căn ${unitId}: Cập nhật ${details}${reason ? `. Lý do: ${reason}` : ''}`, type: 'system' });
-    bumpVersion(batch, 'vehicles_version'); 
-    return batch.commit();
+    bumpVersion(batch, 'vehicles_version'); return batch.commit();
 };
 
 export const fetchCollection = async <T>(colName: string): Promise<T[]> => {
@@ -277,9 +232,103 @@ export const getBillingLockStatus = async (period: string): Promise<boolean> => 
 export const setBillingLockStatus = async (period: string, status: boolean): Promise<void> => { const docRef = doc(db, 'billing_locks', period); await setDoc(docRef, { isLocked: status, updatedAt: new Date().toISOString() }, { merge: true }); };
 export const resetUserPassword = async (email: string): Promise<void> => { const userRef = doc(db, 'users', email); await updateDoc(userRef, { password: '123456', mustChangePassword: true }); };
 export const getAllPendingProfileRequests = async (): Promise<ProfileRequest[]> => { const q = query(collection(db, 'profileRequests'), where('status', '==', 'PENDING')); const snap = await getDocs(q); return snap.docs.map(d => d.data() as ProfileRequest); };
-export const resolveProfileRequest = async (request: ProfileRequest, action: 'approve' | 'reject', adminEmail: string, approvedChanges?: any) => { const batch = writeBatch(db); const reqRef = doc(db, 'profileRequests', request.id); batch.update(reqRef, { status: action === 'approve' ? 'APPROVED' : 'REJECTED', updatedAt: new Date().toISOString() }); if (action === 'approve') { const changesToApply = approvedChanges || request.changes; const ownerRef = doc(db, 'owners', request.ownerId); const ownerUpdates: any = {}; if (changesToApply.OwnerName !== undefined) ownerUpdates.OwnerName = changesToApply.OwnerName; if (changesToApply.Phone !== undefined) ownerUpdates.Phone = changesToApply.Phone; if (changesToApply.Email !== undefined) ownerUpdates.Email = changesToApply.Email; if (changesToApply.secondOwnerName !== undefined) ownerUpdates.secondOwnerName = changesToApply.secondOwnerName; if (changesToApply.secondOwnerPhone !== undefined) ownerUpdates.secondOwnerPhone = changesToApply.secondOwnerPhone; if (changesToApply.avatarUrl !== undefined) ownerUpdates.avatarUrl = changesToApply.avatarUrl; ownerUpdates.updatedAt = new Date().toISOString(); if (Object.keys(ownerUpdates).length > 0) { batch.update(ownerRef, ownerUpdates); bumpVersion(batch, 'owners_version'); } if (changesToApply.UnitStatus) { batch.update(doc(db, 'units', request.residentId), { Status: changesToApply.UnitStatus }); bumpVersion(batch, 'units_version'); } injectLogAndNotif(batch, { actor_email: adminEmail, actor_role: 'Admin', module: 'Residents', action: 'APPROVE_PROFILE_UPDATE', summary: `Duyệt cập nhật thông tin cư dân ${request.residentId}`, ids: [request.residentId] }); } await batch.commit(); };
 export const getPendingProfileRequest = async (residentId: string): Promise<ProfileRequest | null> => { const q = query(collection(db, 'profileRequests'), where('residentId', '==', residentId), where('status', '==', 'PENDING'), limit(1)); const snap = await getDocs(q); return !snap.empty ? snap.docs[0].data() as ProfileRequest : null; };
-export const submitUserProfileUpdate = async (userAuthEmail: string, residentId: string, ownerId: string, newData: any) => { const batch = writeBatch(db); const now = new Date().toISOString(); const userRef = doc(db, 'users', userAuthEmail); const userUpdates: any = {}; if (newData.displayName !== undefined) userUpdates.DisplayName = newData.displayName; if (newData.contactEmail !== undefined) userUpdates.contact_email = newData.contactEmail; if (newData.avatarUrl !== undefined) userUpdates.avatarUrl = newData.avatarUrl; batch.update(userRef, userUpdates); const requestId = `req_${Date.now()}_${residentId}`; const requestRef = doc(db, 'profileRequests', requestId); const profileRequest: ProfileRequest = { id: requestId, residentId, ownerId, status: 'PENDING', changes: newData, createdAt: now, updatedAt: now }; batch.set(requestRef, profileRequest, { merge: true }); await batch.commit(); return profileRequest; };
+
+/**
+ * LOGIC ĐÃ ĐƯỢC KIỂM TRA: PHÊ DUYỆT THAY ĐỔI HỒ SƠ
+ */
+export const resolveProfileRequest = async (request: ProfileRequest, action: 'approve' | 'reject', adminEmail: string, approvedChanges?: any) => {
+    const batch = writeBatch(db);
+    const now = new Date().toISOString();
+    const reqRef = doc(db, 'profileRequests', request.id);
+    
+    // 1. Cập nhật trạng thái yêu cầu
+    batch.update(reqRef, { 
+        status: action === 'approve' ? 'APPROVED' : 'REJECTED', 
+        updatedAt: now 
+    });
+
+    if (action === 'approve') {
+        const changesToApply = approvedChanges || request.changes;
+        const ownerRef = doc(db, 'owners', request.ownerId);
+        
+        // 2. Cập nhật bảng Owners
+        const ownerUpdates: any = {};
+        if (changesToApply.OwnerName !== undefined) ownerUpdates.OwnerName = changesToApply.OwnerName;
+        if (changesToApply.Phone !== undefined) ownerUpdates.Phone = changesToApply.Phone;
+        if (changesToApply.Email !== undefined) ownerUpdates.Email = changesToApply.Email;
+        if (changesToApply.secondOwnerName !== undefined) ownerUpdates.secondOwnerName = changesToApply.secondOwnerName;
+        if (changesToApply.secondOwnerPhone !== undefined) ownerUpdates.secondOwnerPhone = changesToApply.secondOwnerPhone;
+        if (changesToApply.avatarUrl !== undefined) ownerUpdates.avatarUrl = changesToApply.avatarUrl;
+        ownerUpdates.updatedAt = now;
+
+        if (Object.keys(ownerUpdates).length > 0) {
+            batch.update(ownerRef, ownerUpdates);
+            // TỐI ƯU QUOTA: Báo cho Portal Cư dân biết dữ liệu Owner đã thay đổi
+            bumpVersion(batch, 'owners_version');
+        }
+
+        // 3. Cập nhật trạng thái Căn hộ (nếu có)
+        if (changesToApply.UnitStatus) {
+            batch.update(doc(db, 'units', request.residentId), { Status: changesToApply.UnitStatus });
+            bumpVersion(batch, 'units_version');
+        }
+
+        // 4. Ghi log hoạt động Admin
+        injectLogAndNotif(batch, { 
+            actor_email: adminEmail, 
+            actor_role: 'Admin', 
+            module: 'Cư dân', 
+            action: 'APPROVE_PROFILE', 
+            summary: `Đã duyệt cập nhật hồ sơ Căn ${request.residentId}`, 
+            ids: [request.residentId] 
+        });
+
+        // 5. Phát thông báo CHUÔNG cho Cư dân (Real-time sync)
+        const resNotifRef = doc(collection(db, 'notifications'));
+        batch.set(resNotifRef, {
+            userId: request.residentId,
+            title: 'Hồ sơ đã được cập nhật',
+            body: 'Ban quản lý đã phê duyệt và cập nhật thông tin cá nhân của bạn.',
+            type: 'profile',
+            link: 'portalProfile',
+            isRead: false,
+            createdAt: serverTimestamp()
+        });
+    } else {
+        // Nếu từ chối, cũng gửi thông báo cho cư dân biết
+        const resNotifRef = doc(collection(db, 'notifications'));
+        batch.set(resNotifRef, {
+            userId: request.residentId,
+            title: 'Yêu cầu cập nhật bị từ chối',
+            body: 'Yêu cầu thay đổi thông tin của bạn không được phê duyệt. Vui lòng liên hệ BQL.',
+            type: 'profile',
+            link: 'portalProfile',
+            isRead: false,
+            createdAt: serverTimestamp()
+        });
+    }
+
+    await batch.commit();
+};
+
+export const submitUserProfileUpdate = async (userAuthEmail: string, residentId: string, ownerId: string, newData: any) => {
+    const batch = writeBatch(db);
+    const now = new Date().toISOString();
+    const userRef = doc(db, 'users', userAuthEmail);
+    const userUpdates: any = {};
+    if (newData.DisplayName !== undefined) userUpdates.DisplayName = newData.DisplayName;
+    if (newData.avatarUrl !== undefined) userUpdates.avatarUrl = newData.avatarUrl;
+    if (Object.keys(userUpdates).length > 0) { batch.update(userRef, userUpdates); }
+    const requestId = `req_${Date.now()}_${residentId}`;
+    const requestRef = doc(db, 'profileRequests', requestId);
+    const profileRequest: ProfileRequest = { id: requestId, residentId, ownerId, status: 'PENDING', changes: newData, createdAt: now, updatedAt: now };
+    batch.set(requestRef, profileRequest, { merge: true });
+    const adminNotifRef = doc(collection(db, 'admin_notifications'));
+    batch.set(adminNotifRef, { id: adminNotifRef.id, type: 'request', title: `Cập nhật hồ sơ - Căn ${residentId}`, message: `Cư dân yêu cầu thay đổi thông tin cá nhân.`, isRead: false, createdAt: serverTimestamp(), linkTo: 'residents' });
+    await batch.commit(); return profileRequest;
+};
+
 export const updateResidentAvatar = async (ownerId: string, avatarUrl: string, userEmail?: string): Promise<void> => { const batch = writeBatch(db); const ownerRef = doc(db, 'owners', ownerId); batch.update(ownerRef, { avatarUrl: avatarUrl, updatedAt: new Date().toISOString() }); if (userEmail) { const userRef = doc(db, 'users', userEmail); batch.update(userRef, { avatarUrl: avatarUrl }); } await batch.commit(); };
 export const importResidentsBatch = async (currentUnits: Unit[], currentOwners: Owner[], currentVehicles: Vehicle[], updates: any[]) => { const batch = writeBatch(db); updates.forEach(up => { const unitId = String(up.unitId).trim(); const existingUnit = currentUnits.find(u => u.UnitID === unitId); if (existingUnit) { batch.update(doc(db, "units", unitId), { Status: up.status, Area_m2: up.area, UnitType: up.unitType }); batch.update(doc(db, "owners", existingUnit.OwnerID), { OwnerName: up.ownerName, Phone: up.phone, Email: up.email }); } else { const newOwnerId = doc(collection(db, "owners")).id; batch.set(doc(db, "owners", newOwnerId), { OwnerID: newOwnerId, OwnerName: up.ownerName, Phone: up.phone, Email: up.email }, { merge: true }); batch.set(doc(db, "units", unitId), { UnitID: unitId, OwnerID: newOwnerId, UnitType: up.unitType, Area_m2: up.area, Status: up.status }, { merge: true }); } }); bumpVersion(batch, 'units_version'); bumpVersion(batch, 'owners_version'); bumpVersion(batch, 'vehicles_version'); await batch.commit(); return { createdCount: 0, updatedCount: 0, vehicleCount: 0 }; };
 export const createProfileRequest = async (request: ProfileRequest) => Promise.resolve();

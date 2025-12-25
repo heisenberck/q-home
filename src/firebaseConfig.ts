@@ -1,8 +1,7 @@
-
-import { initializeApp } from "firebase/app";
-import { getFirestore } from "firebase/firestore";
-import { getAuth } from "firebase/auth";
-import { getMessaging, getToken, onMessage } from "firebase/messaging";
+import { initializeApp } from 'firebase/app';
+import { getFirestore } from 'firebase/firestore';
+import { getAuth } from 'firebase/auth';
+import { getMessaging, getToken, onMessage } from 'firebase/messaging';
 
 const firebaseConfig = {
   apiKey: "AIzaSyBQ1CO4ZzCVecXgN8Cn6Idvrmudm7y-lbA",
@@ -14,12 +13,15 @@ const firebaseConfig = {
 };
 
 // 1. Initialize App
+// Standard modular initialization
 const app = initializeApp(firebaseConfig);
 
 // 2. Initialize Firestore
+// Standard modular initialization
 const db = getFirestore(app);
 
 // 3. Initialize Auth
+// Standard modular initialization
 const auth = getAuth(app);
 
 // 4. Initialize Messaging

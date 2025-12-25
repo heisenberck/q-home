@@ -1,4 +1,3 @@
-
 import React, { useState, useEffect, useMemo } from 'react';
 import { UserPermission, Owner, Unit } from '../../types';
 import { EyeIcon, EyeSlashIcon, UserIcon, LockClosedIcon } from '../ui/Icons';
@@ -8,6 +7,7 @@ import { isProduction } from '../../utils/env';
 import Modal from '../ui/Modal';
 import Spinner from '../ui/Spinner';
 import { fetchUserForLogin } from '../../services';
+// Fixing named export error by ensuring standard modular syntax
 import { signInAnonymously } from 'firebase/auth';
 import { auth } from '../../firebaseConfig';
 
