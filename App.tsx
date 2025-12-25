@@ -43,6 +43,7 @@ import Toast, { ToastMessage, ToastType } from './components/ui/Toast';
 import { deleteUsers, updateResidentData, importResidentsBatch, updateFeeSettings, fetchLatestLogs, updateUserProfile, saveWaterReadings, logActivity } from './services';
 import ChangePasswordModal from './components/pages/ChangePasswordModal';
 import NotificationListener from './components/common/NotificationListener';
+import Spinner from './components/ui/Spinner';
 
 // --- Types ---
 export type AdminPage = 'overview' | 'billing' | 'residents' | 'vehicles' | 'water' | 'pricing' | 'users' | 'settings' | 'backup' | 'activityLog' | 'newsManagement' | 'feedbackManagement' | 'vas' | 'expenses' | 'serviceRegistration';
@@ -192,7 +193,8 @@ const App: React.FC = () => {
         units = [], owners = [], vehicles = [], waterReadings = [], charges = [], adjustments = [], users: fetchedUsers = [], news = [],
         invoiceSettings, tariffs = { service: [], parking: [], water: [] }, monthlyStats = [], lockedWaterPeriods = [],
         miscRevenues = [], expenses = [],
-        refreshSystemData 
+        refreshSystemData,
+        hasLoaded 
     } = useSmartSystemData(user);
 
     const [localUnits, setLocalUnits] = useState<Unit[]>([]);
@@ -305,23 +307,19 @@ const App: React.FC = () => {
         const currentData = localWaterReadings;
         const nextData = typeof updater === 'function' ? updater(currentData) : updater;
         
-        // So sánh để tìm các bản ghi bị thay đổi hoặc thêm mới
         const changed = nextData.filter((nr: WaterReading) => {
             const old = currentData.find(or => or.UnitID === nr.UnitID && or.Period === nr.Period);
             return !old || old.CurrIndex !== nr.CurrIndex;
         });
 
-        // 1. Cập nhật UI tức thì
         setLocalWaterReadings(nextData);
 
-        // 2. Ghi xuống Firestore nếu có thay đổi
         if (changed.length > 0) {
             try {
                 await saveWaterReadings(changed);
                 if (log) {
                     await logActivity(log.action, log.module, log.summary, log.ids);
                 }
-                // Refresh background để đảm bảo metadata/version khớp
                 refreshSystemData(true);
             } catch (err) {
                 showToast('Lỗi khi lưu chỉ số nước xuống hệ thống.', 'error');
@@ -346,7 +344,6 @@ const App: React.FC = () => {
     }, []);
 
     const notifications = useMemo(() => {
-        // Unread news count: Archived news are ignored
         const unreadCount = localNews.filter(n => !n.isArchived && !readNewsIds.has(n.id)).length;
         return { 
             unreadNews: unreadCount,
@@ -377,8 +374,11 @@ const App: React.FC = () => {
     };
 
     const renderResidentPage = () => {
+        if (!hasLoaded) return <div className="h-screen flex items-center justify-center bg-white"><Spinner /></div>;
+        
         const unit = localUnits.find(u => u.UnitID === user!.residentId) || null;
         const owner = localOwners.find(o => o.OwnerID === unit?.OwnerID) || null;
+        
         switch (activePage as PortalPage) {
             case 'portalHome': return <PortalHomePage user={user!} owner={owner} charges={localCharges} news={localNews} setActivePage={setActivePage as (p: PortalPage) => void} />;
             case 'portalNews': return <PortalNewsPage news={localNews} readIds={readNewsIds} onReadNews={handleMarkNewsAsRead} />;
@@ -390,6 +390,7 @@ const App: React.FC = () => {
     };
 
     const renderAdminMobilePage = () => {
+        if (!hasLoaded) return <div className="h-screen flex items-center justify-center bg-white"><Spinner /></div>;
         const props = { units: localUnits, vehicles: localVehicles, charges: localCharges, monthlyStats, news: localNews, owners: localOwners, waterReadings: localWaterReadings, miscRevenues: localMiscRevenues, expenses: localExpenses };
         switch (activePage as AdminPortalPage) {
             case 'adminPortalHome': return <AdminPortalHomePage {...props} onNavigate={(p) => setActivePage(p as AdminPortalPage)} />;
@@ -441,7 +442,7 @@ const App: React.FC = () => {
                                         <div className="flex-1 flex flex-col min-w-0 overflow-hidden">
                                             <Header pageTitle={ADMIN_PAGE_TITLES[activePage as AdminPage] || 'Hệ thống Quản lý'} onNavigate={(p) => setActivePage(p as AdminPage)} />
                                             <main className="flex-1 overflow-y-auto p-4 md:p-6 lg:p-8">
-                                                {renderAdminPage()}
+                                                {!hasLoaded ? <Spinner /> : renderAdminPage()}
                                             </main>
                                             <Footer />
                                         </div>

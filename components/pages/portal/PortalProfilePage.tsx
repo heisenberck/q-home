@@ -13,10 +13,11 @@ import { submitUserProfileUpdate, getPendingProfileRequest, updateResidentAvatar
 import { useSmartSystemData } from '../../../hooks/useSmartData';
 import { isProduction } from '../../../utils/env';
 import { translateVehicleType } from '../../../utils/helpers';
+import Spinner from '../../ui/Spinner';
 
 interface PortalProfilePageProps {
     user: UserPermission;
-    owner: Owner;
+    owner: Owner | null;
     onUpdateOwner: (owner: Owner) => void;
     onChangePassword: () => void;
 }
@@ -42,7 +43,6 @@ const VehicleItem: React.FC<{
     };
 
     const getStatusBadge = () => {
-        // Chỉ hiện lốt xe cho ô tô
         if (!isCar) return null;
 
         if (vehicle.parkingStatus === 'Lốt chính') {
@@ -111,9 +111,26 @@ const PortalProfilePage: React.FC<PortalProfilePageProps> = ({ user, owner, onUp
     const { units, vehicles, refreshSystemData } = useSmartSystemData(user); 
     const IS_PROD = isProduction();
 
+    // 1. Khởi tạo state formData an toàn (Nếu owner là null, dùng giá trị mặc định)
+    const [formData, setFormData] = useState({
+        DisplayName: user?.DisplayName || owner?.OwnerName || '',
+        Phone: owner?.Phone || '',
+        Email: user?.contact_email || owner?.Email || '',
+        title: (user as any)?.title || owner?.title || 'Anh',
+        secondOwnerName: (user as any)?.spouseName || owner?.secondOwnerName || '',
+        secondOwnerPhone: (user as any)?.spousePhone || owner?.secondOwnerPhone || '',
+        UnitStatus: 'Owner'
+    });
+
     const currentUnit = useMemo(() => units.find(u => u.UnitID === user.residentId), [units, user.residentId]);
     
-    // Logic: Sắp xếp ưu tiên: Oto (1) -> Xe máy (2) -> Xe điện (3) -> Xe đạp (4)
+    // Cập nhật UnitStatus khi currentUnit đã tải xong
+    useEffect(() => {
+        if (currentUnit) {
+            setFormData(prev => ({ ...prev, UnitStatus: currentUnit.Status }));
+        }
+    }, [currentUnit]);
+
     const sortedVehicles = useMemo(() => {
         const priority: Record<string, number> = { 'car': 1, 'car_a': 1, 'motorbike': 2, 'ebike': 3, 'bicycle': 4 };
         return [...vehicles]
@@ -126,38 +143,25 @@ const PortalProfilePage: React.FC<PortalProfilePageProps> = ({ user, owner, onUp
             });
     }, [vehicles, user.residentId]);
 
-    // --- Local State ---
     const [pendingRequest, setPendingRequest] = useState<ProfileRequest | null>(null);
     const [isLoading, setIsLoading] = useState(false);
     const [isEditing, setIsEditing] = useState(false);
     const [isInfoExpanded, setIsInfoExpanded] = useState(true);
     const [isVehiclesExpanded, setIsVehiclesExpanded] = useState(false);
 
-    const extUser = user as any; 
-
-    const [formData, setFormData] = useState({
-        DisplayName: user.DisplayName ?? owner.OwnerName ?? '',
-        Phone: owner.Phone ?? '',
-        Email: user.contact_email ?? owner.Email ?? '',
-        title: extUser.title ?? owner.title ?? 'Anh',
-        secondOwnerName: extUser.spouseName ?? owner.secondOwnerName ?? '',
-        secondOwnerPhone: extUser.spousePhone ?? owner.secondOwnerPhone ?? '',
-        UnitStatus: extUser.apartmentStatus ?? currentUnit?.Status ?? 'Owner',
-    });
-
     useEffect(() => {
-        if (!isEditing) {
+        if (owner && !isEditing) {
             setFormData({
-                DisplayName: user.DisplayName ?? owner.OwnerName ?? '',
-                Phone: owner.Phone ?? '',
-                Email: user.contact_email ?? owner.Email ?? '',
-                title: extUser.title ?? owner.title ?? 'Anh',
-                secondOwnerName: extUser.spouseName ?? owner.secondOwnerName ?? '',
-                secondOwnerPhone: extUser.spousePhone ?? owner.secondOwnerPhone ?? '',
-                UnitStatus: extUser.apartmentStatus ?? currentUnit?.Status ?? 'Owner',
+                DisplayName: user.DisplayName || owner.OwnerName || '',
+                Phone: owner.Phone || '',
+                Email: user.contact_email || owner.Email || '',
+                title: (user as any).title || owner.title || 'Anh',
+                secondOwnerName: owner.secondOwnerName || '',
+                secondOwnerPhone: owner.secondOwnerPhone || '',
+                UnitStatus: currentUnit?.Status || 'Owner',
             });
         }
-    }, [user, owner, currentUnit, isEditing, extUser]);
+    }, [user, owner, currentUnit, isEditing]);
 
     useEffect(() => {
         const checkPending = async () => {
@@ -168,6 +172,15 @@ const PortalProfilePage: React.FC<PortalProfilePageProps> = ({ user, owner, onUp
         checkPending();
     }, [IS_PROD, user.residentId]);
 
+    if (!owner) {
+        return (
+            <div className="p-20 flex flex-col items-center justify-center space-y-4">
+                <Spinner />
+                <p className="text-sm text-gray-500 font-bold uppercase tracking-widest animate-pulse">Đang tải hồ sơ...</p>
+            </div>
+        );
+    }
+
     const handleChange = (e: React.ChangeEvent<HTMLInputElement | HTMLSelectElement>) => {
         setFormData(prev => ({ ...prev, [e.target.name]: e.target.value }));
     };
@@ -177,7 +190,6 @@ const PortalProfilePage: React.FC<PortalProfilePageProps> = ({ user, owner, onUp
             showToast('Đã cập nhật tên xe (Chế độ Mock)', 'success');
             return;
         }
-
         try {
             const updatedVehicle = { ...vehicle, VehicleName: newName, updatedAt: new Date().toISOString() };
             await saveVehicles([updatedVehicle], { email: user.Email, role: user.Role }, "Cư dân cập nhật tên xe");
@@ -191,23 +203,19 @@ const PortalProfilePage: React.FC<PortalProfilePageProps> = ({ user, owner, onUp
     const handleCancel = () => {
         setIsEditing(false);
         setFormData({
-            DisplayName: user.DisplayName ?? owner.OwnerName ?? '',
-            Phone: owner.Phone ?? '',
-            Email: user.contact_email ?? owner.Email ?? '',
-            title: extUser.title ?? owner.title ?? 'Anh',
-            secondOwnerName: extUser.spouseName ?? owner.secondOwnerName ?? '',
-            secondOwnerPhone: extUser.spousePhone ?? owner.secondOwnerPhone ?? '',
-            UnitStatus: extUser.apartmentStatus ?? currentUnit?.Status ?? 'Owner',
+            DisplayName: user.DisplayName || owner.OwnerName || '',
+            Phone: owner.Phone || '',
+            Email: user.contact_email || owner.Email || '',
+            title: (user as any).title || owner.title || 'Anh',
+            secondOwnerName: owner.secondOwnerName || '',
+            secondOwnerPhone: owner.secondOwnerPhone || '',
+            UnitStatus: currentUnit?.Status || 'Owner',
         });
     };
     
     const handleAvatarChange = async (e: React.ChangeEvent<HTMLInputElement>) => {
         const file = e.target.files?.[0];
         if (!file) return;
-        if (file.size > 5 * 1024 * 1024) {
-            showToast('Kích thước ảnh phải nhỏ hơn 5MB', 'error');
-            return;
-        }
         const reader = new FileReader();
         reader.onload = async (event) => {
             const base64 = event.target?.result as string;
@@ -237,21 +245,13 @@ const PortalProfilePage: React.FC<PortalProfilePageProps> = ({ user, owner, onUp
             return;
         }
         const changes: any = {};
-        const currentDisplayName = user.DisplayName ?? owner.OwnerName ?? '';
-        const currentPhone = owner.Phone ?? '';
-        const currentEmail = user.contact_email ?? owner.Email ?? '';
-        const currentTitle = extUser.title ?? owner.title ?? 'Anh';
-        const currentSpouseName = extUser.spouseName ?? owner.secondOwnerName ?? '';
-        const currentSpousePhone = extUser.spousePhone ?? owner.secondOwnerPhone ?? '';
-        const currentStatus = extUser.apartmentStatus ?? currentUnit?.Status ?? 'Owner';
-
-        if (formData.DisplayName !== currentDisplayName) changes.displayName = formData.DisplayName;
-        if (formData.Phone !== currentPhone) changes.phoneNumber = formData.Phone;
-        if (formData.Email !== currentEmail) changes.contactEmail = formData.Email;
-        if (formData.title !== currentTitle) changes.title = formData.title;
-        if (formData.secondOwnerName !== currentSpouseName) changes.spouseName = formData.secondOwnerName;
-        if (formData.secondOwnerPhone !== currentSpousePhone) changes.spousePhone = formData.secondOwnerPhone;
-        if (formData.UnitStatus !== currentStatus) changes.unitStatus = formData.UnitStatus;
+        if (formData.DisplayName !== (user.DisplayName || owner.OwnerName)) changes.DisplayName = formData.DisplayName;
+        if (formData.Phone !== owner.Phone) changes.Phone = formData.Phone;
+        if (formData.Email !== (user.contact_email || owner.Email)) changes.Email = formData.Email;
+        if (formData.title !== (owner.title || 'Anh')) changes.title = formData.title;
+        if (formData.secondOwnerName !== (owner.secondOwnerName || '')) changes.secondOwnerName = formData.secondOwnerName;
+        if (formData.secondOwnerPhone !== (owner.secondOwnerPhone || '')) changes.secondOwnerPhone = formData.secondOwnerPhone;
+        if (formData.UnitStatus !== (currentUnit?.Status || 'Owner')) changes.UnitStatus = formData.UnitStatus;
 
         if (Object.keys(changes).length === 0) {
             setIsEditing(false);
@@ -281,7 +281,6 @@ const PortalProfilePage: React.FC<PortalProfilePageProps> = ({ user, owner, onUp
 
     return (
         <div className="p-4 space-y-6 pb-24">
-            {/* 1. Header Card */}
             <div className="bg-white p-6 rounded-xl shadow-sm border border-gray-100 flex flex-col items-center text-center space-y-3 relative">
                 {pendingRequest && (
                     <div className="absolute top-4 left-4 right-4 bg-orange-50 border border-orange-200 text-orange-800 p-3 rounded-lg flex items-center gap-2 text-xs md:text-sm animate-fade-in-down">
@@ -304,7 +303,6 @@ const PortalProfilePage: React.FC<PortalProfilePageProps> = ({ user, owner, onUp
                 </div>
             </div>
 
-            {/* 2. Personal Info Section */}
             <div className="bg-white rounded-xl shadow-sm border border-gray-100 overflow-hidden transition-all duration-300">
                 <div onClick={() => setIsInfoExpanded(!isInfoExpanded)} className="flex justify-between items-center p-4 bg-gray-50 cursor-pointer hover:bg-gray-100 transition-colors border-b border-gray-100">
                     <div className="flex items-center gap-2">
@@ -370,7 +368,6 @@ const PortalProfilePage: React.FC<PortalProfilePageProps> = ({ user, owner, onUp
                 )}
             </div>
 
-            {/* 3. Vehicles Section */}
             <div className="bg-white rounded-xl shadow-sm border border-gray-100 overflow-hidden transition-all duration-300">
                 <div onClick={() => setIsVehiclesExpanded(!isVehiclesExpanded)} className="flex justify-between items-center p-4 bg-gray-50 cursor-pointer hover:bg-gray-100 transition-colors border-b border-gray-100">
                     <div className="flex items-center gap-2">
@@ -419,7 +416,6 @@ const PortalProfilePage: React.FC<PortalProfilePageProps> = ({ user, owner, onUp
                 )}
             </div>
 
-            {/* 4. Account Actions */}
             <div className="bg-white p-2 rounded-xl shadow-sm border border-gray-100">
                 <button type="button" onClick={onChangePassword} className="w-full flex items-center gap-3 p-4 hover:bg-gray-50 rounded-lg transition-colors group text-left">
                     <div className="p-2 bg-gray-100 rounded-full group-hover:bg-white group-hover:shadow-sm transition-all"><KeyIcon className="w-5 h-5 text-gray-600"/></div>

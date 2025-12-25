@@ -1,4 +1,3 @@
-
 // Fix: Added missing React imports
 import React, { useState, useRef, useEffect, useMemo } from 'react';
 import { 
@@ -366,9 +365,8 @@ const BillingPage: React.FC<BillingPageProps> = ({ charges, setCharges, allData,
 
         } catch (e: any) {
             showToast(`Lỗi: ${e.message}`, 'error');
+        // Fix: Cleaned up duplicate/broken finally block
         } finally {
-            }
-        finally {
             setIsLoading(false);
         }
     };
@@ -771,7 +769,8 @@ const BillingPage: React.FC<BillingPageProps> = ({ charges, setCharges, allData,
 
                                     return (
                                         <tr key={charge.UnitID} className={`hover:bg-gray-50 transition-colors ${selectedUnits.has(charge.UnitID) ? 'bg-blue-50' : ''}`}>
-                                            <td className="px-4 py-3 text-center"><input type="checkbox" checked={selectedUnits.has(charge.UnitID)} onChange={() => setSelectedUnits(p => { const n = new Set(p); if(n.has(charge.UnitID)) n.delete(id); else n.add(id); const id = charge.UnitID; if(n.has(id)) n.delete(id); else n.add(id); return n; })} className="w-4 h-4 rounded text-primary focus:ring-primary cursor-pointer"/></td>
+                                            {/* Fix: Resolved id-used-before-declaration in checkbox toggle logic */}
+                                            <td className="px-4 py-3 text-center"><input type="checkbox" checked={selectedUnits.has(charge.UnitID)} onChange={() => setSelectedUnits(p => { const n = new Set(p); const id = charge.UnitID; if(n.has(id)) n.delete(id); else n.add(id); return n; })} className="w-4 h-4 rounded text-primary focus:ring-primary cursor-pointer"/></td>
                                             <td className="px-4 py-3 font-bold text-gray-900">{charge.UnitID}</td>
                                             <td className="px-4 py-3 text-gray-700 flex items-center gap-2">{charge.paymentStatus === 'reconciling' && <div className="w-2 h-2 rounded-full bg-blue-500 animate-pulse" title="Có biên lai cần duyệt"></div>}{charge.OwnerName}</td>
                                             <td className="px-4 py-3 text-right font-medium text-gray-900">{formatNumber(charge.TotalDue)}</td>
