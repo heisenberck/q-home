@@ -5,6 +5,7 @@ import { UnitType, VehicleTier } from '../../types';
 import { useNotification, useDataRefresh } from '../../App';
 import Modal from '../ui/Modal';
 import StatCard from '../ui/StatCard';
+import Spinner from '../ui/Spinner';
 import { 
     PencilSquareIcon, BuildingIcon, UploadIcon, 
     UserIcon, KeyIcon, StoreIcon, CarIcon, TrashIcon,
@@ -19,7 +20,7 @@ import {
 import { normalizePhoneNumber, formatLicensePlate, vehicleTypeLabels, translateVehicleType, sortUnitsComparator, compressImageToWebP, parseUnitCode, getPastelColorForName, timeAgo } from '../../utils/helpers';
 import { mapExcelHeaders } from '../../utils/importHelpers';
 import { loadScript } from '../../utils/scriptLoader';
-import { getAllPendingProfileRequests, resolveProfileRequest } from '../../services/index'; 
+import { getAllPendingProfileRequests, resolveProfileRequest, updateResidentData } from '../../services/index'; 
 import { isProduction } from '../../utils/env';
 
 // Declare external libraries
@@ -126,7 +127,7 @@ interface ResidentsPageProps {
     owners: Owner[];
     vehicles: Vehicle[];
     activityLogs: ActivityLog[];
-    onSaveResident: (data: { unit: Unit, owner: Owner, vehicles: Vehicle[] }, reason: string) => Promise<void>;
+    onSaveResident: (data: { unit: Unit, owner: Owner, vehicles: Vehicle[] }, reason: string, resolution?: { requestId: string, status: 'APPROVED' | 'REJECTED' }) => Promise<void>;
     onImportData: (updates: any[]) => void;
     onDeleteResidents: (unitIds: Set<string>) => void;
     role: Role;
@@ -141,9 +142,10 @@ type VehicleErrors = {
 const ProfileChangeReview: React.FC<{
     currentData: ResidentData;
     request: ProfileRequest;
-    onApprove: (selectedChanges: Partial<ProfileRequest['changes']>) => void;
+    onApply: (selectedChanges: Partial<ProfileRequest['changes']>) => void;
     onReject: () => void;
-}> = ({ currentData, request, onApprove, onReject }) => {
+    isApplied: boolean;
+}> = ({ currentData, request, onApply, onReject, isApplied }) => {
     const displayMap: Record<keyof ProfileRequest['changes'], string> = {
         title: 'Danh xưng',
         OwnerName: 'Tên chủ hộ',
@@ -169,18 +171,6 @@ const ProfileChangeReview: React.FC<{
         else setSelectedFields(new Set());
     };
 
-    const handleApprove = () => {
-        if (selectedFields.size === 0) return;
-        const changesToApprove: Partial<ProfileRequest['changes']> = {};
-        Object.keys(request.changes).forEach(key => {
-            if (selectedFields.has(key)) {
-                // @ts-ignore
-                changesToApprove[key] = request.changes[key];
-            }
-        });
-        onApprove(changesToApprove);
-    };
-
     const getCurrentValue = (key: string) => {
         if (key === 'UnitStatus') return currentData.unit.Status;
         if (key === 'avatarUrl') return currentData.owner.avatarUrl ? 'Có ảnh cũ' : 'Không có';
@@ -197,6 +187,21 @@ const ProfileChangeReview: React.FC<{
         }
         return String(value);
     };
+
+    if (isApplied) {
+        return (
+            <div className="bg-emerald-50 border border-emerald-200 rounded-lg p-4 mb-6 flex justify-between items-center animate-fade-in-down">
+                <div className="flex items-center gap-3">
+                    <div className="p-2 bg-emerald-100 rounded-full text-emerald-600"><CheckCircleIcon className="w-5 h-5"/></div>
+                    <div>
+                        <p className="font-bold text-emerald-800">Đã áp dụng thay đổi vào Form</p>
+                        <p className="text-xs text-emerald-600">Vui lòng chọn lý do điều chỉnh và nhấn nút "Lưu thay đổi" bên dưới để hoàn tất.</p>
+                    </div>
+                </div>
+                <button type="button" onClick={onReject} className="text-xs font-bold text-gray-400 hover:text-red-500 underline uppercase tracking-widest">Hủy & Đóng</button>
+            </div>
+        );
+    }
 
     return (
         <div className="bg-orange-50 border border-orange-200 rounded-lg p-4 mb-6">
@@ -242,18 +247,24 @@ const ProfileChangeReview: React.FC<{
 
             <div className="flex justify-end gap-3 mt-4">
                 <button 
+                    type="button"
                     onClick={onReject}
                     className="px-4 py-2 bg-white border border-red-300 text-red-600 font-semibold rounded-lg hover:bg-red-50 text-sm shadow-sm"
                 >
                     Từ chối yêu cầu
                 </button>
                 <button 
-                    onClick={handleApprove}
+                    type="button"
+                    onClick={() => {
+                        const changes: any = {};
+                        Object.keys(request.changes).forEach(k => { if(selectedFields.has(k)) changes[k] = (request.changes as any)[k]; });
+                        onApply(changes);
+                    }}
                     disabled={selectedFields.size === 0}
                     className="px-4 py-2 bg-green-600 text-white font-semibold rounded-lg hover:bg-green-700 text-sm shadow-sm disabled:opacity-50 flex items-center gap-2"
                 >
                     <CheckCircleIcon className="w-4 h-4" />
-                    Phê duyệt {selectedFields.size} mục đã chọn
+                    Phê duyệt & Điền Form bên dưới
                 </button>
             </div>
         </div>
@@ -290,17 +301,14 @@ const DocumentPreviewModal: React.FC<{
 const ResidentDetailModal: React.FC<{
     resident: ResidentData;
     onClose: () => void;
-    onSave: (updatedData: { unit: Unit, owner: Owner, vehicles: Vehicle[] }, reason: string) => Promise<void>;
+    onSave: (updatedData: { unit: Unit, owner: Owner, vehicles: Vehicle[] }, reason: string, resolution?: { requestId: string, status: 'APPROVED' | 'REJECTED' }) => Promise<void>;
     onResolveRequest: (req: ProfileRequest, action: 'approve' | 'reject', changes?: any) => void;
 }> = ({ resident, onClose, onSave, onResolveRequest }) => {
     const { showToast } = useNotification();
     
     const [formData, setFormData] = useState<{unit: Unit, owner: Owner, vehicles: Vehicle[]}>({
         unit: { ...resident.unit },
-        owner: {
-            ...resident.owner,
-            documents: resident.owner.documents || { others: [] }
-        },
+        owner: { ...resident.owner, documents: resident.owner.documents || { others: [] } },
         vehicles: JSON.parse(JSON.stringify((resident.vehicles || []).filter(v => v.isActive)))
     });
 
@@ -311,6 +319,7 @@ const ResidentDetailModal: React.FC<{
 
     const [selectedReasons, setSelectedReasons] = useState<string[]>([]);
     const [otherReason, setOtherReason] = useState('');
+    const [pendingResolution, setPendingResolution] = useState<{ requestId: string, status: 'APPROVED' | 'REJECTED' } | null>(null);
 
     const REASON_OPTIONS = [
         "Thay đổi thông tin",
@@ -321,6 +330,37 @@ const ResidentDetailModal: React.FC<{
 
     const formElementStyle = `w-full p-2.5 border border-gray-300 rounded-lg bg-white text-gray-900 focus:ring-2 focus:ring-primary focus:border-transparent outline-none text-sm`;
     const labelStyle = `block text-sm font-medium text-gray-700 mb-1`;
+
+    const handleApplyChangesFromResident = (changes: any) => {
+        // Điền các giá trị từ yêu cầu vào formData
+        const updatedOwner = { ...formData.owner };
+        const updatedUnit = { ...formData.unit };
+
+        if (changes.OwnerName) updatedOwner.OwnerName = changes.OwnerName;
+        if (changes.Phone) updatedOwner.Phone = changes.Phone;
+        if (changes.Email) updatedOwner.Email = changes.Email;
+        if (changes.secondOwnerName) updatedOwner.secondOwnerName = changes.secondOwnerName;
+        if (changes.secondOwnerPhone) updatedOwner.secondOwnerPhone = changes.secondOwnerPhone;
+        if (changes.avatarUrl) updatedOwner.avatarUrl = changes.avatarUrl;
+        if (changes.UnitStatus) updatedUnit.Status = changes.UnitStatus;
+
+        setFormData({ ...formData, owner: updatedOwner, unit: updatedUnit });
+        setPendingResolution({ requestId: resident.pendingRequest!.id, status: 'APPROVED' });
+        
+        // Tự động tích lý do nếu chưa có
+        if (!selectedReasons.includes("Thay đổi thông tin")) {
+            setSelectedReasons(prev => [...prev, "Thay đổi thông tin"]);
+        }
+        setOtherReason(prev => prev + (prev ? ". " : "") + "Phê duyệt yêu cầu cập nhật hồ sơ từ cư dân.");
+        showToast("Đã điền thông tin yêu cầu vào Form. Hãy kiểm tra lại.", "info");
+    };
+
+    const handleRejectRequestImmediate = () => {
+        if (window.confirm("Từ chối yêu cầu cập nhật này của cư dân?")) {
+            onResolveRequest(resident.pendingRequest!, 'reject');
+            onClose();
+        }
+    };
 
     const validateVehicle = useCallback((vehicle: Vehicle): VehicleErrors => {
         const vErrors: VehicleErrors = {};
@@ -436,7 +476,7 @@ const ResidentDetailModal: React.FC<{
 
         setIsSaving(true);
         try {
-            await onSave(formData, finalReason);
+            await onSave(formData, finalReason, pendingResolution || undefined);
             onClose(); 
         } finally {
             setIsSaving(false);
@@ -490,75 +530,77 @@ const ResidentDetailModal: React.FC<{
         <Modal title={`Cập nhật thông tin - Căn hộ ${resident.unit.UnitID}`} onClose={onClose} size="3xl">
             {isUploadModalOpen && <UploadFileModal onConfirm={handleConfirmUploadOtherFile} onCancel={() => setIsUploadModalOpen(false)} />}
 
-            <form onSubmit={handleSubmit} className="flex flex-col h-[70vh]">
-                {resident.pendingRequest && (
-                    <ProfileChangeReview 
-                        currentData={resident} 
-                        request={resident.pendingRequest} 
-                        onApprove={(changes) => onResolveRequest(resident.pendingRequest!, 'approve', changes)}
-                        onReject={() => onResolveRequest(resident.pendingRequest!, 'reject')}
-                    />
-                )}
-
-                <div className="flex border-b mb-4 sticky top-0 bg-white z-10 pt-1">
-                    <TabButton tabId="info" label="Thông tin chung" icon={<UserIcon className="w-4 h-4" />} />
-                    <TabButton tabId="vehicles" label="Phương tiện" icon={<CarIcon className="w-4 h-4" />} />
-                    <TabButton tabId="docs" label="Tài liệu" icon={<DocumentTextIcon className="w-4 h-4" />} />
-                </div>
-                
-                <div className="flex-1 overflow-y-auto p-1 space-y-6">
-                    {activeTab === 'info' && (
-                         <section className="animate-fade-in-down">
-                            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                                <div><label className={labelStyle}>Tên chủ hộ</label><input name="OwnerName" value={formData.owner.OwnerName} onChange={handleOwnerChange} className={formElementStyle} /></div>
-                                <div><label className={labelStyle}>SĐT chủ hộ</label><input name="Phone" value={formData.owner.Phone} onChange={handleOwnerChange} className={formElementStyle} /></div>
-                                <div><label className={labelStyle}>Email</label><input type="email" name="Email" value={formData.owner.Email} onChange={handleOwnerChange} className={formElementStyle} /></div>
-                                <div>
-                                    <label className={labelStyle}>Trạng thái căn hộ</label>
-                                    <select name="Status" value={formData.unit.Status} onChange={handleUnitChange} className={formElementStyle}>
-                                        <option value="Owner">Chính chủ</option>
-                                        <option value="Rent">Hộ thuê</option>
-                                        <option value="Business">Kinh doanh</option>
-                                    </select>
-                                </div>
-                                <div><label className={labelStyle}>Họ tên vợ/chồng/người thuê</label><input name="secondOwnerName" value={formData.owner.secondOwnerName || ''} onChange={handleOwnerChange} className={formElementStyle} placeholder="Nhập tên..." /></div>
-                                <div><label className={labelStyle}>SĐT vợ/chồng/người thuê</label><input name="secondOwnerPhone" value={formData.owner.secondOwnerPhone || ''} onChange={handleOwnerChange} className={formElementStyle} placeholder="Nhập số điện thoại..." /></div>
-                            </div>
-                        </section>
+            <form onSubmit={handleSubmit} className="flex flex-col h-[75vh]">
+                <div className="flex-1 overflow-y-auto pr-1">
+                    {resident.pendingRequest && (
+                        <ProfileChangeReview 
+                            currentData={resident} 
+                            request={resident.pendingRequest} 
+                            onApply={handleApplyChangesFromResident}
+                            onReject={handleRejectRequestImmediate}
+                            isApplied={!!pendingResolution}
+                        />
                     )}
 
-                    {activeTab === 'vehicles' && (
-                        <section className="animate-fade-in-down">
-                            <div className="space-y-3 max-h-96 overflow-y-auto pr-2">
-                                {formData.vehicles.map((vehicle, index) => (
-                                    <div key={vehicle.VehicleId || index} className="grid grid-cols-1 md:grid-cols-10 gap-2 items-start p-2 bg-gray-50 rounded-md border">
-                                        <div className="md:col-span-2"><label className="text-xs font-semibold">Loại xe</label><select name="Type" value={vehicle.Type} onChange={e => handleVehicleChange(index, e)} className={formElementStyle}>{Object.entries(vehicleTypeLabels).map(([k,v]) => <option key={k} value={k}>{v}</option>)}</select></div>
-                                        <div className="md:col-span-3"><label className="text-xs font-semibold">Tên xe</label><input type="text" name="VehicleName" value={vehicle.VehicleName || ''} onChange={e => handleVehicleChange(index, e)} className={formElementStyle} /></div>
-                                        <div className="md:col-span-2"><label className="text-xs font-semibold">Biển số</label><input type="text" name="PlateNumber" value={vehicle.PlateNumber} onBlur={(e) => handleLicensePlateBlur(index, e)} onChange={e => handleVehicleChange(index, e)} disabled={vehicle.Type === VehicleTier.BICYCLE} className={`${formElementStyle} ${errors[index]?.plateNumber ? 'border-red-500' : ''}`} /><p className="text-red-500 text-xs mt-1 h-3">{errors[index]?.plateNumber}</p></div>
-                                        <div className="md:col-span-2"><label className="text-xs font-semibold">Ngày ĐK</label><input type="date" name="StartDate" value={vehicle.StartDate} onChange={e => handleVehicleChange(index, e)} className={formElementStyle} /></div>
-                                        <div className="md:col-span-1 text-center self-center pt-5"><button type="button" onClick={() => handleRemoveVehicle(index)} className="text-red-500 hover:text-red-700 font-semibold p-1">Xóa</button></div>
+                    <div className="flex border-b mb-4 sticky top-0 bg-white z-10 pt-1">
+                        <TabButton tabId="info" label="Thông tin chung" icon={<UserIcon className="w-4 h-4" />} />
+                        <TabButton tabId="vehicles" label="Phương tiện" icon={<CarIcon className="w-4 h-4" />} />
+                        <TabButton tabId="docs" label="Tài liệu" icon={<DocumentTextIcon className="w-4 h-4" />} />
+                    </div>
+                    
+                    <div className="p-1 space-y-6">
+                        {activeTab === 'info' && (
+                            <section className="animate-fade-in-down">
+                                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                                    <div><label className={labelStyle}>Tên chủ hộ</label><input name="OwnerName" value={formData.owner.OwnerName} onChange={handleOwnerChange} className={formElementStyle} /></div>
+                                    <div><label className={labelStyle}>SĐT chủ hộ</label><input name="Phone" value={formData.owner.Phone} onChange={handleOwnerChange} className={formElementStyle} /></div>
+                                    <div><label className={labelStyle}>Email</label><input type="email" name="Email" value={formData.owner.Email} onChange={handleOwnerChange} className={formElementStyle} /></div>
+                                    <div>
+                                        <label className={labelStyle}>Trạng thái căn hộ</label>
+                                        <select name="Status" value={formData.unit.Status} onChange={handleUnitChange} className={formElementStyle}>
+                                            <option value="Owner">Chính chủ</option>
+                                            <option value="Rent">Hộ thuê</option>
+                                            <option value="Business">Kinh doanh</option>
+                                        </select>
                                     </div>
-                                ))}
-                            </div>
-                            <button type="button" onClick={handleAddVehicle} className="mt-4 px-4 py-2 bg-primary text-white text-sm font-semibold rounded-md shadow-sm hover:bg-primary-focus">+ Thêm xe</button>
-                        </section>
-                    )}
+                                    <div><label className={labelStyle}>Họ tên vợ/chồng/người thuê</label><input name="secondOwnerName" value={formData.owner.secondOwnerName || ''} onChange={handleOwnerChange} className={formElementStyle} placeholder="Nhập tên..." /></div>
+                                    <div><label className={labelStyle}>SĐT vợ/chồng/người thuê</label><input name="secondOwnerPhone" value={formData.owner.secondOwnerPhone || ''} onChange={handleOwnerChange} className={formElementStyle} placeholder="Nhập số điện thoại..." /></div>
+                                </div>
+                            </section>
+                        )}
 
-                    {activeTab === 'docs' && (
-                        <section className="animate-fade-in-down">
-                            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                                <FileUploadField docType="nationalId" label="Ảnh CCCD" />
-                                <FileUploadField docType="title" label="Ảnh Sổ đỏ/Hợp đồng" />
-                            </div>
-                            <div className="mt-4 space-y-2">
-                                {(formData.owner.documents?.others || []).map(doc => (
-                                    <div key={doc.fileId} className="flex justify-between items-center p-2 bg-gray-50 rounded-md text-sm"><span className="font-medium truncate">{doc.name}</span><button type="button" onClick={() => handleRemoveOtherFile(doc.fileId)} className="text-red-500 hover:text-red-700 p-1"><TrashIcon className="w-4 h-4"/></button></div>
-                                ))}
-                            </div>
-                            <div className="mt-4"><button type="button" onClick={() => setIsUploadModalOpen(true)} className="text-sm font-semibold text-primary hover:underline flex items-center gap-1"><DocumentPlusIcon /> Upload file khác...</button></div>
-                            <p className="text-xs text-gray-500 mt-2">File ảnh sẽ được nén. Các loại file khác sẽ giữ nguyên.</p>
-                        </section>
-                    )}
+                        {activeTab === 'vehicles' && (
+                            <section className="animate-fade-in-down">
+                                <div className="space-y-3 pr-2">
+                                    {formData.vehicles.map((vehicle, index) => (
+                                        <div key={vehicle.VehicleId || index} className="grid grid-cols-1 md:grid-cols-10 gap-2 items-start p-2 bg-gray-50 rounded-md border">
+                                            <div className="md:col-span-2"><label className="text-xs font-semibold">Loại xe</label><select name="Type" value={vehicle.Type} onChange={e => handleVehicleChange(index, e)} className={formElementStyle}>{Object.entries(vehicleTypeLabels).map(([k,v]) => <option key={k} value={k}>{v}</option>)}</select></div>
+                                            <div className="md:col-span-3"><label className="text-xs font-semibold">Tên xe</label><input type="text" name="VehicleName" value={vehicle.VehicleName || ''} onChange={e => handleVehicleChange(index, e)} className={formElementStyle} /></div>
+                                            <div className="md:col-span-2"><label className="text-xs font-semibold">Biển số</label><input type="text" name="PlateNumber" value={vehicle.PlateNumber} onBlur={(e) => handleLicensePlateBlur(index, e)} onChange={e => handleVehicleChange(index, e)} disabled={vehicle.Type === VehicleTier.BICYCLE} className={`${formElementStyle} ${errors[index]?.plateNumber ? 'border-red-500' : ''}`} /><p className="text-red-500 text-xs mt-1 h-3">{errors[index]?.plateNumber}</p></div>
+                                            <div className="md:col-span-2"><label className="text-xs font-semibold">Ngày ĐK</label><input type="date" name="StartDate" value={vehicle.StartDate} onChange={e => handleVehicleChange(index, e)} className={formElementStyle} /></div>
+                                            <div className="md:col-span-1 text-center self-center pt-5"><button type="button" onClick={() => handleRemoveVehicle(index)} className="text-red-500 hover:text-red-700 font-semibold p-1">Xóa</button></div>
+                                        </div>
+                                    ))}
+                                </div>
+                                <button type="button" onClick={handleAddVehicle} className="mt-4 px-4 py-2 bg-primary text-white text-sm font-semibold rounded-md shadow-sm hover:bg-primary-focus">+ Thêm xe</button>
+                            </section>
+                        )}
+
+                        {activeTab === 'docs' && (
+                            <section className="animate-fade-in-down">
+                                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                                    <FileUploadField docType="nationalId" label="Ảnh CCCD" />
+                                    <FileUploadField docType="title" label="Ảnh Sổ đỏ/Hợp đồng" />
+                                </div>
+                                <div className="mt-4 space-y-2">
+                                    {(formData.owner.documents?.others || []).map(doc => (
+                                        <div key={doc.fileId} className="flex justify-between items-center p-2 bg-gray-50 rounded-md text-sm"><span className="font-medium truncate">{doc.name}</span><button type="button" onClick={() => handleRemoveOtherFile(doc.fileId)} className="text-red-500 hover:text-red-700 p-1"><TrashIcon className="w-4 h-4"/></button></div>
+                                    ))}
+                                </div>
+                                <div className="mt-4"><button type="button" onClick={() => setIsUploadModalOpen(true)} className="text-sm font-semibold text-primary hover:underline flex items-center gap-1"><DocumentPlusIcon /> Upload file khác...</button></div>
+                            </section>
+                        )}
+                    </div>
                 </div>
 
                 <div className="pt-4 border-t mt-auto sticky bottom-0 bg-white z-10 pb-1">
@@ -582,13 +624,13 @@ const ResidentDetailModal: React.FC<{
                         value={otherReason}
                         onChange={(e) => setOtherReason(e.target.value)}
                         className="w-full p-2.5 border rounded-lg bg-white text-gray-900 border-gray-300 focus:ring-2 focus:ring-primary focus:border-transparent outline-none text-sm"
-                        placeholder="Chi tiết khác (tùy chọn)..."
+                        placeholder="Chi tiết lý do khác (Bắt buộc)..."
                     />
 
                     <div className="flex justify-end gap-3 pt-4 mt-4">
                         <button type="button" onClick={onClose} className="px-4 py-2 bg-gray-200 text-gray-800 rounded-md hover:bg-gray-300">Hủy</button>
-                        <button type="submit" disabled={isSaving || Object.keys(errors).length > 0} className="px-6 py-2 bg-primary text-white font-semibold rounded-md disabled:bg-gray-400">
-                            {isSaving ? 'Đang lưu...' : 'Lưu thay đổi'}
+                        <button type="submit" disabled={isSaving || Object.keys(errors).length > 0} className="px-8 py-2 bg-primary text-white font-black uppercase rounded-md shadow-lg shadow-primary/20 flex items-center gap-2">
+                            {isSaving ? <Spinner /> : <><CheckCircleIcon className="w-5 h-5"/> Lưu thay đổi</>}
                         </button>
                     </div>
                 </div>
@@ -805,7 +847,7 @@ const ResidentDetailPanel: React.FC<{
     );
 };
 
-const ResidentsPage: React.FC<ResidentsPageProps> = ({ units = [], owners = [], vehicles = [], activityLogs = [], onSaveResident, onImportData, onDeleteResidents, role, currentUser, onNavigate }) => {
+const ResidentsPage: React.FC<ResidentsPageProps> = ({ units = [], owners = [], vehicles = [], activityLogs = [], onSaveResident: _onSave, onImportData, onDeleteResidents, role, currentUser, onNavigate }) => {
     const { showToast } = useNotification();
     const { refreshData } = useDataRefresh(); 
     const canManage = ['Admin', 'Accountant', 'Operator'].includes(role);
@@ -900,7 +942,25 @@ const ResidentsPage: React.FC<ResidentsPageProps> = ({ units = [], owners = [], 
     const handleOpenEditModal = (e: React.MouseEvent, r: ResidentData) => { e.stopPropagation(); if (!canManage) { showToast('Bạn không có quyền.', 'error'); return; } setModalState({ type: 'edit', data: r }); };
     const handleCloseModal = () => setModalState({ type: null, data: null });
     
-    const handleSaveResident = async (data: { unit: Unit; owner: Owner; vehicles: Vehicle[] }, reason: string) => { await onSaveResident(data, reason); handleCloseModal(); if (selectedResident?.unit.UnitID === data.unit.UnitID) setSelectedResident({...data, vehicles: data.vehicles.filter(v => v.isActive)}); };
+    /**
+     * REFACTORED: Hỗ trợ lưu hồ sơ và đóng yêu cầu cùng lúc.
+     */
+    const handleSaveResident = async (data: { unit: Unit; owner: Owner; vehicles: Vehicle[] }, reason: string, resolution?: { requestId: string, status: 'APPROVED' | 'REJECTED' }) => {
+        setIsLoading(true);
+        try {
+            // Mở rộng hàm service để xử lý resolution nếu có
+            await updateResidentData(units, owners, vehicles, data, { email: currentUser.Email, role: currentUser.Role }, reason, resolution);
+            showToast('Đã lưu thông tin cư dân thành công.', 'success');
+            handleCloseModal();
+            fetchPendingRequests();
+            refreshData(true);
+        } catch (e: any) {
+            showToast('Lỗi khi lưu dữ liệu: ' + e.message, 'error');
+        } finally {
+            setIsLoading(false);
+        }
+    };
+
     const handleExportExcel = useCallback(() => { if(filteredResidents.length===0){showToast('Không có dữ liệu.','info');return;} const data=filteredResidents.map(r=>{const vbt:{[k in VehicleTier]?:string[]}={};r.vehicles.forEach(v=>{if(v.isActive&&v.PlateNumber){if(!vbt[v.Type])vbt[v.Type]=[];vbt[v.Type]!.push(v.PlateNumber)}});return {'Mã căn hộ':r.unit.UnitID,'Chủ hộ':r.owner.OwnerName,'SĐT':r.owner.Phone,Email:r.owner.Email,'Diện tích (m2)':r.unit.Area_m2,'Trạng thái':r.unit.Status,'Biển số Ô tô':(vbt.car||[]).join(', '),'Biển số Ô tô Hạng A':(vbt.car_a||[]).join(', '),'Biển số Xe máy':(vbt.motorbike||[]).join(', '),'Biển số Xe điện':(vbt.ebike||[]).join(', '),'Biển số Xe đạp':(vbt.bicycle||[]).join(', ')}});try{const ws=XLSX.utils.json_to_sheet(data);const wb=XLSX.utils.book_new();XLSX.utils.book_append_sheet(wb,ws,'Cư dân');XLSX.writeFile(wb,`CuDan_${new Date().toISOString().slice(0,10)}.xlsx`);showToast('Xuất Excel thành công!','success')}catch(e: any){showToast('Lỗi xuất file.','error')}}, [filteredResidents, showToast]);
     const handleExportPDF = useCallback(async (r: ResidentData) => { try { await Promise.all([loadScript('jspdf'), loadScript('html2canvas')]); const html=renderResidentToHTML(r);const host=document.createElement('div');host.style.cssText='position:fixed;left:-9999px;top:0;width:210mm;background:#fff;';document.body.appendChild(host);host.innerHTML=html;await new Promise(r=>setTimeout(r,100));const canvas=await html2canvas(host,{scale:2,useCORS:true,logging:false});const{jsPDF}=jspdf;const pdf=new jsPDF({orientation:'p',unit:'mm',format:'a4'});const w=pdf.internal.pageSize.getWidth();const h=(canvas.height*w)/canvas.width;pdf.addImage(canvas.toDataURL('image/jpeg',.95),'JPEG',0,0,w,h);host.remove();pdf.save(`HoSo_${r.unit.UnitID}.pdf`);showToast('Xuất PDF thành công!','success')}catch(e: any){showToast('Lỗi xuất PDF.','error')}}, [showToast]);
     
