@@ -2,7 +2,7 @@
   "cleanUrls": true,
   "rewrites": [
     {
-      "source": "/((?!icons/|assets/|manifest\\.json|favicon\\.ico|firebase-messaging-sw\\.js|.*\\.[a-zA-Z0-9]+$).*)",
+      "source": "/((?!assets|icons|.*\\..*).*)",
       "destination": "/index.html"
     }
   ]
