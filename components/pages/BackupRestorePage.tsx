@@ -347,7 +347,8 @@ const BackupRestorePage: React.FC<BackupRestorePageProps> = ({ allData, onRestor
                             <div key={mod.id} className="bg-white border border-gray-100 p-4 rounded-2xl flex items-center justify-between shadow-sm group hover:border-emerald-200 transition-all">
                                 <div className="flex items-center gap-3">
                                     <div className={`p-2 rounded-xl bg-gray-50 ${mod.color} group-hover:scale-110 transition-transform`}>
-                                        {React.cloneElement(mod.icon as React.ReactElement, { className: 'w-5 h-5' })}
+                                        {/* Fix: Added <any> to React.ReactElement cast to prevent TypeScript from complaining about Partial<unknown> props */}
+                                        {React.cloneElement(mod.icon as React.ReactElement<any>, { className: 'w-5 h-5' })}
                                     </div>
                                     <span className="text-sm font-bold text-gray-700">{mod.label}</span>
                                 </div>

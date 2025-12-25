@@ -43,6 +43,9 @@ const bumpVersion = (batch: any, field: keyof SystemMetadata) => {
     batch.set(metaRef, { [field]: Date.now() }, { merge: true });
 };
 
+/**
+ * FIX: Đảm bảo linkTo không bao giờ bị undefined để tránh lỗi Firebase
+ */
 const injectLogAndNotif = (batch: any, log: any) => {
     const logRef = doc(collection(db, 'activity_logs'));
     const logData = { 
@@ -67,7 +70,7 @@ const injectLogAndNotif = (batch: any, log: any) => {
         message: log.summary || '', 
         isRead: false, 
         createdAt: serverTimestamp(),
-        linkTo: log.linkTo
+        linkTo: log.linkTo || '' // FIX: Luôn để chuỗi rỗng thay vì undefined
     };
     batch.set(notifRef, notifData);
 };
@@ -234,15 +237,11 @@ export const resetUserPassword = async (email: string): Promise<void> => { const
 export const getAllPendingProfileRequests = async (): Promise<ProfileRequest[]> => { const q = query(collection(db, 'profileRequests'), where('status', '==', 'PENDING')); const snap = await getDocs(q); return snap.docs.map(d => d.data() as ProfileRequest); };
 export const getPendingProfileRequest = async (residentId: string): Promise<ProfileRequest | null> => { const q = query(collection(db, 'profileRequests'), where('residentId', '==', residentId), where('status', '==', 'PENDING'), limit(1)); const snap = await getDocs(q); return !snap.empty ? snap.docs[0].data() as ProfileRequest : null; };
 
-/**
- * LOGIC ĐÃ ĐƯỢC KIỂM TRA: PHÊ DUYỆT THAY ĐỔI HỒ SƠ
- */
 export const resolveProfileRequest = async (request: ProfileRequest, action: 'approve' | 'reject', adminEmail: string, approvedChanges?: any) => {
     const batch = writeBatch(db);
     const now = new Date().toISOString();
     const reqRef = doc(db, 'profileRequests', request.id);
     
-    // 1. Cập nhật trạng thái yêu cầu
     batch.update(reqRef, { 
         status: action === 'approve' ? 'APPROVED' : 'REJECTED', 
         updatedAt: now 
@@ -252,7 +251,6 @@ export const resolveProfileRequest = async (request: ProfileRequest, action: 'ap
         const changesToApply = approvedChanges || request.changes;
         const ownerRef = doc(db, 'owners', request.ownerId);
         
-        // 2. Cập nhật bảng Owners
         const ownerUpdates: any = {};
         if (changesToApply.OwnerName !== undefined) ownerUpdates.OwnerName = changesToApply.OwnerName;
         if (changesToApply.Phone !== undefined) ownerUpdates.Phone = changesToApply.Phone;
@@ -264,27 +262,24 @@ export const resolveProfileRequest = async (request: ProfileRequest, action: 'ap
 
         if (Object.keys(ownerUpdates).length > 0) {
             batch.update(ownerRef, ownerUpdates);
-            // TỐI ƯU QUOTA: Báo cho Portal Cư dân biết dữ liệu Owner đã thay đổi
             bumpVersion(batch, 'owners_version');
         }
 
-        // 3. Cập nhật trạng thái Căn hộ (nếu có)
         if (changesToApply.UnitStatus) {
             batch.update(doc(db, 'units', request.residentId), { Status: changesToApply.UnitStatus });
             bumpVersion(batch, 'units_version');
         }
 
-        // 4. Ghi log hoạt động Admin
         injectLogAndNotif(batch, { 
             actor_email: adminEmail, 
             actor_role: 'Admin', 
             module: 'Cư dân', 
             action: 'APPROVE_PROFILE', 
             summary: `Đã duyệt cập nhật hồ sơ Căn ${request.residentId}`, 
-            ids: [request.residentId] 
+            ids: [request.residentId],
+            linkTo: 'residents' // Đảm bảo linkTo hợp lệ
         });
 
-        // 5. Phát thông báo CHUÔNG cho Cư dân (Real-time sync)
         const resNotifRef = doc(collection(db, 'notifications'));
         batch.set(resNotifRef, {
             userId: request.residentId,
@@ -296,7 +291,6 @@ export const resolveProfileRequest = async (request: ProfileRequest, action: 'ap
             createdAt: serverTimestamp()
         });
     } else {
-        // Nếu từ chối, cũng gửi thông báo cho cư dân biết
         const resNotifRef = doc(collection(db, 'notifications'));
         batch.set(resNotifRef, {
             userId: request.residentId,
@@ -324,8 +318,19 @@ export const submitUserProfileUpdate = async (userAuthEmail: string, residentId:
     const requestRef = doc(db, 'profileRequests', requestId);
     const profileRequest: ProfileRequest = { id: requestId, residentId, ownerId, status: 'PENDING', changes: newData, createdAt: now, updatedAt: now };
     batch.set(requestRef, profileRequest, { merge: true });
+    
+    // FIX: Không truyền linkTo bị undefined vào đây
     const adminNotifRef = doc(collection(db, 'admin_notifications'));
-    batch.set(adminNotifRef, { id: adminNotifRef.id, type: 'request', title: `Cập nhật hồ sơ - Căn ${residentId}`, message: `Cư dân yêu cầu thay đổi thông tin cá nhân.`, isRead: false, createdAt: serverTimestamp(), linkTo: 'residents' });
+    batch.set(adminNotifRef, { 
+        id: adminNotifRef.id, 
+        type: 'request', 
+        title: `Cập nhật hồ sơ - Căn ${residentId}`, 
+        message: `Cư dân yêu cầu thay đổi thông tin cá nhân.`, 
+        isRead: false, 
+        createdAt: serverTimestamp(), 
+        linkTo: 'residents' 
+    });
+
     await batch.commit(); return profileRequest;
 };
 
