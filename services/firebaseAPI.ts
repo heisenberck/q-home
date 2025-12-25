@@ -66,7 +66,7 @@ const injectLogAndNotif = (batch: any, log: any) => {
         message: log.summary || '', 
         isRead: false, 
         createdAt: serverTimestamp(),
-        linkTo: log.linkTo || '' // Fix: Đảm bảo không undefined
+        linkTo: log.linkTo || '' 
     };
     batch.set(notifRef, notifData);
 };
@@ -139,6 +139,7 @@ export const updateUserProfile = async (email: string, updates: Partial<UserPerm
 /**
  * Hàm cập nhật dữ liệu cư dân hợp nhất: 
  * Xử lý Unit, Owner, Vehicles và đóng ProfileRequest (resolution) trong cùng một Batch.
+ * SỬ DỤNG batch.set(..., {merge: true}) để ghi đè các trường thông tin (bao gồm cả giá trị rỗng).
  */
 export const updateResidentData = async (
     currentUnits: Unit[], 
@@ -152,7 +153,7 @@ export const updateResidentData = async (
     const batch = writeBatch(db);
     const now = new Date().toISOString();
 
-    // 1. Cập nhật Unit & Owner
+    // 1. Cập nhật Unit & Owner (Sử dụng set với merge true để hỗ trợ xoá giá trị cũ bằng chuỗi rỗng)
     batch.set(doc(db, 'units', data.unit.UnitID), data.unit, { merge: true });
     batch.set(doc(db, 'owners', data.owner.OwnerID), data.owner, { merge: true });
 
@@ -164,6 +165,7 @@ export const updateResidentData = async (
         if (!vId || vId.startsWith('VEH_NEW_')) { 
             const newRef = doc(collection(db, "vehicles")); 
             vSave.VehicleId = newRef.id; 
+            vSave.UnitID = data.unit.UnitID; // Đảm bảo đúng mã căn
             batch.set(newRef, vSave); 
             activeIds.add(newRef.id); 
         } else { 
@@ -171,22 +173,25 @@ export const updateResidentData = async (
             activeIds.add(vId); 
         }
     });
+    
+    // Đánh dấu các xe không còn trong danh sách mới là không hoạt động
     currentVehicles.filter(v => v.UnitID === data.unit.UnitID && v.isActive && !activeIds.has(v.VehicleId)).forEach(v => { 
         batch.update(doc(db, 'vehicles', v.VehicleId), { isActive: false, updatedAt: now }); 
     });
 
-    // 3. Đóng ProfileRequest - QUAN TRỌNG ĐỂ XÓA DẤU HIỆU PENDING
+    // 3. Phê duyệt/Từ chối ProfileRequest - Xoá dấu hiệu PENDING cho căn hộ
     if (resolution) {
         batch.update(doc(db, 'profileRequests', resolution.requestId), { 
             status: resolution.status, 
             updatedAt: now 
         });
 
-        // Gửi thông báo chuông cho cư dân
-        batch.set(doc(collection(db, 'notifications')), {
+        // Gửi thông báo chuông (App notification) cho cư dân về kết quả xử lý
+        const notifRef = doc(collection(db, 'notifications'));
+        batch.set(notifRef, {
             userId: data.unit.UnitID,
-            title: resolution.status === 'APPROVED' ? 'Yêu cầu cập nhật đã được duyệt' : 'Yêu cầu cập nhật bị từ chối',
-            body: resolution.status === 'APPROVED' ? 'Thông tin cá nhân của bạn đã được BQL cập nhật chính thức.' : 'Rất tiếc, yêu cầu thay đổi thông tin của bạn không được phê duyệt.',
+            title: resolution.status === 'APPROVED' ? 'Hồ sơ đã được cập nhật' : 'Yêu cầu bị từ chối',
+            body: resolution.status === 'APPROVED' ? 'Thông tin cá nhân của bạn đã được BQL phê duyệt và cập nhật chính thức.' : 'Rất tiếc, yêu cầu thay đổi thông tin của bạn không được phê duyệt.',
             type: 'profile',
             link: 'portalProfile',
             isRead: false,
@@ -194,8 +199,8 @@ export const updateResidentData = async (
         });
     }
 
-    // 4. Nhật ký & Bump Versions
-    const logSummary = `${resolution ? `[Duyệt] ` : ''}Cập nhật Căn ${data.unit.UnitID}. ${reason || ''}`;
+    // 4. Nhật ký hoạt động & Cập nhật Metadata Version để phía client đồng bộ cache
+    const logSummary = `${resolution ? `[Duyệt yêu cầu] ` : ''}Điều chỉnh hồ sơ Căn ${data.unit.UnitID}. ${reason || ''}`;
     injectLogAndNotif(batch, { 
         actor_email: actor?.email, 
         module: 'Cư dân', 
@@ -205,6 +210,7 @@ export const updateResidentData = async (
         type: resolution ? 'request' : 'system',
         linkTo: 'residents' 
     });
+    
     bumpVersion(batch, 'units_version'); 
     bumpVersion(batch, 'owners_version'); 
     bumpVersion(batch, 'vehicles_version');
@@ -288,14 +294,19 @@ export const getPendingProfileRequest = async (residentId: string): Promise<Prof
 export const resolveProfileRequest = async (request: ProfileRequest, action: 'approve' | 'reject', adminEmail: string, approvedChanges?: any) => {
     const batch = writeBatch(db);
     const now = new Date().toISOString();
-    batch.update(doc(db, 'profileRequests', request.id), { status: action === 'approve' ? 'APPROVED' : 'REJECTED', updatedAt: now });
+    
+    // Nếu bị từ chối thẳng từ UI (không qua Form)
+    batch.update(doc(db, 'profileRequests', request.id), { 
+        status: action === 'approve' ? 'APPROVED' : 'REJECTED', 
+        updatedAt: now 
+    });
 
-    // Gửi thông báo cho cư dân
+    // Gửi thông báo thông qua app (Chuông thông báo cư dân)
     const resNotifRef = doc(collection(db, 'notifications'));
     batch.set(resNotifRef, {
         userId: request.residentId,
-        title: action === 'approve' ? 'Yêu cầu cập nhật đã được duyệt' : 'Yêu cầu bị từ chối',
-        body: action === 'approve' ? 'Thông tin cá nhân của bạn đã được cập nhật thành công.' : 'BQL đã xem xét và không phê duyệt yêu cầu thay đổi thông tin của bạn.',
+        title: action === 'approve' ? 'Yêu cầu cập nhật hồ sơ ĐÃ DUYỆT' : 'Yêu cầu hồ sơ BỊ TỪ CHỐI',
+        body: action === 'approve' ? 'BQL đã phê duyệt các thay đổi thông tin cá nhân của bạn.' : 'Rất tiếc, BQL không phê duyệt yêu cầu thay đổi hồ sơ của bạn.',
         type: 'profile',
         link: 'portalProfile',
         isRead: false,

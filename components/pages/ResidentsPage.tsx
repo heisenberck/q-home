@@ -172,18 +172,28 @@ const ProfileChangeReview: React.FC<{
     };
 
     const getCurrentValue = (key: string) => {
-        if (key === 'UnitStatus') return currentData.unit.Status;
+        if (key === 'UnitStatus') return getStatusVN(currentData.unit.Status);
         if (key === 'avatarUrl') return currentData.owner.avatarUrl ? 'Có ảnh cũ' : 'Không có';
         // @ts-ignore
         return currentData.owner[key] || '(Trống)';
     };
 
+    const getStatusVN = (status: string) => {
+        switch(status) {
+            case 'Owner': return 'Chính chủ';
+            case 'Rent': return 'Hộ thuê';
+            case 'Business': return 'Kinh doanh';
+            default: return status;
+        }
+    }
+
     const getNewValueDisplay = (key: string, value: any) => {
         if (key === 'avatarUrl') {
             return value ? <img src={value as string} alt="New Avatar" className="w-8 h-8 rounded-full object-cover border"/> : <span className="text-red-500 italic">(Đã xóa ảnh)</span>;
         }
+        if (key === 'UnitStatus') return getStatusVN(value);
         if (value === '' || value === null || value === undefined) {
-            return <span className="text-red-500 font-bold italic border border-red-200 bg-red-50 px-2 py-0.5 rounded text-xs">✖ (Đã xóa)</span>;
+            return <span className="text-red-500 font-bold italic border border-red-200 bg-red-50 px-2 py-0.5 rounded text-xs">✖ (Yêu cầu xoá)</span>;
         }
         return String(value);
     };
@@ -332,18 +342,23 @@ const ResidentDetailModal: React.FC<{
     const labelStyle = `block text-sm font-medium text-gray-700 mb-1`;
 
     const handleApplyChangesFromResident = (changes: any) => {
-        // Điền các giá trị từ yêu cầu vào formData
+        // Điền các giá trị từ yêu cầu vào formData, hỗ trợ ghi giá trị trống (xoá)
         const updatedOwner = { ...formData.owner };
         const updatedUnit = { ...formData.unit };
 
-        if (changes.OwnerName) updatedOwner.OwnerName = changes.OwnerName;
-        if (changes.DisplayName) updatedOwner.OwnerName = changes.DisplayName;
-        if (changes.Phone) updatedOwner.Phone = changes.Phone;
-        if (changes.Email) updatedOwner.Email = changes.Email;
-        if (changes.secondOwnerName) updatedOwner.secondOwnerName = changes.secondOwnerName;
-        if (changes.secondOwnerPhone) updatedOwner.secondOwnerPhone = changes.secondOwnerPhone;
-        if (changes.avatarUrl) updatedOwner.avatarUrl = changes.avatarUrl;
-        if (changes.UnitStatus) updatedUnit.Status = changes.UnitStatus;
+        // Duyệt qua tất cả các trường được cung cấp trong thay đổi
+        Object.entries(changes).forEach(([key, value]) => {
+            const cleanValue = (value === null || value === undefined) ? '' : String(value);
+            
+            if (key === 'UnitStatus') {
+                updatedUnit.Status = cleanValue as any;
+            } else if (key === 'OwnerName' || key === 'DisplayName') {
+                updatedOwner.OwnerName = cleanValue;
+            } else if (key === 'Phone' || key === 'Email' || key === 'title' || key === 'secondOwnerName' || key === 'secondOwnerPhone' || key === 'avatarUrl') {
+                // @ts-ignore
+                updatedOwner[key] = cleanValue;
+            }
+        });
 
         setFormData({ ...formData, owner: updatedOwner, unit: updatedUnit });
         setPendingResolution({ requestId: resident.pendingRequest!.id, status: 'APPROVED' });
@@ -352,8 +367,11 @@ const ResidentDetailModal: React.FC<{
         if (!selectedReasons.includes("Thay đổi thông tin")) {
             setSelectedReasons(prev => [...prev, "Thay đổi thông tin"]);
         }
-        setOtherReason(prev => prev + (prev ? ". " : "") + "Phê duyệt yêu cầu cập nhật hồ sơ từ cư dân.");
-        showToast("Đã điền thông tin yêu cầu vào Form. Hãy kiểm tra lại.", "info");
+        setOtherReason(prev => {
+            const base = "Phê duyệt yêu cầu cập nhật hồ sơ từ cư dân.";
+            return prev.includes(base) ? prev : [prev, base].filter(Boolean).join(". ");
+        });
+        showToast("Đã điền thông tin yêu cầu vào Form (bao gồm các yêu cầu xoá). Hãy kiểm tra lại.", "info");
     };
 
     const handleRejectRequestImmediate = () => {
