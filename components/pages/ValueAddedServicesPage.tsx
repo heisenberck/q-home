@@ -14,7 +14,7 @@ import {
 } from '../ui/Icons';
 import { formatCurrency } from '../../utils/helpers';
 import { useNotification, useAuth, useSettings, useDataRefresh } from '../../App';
-import { addMiscRevenue, getMiscRevenues, getMonthlyMiscRevenues, deleteMiscRevenue } from '../../services';
+import { addMiscRevenue, getMonthlyMiscRevenues, deleteMiscRevenue } from '../../services';
 import type { MiscRevenue, MiscRevenueType } from '../../types';
 import Spinner from '../ui/Spinner';
 
@@ -85,7 +85,6 @@ const ValueAddedServicesPage: React.FC = () => {
     const { refreshData } = useDataRefresh();
     
     const [selectedDate, setSelectedDate] = useState(new Date().toISOString().split('T')[0]);
-    const [dailyRevenues, setDailyRevenues] = useState<MiscRevenue[]>([]);
     const [monthlyRevenues, setMonthlyRevenues] = useState<MiscRevenue[]>([]);
     const [isLoading, setIsLoading] = useState(false);
     const [activeTab, setActiveTab] = useState<MiscRevenueType>('PARKING');
@@ -105,22 +104,11 @@ const ValueAddedServicesPage: React.FC = () => {
 
     const typeLabels: Record<MiscRevenueType, string> = { PARKING: 'Xe lượt', KIOS: 'Kios', VAT_SERVICE: 'GTGT', OTHER: 'Khác' };
     
-    const fetchData = async (date: string) => {
+    const fetchData = async (period: string) => {
         setIsLoading(true);
         try {
-            // Kiểm tra xem hàm có tồn tại không trước khi gọi
-            if (typeof getMiscRevenues !== 'function' || typeof getMonthlyMiscRevenues !== 'function') {
-                console.warn("API Functions not yet defined.");
-                setIsLoading(false);
-                return;
-            }
-
-            const [daily, monthly] = await Promise.all([
-                getMiscRevenues(date), 
-                getMonthlyMiscRevenues(date.substring(0, 7))
-            ]);
-            setDailyRevenues(daily || []); 
-            setMonthlyRevenues(monthly || []);
+            const data = await getMonthlyMiscRevenues(period.substring(0, 7));
+            setMonthlyRevenues(data || []);
         } catch (err) { 
             console.error("Fetch Data Error:", err);
             showToast('Lỗi tải dữ liệu. Vui lòng thử lại.', 'error'); 
@@ -129,7 +117,7 @@ const ValueAddedServicesPage: React.FC = () => {
         }
     };
 
-    useEffect(() => { fetchData(selectedDate); }, [selectedDate]);
+    useEffect(() => { fetchData(selectedDate); }, [selectedDate.substring(0, 7)]);
 
     const handleAddTransaction = async () => {
         let type = activeTab;
@@ -163,13 +151,12 @@ const ValueAddedServicesPage: React.FC = () => {
             const id = await addMiscRevenue(payload);
             const newItem = { ...payload, id, createdAt: new Date().toISOString() };
             
-            // Cập nhật UI ngay lập tức
-            setDailyRevenues(prev => [newItem, ...prev]); 
-            setMonthlyRevenues(prev => [newItem, ...prev]);
+            // Cập nhật UI ngay lập tức giống logic Expense
+            if (selectedDate.substring(0, 7) === newItem.date.substring(0, 7)) {
+                setMonthlyRevenues(prev => [newItem, ...prev]);
+            }
             
             showToast('Đã thêm giao dịch thành công.', 'success');
-            
-            // Background refresh để đồng bộ toàn cục
             refreshData(true);
             
             // Clear inputs
@@ -223,7 +210,6 @@ const ValueAddedServicesPage: React.FC = () => {
         if (!window.confirm('Xác nhận xóa khoản thu này?')) return;
         try { 
             await deleteMiscRevenue(id); 
-            setDailyRevenues(prev => prev.filter(r => r.id !== id)); 
             setMonthlyRevenues(prev => prev.filter(r => r.id !== id));
             refreshData(true);
             showToast('Đã xóa giao dịch.', 'success'); 
@@ -253,7 +239,13 @@ const ValueAddedServicesPage: React.FC = () => {
         }
     };
 
+    // TỐI ƯU: Tự động tính toán dailyRevenues từ monthlyRevenues dựa trên selectedDate
+    const dailyRevenues = useMemo(() => {
+        return monthlyRevenues.filter(r => r.date === selectedDate);
+    }, [monthlyRevenues, selectedDate]);
+
     const monthlyTotal = useMemo(() => monthlyRevenues.reduce((sum, r) => sum + r.amount, 0), [monthlyRevenues]);
+    
     const inputLabelStyle = "text-[10px] font-black text-gray-400 uppercase tracking-widest mb-1.5 ml-1 block";
     const inputFieldStyle = "w-full p-3 bg-gray-50 border border-gray-200 rounded-xl outline-none text-sm font-bold text-gray-800 focus:bg-white focus:ring-2 focus:ring-primary/20 focus:border-primary transition-all";
 
@@ -263,7 +255,11 @@ const ValueAddedServicesPage: React.FC = () => {
                 <div className="max-w-7xl mx-auto flex flex-col md:flex-row items-center justify-between gap-4">
                     <div className="flex items-center gap-2">
                         <div className="bg-gray-100 p-1 rounded-xl flex items-center shadow-inner border border-gray-200">
-                            <button onClick={() => { const d = new Date(selectedDate); d.setDate(d.getDate() - 1); setSelectedDate(d.toISOString().split('T')[0]); }} className="p-2 hover:bg-white rounded-lg transition-all text-gray-500"><ChevronLeftIcon className="w-4 h-4"/></button>
+                            <button onClick={() => { 
+                                const d = new Date(selectedDate); 
+                                d.setDate(d.getDate() - 1); 
+                                setSelectedDate(d.toISOString().split('T')[0]); 
+                            }} className="p-2 hover:bg-white rounded-lg transition-all text-gray-500"><ChevronLeftIcon className="w-4 h-4"/></button>
                             <div className="relative">
                                 <button onClick={() => setIsDatePickerOpen(!isDatePickerOpen)} className="px-4 py-2 text-xs font-black uppercase tracking-tight text-gray-800 flex items-center gap-2">
                                     <CalendarDaysIcon className="w-4 h-4 text-primary" />
@@ -272,7 +268,11 @@ const ValueAddedServicesPage: React.FC = () => {
                                 </button>
                                 {isDatePickerOpen && <DatePickerPopover selectedDate={selectedDate} onSelect={setSelectedDate} onClose={() => setIsDatePickerOpen(false)} />}
                             </div>
-                            <button onClick={() => { const d = new Date(selectedDate); d.setDate(d.getDate() + 1); setSelectedDate(d.toISOString().split('T')[0]); }} className="p-2 hover:bg-white rounded-lg transition-all text-gray-500"><ChevronRightIcon className="w-4 h-4"/></button>
+                            <button onClick={() => { 
+                                const d = new Date(selectedDate); 
+                                d.setDate(d.getDate() + 1); 
+                                setSelectedDate(d.toISOString().split('T')[0]); 
+                            }} className="p-2 hover:bg-white rounded-lg transition-all text-gray-500"><ChevronRightIcon className="w-4 h-4"/></button>
                         </div>
                     </div>
                     <div className="flex items-center gap-3">

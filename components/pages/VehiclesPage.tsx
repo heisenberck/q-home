@@ -1,3 +1,4 @@
+
 import React, { useState, useMemo, useEffect } from 'react';
 import type { Vehicle, Unit, Owner, Role, ActivityLog, VehicleTier, VehicleDocument } from '../../types';
 import { useNotification, useAuth } from '../../App';
@@ -519,9 +520,9 @@ const VehicleDetailPanel: React.FC<{
                     <div className="border-l-2 border-gray-100 pl-4 space-y-4">
                         {relevantLogs.length > 0 ? relevantLogs.map(log => (
                             <div key={log.id} className="relative">
-                                <div className="absolute -left-[21px] top-1 w-3 h-3 rounded-full bg-gray-300 border-2 border-white"></div>
-                                <p className="text-xs text-gray-400 mb-0.5">{timeAgo(log.ts)}</p>
-                                <p className="text-sm text-gray-800">{log.summary}</p>
+                                <div className="absolute -left-[21px] top-1 w-3 h-3 rounded-full bg-white border-2 border-primary"></div>
+                                <p className="text-xs text-gray-400 mb-0.5 font-bold uppercase">{timeAgo(log.ts)}</p>
+                                <p className="text-sm text-gray-800 font-medium leading-snug">{log.summary}</p>
                             </div>
                         )) : <p className="text-sm text-gray-400 italic">Chưa có lịch sử ghi nhận.</p>}
                     </div>

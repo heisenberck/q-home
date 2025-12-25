@@ -49,7 +49,7 @@ const menuGroups: (MenuItem | MenuGroup)[] = [
         items: [
             { id: 'billing', label: 'Bảng tính phí', icon: <CalculatorIcon /> },
             { id: 'vas', label: 'Dịch vụ GTGT', icon: <BanknotesIcon /> },
-            { id: 'expenses', label: 'Chi phí vận hành', icon: <TrendingDownIcon /> },
+            { id: 'expenses', label: 'Chi phí Vận hành', icon: <TrendingDownIcon /> },
             { id: 'pricing', label: 'Quản lý Đơn giá', icon: <ReceiptIcon /> },
         ]
     },
@@ -58,7 +58,7 @@ const menuGroups: (MenuItem | MenuGroup)[] = [
         label: 'Thông báo & Đăng ký',
         items: [
             { id: 'newsManagement', label: 'Quản lý Tin tức', icon: <MegaphoneIcon /> },
-            { id: 'serviceRegistration', label: 'Quản lý đăng ký', icon: <ClipboardCheckIcon /> },
+            { id: 'serviceRegistration', label: 'Quản lý Đăng ký', icon: <ClipboardCheckIcon /> },
             { id: 'feedbackManagement', label: 'Quản lý Phản hồi', icon: <ChatBubbleLeftEllipsisIcon /> },
         ]
     }

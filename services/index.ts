@@ -4,13 +4,14 @@ import * as firebaseAPI from './firebaseAPI';
 import * as mockAPI from './mockAPI';
 import * as feedbackAPI from './feedbackService';
 import * as regAPI from './registrationService';
+import * as revenueAPI from './revenueService'; // New
 import { isProduction } from '../utils/env';
 
 const IS_PROD = isProduction();
 
 const api = IS_PROD 
-    ? { ...firebaseAPI, ...feedbackAPI, ...regAPI } 
-    : { ...mockAPI, ...feedbackAPI, ...regAPI };
+    ? { ...firebaseAPI, ...feedbackAPI, ...regAPI, ...revenueAPI } 
+    : { ...mockAPI, ...feedbackAPI, ...regAPI, ...revenueAPI };
 
 export const {
     loadAllData,
@@ -44,7 +45,7 @@ export const {
     updateResidentAvatar,
     fetchWaterLocks,
     addMiscRevenue,
-    getMiscRevenues,
+    getMiscRevenues, // Vẫn giữ nếu cần cho logic khác
     getMonthlyMiscRevenues,
     deleteMiscRevenue,
     updateUserProfile,
@@ -57,13 +58,10 @@ export const {
     fetchRecentWaterReadings,
     fetchResidentSpecificData,
     fetchChargesForResident,
-    // New function for direct login check
     fetchUserForLogin,
-    // Feedback
     submitFeedback,
     replyFeedback,
     subscribeToActiveFeedback,
-    // Registration
     submitServiceRegistration,
     subscribeToRegistrations,
     processRegistrationAction
