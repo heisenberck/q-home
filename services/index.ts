@@ -1,5 +1,4 @@
 
-// services/index.ts
 import * as firebaseAPI from './firebaseAPI';
 import * as mockAPI from './mockAPI';
 import * as feedbackAPI from './feedbackService';
@@ -10,10 +9,19 @@ import { isProduction } from '../utils/env';
 
 const IS_PROD = isProduction();
 
-// Merge all APIs based on environment
+// On Production: Merge all real Firebase services
+// On DEV: Use ONLY the mockAPI which contains implementations for all modules
 const api = IS_PROD 
-    ? { ...firebaseAPI, ...feedbackAPI, ...regAPI, ...revenueAPI, ...logAPI } 
-    : { ...mockAPI, ...feedbackAPI, ...regAPI, ...revenueAPI, ...logAPI };
+    ? { 
+        ...firebaseAPI, 
+        ...feedbackAPI, 
+        ...regAPI, 
+        ...revenueAPI, 
+        ...logAPI 
+      } 
+    : { 
+        ...mockAPI 
+      };
 
 export const {
     loadAllData,
@@ -37,7 +45,7 @@ export const {
     getBillingLockStatus,
     setBillingLockStatus,
     resetUserPassword,
-    logActivity, // Fix: Now correctly imported from logAPI
+    logActivity,
     fetchLatestLogs,
     createProfileRequest,
     submitUserProfileUpdate,
@@ -63,11 +71,14 @@ export const {
     fetchUserForLogin,
     submitFeedback,
     replyFeedback,
-    fetchActiveFeedback, // Updated from subscribeToActiveFeedback
+    fetchActiveFeedback,
     fetchResolvedFeedback,
     submitServiceRegistration,
-    fetchRegistrations, // Updated from subscribeToRegistrations to fix TypeError
+    fetchRegistrations,
     processRegistrationAction,
     fetchActiveCharges,
-    getDashboardCounts
+    getDashboardCounts,
+    // New gated calls for hooks
+    fetchInvoiceSettings,
+    fetchTariffsData
 } = api as any;

@@ -1,10 +1,17 @@
 
 // services/mockAPI.ts
-import type { InvoiceSettings, Unit, Owner, Vehicle, WaterReading, ChargeRaw, Adjustment, UserPermission, ActivityLog, MonthlyStat, TariffCollection, PaymentStatus, ProfileRequest, MiscRevenue, NewsItem, SystemMetadata } from '../types';
+// Fix: Added missing RegistrationStatus type to imports
+import type { 
+    InvoiceSettings, Unit, Owner, Vehicle, WaterReading, ChargeRaw, 
+    Adjustment, UserPermission, ActivityLog, MonthlyStat, TariffCollection, 
+    PaymentStatus, ProfileRequest, MiscRevenue, NewsItem, SystemMetadata,
+    FeedbackItem, FeedbackReply, ServiceRegistration, OperationalExpense,
+    RegistrationStatus
+} from '../types';
 import { MOCK_UNITS, MOCK_OWNERS, MOCK_VEHICLES, MOCK_WATER_READINGS, MOCK_TARIFFS_SERVICE, MOCK_TARIFFS_PARKING, MOCK_TARIFFS_WATER, MOCK_ADJUSTMENTS, MOCK_USER_PERMISSIONS, MOCK_NEWS_ITEMS, patchKiosAreas } from '../constants';
 import { VehicleTier, Role } from '../types';
 
-const DB_PREFIX = 'QHOME_MOCK_DB_V2_';
+const DB_PREFIX = 'QHOME_MOCK_DB_V3_';
 
 const loadFromStorage = <T>(key: string, defaultData: T): T => {
     try {
@@ -35,6 +42,9 @@ let news: NewsItem[] = loadFromStorage('news', JSON.parse(JSON.stringify(MOCK_NE
 let activityLogs: ActivityLog[] = loadFromStorage('activityLogs', []);
 let profileRequests: ProfileRequest[] = loadFromStorage('profileRequests', []);
 let miscRevenues: MiscRevenue[] = loadFromStorage('miscRevenues', []);
+let feedback: FeedbackItem[] = loadFromStorage('feedback', []);
+let registrations: ServiceRegistration[] = loadFromStorage('registrations', []);
+let expenses: OperationalExpense[] = loadFromStorage('expenses', []);
 
 let monthlyStats: MonthlyStat[] = loadFromStorage('monthlyStats', [
     { period: '2024-11', totalService: 52000000, totalParking: 33000000, totalWater: 16500000, totalDue: 101500000, updatedAt: new Date().toISOString() },
@@ -81,9 +91,9 @@ export const loadAllData = async () => {
     });
 };
 
-/**
- * MOCK optimized fetch for Dashboard
- */
+export const fetchInvoiceSettings = async () => Promise.resolve(invoiceSettings);
+export const fetchTariffsData = async () => Promise.resolve(tariffs);
+
 export const getDashboardCounts = async () => {
     return Promise.resolve({
         totalUnits: units.length,
@@ -92,9 +102,6 @@ export const getDashboardCounts = async () => {
     });
 };
 
-/**
- * MOCK optimized fetch for specific periods
- */
 export const fetchActiveCharges = async (periods: string[]): Promise<ChargeRaw[]> => {
     return Promise.resolve(charges.filter(c => 
         periods.includes(c.Period) || 
@@ -131,6 +138,7 @@ export const fetchCollection = async <T>(colName: string): Promise<T[]> => {
         case 'users': return Promise.resolve(users as unknown as T[]);
         case 'charges': return Promise.resolve(charges as unknown as T[]);
         case 'monthly_stats': return Promise.resolve(monthlyStats as unknown as T[]);
+        case 'operational_expenses': return Promise.resolve(expenses as unknown as T[]);
         default: return Promise.resolve([]);
     }
 };
@@ -151,7 +159,6 @@ export const fetchResidentSpecificData = async (residentId: string) => {
     return Promise.resolve({ unit, owner, vehicles: unitVehicles });
 };
 
-// --- NEWS MANAGEMENT ---
 export const fetchNews = async (): Promise<NewsItem[]> => Promise.resolve(news);
 
 export const saveNewsItem = async (item: NewsItem): Promise<string> => {
@@ -187,6 +194,15 @@ export const fetchWaterLocks = async (): Promise<string[]> => {
 
 export const fetchLatestLogs = async (limitCount: number = 20): Promise<ActivityLog[]> => {
     return Promise.resolve([...activityLogs].sort((a,b) => new Date(b.ts).getTime() - new Date(a.ts).getTime()).slice(0, limitCount));
+};
+
+export const fetchLogs = async () => {
+    const logs = [...activityLogs].sort((a,b) => new Date(b.ts).getTime() - new Date(a.ts).getTime());
+    return Promise.resolve({
+        logs,
+        lastDoc: null,
+        count: logs.length
+    });
 };
 
 export const logActivity = async (actionType: any, module: string, description: string, ids?: string[]) => {
@@ -300,7 +316,7 @@ export const updateResidentData = async (
 
 export const wipeAllBusinessData = async (progressCallback: (message: string) => void) => {
     progressCallback("Cleaning LocalStorage...");
-    const keys = ['units', 'owners', 'vehicles', 'waterReadings', 'charges', 'adjustments', 'activityLogs', 'monthlyStats', 'waterLocks', 'billingLocks', 'profileRequests', 'miscRevenues', 'news'];
+    const keys = ['units', 'owners', 'vehicles', 'waterReadings', 'charges', 'adjustments', 'activityLogs', 'monthlyStats', 'waterLocks', 'billingLocks', 'profileRequests', 'miscRevenues', 'news', 'feedback', 'registrations', 'expenses'];
     keys.forEach(k => localStorage.removeItem(DB_PREFIX + k));
     await new Promise(r => setTimeout(r, 500));
     progressCallback("Restored to Factory Mock Data.");
@@ -365,13 +381,56 @@ export const createProfileRequest = async (request: ProfileRequest) => Promise.r
 export const updateResidentAvatar = async (ownerId: string, avatarUrl: string, userEmail?: string): Promise<void> => Promise.resolve();
 export const resolveProfileRequest = async (request: ProfileRequest, action: 'approve' | 'reject', adminEmail: string, approvedChanges?: any) => Promise.resolve();
 
+// --- FEEDBACK MOCK ---
+export const fetchActiveFeedback = async (): Promise<FeedbackItem[]> => Promise.resolve(feedback.filter(f => f.status !== 'Resolved'));
+export const fetchResolvedFeedback = async (period: string): Promise<FeedbackItem[]> => Promise.resolve(feedback.filter(f => f.status === 'Resolved' && f.date.startsWith(period)));
+export const submitFeedback = async (item: any) => {
+    const id = `fb_mock_${Date.now()}`;
+    feedback = [{ ...item, id }, ...feedback];
+    saveToStorage('feedback', feedback);
+    return Promise.resolve(id);
+};
+export const replyFeedback = async (id: string, replies: FeedbackReply[], status: FeedbackItem['status']) => {
+    feedback = feedback.map(f => f.id === id ? { ...f, replies, status } : f);
+    saveToStorage('feedback', feedback);
+    return Promise.resolve();
+};
+
+// --- REGISTRATION MOCK ---
+export const fetchRegistrations = async (): Promise<ServiceRegistration[]> => Promise.resolve(registrations);
+export const submitServiceRegistration = async (item: any) => {
+    const id = `reg_mock_${Date.now()}`;
+    registrations = [{ ...item, id }, ...registrations];
+    saveToStorage('registrations', registrations);
+    return Promise.resolve(id);
+};
+export const processRegistrationAction = async (id: string, status: RegistrationStatus, note: string) => {
+    registrations = registrations.map(r => r.id === id ? { ...r, status, rejectionReason: note } : r);
+    saveToStorage('registrations', registrations);
+    return Promise.resolve();
+};
+
+// --- REVENUE MOCK ---
 export const addMiscRevenue = async (data: any): Promise<string> => {
     const id = `misc_${Date.now()}`;
     miscRevenues.push({...data, id, createdAt: new Date().toISOString()});
     saveToStorage('miscRevenues', miscRevenues);
     return Promise.resolve(id);
 };
-
 export const getMiscRevenues = async (date: string): Promise<MiscRevenue[]> => Promise.resolve(miscRevenues.filter(r => r.date === date));
 export const getMonthlyMiscRevenues = async (month: string): Promise<MiscRevenue[]> => Promise.resolve(miscRevenues.filter(r => r.date.startsWith(month)));
 export const deleteMiscRevenue = async (id: string): Promise<void> => { miscRevenues = miscRevenues.filter(r => r.id !== id); saveToStorage('miscRevenues', miscRevenues); return Promise.resolve(); };
+
+// --- EXPENSE MOCK ---
+export const addExpense = async (data: any): Promise<string> => {
+    const id = `exp_mock_${Date.now()}`;
+    expenses = [{ ...data, id, createdAt: new Date().toISOString() }, ...expenses];
+    saveToStorage('expenses', expenses);
+    return Promise.resolve(id);
+};
+export const getExpensesByMonth = async (month: string): Promise<OperationalExpense[]> => Promise.resolve(expenses.filter(e => e.date.startsWith(month)));
+export const deleteExpense = async (id: string): Promise<void> => {
+    expenses = expenses.filter(e => e.id !== id);
+    saveToStorage('expenses', expenses);
+    return Promise.resolve();
+};

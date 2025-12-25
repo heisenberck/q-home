@@ -26,14 +26,12 @@ import { formatCurrency, parseUnitCode, renderInvoiceHTMLForPdf, formatNumber } 
 import { writeBatch, collection, query, where, getDocs, doc, addDoc, serverTimestamp, increment, updateDoc } from 'firebase/firestore';
 import { db } from '../../firebaseConfig';
 import { isProduction } from '../../utils/env';
-// Fix: Added missing type imports
 import type { 
     ChargeRaw, InvoiceSettings, AllData, Adjustment, 
     Role, Owner, PaymentStatus, MonthlyStat 
 } from '../../types';
 import { UnitType } from '../../types';
-// Fix: Added missing useNotification hook import
-import { useNotification } from '../../App';
+import { useNotification, useDataRefresh } from '../../App';
 
 // --- Types & Globals ---
 declare const jspdf: any;
@@ -174,6 +172,7 @@ interface BillingPageProps {
     setCharges: (updater: React.SetStateAction<ChargeRaw[]>, logPayload?: any) => void;
     allData: AllData;
     onUpdateAdjustments: (updater: React.SetStateAction<Adjustment[]>, logPayload?: any) => void;
+    // Fix: Removed duplicate 'role' property.
     role: Role;
     invoiceSettings: InvoiceSettings;
     onRefresh?: () => void;
@@ -181,6 +180,7 @@ interface BillingPageProps {
 
 const BillingPage: React.FC<BillingPageProps> = ({ charges, setCharges, allData, onUpdateAdjustments, role, invoiceSettings, onRefresh }) => {
     const { showToast } = useNotification();
+    const { refreshData } = useDataRefresh();
     const canCalculate = ['Admin', 'Accountant'].includes(role);
     const IS_PROD = isProduction();
 
@@ -356,16 +356,12 @@ const BillingPage: React.FC<BillingPageProps> = ({ charges, setCharges, allData,
 
             await saveChargesBatch(finalNewCharges, monthlyStat);
 
-            setCharges(prev => {
-                const otherPeriodCharges = prev.filter(c => c.Period !== period);
-                return [...otherPeriodCharges, ...allChargesForPeriod];
-            });
-
-            showToast(`Đã tính xong phí kỳ ${period}. Thống kê đã được cập nhật.`, 'success');
+            // QUAN TRỌNG: Gọi refresh dữ liệu với force=true để xóa Cache RAM và hiện dữ liệu mới
+            refreshData(true);
+            showToast(`Đã tính xong phí kỳ ${period}.`, 'success');
 
         } catch (e: any) {
             showToast(`Lỗi: ${e.message}`, 'error');
-        // Fix: Cleaned up duplicate/broken finally block
         } finally {
             setIsLoading(false);
         }
@@ -453,11 +449,7 @@ const BillingPage: React.FC<BillingPageProps> = ({ charges, setCharges, allData,
 
                 if (updates.size > 0) {
                     await updateChargePayments(period, updates);
-                    setCharges(prev => prev.map(c => 
-                        (c.Period === period && updates.has(c.UnitID)) 
-                        ? { ...c, TotalPaid: updates.get(c.UnitID)!, paymentStatus: 'reconciling', PaymentConfirmed: false } 
-                        : c
-                    ));
+                    refreshData(true);
                     showToast(`Đã đối soát ${updates.size} giao dịch.`, 'success');
                 } else {
                     showToast('Không tìm thấy giao dịch phù hợp.', 'warn');
@@ -549,13 +541,7 @@ const BillingPage: React.FC<BillingPageProps> = ({ charges, setCharges, allData,
                     await batch.commit();
                 }
             }
-            const targetedUnitIds = new Set(targets.map(t => t.UnitID));
-            setCharges(prev => prev.map(c => {
-                if (c.Period === period && targetedUnitIds.has(c.UnitID)) {
-                    return { ...c, isSent: true, sentCount: ((c as ExtendedCharge).sentCount || 0) + 1 };
-                }
-                return c;
-            }));
+            refreshData(true);
             showToast(`Đã gửi thông báo cho ${targets.length} căn hộ.`, 'success');
         } catch (e: any) {
             showToast('Lỗi gửi thông báo: ' + e.message, 'error');
@@ -605,7 +591,7 @@ const BillingPage: React.FC<BillingPageProps> = ({ charges, setCharges, allData,
                 targets.forEach(c => { if (c.Email) batch.update(doc(db, 'charges', `${c.Period}_${c.UnitID}`), { isSent: true }); });
                 await batch.commit();
             }
-            setCharges(prev => prev.map(c => targets.find(t => t.UnitID === c.UnitID) && c.Email ? { ...c, isSent: true } : c));
+            refreshData(true);
             showToast(singleUnitId ? 'Đã gửi email.' : `Đã gửi thành công ${successCount}/${targets.length} email.`, 'success');
         } catch (e: any) {
             showToast('Lỗi gửi email: ' + e.message, 'error');
@@ -640,7 +626,7 @@ const BillingPage: React.FC<BillingPageProps> = ({ charges, setCharges, allData,
             targetIds.forEach(id => batch.delete(doc(db, 'charges', `${period}_${id}`)));
             await batch.commit();
         }
-        setCharges(prev => prev.filter(c => !(c.Period === period && selectedUnits.has(c.UnitID))));
+        refreshData(true);
         setSelectedUnits(new Set());
         showToast('Đã xóa dữ liệu.', 'success');
     };
@@ -659,7 +645,7 @@ const BillingPage: React.FC<BillingPageProps> = ({ charges, setCharges, allData,
                 });
                 await batch.commit();
             }
-            setCharges(prev => prev.map(c => (c.Period === period && selectedUnits.has(c.UnitID)) ? { ...c, paymentStatus: method as PaymentStatus, PaymentConfirmed: method !== 'pending', TotalPaid: method === 'pending' ? 0 : c.TotalDue } : c));
+            refreshData(true);
             showToast('Cập nhật trạng thái thành công.', 'success');
         } finally {
             setIsLoading(false);
@@ -674,13 +660,13 @@ const BillingPage: React.FC<BillingPageProps> = ({ charges, setCharges, allData,
         }
         const amount = editedPayments[charge.UnitID] ?? charge.TotalPaid;
         await confirmSinglePayment(charge, amount, method);
-        setCharges(prev => prev.map(c => c.UnitID === charge.UnitID && c.Period === period ? { ...c, paymentStatus: method, PaymentConfirmed: true, TotalPaid: amount } : c));
+        refreshData(true);
         showToast(`Đã thu ${formatCurrency(amount)} cho căn ${charge.UnitID}`, 'success');
     };
 
     const handleVerifyConfirm = async (charge: ChargeRaw, finalAmount: number) => {
         await confirmSinglePayment(charge, finalAmount, 'paid_ck');
-        setCharges(prev => prev.map(c => c.UnitID === charge.UnitID && c.Period === period ? { ...c, paymentStatus: 'paid_ck', PaymentConfirmed: true, TotalPaid: finalAmount } : c));
+        refreshData(true);
         showToast(`Đã xác thực và thu ${formatCurrency(finalAmount)}`, 'success');
         setVerifyCharge(null);
     };
@@ -769,7 +755,6 @@ const BillingPage: React.FC<BillingPageProps> = ({ charges, setCharges, allData,
 
                                     return (
                                         <tr key={charge.UnitID} className={`hover:bg-gray-50 transition-colors ${selectedUnits.has(charge.UnitID) ? 'bg-blue-50' : ''}`}>
-                                            {/* Fix: Resolved id-used-before-declaration in checkbox toggle logic */}
                                             <td className="px-4 py-3 text-center"><input type="checkbox" checked={selectedUnits.has(charge.UnitID)} onChange={() => setSelectedUnits(p => { const n = new Set(p); const id = charge.UnitID; if(n.has(id)) n.delete(id); else n.add(id); return n; })} className="w-4 h-4 rounded text-primary focus:ring-primary cursor-pointer"/></td>
                                             <td className="px-4 py-3 font-bold text-gray-900">{charge.UnitID}</td>
                                             <td className="px-4 py-3 text-gray-700 flex items-center gap-2">{charge.paymentStatus === 'reconciling' && <div className="w-2 h-2 rounded-full bg-blue-500 animate-pulse" title="Có biên lai cần duyệt"></div>}{charge.OwnerName}</td>
