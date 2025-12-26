@@ -172,9 +172,9 @@ const PortalProfilePage: React.FC<PortalProfilePageProps> = ({ user, owner, onUp
         } catch (error: any) {
             console.error("Profile update error:", error);
             if (error.code === 'permission-denied') {
-                showToast('Lỗi: Bạn không có quyền ghi dữ liệu trực tiếp. Hãy liên hệ BQL.', 'error');
+                showToast('Lỗi quyền ghi Firestore (Permission Denied). Hãy kiểm tra Firestore Rules trên Console.', 'error');
             } else {
-                showToast('Lỗi hệ thống khi gửi yêu cầu.', 'error');
+                showToast(`Lỗi: ${error.message || 'Không thể gửi yêu cầu.'}`, 'error');
             }
         } finally {
             setIsLoading(false);
@@ -214,7 +214,7 @@ const PortalProfilePage: React.FC<PortalProfilePageProps> = ({ user, owner, onUp
                                     onUpdateOwner({ ...owner, avatarUrl: base64 });
                                     showToast('Cập nhật ảnh thành công!', 'success');
                                 } catch {
-                                    showToast('Không có quyền đổi ảnh trực tiếp. Vui lòng gửi qua BQL.', 'error');
+                                    showToast('Không có quyền đổi ảnh trực tiếp. Vui lòng liên hệ BQL.', 'error');
                                 }
                             };
                         }

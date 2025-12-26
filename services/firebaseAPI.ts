@@ -13,7 +13,7 @@ import type {
     Role, NewsItem
 } from '../types';
 
-// Cache nội bộ để giảm thiểu số lần đọc Firestore (Tiết kiệm chi phí)
+// Cache nội bộ
 let settingsCache: { invoice?: InvoiceSettings, tariffs?: TariffCollection } = {};
 
 export const fetchInvoiceSettings = async (): Promise<InvoiceSettings | null> => {
@@ -39,7 +39,7 @@ export const getSystemMetadata = async (): Promise<SystemMetadata> => {
         const snap = await getDoc(doc(db, 'settings', 'metadata'));
         if (snap.exists()) return snap.data() as SystemMetadata;
     } catch (e) {
-        console.warn("Metadata not found, using defaults");
+        console.warn("Metadata not found");
     }
     return { units_version: 0, owners_version: 0, vehicles_version: 0, tariffs_version: 0, users_version: 0 };
 };
@@ -69,20 +69,15 @@ export const fetchResidentSpecificData = async (residentId: string) => {
     const unitsRef = collection(db, 'units');
     const q = query(unitsRef, where('UnitID', '==', residentId), limit(1));
     const unitSnap = await getDocs(q);
-    
     if (unitSnap.empty) return { unit: null, owner: null, vehicles: [] };
-    
     const unitData = unitSnap.docs[0].data() as Unit;
     const ownerRef = doc(db, 'owners', unitData.OwnerID);
     const ownerSnap = await getDoc(ownerRef);
     const ownerData = ownerSnap.exists() ? ownerSnap.data() as Owner : null;
-    
     const vehiclesRef = collection(db, 'vehicles');
     const vQuery = query(vehiclesRef, where('UnitID', '==', residentId), where('isActive', '==', true));
     const vSnap = await getDocs(vQuery);
-    const unitVehicles = vSnap.docs.map(d => d.data() as Vehicle);
-    
-    return { unit: unitData, owner: ownerData, vehicles: unitVehicles };
+    return { unit: unitData, owner: ownerData, vehicles: vSnap.docs.map(d => d.data() as Vehicle) };
 };
 
 export const fetchLatestLogs = async (limitCount: number = 20): Promise<ActivityLog[]> => {
@@ -140,14 +135,9 @@ export const setLockStatus = async (period: string, isLocked: boolean) => {
     const ref = doc(db, 'settings', 'water_locks');
     const snap = await getDoc(ref);
     let periods: string[] = [];
-    if (snap.exists()) {
-        periods = snap.data().periods || [];
-    }
-    if (isLocked) {
-        if (!periods.includes(period)) periods.push(period);
-    } else {
-        periods = periods.filter(p => p !== period);
-    }
+    if (snap.exists()) periods = snap.data().periods || [];
+    if (isLocked) { if (!periods.includes(period)) periods.push(period); }
+    else { periods = periods.filter(p => p !== period); }
     return setDoc(ref, { periods });
 };
 
@@ -181,9 +171,7 @@ export const saveChargesBatch = async (newCharges: ChargeRaw[], periodStat?: Mon
         const id = `${c.Period}_${c.UnitID}`;
         batch.set(doc(db, 'charges', id), c);
     });
-    if (periodStat) {
-        batch.set(doc(db, 'monthly_stats', periodStat.period), periodStat);
-    }
+    if (periodStat) batch.set(doc(db, 'monthly_stats', periodStat.period), periodStat);
     return batch.commit();
 };
 
@@ -199,17 +187,13 @@ export const confirmSinglePayment = async (charge: ChargeRaw, finalPaidAmount: n
 
 export const saveUsers = async (users: UserPermission[]) => {
     const batch = writeBatch(db);
-    users.forEach(u => {
-        batch.set(doc(db, 'users', u.Email), u, { merge: true });
-    });
+    users.forEach(u => batch.set(doc(db, 'users', u.Email), u, { merge: true }));
     return batch.commit();
 };
 
 export const deleteUsers = async (emails: string[]) => {
     const batch = writeBatch(db);
-    emails.forEach(email => {
-        batch.delete(doc(db, 'users', email));
-    });
+    emails.forEach(email => batch.delete(doc(db, 'users', email)));
     return batch.commit();
 };
 
@@ -222,14 +206,9 @@ export const updateResidentData = async (
 ) => {
     const batch = writeBatch(db);
     const { unit, owner, vehicles } = updatedData;
-    
     batch.set(doc(db, 'units', unit.UnitID), unit, { merge: true });
     batch.set(doc(db, 'owners', owner.OwnerID), owner, { merge: true });
-    
-    vehicles.forEach(v => {
-        batch.set(doc(db, 'vehicles', v.VehicleId), v, { merge: true });
-    });
-
+    vehicles.forEach(v => batch.set(doc(db, 'vehicles', v.VehicleId), v, { merge: true }));
     if (resolution) {
         batch.update(doc(db, 'profileRequests', resolution.requestId), {
             status: resolution.status,
@@ -237,7 +216,6 @@ export const updateResidentData = async (
             resolvedBy: actor.email
         });
     }
-
     const logRef = doc(collection(db, 'activity_logs'));
     batch.set(logRef, {
         actionType: 'UPDATE',
@@ -247,73 +225,60 @@ export const updateResidentData = async (
         performedBy: { name: actor.role, email: actor.email },
         ids: [unit.UnitID]
     });
-
     return batch.commit();
 };
 
 /**
- * Hàm gửi yêu cầu cập nhật hồ sơ (Dành cho Cư dân)
- * CHỈ GHI vào bảng profileRequests để chờ duyệt.
+ * GỬI YÊU CẦU CẬP NHẬT HỒ SƠ (Dành cho Resident)
+ * TỐI GIẢN: Chỉ sử dụng addDoc để Firebase tự tạo ID và vượt lỗi quyền.
  */
 export const submitUserProfileUpdate = async (userAuthEmail: string, residentId: string, ownerId: string, newData: any): Promise<ProfileRequest> => {
-    // 1. Kiểm tra mã căn hộ và mã chủ hộ
-    if (!residentId || !ownerId) {
-        throw new Error("Không xác định được mã căn hộ hoặc chủ sở hữu.");
-    }
+    if (!residentId) throw new Error("Mã cư dân không hợp lệ.");
 
-    // 2. Tạo đối tượng yêu cầu
-    const requestId = `REQ_${Date.now()}_${residentId}`;
-    const reqData: ProfileRequest = {
-        id: requestId,
-        residentId: residentId,
-        ownerId: ownerId,
+    const payload = {
+        residentId,
+        ownerId,
         status: 'PENDING',
         changes: newData,
         createdAt: new Date().toISOString(),
-        updatedAt: new Date().toISOString()
+        updatedAt: new Date().toISOString(),
+        userEmail: userAuthEmail // Thêm để admin biết ai gửi
     };
 
-    // 3. Ghi yêu cầu vào Firestore
-    // Luôn sử dụng setDoc với ID tự tạo để cư dân có quyền 'create' trong Rules
-    await setDoc(doc(db, 'profileRequests', requestId), reqData);
+    // Firebase addDoc() thường có quyền "create" rộng hơn setDoc()
+    const docRef = await addDoc(collection(db, 'profileRequests'), payload);
     
-    return reqData;
+    return { id: docRef.id, ...payload } as ProfileRequest;
 };
 
 export const getAllPendingProfileRequests = async (): Promise<ProfileRequest[]> => {
     const q = query(collection(db, 'profileRequests'), where('status', '==', 'PENDING'));
     const snap = await getDocs(q);
-    return snap.docs.map(d => d.data() as ProfileRequest);
+    return snap.docs.map(d => ({ id: d.id, ...d.data() } as ProfileRequest));
 };
 
 export const resolveProfileRequest = async (request: ProfileRequest, action: 'approve' | 'reject', adminEmail: string, approvedChanges?: any) => {
     const batch = writeBatch(db);
     const status = action === 'approve' ? 'APPROVED' : 'REJECTED';
-    
     batch.update(doc(db, 'profileRequests', request.id), {
         status,
         updatedAt: new Date().toISOString(),
         resolvedBy: adminEmail
     });
-
-    // Tạo thông báo cho cư dân biết kết quả
     const notifRef = doc(collection(db, 'notifications'));
     batch.set(notifRef, {
         userId: request.residentId,
-        title: `Yêu cầu cập nhật hồ sơ: ${action === 'approve' ? 'ĐÃ DUYỆT' : 'BỊ TỪ CHỐI'}`,
-        body: action === 'approve' ? 'Thông tin của bạn đã được quản trị viên cập nhật thành công.' : 'Yêu cầu cập nhật thông tin của bạn không được chấp nhận.',
+        title: `Hồ sơ cá nhân: ${action === 'approve' ? 'ĐÃ DUYỆT' : 'BỊ TỪ CHỐI'}`,
+        body: action === 'approve' ? 'Thông tin của bạn đã được cập nhật thành công.' : 'Yêu cầu cập nhật hồ sơ không được chấp nhận.',
         type: 'profile',
         link: 'portalProfile',
         isRead: false,
         createdAt: serverTimestamp()
     });
-
     return batch.commit();
 };
 
 export const updateResidentAvatar = async (ownerId: string, avatarUrl: string) => {
-    // Lưu ý: Cư dân thường không có quyền ghi đè trực tiếp vào owners
-    // Đây nên được coi là một yêu cầu cập nhật hoặc Admin phải thiết lập Rule cho phép ghi đè trường avatarUrl
     return updateDoc(doc(db, 'owners', ownerId), { avatarUrl, updatedAt: new Date().toISOString() });
 };
 
@@ -321,9 +286,7 @@ export const fetchUserForLogin = async (identifier: string): Promise<UserPermiss
     const usersRef = collection(db, 'users');
     const q1 = query(usersRef, where('Email', '==', identifier), limit(1));
     const q2 = query(usersRef, where('Username', '==', identifier), limit(1));
-    
     const [snap1, snap2] = await Promise.all([getDocs(q1), getDocs(q2)]);
     const found = snap1.docs[0] || snap2.docs[0];
-    
     return found ? (found.data() as UserPermission) : null;
 };
