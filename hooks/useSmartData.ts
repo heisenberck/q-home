@@ -11,13 +11,7 @@ import { getPreviousPeriod } from '../utils/helpers';
 
 const CACHE_PREFIX = 'qhome_cache_v5_';
 const META_KEY = 'qhome_meta_version';
-
-const SESSION_PERIOD_CACHE: Record<string, Map<string, any>> = {
-    charges: new Map(),
-    water: new Map(),
-    misc: new Map(),
-    expenses: new Map()
-};
+const FETCH_THROTTLE_MS = 30000; // Không tự động fetch lại nếu chưa đủ 30 giây
 
 export const useSmartSystemData = (currentUser: UserPermission | null) => {
     const [data, setData] = useState<any>({
@@ -30,34 +24,35 @@ export const useSmartSystemData = (currentUser: UserPermission | null) => {
     
     const [loading, setLoading] = useState(true);
     const isFetching = useRef(false);
-    const lastFetchTs = useRef(0);
+    const lastFetchTs = useRef<number>(0);
 
     const refreshSystemData = useCallback(async (force = false) => {
-        if (force) {
-            SESSION_PERIOD_CACHE.charges.clear();
-            SESSION_PERIOD_CACHE.water.clear();
-            SESSION_PERIOD_CACHE.misc.clear();
-            SESSION_PERIOD_CACHE.expenses.clear();
+        const now = Date.now();
+        // CHẶN: Nếu đang fetch hoặc fetch quá nhanh (dưới 30s) mà không phải do nhấn nút ép buộc (force)
+        if (isFetching.current) return;
+        if (!force && (now - lastFetchTs.current < FETCH_THROTTLE_MS)) {
+            console.log("[SmartData] Fetch throttled to save quota...");
+            return;
         }
 
-        if (isFetching.current || !currentUser) return;
+        if (!currentUser) return;
         
         isFetching.current = true;
         setLoading(true);
-        lastFetchTs.current = Date.now();
+        lastFetchTs.current = now;
         
         try {
             const isAdmin = currentUser.Role !== 'Resident';
             const currentPeriod = new Date().toISOString().slice(0, 7);
 
-            // Các bảng dữ liệu công khai hoặc đọc nhẹ
+            // Fetch News và Settings trước (nhẹ, ít tốn quota)
             const [fetchedNews, invoiceSettings] = await Promise.all([
                 api.fetchNews().catch(() => []),
                 api.fetchInvoiceSettings().catch(() => null)
             ]);
 
             if (!isAdmin) {
-                // LUỒNG CƯ DÂN: Chỉ fetch những gì cư dân được phép xem
+                // LUỒNG CƯ DÂN: Chỉ fetch 1 lần khi vào trang
                 if (currentUser.residentId) {
                     const [specific, charges] = await Promise.all([
                         api.fetchResidentSpecificData(currentUser.residentId).catch(() => ({ unit: null, owner: null, vehicles: [] })),
@@ -78,12 +73,13 @@ export const useSmartSystemData = (currentUser: UserPermission | null) => {
                     setData((prev: any) => ({ ...prev, news: fetchedNews, invoiceSettings, hasLoaded: true }));
                 }
             } else {
-                // LUỒNG ADMIN: Fetch toàn bộ bảng nghiệp vụ có kiểm tra Cache
+                // LUỒNG ADMIN: Kiểm tra Metadata Version trước khi fetch bảng lớn
                 const serverMeta = await api.getSystemMetadata().catch(() => ({ units_version: 0, owners_version: 0, vehicles_version: 0, tariffs_version: 0, users_version: 0 }));
                 const localMeta = (await get(CACHE_PREFIX + META_KEY)) as SystemMetadata || { units_version: 0, owners_version: 0, vehicles_version: 0, tariffs_version: 0, users_version: 0 };
 
                 const fetchOrCache = async (key: string, versionKey: keyof SystemMetadata, apiCall: () => Promise<any>) => {
                     const cached = await get(CACHE_PREFIX + key);
+                    // Chỉ fetch khi Metadata trên server mới hơn Metadata local
                     if (force || !cached || serverMeta[versionKey] > localMeta[versionKey]) {
                         const fresh = await apiCall();
                         await set(CACHE_PREFIX + key, fresh);
@@ -124,17 +120,18 @@ export const useSmartSystemData = (currentUser: UserPermission | null) => {
             }
         } catch (err) {
             console.error("Smart Sync Error:", err);
-            // Vẫn set loaded để không bị kẹt màn hình quay quay
             setData((prev: any) => ({ ...prev, hasLoaded: true }));
         } finally {
             setLoading(false);
             isFetching.current = false;
         }
-    }, [currentUser]);
+    }, [currentUser?.Email]); // CHỈ re-fetch khi User thay đổi (Logout/Login)
 
     useEffect(() => {
-        if (currentUser) refreshSystemData();
-    }, [currentUser?.residentId, refreshSystemData]);
+        if (currentUser) {
+            refreshSystemData();
+        }
+    }, [currentUser?.Email, refreshSystemData]);
 
     return { ...data, loading, refreshSystemData };
 };
