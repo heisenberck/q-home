@@ -264,6 +264,11 @@ export const deleteUsers = async (emails: string[]) => {
     return batch.commit();
 };
 
+export const updateUserProfile = async (email: string, updates: Partial<UserPermission>) => {
+    // Đảm bảo document ID chính xác là email và dùng setDoc với merge: true
+    return setDoc(doc(db, 'users', email), updates, { merge: true });
+};
+
 export const updateResidentData = async (
     _u: any, _o: any, _v: any,
     updatedData: { unit: Unit; owner: Owner; vehicles: Vehicle[] },
