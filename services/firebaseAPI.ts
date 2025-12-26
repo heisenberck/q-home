@@ -13,7 +13,7 @@ import type {
     Role, NewsItem
 } from '../types';
 
-// Tăng tốc độ đọc bằng cách sử dụng bộ nhớ đệm nội bộ cho các cấu hình ít thay đổi
+// Cache nội bộ để giảm thiểu số lần đọc Firestore (Tiết kiệm chi phí)
 let settingsCache: { invoice?: InvoiceSettings, tariffs?: TariffCollection } = {};
 
 export const fetchInvoiceSettings = async (): Promise<InvoiceSettings | null> => {
@@ -73,7 +73,6 @@ export const fetchResidentSpecificData = async (residentId: string) => {
     if (unitSnap.empty) return { unit: null, owner: null, vehicles: [] };
     
     const unitData = unitSnap.docs[0].data() as Unit;
-    
     const ownerRef = doc(db, 'owners', unitData.OwnerID);
     const ownerSnap = await getDoc(ownerRef);
     const ownerData = ownerSnap.exists() ? ownerSnap.data() as Owner : null;
@@ -253,48 +252,31 @@ export const updateResidentData = async (
 };
 
 /**
- * Cập nhật Profile Request một cách an toàn
+ * Hàm gửi yêu cầu cập nhật hồ sơ (Dành cho Cư dân)
+ * CHỈ GHI vào bảng profileRequests để chờ duyệt.
  */
 export const submitUserProfileUpdate = async (userAuthEmail: string, residentId: string, ownerId: string, newData: any): Promise<ProfileRequest> => {
-    if (!residentId || !ownerId) throw new Error("Mã cư dân hoặc mã chủ hộ không hợp lệ.");
+    // 1. Kiểm tra mã căn hộ và mã chủ hộ
+    if (!residentId || !ownerId) {
+        throw new Error("Không xác định được mã căn hộ hoặc chủ sở hữu.");
+    }
 
-    // Tạo Reference trước để lấy ID duy nhất
-    const reqRef = doc(collection(db, 'profileRequests'));
-    const requestId = reqRef.id;
-
-    // Loại bỏ các trường undefined để tránh lỗi Firestore
-    const sanitizedChanges = Object.fromEntries(
-        Object.entries(newData).filter(([_, v]) => v !== undefined)
-    );
-
+    // 2. Tạo đối tượng yêu cầu
+    const requestId = `REQ_${Date.now()}_${residentId}`;
     const reqData: ProfileRequest = {
         id: requestId,
-        residentId,
-        ownerId,
+        residentId: residentId,
+        ownerId: ownerId,
         status: 'PENDING',
-        changes: sanitizedChanges,
+        changes: newData,
         createdAt: new Date().toISOString(),
         updatedAt: new Date().toISOString()
     };
 
-    // Ghi yêu cầu cập nhật hồ sơ
-    await setDoc(reqRef, reqData);
+    // 3. Ghi yêu cầu vào Firestore
+    // Luôn sử dụng setDoc với ID tự tạo để cư dân có quyền 'create' trong Rules
+    await setDoc(doc(db, 'profileRequests', requestId), reqData);
     
-    // Gửi thông báo cho Admin (Thực hiện trong try/catch riêng để không làm treo việc lưu hồ sơ nếu lỗi quyền)
-    try {
-        await addDoc(collection(db, 'admin_notifications'), {
-            type: 'request',
-            title: `Cập nhật hồ sơ - Căn ${residentId}`,
-            message: `${userAuthEmail} yêu cầu thay đổi thông tin cá nhân.`,
-            isRead: false,
-            createdAt: serverTimestamp(),
-            linkTo: 'residents'
-        });
-    } catch (notifError) {
-        console.warn("Lỗi gửi thông báo cho Admin (Có thể do quyền Firestore):", notifError);
-        // Không throw lỗi ở đây để cư dân vẫn thấy thông báo đã gửi hồ sơ thành công
-    }
-
     return reqData;
 };
 
@@ -314,11 +296,12 @@ export const resolveProfileRequest = async (request: ProfileRequest, action: 'ap
         resolvedBy: adminEmail
     });
 
+    // Tạo thông báo cho cư dân biết kết quả
     const notifRef = doc(collection(db, 'notifications'));
     batch.set(notifRef, {
         userId: request.residentId,
-        title: `Hồ sơ cá nhân: ${action === 'approve' ? 'ĐÃ DUYỆT' : 'BỊ TỪ CHỐI'}`,
-        body: action === 'approve' ? 'Thông tin của bạn đã được cập nhật thành công.' : 'Yêu cầu cập nhật hồ sơ không được chấp nhận.',
+        title: `Yêu cầu cập nhật hồ sơ: ${action === 'approve' ? 'ĐÃ DUYỆT' : 'BỊ TỪ CHỐI'}`,
+        body: action === 'approve' ? 'Thông tin của bạn đã được quản trị viên cập nhật thành công.' : 'Yêu cầu cập nhật thông tin của bạn không được chấp nhận.',
         type: 'profile',
         link: 'portalProfile',
         isRead: false,
@@ -329,6 +312,8 @@ export const resolveProfileRequest = async (request: ProfileRequest, action: 'ap
 };
 
 export const updateResidentAvatar = async (ownerId: string, avatarUrl: string) => {
+    // Lưu ý: Cư dân thường không có quyền ghi đè trực tiếp vào owners
+    // Đây nên được coi là một yêu cầu cập nhật hoặc Admin phải thiết lập Rule cho phép ghi đè trường avatarUrl
     return updateDoc(doc(db, 'owners', ownerId), { avatarUrl, updatedAt: new Date().toISOString() });
 };
 
