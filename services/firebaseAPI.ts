@@ -13,25 +13,34 @@ import type {
     Role, NewsItem
 } from '../types';
 
-// Tăng tốc độ đọc bằng cách sử dụng bộ nhớ đệm nội bộ cho các cấu hình ít thay đổi
+// Tăng tốc độ đọc bằng cách sử dụng bộ nhớ đệm nội bộ
 let settingsCache: { invoice?: InvoiceSettings, tariffs?: TariffCollection } = {};
 
 export const fetchInvoiceSettings = async (): Promise<InvoiceSettings | null> => {
     if (settingsCache.invoice) return settingsCache.invoice;
-    const snap = await getDoc(doc(db, 'settings', 'invoice'));
-    if (snap.exists()) {
-        settingsCache.invoice = snap.data() as InvoiceSettings;
-        return settingsCache.invoice;
+    try {
+        const snap = await getDoc(doc(db, 'settings', 'invoice'));
+        if (snap.exists()) {
+            settingsCache.invoice = snap.data() as InvoiceSettings;
+            return settingsCache.invoice;
+        }
+    } catch (e) {
+        console.warn("Permission denied for invoice settings");
     }
     return null;
 };
 
 export const fetchTariffsData = async (): Promise<TariffCollection> => {
     if (settingsCache.tariffs) return settingsCache.tariffs;
-    const snap = await getDoc(doc(db, 'settings', 'tariffs'));
-    const data = snap.exists() ? snap.data() as TariffCollection : { service: [], parking: [], water: [] };
-    settingsCache.tariffs = data;
-    return data;
+    try {
+        const snap = await getDoc(doc(db, 'settings', 'tariffs'));
+        const data = snap.exists() ? snap.data() as TariffCollection : { service: [], parking: [], water: [] };
+        settingsCache.tariffs = data;
+        return data;
+    } catch (e) {
+        console.warn("Permission denied for tariffs");
+        return { service: [], parking: [], water: [] };
+    }
 };
 
 export const getSystemMetadata = async (): Promise<SystemMetadata> => {
@@ -39,98 +48,134 @@ export const getSystemMetadata = async (): Promise<SystemMetadata> => {
         const snap = await getDoc(doc(db, 'settings', 'metadata'));
         if (snap.exists()) return snap.data() as SystemMetadata;
     } catch (e) {
-        console.warn("Metadata not found, using defaults");
+        console.warn("Metadata not found or denied");
     }
     return { units_version: 0, owners_version: 0, vehicles_version: 0, tariffs_version: 0, users_version: 0 };
 };
 
 export const fetchActiveCharges = async (periods: string[]): Promise<ChargeRaw[]> => {
     if (periods.length === 0) return [];
-    const chargesRef = collection(db, 'charges');
-    // Chỉ lấy các kỳ đang yêu cầu hoặc các kỳ nợ đọng
-    const q = query(
-        chargesRef, 
-        or(
-            where('Period', 'in', periods), 
-            where('paymentStatus', 'in', ['unpaid', 'reconciling', 'pending'])
-        ),
-        limit(500) 
-    );
-    const snap = await getDocs(q);
-    return snap.docs.map(d => d.data() as ChargeRaw);
+    try {
+        const chargesRef = collection(db, 'charges');
+        const q = query(
+            chargesRef, 
+            or(
+                where('Period', 'in', periods), 
+                where('paymentStatus', 'in', ['unpaid', 'reconciling', 'pending'])
+            ),
+            limit(500) 
+        );
+        const snap = await getDocs(q);
+        return snap.docs.map(d => d.data() as ChargeRaw);
+    } catch (e) {
+        console.warn("Failed to fetch active charges");
+        return [];
+    }
 };
 
 export const fetchChargesForResident = async (residentId: string): Promise<ChargeRaw[]> => {
-    const q = query(collection(db, 'charges'), where('UnitID', '==', residentId), orderBy('Period', 'desc'), limit(12));
-    const snap = await getDocs(q);
-    return snap.docs.map(d => d.data() as ChargeRaw);
+    try {
+        const q = query(collection(db, 'charges'), where('UnitID', '==', residentId), orderBy('Period', 'desc'), limit(12));
+        const snap = await getDocs(q);
+        return snap.docs.map(d => d.data() as ChargeRaw);
+    } catch (e) {
+        console.warn("Failed to fetch resident charges");
+        return [];
+    }
 };
 
 export const fetchResidentSpecificData = async (residentId: string) => {
-    const unitsRef = collection(db, 'units');
-    const q = query(unitsRef, where('UnitID', '==', residentId), limit(1));
-    const unitSnap = await getDocs(q);
-    
-    if (unitSnap.empty) return { unit: null, owner: null, vehicles: [] };
-    
-    const unitData = unitSnap.docs[0].data() as Unit;
-    
-    const ownerRef = doc(db, 'owners', unitData.OwnerID);
-    const ownerSnap = await getDoc(ownerRef);
-    const ownerData = ownerSnap.exists() ? ownerSnap.data() as Owner : null;
-    
-    const vehiclesRef = collection(db, 'vehicles');
-    const vQuery = query(vehiclesRef, where('UnitID', '==', residentId), where('isActive', '==', true));
-    const vSnap = await getDocs(vQuery);
-    const unitVehicles = vSnap.docs.map(d => d.data() as Vehicle);
-    
-    return { unit: unitData, owner: ownerData, vehicles: unitVehicles };
+    try {
+        const unitsRef = collection(db, 'units');
+        const q = query(unitsRef, where('UnitID', '==', residentId), limit(1));
+        const unitSnap = await getDocs(q);
+        
+        if (unitSnap.empty) return { unit: null, owner: null, vehicles: [] };
+        
+        const unitData = unitSnap.docs[0].data() as Unit;
+        
+        const ownerRef = doc(db, 'owners', unitData.OwnerID);
+        const ownerSnap = await getDoc(ownerRef);
+        const ownerData = ownerSnap.exists() ? ownerSnap.data() as Owner : null;
+        
+        const vehiclesRef = collection(db, 'vehicles');
+        const vQuery = query(vehiclesRef, where('UnitID', '==', residentId), where('isActive', '==', true));
+        const vSnap = await getDocs(vQuery);
+        const unitVehicles = vSnap.docs.map(d => d.data() as Vehicle);
+        
+        return { unit: unitData, owner: ownerData, vehicles: unitVehicles };
+    } catch (e) {
+        console.warn("Error fetching resident specific data");
+        return { unit: null, owner: null, vehicles: [] };
+    }
 };
 
 export const fetchLatestLogs = async (limitCount: number = 20): Promise<ActivityLog[]> => {
-    const q = query(collection(db, 'activity_logs'), orderBy('timestamp', 'desc'), limit(limitCount));
-    const snap = await getDocs(q);
-    return snap.docs.map(d => {
-        const data = d.data();
-        return { 
-            id: d.id, 
-            ts: data.timestamp instanceof Timestamp ? data.timestamp.toDate().toISOString() : new Date().toISOString(), 
-            actor_email: data.performedBy?.email || 'system', 
-            summary: data.description || '', 
-            module: data.module || 'System', 
-            action: data.actionType || 'UPDATE' 
-        } as any;
-    });
+    try {
+        const q = query(collection(db, 'activity_logs'), orderBy('timestamp', 'desc'), limit(limitCount));
+        const snap = await getDocs(q);
+        return snap.docs.map(d => {
+            const data = d.data();
+            return { 
+                id: d.id, 
+                ts: data.timestamp instanceof Timestamp ? data.timestamp.toDate().toISOString() : new Date().toISOString(), 
+                actor_email: data.performedBy?.email || 'system', 
+                summary: data.description || '', 
+                module: data.module || 'System', 
+                action: data.actionType || 'UPDATE' 
+            } as any;
+        });
+    } catch (e) {
+        return [];
+    }
 };
 
 export const fetchNews = async (): Promise<NewsItem[]> => {
-    const q = query(collection(db, 'news'), where('isArchived', '==', false), orderBy('date', 'desc'), limit(15));
-    const snap = await getDocs(q);
-    return snap.docs.map(d => ({ id: d.id, ...d.data() } as NewsItem));
+    try {
+        const q = query(collection(db, 'news'), where('isArchived', '==', false), orderBy('date', 'desc'), limit(15));
+        const snap = await getDocs(q);
+        return snap.docs.map(d => ({ id: d.id, ...d.data() } as NewsItem));
+    } catch (e) {
+        return [];
+    }
 };
 
 export const fetchRecentWaterReadings = async (periods: string[]): Promise<WaterReading[]> => {
     if (periods.length === 0) return [];
-    const q = query(collection(db, 'waterReadings'), where('Period', 'in', periods), limit(1000));
-    const snap = await getDocs(q);
-    return snap.docs.map(d => d.data() as WaterReading);
+    try {
+        const q = query(collection(db, 'waterReadings'), where('Period', 'in', periods), limit(1000));
+        const snap = await getDocs(q);
+        return snap.docs.map(d => d.data() as WaterReading);
+    } catch (e) {
+        return [];
+    }
 };
 
 export const fetchWaterLocks = async (): Promise<string[]> => {
-    const snap = await getDoc(doc(db, 'settings', 'water_locks'));
-    if (snap.exists()) return snap.data().periods || [];
+    try {
+        const snap = await getDoc(doc(db, 'settings', 'water_locks'));
+        if (snap.exists()) return snap.data().periods || [];
+    } catch (e) {}
     return [];
 };
 
 export const fetchRecentAdjustments = async (startPeriod: string): Promise<Adjustment[]> => {
-    const q = query(collection(db, 'adjustments'), where('Period', '>=', startPeriod), limit(500));
-    const snap = await getDocs(q);
-    return snap.docs.map(d => d.data() as Adjustment);
+    try {
+        const q = query(collection(db, 'adjustments'), where('Period', '>=', startPeriod), limit(500));
+        const snap = await getDocs(q);
+        return snap.docs.map(d => d.data() as Adjustment);
+    } catch (e) {
+        return [];
+    }
 };
 
 export const fetchCollection = async <T>(colName: string): Promise<T[]> => {
-    const snap = await getDocs(query(collection(db, colName), limit(1500)));
-    return snap.docs.map(d => d.data() as T);
+    try {
+        const snap = await getDocs(query(collection(db, colName), limit(1500)));
+        return snap.docs.map(d => d.data() as T);
+    } catch (e) {
+        return [];
+    }
 };
 
 export const updateFeeSettings = async (settings: InvoiceSettings) => {
@@ -154,8 +199,12 @@ export const setLockStatus = async (period: string, isLocked: boolean) => {
 };
 
 export const getBillingLockStatus = async (period: string): Promise<boolean> => {
-    const snap = await getDoc(doc(db, 'billing_locks', period));
-    return snap.exists() ? snap.data().isLocked : false;
+    try {
+        const snap = await getDoc(doc(db, 'billing_locks', period));
+        return snap.exists() ? snap.data().isLocked : false;
+    } catch (e) {
+        return false;
+    }
 };
 
 export const setBillingLockStatus = async (period: string, isLocked: boolean) => {
@@ -266,23 +315,17 @@ export const submitUserProfileUpdate = async (userAuthEmail: string, residentId:
     const result = { ...req, id: ref.id };
     await updateDoc(ref, { id: ref.id });
     
-    // Notify admin
-    await addDoc(collection(db, 'admin_notifications'), {
-        type: 'request',
-        title: `Cập nhật hồ sơ - Căn ${residentId}`,
-        message: `${userAuthEmail} yêu cầu thay đổi thông tin cá nhân.`,
-        isRead: false,
-        createdAt: serverTimestamp(),
-        linkTo: 'residents'
-    });
-
     return result as ProfileRequest;
 };
 
 export const getAllPendingProfileRequests = async (): Promise<ProfileRequest[]> => {
-    const q = query(collection(db, 'profileRequests'), where('status', '==', 'PENDING'));
-    const snap = await getDocs(q);
-    return snap.docs.map(d => d.data() as ProfileRequest);
+    try {
+        const q = query(collection(db, 'profileRequests'), where('status', '==', 'PENDING'));
+        const snap = await getDocs(q);
+        return snap.docs.map(d => ({ id: d.id, ...d.data() } as ProfileRequest));
+    } catch (e) {
+        return [];
+    }
 };
 
 export const resolveProfileRequest = async (request: ProfileRequest, action: 'approve' | 'reject', adminEmail: string, approvedChanges?: any) => {
@@ -294,11 +337,6 @@ export const resolveProfileRequest = async (request: ProfileRequest, action: 'ap
         updatedAt: new Date().toISOString(),
         resolvedBy: adminEmail
     });
-
-    if (action === 'approve' && approvedChanges) {
-        // Apply changes to owner/unit
-        // Logic for applying partial changes is complex, simplified for brevity
-    }
 
     const notifRef = doc(collection(db, 'notifications'));
     batch.set(notifRef, {
@@ -319,12 +357,16 @@ export const updateResidentAvatar = async (ownerId: string, avatarUrl: string) =
 };
 
 export const fetchUserForLogin = async (identifier: string): Promise<UserPermission | null> => {
-    const usersRef = collection(db, 'users');
-    const q1 = query(usersRef, where('Email', '==', identifier), limit(1));
-    const q2 = query(usersRef, where('Username', '==', identifier), limit(1));
-    
-    const [snap1, snap2] = await Promise.all([getDocs(q1), getDocs(q2)]);
-    const found = snap1.docs[0] || snap2.docs[0];
-    
-    return found ? (found.data() as UserPermission) : null;
+    try {
+        const usersRef = collection(db, 'users');
+        const q1 = query(usersRef, where('Email', '==', identifier), limit(1));
+        const q2 = query(usersRef, where('Username', '==', identifier), limit(1));
+        
+        const [snap1, snap2] = await Promise.all([getDocs(q1), getDocs(q2)]);
+        const found = snap1.docs[0] || snap2.docs[0];
+        
+        return found ? (found.data() as UserPermission) : null;
+    } catch (e) {
+        return null;
+    }
 };

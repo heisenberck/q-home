@@ -12,7 +12,6 @@ import { getPreviousPeriod } from '../utils/helpers';
 const CACHE_PREFIX = 'qhome_cache_v5_';
 const META_KEY = 'qhome_meta_version';
 
-// Cache ngoài component để tồn tại qua các lần re-render
 const SESSION_PERIOD_CACHE: Record<string, Map<string, any>> = {
     charges: new Map(),
     water: new Map(),
@@ -34,7 +33,6 @@ export const useSmartSystemData = (currentUser: UserPermission | null) => {
     const lastFetchTs = useRef(0);
 
     const refreshSystemData = useCallback(async (force = false) => {
-        // Nếu force = true, xóa bỏ cache RAM cũ để lấy dữ liệu mới nhất (Ví dụ sau khi Tính Phí)
         if (force) {
             SESSION_PERIOD_CACHE.charges.clear();
             SESSION_PERIOD_CACHE.water.clear();
@@ -42,88 +40,74 @@ export const useSmartSystemData = (currentUser: UserPermission | null) => {
             SESSION_PERIOD_CACHE.expenses.clear();
         }
 
-        if (isFetching.current || (!force && Date.now() - lastFetchTs.current < 2000)) return;
+        if (isFetching.current || !currentUser) return;
         
         isFetching.current = true;
         setLoading(true);
         lastFetchTs.current = Date.now();
         
         try {
-            const isAdmin = currentUser && currentUser.Role !== 'Resident';
+            const isAdmin = currentUser.Role !== 'Resident';
             const currentPeriod = new Date().toISOString().slice(0, 7);
 
-            const serverMeta = await api.getSystemMetadata();
-            const localMeta = (await get(CACHE_PREFIX + META_KEY)) as SystemMetadata || { units_version: 0, owners_version: 0, vehicles_version: 0, tariffs_version: 0, users_version: 0 };
-
-            const fetchOrCache = async (key: string, versionKey: keyof SystemMetadata, apiCall: () => Promise<any>) => {
-                const cached = await get(CACHE_PREFIX + key);
-                if (force || !cached || serverMeta[versionKey] > localMeta[versionKey]) {
-                    const fresh = await apiCall();
-                    await set(CACHE_PREFIX + key, fresh);
-                    return fresh;
-                }
-                return cached;
-            };
-
-            const [fetchedUsers, fetchedNews, invoiceSettings] = await Promise.all([
-                fetchOrCache('users', 'users_version', () => api.fetchCollection('users')),
-                api.fetchNews(),
-                api.fetchInvoiceSettings()
+            // Các bảng dữ liệu công khai hoặc đọc nhẹ
+            const [fetchedNews, invoiceSettings] = await Promise.all([
+                api.fetchNews().catch(() => []),
+                api.fetchInvoiceSettings().catch(() => null)
             ]);
 
             if (!isAdmin) {
-                if (currentUser?.residentId) {
-                    const specific = await api.fetchResidentSpecificData(currentUser.residentId);
-                    const charges = await api.fetchChargesForResident(currentUser.residentId);
+                // LUỒNG CƯ DÂN: Chỉ fetch những gì cư dân được phép xem
+                if (currentUser.residentId) {
+                    const [specific, charges] = await Promise.all([
+                        api.fetchResidentSpecificData(currentUser.residentId).catch(() => ({ unit: null, owner: null, vehicles: [] })),
+                        api.fetchChargesForResident(currentUser.residentId).catch(() => [])
+                    ]);
 
-                    setData({
+                    setData((prev: any) => ({
+                        ...prev,
                         units: specific.unit ? [specific.unit] : [],
                         owners: specific.owner ? [specific.owner] : [],
                         vehicles: (specific.vehicles || []).filter((v:any) => v.isActive),
                         charges: charges,
                         news: fetchedNews || [],
-                        users: fetchedUsers || [],
                         invoiceSettings,
-                        tariffs: { service: [], parking: [], water: [] },
-                        waterReadings: [], adjustments: [], monthlyStats: [], lockedWaterPeriods: [],
-                        miscRevenues: [], expenses: [], hasLoaded: true
-                    });
+                        hasLoaded: true
+                    }));
+                } else {
+                    setData((prev: any) => ({ ...prev, news: fetchedNews, invoiceSettings, hasLoaded: true }));
                 }
             } else {
-                const [units, owners, vehicles, tariffsData] = await Promise.all([
+                // LUỒNG ADMIN: Fetch toàn bộ bảng nghiệp vụ có kiểm tra Cache
+                const serverMeta = await api.getSystemMetadata().catch(() => ({ units_version: 0, owners_version: 0, vehicles_version: 0, tariffs_version: 0, users_version: 0 }));
+                const localMeta = (await get(CACHE_PREFIX + META_KEY)) as SystemMetadata || { units_version: 0, owners_version: 0, vehicles_version: 0, tariffs_version: 0, users_version: 0 };
+
+                const fetchOrCache = async (key: string, versionKey: keyof SystemMetadata, apiCall: () => Promise<any>) => {
+                    const cached = await get(CACHE_PREFIX + key);
+                    if (force || !cached || serverMeta[versionKey] > localMeta[versionKey]) {
+                        const fresh = await apiCall();
+                        await set(CACHE_PREFIX + key, fresh);
+                        return fresh;
+                    }
+                    return cached;
+                };
+
+                const [units, owners, vehicles, tariffsData, fetchedUsers] = await Promise.all([
                     fetchOrCache('units', 'units_version', () => api.fetchCollection('units')),
                     fetchOrCache('owners', 'owners_version', () => api.fetchCollection('owners')),
                     fetchOrCache('vehicles', 'vehicles_version', () => api.fetchCollection('vehicles')),
                     fetchOrCache('tariffs', 'tariffs_version', () => api.fetchTariffsData()),
+                    fetchOrCache('users', 'users_version', () => api.fetchCollection('users'))
                 ]);
 
-                const p1 = currentPeriod;
-                const p2 = getPreviousPeriod(p1);
-                const p3 = getPreviousPeriod(p2);
-                const periodsToFetch = [p1, p2, p3];
-
-                const cacheKey = periodsToFetch.join('_');
-                let charges, water;
-
-                // Nếu không force, ưu tiên lấy từ RAM
-                if (!force && SESSION_PERIOD_CACHE.charges.has(cacheKey)) {
-                    charges = SESSION_PERIOD_CACHE.charges.get(cacheKey);
-                    water = SESSION_PERIOD_CACHE.water.get(cacheKey);
-                } else {
-                    [charges, water] = await Promise.all([
-                        api.fetchActiveCharges(periodsToFetch),
-                        api.fetchRecentWaterReadings(periodsToFetch)
-                    ]);
-                    SESSION_PERIOD_CACHE.charges.set(cacheKey, charges);
-                    SESSION_PERIOD_CACHE.water.set(cacheKey, water);
-                }
-
-                const [stats, locks, recentAdjustments, misc, exps] = await Promise.all([
-                    api.fetchCollection('monthly_stats'),
-                    api.fetchWaterLocks(),
-                    api.fetchRecentAdjustments(currentPeriod),
-                    api.getMonthlyMiscRevenues(currentPeriod),
-                    api.fetchCollection('operational_expenses')
+                const periodsToFetch = [currentPeriod, getPreviousPeriod(currentPeriod)];
+                const [charges, water, stats, locks, misc, exps] = await Promise.all([
+                    api.fetchActiveCharges(periodsToFetch).catch(() => []),
+                    api.fetchRecentWaterReadings(periodsToFetch).catch(() => []),
+                    api.fetchCollection('monthly_stats').catch(() => []),
+                    api.fetchWaterLocks().catch(() => []),
+                    api.getMonthlyMiscRevenues(currentPeriod).catch(() => []),
+                    api.fetchCollection('operational_expenses').catch(() => [])
                 ]);
 
                 setData({
@@ -131,15 +115,17 @@ export const useSmartSystemData = (currentUser: UserPermission | null) => {
                     tariffs: tariffsData || { service: [], parking: [], water: [] },
                     users: fetchedUsers || [], news: fetchedNews || [],
                     invoiceSettings, monthlyStats: stats || [], lockedWaterPeriods: locks || [],
-                    adjustments: recentAdjustments || [], charges: charges || [],
-                    waterReadings: water || [], miscRevenues: misc || [],
-                    expenses: exps || [], hasLoaded: true
+                    charges: charges || [], waterReadings: water || [],
+                    miscRevenues: misc || [], expenses: exps || [],
+                    hasLoaded: true
                 });
 
                 await set(CACHE_PREFIX + META_KEY, serverMeta);
             }
         } catch (err) {
             console.error("Smart Sync Error:", err);
+            // Vẫn set loaded để không bị kẹt màn hình quay quay
+            setData((prev: any) => ({ ...prev, hasLoaded: true }));
         } finally {
             setLoading(false);
             isFetching.current = false;
