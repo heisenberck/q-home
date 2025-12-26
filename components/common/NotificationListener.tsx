@@ -19,6 +19,8 @@ const NotificationListener: React.FC<NotificationListenerProps> = memo(({ userId
     const IS_PROD = isProduction();
 
     useEffect(() => {
+        // Chỉ Resident mới cần lắng nghe real-time notifications cá nhân
+        // Admin đã có NotificationBell riêng
         if (!userId || !IS_PROD || user?.Role !== 'Resident' || lastSubId.current === userId) return;
 
         lastSubId.current = userId;
@@ -52,12 +54,7 @@ const NotificationListener: React.FC<NotificationListenerProps> = memo(({ userId
                 }
             });
         }, (error) => {
-            // Xử lý lỗi quyền một cách êm đẹp
-            if (error.code === 'permission-denied') {
-                console.warn("[NotificationListener] Resident does not have permission to query notifications. Check Firestore Rules index requirements.");
-            } else {
-                console.error("[NotificationListener] Error:", error);
-            }
+            console.error("Quota/Listener Error:", error);
         });
 
         return () => {
