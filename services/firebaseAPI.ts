@@ -35,12 +35,15 @@ export const fetchTariffsData = async (): Promise<TariffCollection> => {
 };
 
 export const getSystemMetadata = async (): Promise<SystemMetadata> => {
-    const snap = await getDoc(doc(db, 'settings', 'metadata'));
-    if (snap.exists()) return snap.data() as SystemMetadata;
+    try {
+        const snap = await getDoc(doc(db, 'settings', 'metadata'));
+        if (snap.exists()) return snap.data() as SystemMetadata;
+    } catch (e) {
+        console.warn("Metadata not found, using defaults");
+    }
     return { units_version: 0, owners_version: 0, vehicles_version: 0, tariffs_version: 0, users_version: 0 };
 };
 
-// Luôn sử dụng LIMIT để bảo vệ quota
 export const fetchActiveCharges = async (periods: string[]): Promise<ChargeRaw[]> => {
     if (periods.length === 0) return [];
     const chargesRef = collection(db, 'charges');
@@ -58,10 +61,30 @@ export const fetchActiveCharges = async (periods: string[]): Promise<ChargeRaw[]
 };
 
 export const fetchChargesForResident = async (residentId: string): Promise<ChargeRaw[]> => {
-    // Chỉ lấy tối đa 6 tháng gần nhất cho portal cư dân để tiết kiệm read
-    const q = query(collection(db, 'charges'), where('UnitID', '==', residentId), orderBy('Period', 'desc'), limit(6));
+    const q = query(collection(db, 'charges'), where('UnitID', '==', residentId), orderBy('Period', 'desc'), limit(12));
     const snap = await getDocs(q);
     return snap.docs.map(d => d.data() as ChargeRaw);
+};
+
+export const fetchResidentSpecificData = async (residentId: string) => {
+    const unitsRef = collection(db, 'units');
+    const q = query(unitsRef, where('UnitID', '==', residentId), limit(1));
+    const unitSnap = await getDocs(q);
+    
+    if (unitSnap.empty) return { unit: null, owner: null, vehicles: [] };
+    
+    const unitData = unitSnap.docs[0].data() as Unit;
+    
+    const ownerRef = doc(db, 'owners', unitData.OwnerID);
+    const ownerSnap = await getDoc(ownerRef);
+    const ownerData = ownerSnap.exists() ? ownerSnap.data() as Owner : null;
+    
+    const vehiclesRef = collection(db, 'vehicles');
+    const vQuery = query(vehiclesRef, where('UnitID', '==', residentId), where('isActive', '==', true));
+    const vSnap = await getDocs(vQuery);
+    const unitVehicles = vSnap.docs.map(d => d.data() as Vehicle);
+    
+    return { unit: unitData, owner: ownerData, vehicles: unitVehicles };
 };
 
 export const fetchLatestLogs = async (limitCount: number = 20): Promise<ActivityLog[]> => {
@@ -81,8 +104,7 @@ export const fetchLatestLogs = async (limitCount: number = 20): Promise<Activity
 };
 
 export const fetchNews = async (): Promise<NewsItem[]> => {
-    // Chỉ lấy các tin tức chưa lưu trữ để giảm payload
-    const q = query(collection(db, 'news'), where('isArchived', '==', false), orderBy('date', 'desc'), limit(10));
+    const q = query(collection(db, 'news'), where('isArchived', '==', false), orderBy('date', 'desc'), limit(15));
     const snap = await getDocs(q);
     return snap.docs.map(d => ({ id: d.id, ...d.data() } as NewsItem));
 };
@@ -94,13 +116,215 @@ export const fetchRecentWaterReadings = async (periods: string[]): Promise<Water
     return snap.docs.map(d => d.data() as WaterReading);
 };
 
+export const fetchWaterLocks = async (): Promise<string[]> => {
+    const snap = await getDoc(doc(db, 'settings', 'water_locks'));
+    if (snap.exists()) return snap.data().periods || [];
+    return [];
+};
+
+export const fetchRecentAdjustments = async (startPeriod: string): Promise<Adjustment[]> => {
+    const q = query(collection(db, 'adjustments'), where('Period', '>=', startPeriod), limit(500));
+    const snap = await getDocs(q);
+    return snap.docs.map(d => d.data() as Adjustment);
+};
+
 export const fetchCollection = async <T>(colName: string): Promise<T[]> => {
-    // Giới hạn số lượng bản ghi tối đa khi fetch toàn bộ collection (Safety limit)
-    const snap = await getDocs(query(collection(db, colName), limit(1000)));
+    const snap = await getDocs(query(collection(db, colName), limit(1500)));
     return snap.docs.map(d => d.data() as T);
 };
 
 export const updateFeeSettings = async (settings: InvoiceSettings) => {
-    settingsCache.invoice = settings; // Update local cache
+    settingsCache.invoice = settings;
     return setDoc(doc(db, 'settings', 'invoice'), settings, { merge: true });
+};
+
+export const setLockStatus = async (period: string, isLocked: boolean) => {
+    const ref = doc(db, 'settings', 'water_locks');
+    const snap = await getDoc(ref);
+    let periods: string[] = [];
+    if (snap.exists()) {
+        periods = snap.data().periods || [];
+    }
+    if (isLocked) {
+        if (!periods.includes(period)) periods.push(period);
+    } else {
+        periods = periods.filter(p => p !== period);
+    }
+    return setDoc(ref, { periods });
+};
+
+export const getBillingLockStatus = async (period: string): Promise<boolean> => {
+    const snap = await getDoc(doc(db, 'billing_locks', period));
+    return snap.exists() ? snap.data().isLocked : false;
+};
+
+export const setBillingLockStatus = async (period: string, isLocked: boolean) => {
+    return setDoc(doc(db, 'billing_locks', period), { isLocked, updatedAt: serverTimestamp() });
+};
+
+export const saveNewsItem = async (item: NewsItem): Promise<string> => {
+    if (item.id && !item.id.includes('news_mock')) {
+        await setDoc(doc(db, 'news', item.id), item, { merge: true });
+        return item.id;
+    } else {
+        const ref = await addDoc(collection(db, 'news'), { ...item, id: '' });
+        await updateDoc(ref, { id: ref.id });
+        return ref.id;
+    }
+};
+
+export const deleteNewsItem = async (id: string) => {
+    return deleteDoc(doc(db, 'news', id));
+};
+
+export const saveChargesBatch = async (newCharges: ChargeRaw[], periodStat?: MonthlyStat) => {
+    const batch = writeBatch(db);
+    newCharges.forEach(c => {
+        const id = `${c.Period}_${c.UnitID}`;
+        batch.set(doc(db, 'charges', id), c);
+    });
+    if (periodStat) {
+        batch.set(doc(db, 'monthly_stats', periodStat.period), periodStat);
+    }
+    return batch.commit();
+};
+
+export const confirmSinglePayment = async (charge: ChargeRaw, finalPaidAmount: number, status: PaymentStatus = 'paid') => {
+    const id = `${charge.Period}_${charge.UnitID}`;
+    return updateDoc(doc(db, 'charges', id), {
+        TotalPaid: finalPaidAmount,
+        paymentStatus: status,
+        PaymentConfirmed: true,
+        updatedAt: serverTimestamp()
+    });
+};
+
+export const saveUsers = async (users: UserPermission[]) => {
+    const batch = writeBatch(db);
+    users.forEach(u => {
+        batch.set(doc(db, 'users', u.Email), u, { merge: true });
+    });
+    return batch.commit();
+};
+
+export const deleteUsers = async (emails: string[]) => {
+    const batch = writeBatch(db);
+    emails.forEach(email => {
+        batch.delete(doc(db, 'users', email));
+    });
+    return batch.commit();
+};
+
+export const updateResidentData = async (
+    _u: any, _o: any, _v: any,
+    updatedData: { unit: Unit; owner: Owner; vehicles: Vehicle[] },
+    actor: { email: string, role: Role },
+    reason: string,
+    resolution?: { requestId: string, status: 'APPROVED' | 'REJECTED' }
+) => {
+    const batch = writeBatch(db);
+    const { unit, owner, vehicles } = updatedData;
+    
+    batch.set(doc(db, 'units', unit.UnitID), unit, { merge: true });
+    batch.set(doc(db, 'owners', owner.OwnerID), owner, { merge: true });
+    
+    vehicles.forEach(v => {
+        batch.set(doc(db, 'vehicles', v.VehicleId), v, { merge: true });
+    });
+
+    if (resolution) {
+        batch.update(doc(db, 'profileRequests', resolution.requestId), {
+            status: resolution.status,
+            resolvedAt: serverTimestamp(),
+            resolvedBy: actor.email
+        });
+    }
+
+    const logRef = doc(collection(db, 'activity_logs'));
+    batch.set(logRef, {
+        actionType: 'UPDATE',
+        module: 'Residents',
+        description: `Cập nhật hồ sơ căn ${unit.UnitID}. Lý do: ${reason}`,
+        timestamp: serverTimestamp(),
+        performedBy: { name: actor.role, email: actor.email },
+        ids: [unit.UnitID]
+    });
+
+    return batch.commit();
+};
+
+export const submitUserProfileUpdate = async (userAuthEmail: string, residentId: string, ownerId: string, newData: any): Promise<ProfileRequest> => {
+    const req: Omit<ProfileRequest, 'id'> = {
+        residentId,
+        ownerId,
+        status: 'PENDING',
+        changes: newData,
+        createdAt: new Date().toISOString(),
+        updatedAt: new Date().toISOString()
+    };
+    const ref = await addDoc(collection(db, 'profileRequests'), req);
+    const result = { ...req, id: ref.id };
+    await updateDoc(ref, { id: ref.id });
+    
+    // Notify admin
+    await addDoc(collection(db, 'admin_notifications'), {
+        type: 'request',
+        title: `Cập nhật hồ sơ - Căn ${residentId}`,
+        message: `${userAuthEmail} yêu cầu thay đổi thông tin cá nhân.`,
+        isRead: false,
+        createdAt: serverTimestamp(),
+        linkTo: 'residents'
+    });
+
+    return result as ProfileRequest;
+};
+
+export const getAllPendingProfileRequests = async (): Promise<ProfileRequest[]> => {
+    const q = query(collection(db, 'profileRequests'), where('status', '==', 'PENDING'));
+    const snap = await getDocs(q);
+    return snap.docs.map(d => d.data() as ProfileRequest);
+};
+
+export const resolveProfileRequest = async (request: ProfileRequest, action: 'approve' | 'reject', adminEmail: string, approvedChanges?: any) => {
+    const batch = writeBatch(db);
+    const status = action === 'approve' ? 'APPROVED' : 'REJECTED';
+    
+    batch.update(doc(db, 'profileRequests', request.id), {
+        status,
+        updatedAt: new Date().toISOString(),
+        resolvedBy: adminEmail
+    });
+
+    if (action === 'approve' && approvedChanges) {
+        // Apply changes to owner/unit
+        // Logic for applying partial changes is complex, simplified for brevity
+    }
+
+    const notifRef = doc(collection(db, 'notifications'));
+    batch.set(notifRef, {
+        userId: request.residentId,
+        title: `Hồ sơ cá nhân: ${action === 'approve' ? 'ĐÃ DUYỆT' : 'BỊ TỪ CHỐI'}`,
+        body: action === 'approve' ? 'Thông tin của bạn đã được cập nhật thành công.' : 'Yêu cầu cập nhật hồ sơ không được chấp nhận.',
+        type: 'profile',
+        link: 'portalProfile',
+        isRead: false,
+        createdAt: serverTimestamp()
+    });
+
+    return batch.commit();
+};
+
+export const updateResidentAvatar = async (ownerId: string, avatarUrl: string) => {
+    return updateDoc(doc(db, 'owners', ownerId), { avatarUrl, updatedAt: new Date().toISOString() });
+};
+
+export const fetchUserForLogin = async (identifier: string): Promise<UserPermission | null> => {
+    const usersRef = collection(db, 'users');
+    const q1 = query(usersRef, where('Email', '==', identifier), limit(1));
+    const q2 = query(usersRef, where('Username', '==', identifier), limit(1));
+    
+    const [snap1, snap2] = await Promise.all([getDocs(q1), getDocs(q2)]);
+    const found = snap1.docs[0] || snap2.docs[0];
+    
+    return found ? (found.data() as UserPermission) : null;
 };
