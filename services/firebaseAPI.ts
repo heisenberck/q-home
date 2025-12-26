@@ -18,20 +18,29 @@ let settingsCache: { invoice?: InvoiceSettings, tariffs?: TariffCollection } = {
 
 export const fetchInvoiceSettings = async (): Promise<InvoiceSettings | null> => {
     if (settingsCache.invoice) return settingsCache.invoice;
-    const snap = await getDoc(doc(db, 'settings', 'invoice'));
-    if (snap.exists()) {
-        settingsCache.invoice = snap.data() as InvoiceSettings;
-        return settingsCache.invoice;
+    try {
+        const snap = await getDoc(doc(db, 'settings', 'invoice'));
+        if (snap.exists()) {
+            settingsCache.invoice = snap.data() as InvoiceSettings;
+            return settingsCache.invoice;
+        }
+    } catch (e) {
+        console.warn("Failed to fetch invoice settings (permission?)");
     }
     return null;
 };
 
 export const fetchTariffsData = async (): Promise<TariffCollection> => {
     if (settingsCache.tariffs) return settingsCache.tariffs;
-    const snap = await getDoc(doc(db, 'settings', 'tariffs'));
-    const data = snap.exists() ? snap.data() as TariffCollection : { service: [], parking: [], water: [] };
-    settingsCache.tariffs = data;
-    return data;
+    try {
+        const snap = await getDoc(doc(db, 'settings', 'tariffs'));
+        const data = snap.exists() ? snap.data() as TariffCollection : { service: [], parking: [], water: [] };
+        settingsCache.tariffs = data;
+        return data;
+    } catch (e) {
+        console.warn("Resident cannot access tariffs. Using empty data.");
+        return { service: [], parking: [], water: [] };
+    }
 };
 
 export const getSystemMetadata = async (): Promise<SystemMetadata> => {
@@ -61,23 +70,37 @@ export const fetchActiveCharges = async (periods: string[]): Promise<ChargeRaw[]
 
 export const fetchChargesForResident = async (residentId: string): Promise<ChargeRaw[]> => {
     const q = query(collection(db, 'charges'), where('UnitID', '==', residentId), orderBy('Period', 'desc'), limit(12));
-    const snap = await getDocs(q);
-    return snap.docs.map(d => d.data() as ChargeRaw);
+    try {
+        const snap = await getDocs(q);
+        return snap.docs.map(d => d.data() as ChargeRaw);
+    } catch (e) {
+        console.error("Failed to fetch resident charges:", e);
+        return [];
+    }
 };
 
 export const fetchResidentSpecificData = async (residentId: string) => {
-    const unitsRef = collection(db, 'units');
-    const q = query(unitsRef, where('UnitID', '==', residentId), limit(1));
-    const unitSnap = await getDocs(q);
-    if (unitSnap.empty) return { unit: null, owner: null, vehicles: [] };
-    const unitData = unitSnap.docs[0].data() as Unit;
-    const ownerRef = doc(db, 'owners', unitData.OwnerID);
-    const ownerSnap = await getDoc(ownerRef);
-    const ownerData = ownerSnap.exists() ? ownerSnap.data() as Owner : null;
-    const vehiclesRef = collection(db, 'vehicles');
-    const vQuery = query(vehiclesRef, where('UnitID', '==', residentId), where('isActive', '==', true));
-    const vSnap = await getDocs(vQuery);
-    return { unit: unitData, owner: ownerData, vehicles: vSnap.docs.map(d => d.data() as Vehicle) };
+    try {
+        const unitsRef = collection(db, 'units');
+        const q = query(unitsRef, where('UnitID', '==', residentId), limit(1));
+        const unitSnap = await getDocs(q);
+        
+        if (unitSnap.empty) return { unit: null, owner: null, vehicles: [] };
+        
+        const unitData = unitSnap.docs[0].data() as Unit;
+        const ownerRef = doc(db, 'owners', unitData.OwnerID);
+        const ownerSnap = await getDoc(ownerRef);
+        const ownerData = ownerSnap.exists() ? ownerSnap.data() as Owner : null;
+        
+        const vehiclesRef = collection(db, 'vehicles');
+        const vQuery = query(vehiclesRef, where('UnitID', '==', residentId), where('isActive', '==', true));
+        const vSnap = await getDocs(vQuery);
+        
+        return { unit: unitData, owner: ownerData, vehicles: vSnap.docs.map(d => d.data() as Vehicle) };
+    } catch (e) {
+        console.error("Error fetching resident specific data:", e);
+        return { unit: null, owner: null, vehicles: [] };
+    }
 };
 
 export const fetchLatestLogs = async (limitCount: number = 20): Promise<ActivityLog[]> => {
@@ -97,9 +120,14 @@ export const fetchLatestLogs = async (limitCount: number = 20): Promise<Activity
 };
 
 export const fetchNews = async (): Promise<NewsItem[]> => {
-    const q = query(collection(db, 'news'), where('isArchived', '==', false), orderBy('date', 'desc'), limit(15));
-    const snap = await getDocs(q);
-    return snap.docs.map(d => ({ id: d.id, ...d.data() } as NewsItem));
+    try {
+        const q = query(collection(db, 'news'), where('isArchived', '==', false), orderBy('date', 'desc'), limit(15));
+        const snap = await getDocs(q);
+        return snap.docs.map(d => ({ id: d.id, ...d.data() } as NewsItem));
+    } catch (e) {
+        console.warn("News could not be fetched (index issue?):", e);
+        return [];
+    }
 };
 
 export const fetchRecentWaterReadings = async (periods: string[]): Promise<WaterReading[]> => {
@@ -228,13 +256,8 @@ export const updateResidentData = async (
     return batch.commit();
 };
 
-/**
- * GỬI YÊU CẦU CẬP NHẬT HỒ SƠ (Dành cho Resident)
- * TỐI GIẢN: Chỉ sử dụng addDoc để Firebase tự tạo ID và vượt lỗi quyền.
- */
 export const submitUserProfileUpdate = async (userAuthEmail: string, residentId: string, ownerId: string, newData: any): Promise<ProfileRequest> => {
     if (!residentId) throw new Error("Mã cư dân không hợp lệ.");
-
     const payload = {
         residentId,
         ownerId,
@@ -242,12 +265,9 @@ export const submitUserProfileUpdate = async (userAuthEmail: string, residentId:
         changes: newData,
         createdAt: new Date().toISOString(),
         updatedAt: new Date().toISOString(),
-        userEmail: userAuthEmail // Thêm để admin biết ai gửi
+        userEmail: userAuthEmail
     };
-
-    // Firebase addDoc() thường có quyền "create" rộng hơn setDoc()
     const docRef = await addDoc(collection(db, 'profileRequests'), payload);
-    
     return { id: docRef.id, ...payload } as ProfileRequest;
 };
 
