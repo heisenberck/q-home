@@ -9,7 +9,7 @@ import {
     CarIcon, MotorbikeIcon, EBikeIcon, BikeIcon, ShieldCheckIcon, ClockIcon,
     CheckIcon
 } from '../../ui/Icons';
-import { submitUserProfileUpdate, getPendingProfileRequest, updateResidentAvatar, saveVehicles } from '../../../services';
+import { submitUserProfileUpdate, updateResidentAvatar, saveVehicles } from '../../../services';
 import { useSmartSystemData } from '../../../hooks/useSmartData';
 import { isProduction } from '../../../utils/env';
 import { translateVehicleType } from '../../../utils/helpers';
@@ -238,7 +238,7 @@ const PortalProfilePage: React.FC<PortalProfilePageProps> = ({ user, owner, onUp
             }
             try {
                 showToast('Đang cập nhật ảnh...', 'info');
-                await updateResidentAvatar(owner.OwnerID, base64, user.Email);
+                await updateResidentAvatar(owner.OwnerID, base64);
                 showToast('Cập nhật ảnh đại diện thành công!', 'success');
                 refreshSystemData(true);
             } catch (error) {
@@ -250,6 +250,13 @@ const PortalProfilePage: React.FC<PortalProfilePageProps> = ({ user, owner, onUp
 
     const handleSave = async (e: React.FormEvent) => {
         e.preventDefault();
+
+        // Kiểm tra dữ liệu trước khi gửi để tránh lỗi residentId undefined
+        if (!user.residentId || !owner.OwnerID) {
+            showToast('Lỗi: Dữ liệu tài khoản không đầy đủ. Vui lòng đăng nhập lại.', 'error');
+            return;
+        }
+
         if (!IS_PROD) {
             onUpdateOwner({ ...owner, OwnerName: formData.DisplayName, Phone: formData.Phone, Email: formData.Email });
             setIsEditing(false);
@@ -278,17 +285,17 @@ const PortalProfilePage: React.FC<PortalProfilePageProps> = ({ user, owner, onUp
 
         setIsLoading(true);
         try {
-            const newReq = await submitUserProfileUpdate(user.Email, user.residentId!, owner.OwnerID, changes);
-            setPendingRequest(newReq);
+            await submitUserProfileUpdate(user.Email, user.residentId, owner.OwnerID, changes);
             refreshSystemData(true); 
             setIsEditing(false);
             showToast('Đã gửi yêu cầu cập nhật hồ sơ tới BQL.', 'success');
         } catch (error: any) {
-            console.error("Profile update error:", error);
+            console.error("Profile update error details:", error);
+            // Hiển thị chi tiết lỗi kỹ thuật để dễ khắc phục
             const errorMsg = error.code === 'permission-denied' 
-                ? 'Bạn không có quyền thực hiện thao tác này.' 
-                : (error.message || 'Lỗi không xác định.');
-            showToast(`Lỗi khi lưu hồ sơ: ${errorMsg}`, 'error');
+                ? 'Lỗi quyền truy cập Firestore. Vui lòng liên hệ BQL.' 
+                : (error.message || 'Lỗi kết nối máy chủ.');
+            showToast(`Lỗi: ${errorMsg}`, 'error');
         } finally {
             setIsLoading(false);
         }
