@@ -1,3 +1,4 @@
+
 import React, { useState, useEffect, useMemo } from 'react';
 import { UserPermission, Owner, Unit } from '../../types';
 import { EyeIcon, EyeSlashIcon, UserIcon, LockClosedIcon } from '../ui/Icons';
@@ -107,22 +108,24 @@ const LoginPage: React.FC<LoginPageProps> = ({ users, onLogin, allOwners, allUni
         setIsLoading(true);
 
         const cleanIdentifier = identifier.trim().toLowerCase();
-        let userFound = null;
+        let userFound: any = null;
         
-        // 1. Tìm User
-        const localUser = MOCK_USER_PERMISSIONS.find(u => 
-            u.Email.toLowerCase() === cleanIdentifier || 
-            (u.Username && u.Username.toLowerCase() === cleanIdentifier)
-        );
-
-        if (localUser) {
-            userFound = localUser;
-        } else if (isProduction()) {
+        // 1. LUÔN ƯU TIÊN KIỂM TRA DATABASE TRƯỚC (Khi đang ở Production)
+        if (isProduction()) {
             try {
                 userFound = await fetchUserForLogin(cleanIdentifier);
             } catch (err) {
-                console.error("Login Search Error:", err);
+                console.error("Login Database Fetch Error:", err);
             }
+        }
+
+        // 2. Nếu không thấy trong DB hoặc đang ở DEV, mới kiểm tra MOCK_PERMISSIONS
+        if (!userFound) {
+            const localUser = MOCK_USER_PERMISSIONS.find(u => 
+                u.Email.toLowerCase() === cleanIdentifier || 
+                (u.Username && u.Username.toLowerCase() === cleanIdentifier)
+            );
+            if (localUser) userFound = localUser;
         }
 
         if (!userFound) {
@@ -145,24 +148,19 @@ const LoginPage: React.FC<LoginPageProps> = ({ users, onLogin, allOwners, allUni
             return;
         }
 
-        // 2. Kích hoạt Firebase Auth Session - BẮT BUỘC ĐỂ CÓ QUYỀN GHI
+        // 3. Kích hoạt Firebase Auth Session - BẮT BUỘC ĐỂ CÓ QUYỀN GHI
         if (isProduction()) {
             try {
-                // Đảm bảo await hoàn thành để có token hợp lệ
                 await signInAnonymously(auth);
             } catch (authErr: any) {
                 console.error("Firebase Auth Error:", authErr);
-                if (authErr.code === 'auth/admin-restricted-operation') {
-                    setError('Lỗi hệ thống: Bạn cần Enable "Anonymous" trong Firebase Console -> Authentication.');
-                } else {
-                    setError('Lỗi kết nối máy chủ bảo mật. Vui lòng thử lại.');
-                }
+                setError('Lỗi kết nối máy chủ bảo mật. Vui lòng thử lại.');
                 setIsLoading(false);
                 return;
             }
         }
 
-        let displayName = userFound.Username || userFound.Email.split('@')[0];
+        let displayName = userFound.DisplayName || userFound.Username || userFound.Email.split('@')[0];
         if (userFound.Role === 'Resident' && userFound.residentId) {
              const unit = allUnits.find(u => u.UnitID === userFound.residentId);
              const owner = allOwners.find(o => o.OwnerID === unit?.OwnerID);
