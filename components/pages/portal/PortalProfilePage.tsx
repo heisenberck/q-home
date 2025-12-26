@@ -1,3 +1,4 @@
+// Added missing React import
 import React, { useState, useEffect, useMemo } from 'react';
 import type { Owner, UserPermission, ProfileRequest, Vehicle } from '../../../types';
 import { useAuth, useNotification } from '../../../App';
@@ -13,7 +14,6 @@ import { useSmartSystemData } from '../../../hooks/useSmartData';
 import { isProduction } from '../../../utils/env';
 import { translateVehicleType } from '../../../utils/helpers';
 import Spinner from '../../ui/Spinner';
-// Import limit to fix line 176 error
 import { collection, query, where, onSnapshot, limit } from 'firebase/firestore';
 import { db } from '../../../firebaseConfig';
 
@@ -163,9 +163,6 @@ const PortalProfilePage: React.FC<PortalProfilePageProps> = ({ user, owner, onUp
         }
     }, [user, owner, currentUnit, isEditing]);
 
-    /**
-     * Nâng cấp: Lắng nghe Real-time trạng thái yêu cầu phê duyệt
-     */
     useEffect(() => {
         if (!IS_PROD || !user.residentId) return;
 
@@ -259,8 +256,13 @@ const PortalProfilePage: React.FC<PortalProfilePageProps> = ({ user, owner, onUp
             showToast('Đã lưu (Mock Mode)', 'success');
             return;
         }
+        
         const changes: any = {};
-        if (formData.DisplayName !== (user.DisplayName || owner.OwnerName)) changes.DisplayName = formData.DisplayName;
+        
+        if (formData.DisplayName !== (user.DisplayName || owner.OwnerName)) {
+            changes.OwnerName = formData.DisplayName;
+        }
+        
         if (formData.Phone !== owner.Phone) changes.Phone = formData.Phone;
         if (formData.Email !== (user.contact_email || owner.Email)) changes.Email = formData.Email;
         if (formData.title !== (owner.title || 'Anh')) changes.title = formData.title;
@@ -281,8 +283,12 @@ const PortalProfilePage: React.FC<PortalProfilePageProps> = ({ user, owner, onUp
             refreshSystemData(true); 
             setIsEditing(false);
             showToast('Đã gửi yêu cầu cập nhật hồ sơ tới BQL.', 'success');
-        } catch (error) {
-            showToast('Lỗi khi lưu hồ sơ.', 'error');
+        } catch (error: any) {
+            console.error("Profile update error:", error);
+            const errorMsg = error.code === 'permission-denied' 
+                ? 'Bạn không có quyền thực hiện thao tác này.' 
+                : (error.message || 'Lỗi không xác định.');
+            showToast(`Lỗi khi lưu hồ sơ: ${errorMsg}`, 'error');
         } finally {
             setIsLoading(false);
         }
