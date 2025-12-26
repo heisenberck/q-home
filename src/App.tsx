@@ -198,7 +198,6 @@ const App: React.FC = () => {
     const [localUsers, setLocalUsers] = useState<UserPermission[]>([]);
     const [localTariffs, setLocalTariffs] = useState<TariffCollection>({ service: [], parking: [], water: [] });
     const [localFeedback, setLocalFeedback] = useState<FeedbackItem[]>([]);
-    const [localNews, setLocalNews] = useState<NewsItem[]>([]);
 
     useEffect(() => {
         if (units) setLocalUnits(units);
@@ -209,8 +208,7 @@ const App: React.FC = () => {
         if (adjustments) setLocalAdjustments(adjustments);
         if (fetchedUsers) setLocalUsers(fetchedUsers);
         if (tariffs) setLocalTariffs(tariffs);
-        if (news) setLocalNews(news);
-    }, [units, owners, vehicles, waterReadings, charges, adjustments, fetchedUsers, tariffs, news]);
+    }, [units, owners, vehicles, waterReadings, charges, adjustments, fetchedUsers, tariffs]);
 
     const refreshLogs = useCallback(async () => {
         if (!user || user.Role === 'Resident') return;
@@ -309,13 +307,13 @@ const App: React.FC = () => {
 
     const notifications = useMemo(() => {
         // Unread news count: Archived news are ignored
-        const unreadCount = localNews.filter(n => !n.isArchived && !readNewsIds.has(n.id)).length;
+        const unreadCount = news.filter(n => !n.isArchived && !readNewsIds.has(n.id)).length;
         return { 
             unreadNews: unreadCount,
             hasUnpaidBill: localCharges.some(c => c.UnitID === user?.residentId && !['paid', 'paid_tm', 'paid_ck'].includes(c.paymentStatus)),
             unreadList: unreadResidentNotifications
         };
-    }, [localNews, localCharges, user, unreadResidentNotifications, readNewsIds]);
+    }, [news, localCharges, user, unreadResidentNotifications, readNewsIds]);
 
     const renderAdminPage = () => {
         switch (activePage as AdminPage) {
@@ -331,7 +329,7 @@ const App: React.FC = () => {
             case 'settings': return <SettingsPage invoiceSettings={invoiceSettings || DEFAULT_SETTINGS} setInvoiceSettings={handleSetInvoiceSettings} role={user!.Role} />;
             case 'backup': return <BackupRestorePage allData={{ units: localUnits, owners: localOwners, vehicles: localVehicles, waterReadings: localWaterReadings, charges: localCharges, adjustments: localAdjustments, users: localUsers, tariffs: localTariffs }} onRestore={(d) => refreshSystemData(true)} role={user!.Role} />;
             case 'activityLog': return <ActivityLogPage logs={activityLogs} onUndo={()=>{}} role={user!.Role} />;
-            case 'newsManagement': return <NewsManagementPage news={localNews} setNews={setLocalNews} role={user!.Role} users={localUsers} />;
+            case 'newsManagement': return <NewsManagementPage news={news} role={user!.Role} users={localUsers} />;
             case 'feedbackManagement': return <FeedbackManagementPage role={user!.Role} units={localUnits} owners={localOwners} />;
             default: return <OverviewPage allUnits={localUnits} allOwners={localOwners} allVehicles={localVehicles} allWaterReadings={localWaterReadings} charges={localCharges} activityLogs={activityLogs} feedback={localFeedback} onNavigate={(p) => setActivePage(p as AdminPage)} monthlyStats={monthlyStats} />;
         }
@@ -341,17 +339,17 @@ const App: React.FC = () => {
         const unit = localUnits.find(u => u.UnitID === user!.residentId) || null;
         const owner = localOwners.find(o => o.OwnerID === unit?.OwnerID) || null;
         switch (activePage as PortalPage) {
-            case 'portalHome': return <PortalHomePage user={user!} owner={owner} charges={localCharges} news={localNews} setActivePage={setActivePage as (p: PortalPage) => void} />;
-            case 'portalNews': return <PortalNewsPage news={localNews} readIds={readNewsIds} onReadNews={handleMarkNewsAsRead} />;
+            case 'portalHome': return <PortalHomePage user={user!} owner={owner} charges={localCharges} news={news} setActivePage={setActivePage as (p: PortalPage) => void} />;
+            case 'portalNews': return <PortalNewsPage news={news} readIds={readNewsIds} onReadNews={handleMarkNewsAsRead} />;
             case 'portalBilling': return <PortalBillingPage charges={localCharges} user={user!} />;
             case 'portalContact': return <PortalContactPage hotline={invoiceSettings?.HOTLINE || '0834.88.66.86'} onSubmitFeedback={(f) => setLocalFeedback([...localFeedback, f])} owner={owner} unit={unit} />;
             case 'portalProfile': return <PortalProfilePage user={user!} owner={owner!} onUpdateOwner={(o) => setLocalOwners(prev => prev.map(old => old.OwnerID === o.OwnerID ? o : old))} onChangePassword={() => setIsChangePasswordModalOpen(true)} />;
-            default: return <PortalHomePage user={user!} owner={owner} charges={localCharges} news={localNews} setActivePage={setActivePage as (p: PortalPage) => void} />;
+            default: return <PortalHomePage user={user!} owner={owner} charges={localCharges} news={news} setActivePage={setActivePage as (p: PortalPage) => void} />;
         }
     };
 
     const renderAdminMobilePage = () => {
-        const props = { units: localUnits, vehicles: localVehicles, charges: localCharges, monthlyStats, news: localNews, owners: localOwners };
+        const props = { units: localUnits, vehicles: localVehicles, charges: localCharges, monthlyStats, news: news, owners: localOwners };
         switch (activePage as AdminPortalPage) {
             case 'adminPortalHome': return <AdminPortalHomePage {...props} onNavigate={(p) => setActivePage(p as AdminPortalPage)} />;
             case 'adminPortalBilling': return <AdminPortalBillingPage charges={localCharges} units={localUnits} owners={localOwners} />;
@@ -384,7 +382,7 @@ const App: React.FC = () => {
                             <>
                                 <NotificationListener userId={user.Username || user.Email} onUpdateList={setUnreadResidentNotifications} />
                                 {isResident ? (
-                                    <ResidentLayout activePage={activePage as PortalPage} setActivePage={setActivePage as (p: PortalPage) => void} user={user} owner={localOwners.find(o => o.OwnerID === localUnits.find(u => u.UnitID === user.residentId)?.OwnerID) || null} onUpdateOwner={() => {}} onChangePassword={() => setIsChangePasswordModalOpen(true)} notifications={notifications} onMarkNewsAsRead={() => {}}>
+                                    <ResidentLayout activePage={activePage as PortalPage} setActivePage={setActivePage as (p: PortalPage) => void} user={user} owner={localOwners.find(o => o.OwnerID === localUnits.find(u => u.UnitID === user.residentId)?.OwnerID) || null} onUpdateOwner={() => {}} notifications={notifications} onMarkNewsAsRead={() => {}}>
                                         {renderResidentPage()}
                                     </ResidentLayout>
                                 ) : isMobile ? (
