@@ -1,7 +1,7 @@
 
 import React, { useState, useRef, useMemo, useEffect } from 'react';
 import type { NewsItem, Role, UserPermission } from '../../types';
-import { useNotification, useDataRefresh } from '../../App';
+import { useNotification } from '../../App';
 import Modal from '../ui/Modal';
 import StatCard from '../ui/StatCard';
 import { 
@@ -24,6 +24,7 @@ type ExtendedNewsItem = NewsItem & { isPinned?: boolean };
 
 interface NewsManagementPageProps {
   news: NewsItem[];
+  setNews: (updater: React.SetStateAction<NewsItem[]>, logPayload?: any) => void;
   role: Role;
   users: UserPermission[];
 }
@@ -171,13 +172,12 @@ const NewsEditorModal: React.FC<{
             </div>
         </div>
       </form>
-    </NewsEditorModal>
+    </Modal>
   );
 };
 
-const NewsManagementPage: React.FC<NewsManagementPageProps> = ({ news, role, users }) => {
+const NewsManagementPage: React.FC<NewsManagementPageProps> = ({ news, setNews, role, users }) => {
   const { showToast } = useNotification();
-  const { refreshData } = useDataRefresh();
   const [loading, setLoading] = useState(false);
   const [editingItem, setEditingItem] = useState<ExtendedNewsItem | null | undefined>(undefined);
   const [searchTerm, setSearchTerm] = useState('');
@@ -214,10 +214,16 @@ const NewsManagementPage: React.FC<NewsManagementPageProps> = ({ news, role, use
   const handleSave = async (item: ExtendedNewsItem) => {
     setLoading(true);
     try {
-        await saveNewsItem(item);
+        const savedId = await saveNewsItem(item);
+        const savedItem = { ...item, id: savedId };
+        
+        setNews(prev => {
+            const exists = prev.some(n => n.id === item.id);
+            return exists ? prev.map(n => n.id === item.id ? savedItem : n) : [savedItem, ...prev];
+        });
+        
         showToast('Đã lưu tin tức thành công.', 'success');
         setEditingItem(undefined);
-        refreshData(true); // Buộc fetch lại dữ liệu từ server
     } catch (error: any) {
         showToast('Lỗi khi lưu: ' + error.message, 'error');
     } finally {
@@ -230,8 +236,8 @@ const NewsManagementPage: React.FC<NewsManagementPageProps> = ({ news, role, use
     setLoading(true);
     try {
         await deleteNewsItem(id);
+        setNews(prev => prev.filter(n => n.id !== id));
         showToast('Đã xóa tin tức.', 'success');
-        refreshData(true); // Buộc fetch lại dữ liệu từ server
     } catch (error: any) {
         showToast('Lỗi khi xóa: ' + error.message, 'error');
     } finally {
@@ -254,8 +260,8 @@ const NewsManagementPage: React.FC<NewsManagementPageProps> = ({ news, role, use
         await batch.commit();
         const updatedItem = { ...item, isBroadcasted: true, broadcastTime: new Date().toISOString() };
         await saveNewsItem(updatedItem);
+        setNews(prev => prev.map(n => n.id === item.id ? updatedItem : n));
         showToast(`Đã thông báo tới ${residents.length} cư dân.`, 'success');
-        refreshData(true);
     } catch (e: any) {
         showToast('Lỗi gửi: ' + e.message, 'error');
     } finally { setLoading(false); }

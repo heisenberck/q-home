@@ -2,7 +2,7 @@
 import { 
     doc, getDoc, setDoc, collection, getDocs, writeBatch, query, 
     deleteDoc, updateDoc, limit, orderBy, where, serverTimestamp, 
-    addDoc, Timestamp, getCountFromServer, or, and
+    addDoc, Timestamp, getCountFromServer
 } from 'firebase/firestore';
 import { db } from '../firebaseConfig';
 import type { 
@@ -53,22 +53,24 @@ export const getSystemMetadata = async (): Promise<SystemMetadata> => {
     return { units_version: 0, owners_version: 0, vehicles_version: 0, tariffs_version: 0, users_version: 0 };
 };
 
+/**
+ * FIX: Loại bỏ or() query để tránh lỗi "EQ is not a function" trên production.
+ * Thay vào đó, lấy dữ liệu theo kỳ và lọc trạng thái thanh toán tại client.
+ */
 export const fetchActiveCharges = async (periods: string[]): Promise<ChargeRaw[]> => {
     if (periods.length === 0) return [];
     try {
         const chargesRef = collection(db, 'charges');
+        // Lấy tất cả các dòng phí của các kỳ được yêu cầu
         const q = query(
             chargesRef, 
-            or(
-                where('Period', 'in', periods), 
-                where('paymentStatus', 'in', ['unpaid', 'reconciling', 'pending'])
-            ),
-            limit(500) 
+            where('Period', 'in', periods),
+            limit(1000) 
         );
         const snap = await getDocs(q);
         return snap.docs.map(d => d.data() as ChargeRaw);
     } catch (e) {
-        console.warn("Failed to fetch active charges");
+        console.warn("Failed to fetch active charges:", e);
         return [];
     }
 };
@@ -264,9 +266,13 @@ export const deleteUsers = async (emails: string[]) => {
     return batch.commit();
 };
 
+/**
+ * Cập nhật thông tin User profile. 
+ * Sanitize object để đảm bảo Firestore không nhận vào React proxies/non-serializable data.
+ */
 export const updateUserProfile = async (email: string, updates: Partial<UserPermission>) => {
-    // Đảm bảo document ID chính xác là email và dùng setDoc với merge: true
-    return setDoc(doc(db, 'users', email), updates, { merge: true });
+    const cleanData = JSON.parse(JSON.stringify(updates));
+    return setDoc(doc(db, 'users', email), cleanData, { merge: true });
 };
 
 export const updateResidentData = async (
