@@ -95,9 +95,12 @@ const App: React.FC = () => {
         invoiceSettings, tariffs, monthlyStats = [], lockedWaterPeriods = [], miscRevenues = [], expenses = [], refreshSystemData, hasLoaded 
     } = useSmartSystemData(user);
 
-    // XÓA CÁC STATE BẢN SAO ĐỂ TRÁNH VÒNG LẶP RENDER (localUnits, localOwners, v.v...)
     const [localCharges, setLocalCharges] = useState<ChargeRaw[]>([]);
     useEffect(() => { if(charges) setLocalCharges(charges); }, [charges]);
+
+    // Local Users state to allow instant UI updates in the Users management page
+    const [localUsers, setLocalUsers] = useState<UserPermission[]>([]);
+    useEffect(() => { if(fetchedUsers) setLocalUsers(fetchedUsers); }, [fetchedUsers]);
 
     useEffect(() => {
         const handleResize = () => setIsMobile(window.innerWidth < 768);
@@ -178,7 +181,7 @@ const App: React.FC = () => {
             case 'vehicles': return <VehiclesPage vehicles={vehicles} units={units} owners={owners} activityLogs={activityLogs} onSetVehicles={()=>{}} role={user!.Role} />;
             case 'water': return <WaterPage waterReadings={waterReadings} setWaterReadings={()=>{}} allUnits={units} role={user!.Role} tariffs={tariffs} lockedPeriods={lockedWaterPeriods} refreshData={refreshSystemData} />;
             case 'pricing': return <PricingPage tariffs={tariffs} setTariffs={()=>{}} role={user!.Role} />;
-            case 'users': return <UsersPage users={fetchedUsers} setUsers={()=>{}} units={units} role={user!.Role} />;
+            case 'users': return <UsersPage users={localUsers} setUsers={setLocalUsers} units={units} role={user!.Role} />;
             case 'settings': return <SettingsPage invoiceSettings={invoiceSettings || DEFAULT_SETTINGS} setInvoiceSettings={(s) => updateFeeSettings(s)} role={user!.Role} />;
             case 'activityLog': return <ActivityLogPage logs={activityLogs} onUndo={()=>{}} role={user!.Role} />;
             case 'newsManagement': return <NewsManagementPage news={news} setNews={()=>{}} role={user!.Role} users={fetchedUsers} />;
@@ -230,7 +233,7 @@ const App: React.FC = () => {
             <NotificationContext.Provider value={{ showToast }}>
                 <SettingsContext.Provider value={{ invoiceSettings: invoiceSettings || DEFAULT_SETTINGS, setInvoiceSettings: async (s) => { await updateFeeSettings(s); refreshSystemData(true); } }}>
                     <DataRefreshContext.Provider value={{ refreshData: refreshSystemData }}>
-                        {!user ? <LoginPage users={fetchedUsers} onLogin={handleLogin} allOwners={owners} allUnits={units} /> : (
+                        {!user ? <LoginPage users={localUsers} onLogin={handleLogin} allOwners={owners} allUnits={units} /> : (
                             <>
                                 <NotificationListener userId={user.Username || user.Email} onUpdateList={setUnreadResidentNotifications} />
                                 {user.Role === 'Resident' ? (

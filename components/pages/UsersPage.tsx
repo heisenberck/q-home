@@ -1,4 +1,4 @@
-import React, { useState, useMemo } from 'react';
+import React, { useState, useMemo, useEffect } from 'react';
 import type { UserPermission, Role, Unit } from '../../types';
 import { useAuth, useNotification } from '../../App';
 import Modal from '../ui/Modal';
@@ -78,8 +78,8 @@ const UserModal: React.FC<{
     const isEdit = !!user;
 
     const [formData, setFormData] = useState<ExtendedUser>({
-        Email: user?.Email || '', // System Auth Email (Hidden in UI)
-        contact_email: user?.contact_email || '', // NEW: Contact Email (Visible)
+        Email: user?.Email || '', 
+        contact_email: user?.contact_email || '', 
         Username: user?.Username || '',
         DisplayName: user?.DisplayName || '',
         Role: user?.Role || 'Viewer',
@@ -91,6 +91,24 @@ const UserModal: React.FC<{
 
     const [selectedPermissions, setSelectedPermissions] = useState<Set<string>>(new Set(user?.permissions || []));
 
+    // Update state if user prop changes (important for edit mode)
+    useEffect(() => {
+        if (user) {
+            setFormData({
+                Email: user.Email || '',
+                contact_email: user.contact_email || '',
+                Username: user.Username || '',
+                DisplayName: user.DisplayName || '',
+                Role: user.Role || 'Viewer',
+                status: user.status || 'Active',
+                password: user.password || '',
+                mustChangePassword: user.mustChangePassword ?? false,
+                permissions: user.permissions || []
+            });
+            setSelectedPermissions(new Set(user.permissions || []));
+        }
+    }, [user]);
+
     const handlePermissionToggle = (moduleId: string) => {
         const next = new Set(selectedPermissions);
         if (next.has(moduleId)) next.delete(moduleId);
@@ -101,29 +119,24 @@ const UserModal: React.FC<{
     const handleSubmit = (e: React.FormEvent) => {
         e.preventDefault();
         
-        // Validation: Username (ID) required
         if (!formData.Username) { 
             showToast('Vui lòng nhập Tên đăng nhập (ID).', 'error'); 
             return; 
         }
         
-        // 1. Check Username Uniqueness (Only on Create)
         if (!isEdit) {
             if (allUsers.some(u => (u.Username || '').toLowerCase() === (formData.Username || '').toLowerCase())) {
                 showToast('Tên đăng nhập (Mã căn) đã tồn tại.', 'error'); return;
             }
-            
-            // Auto-generate System Auth Email if not present (using dummy domain to satisfy Firebase/Backend)
             if (!formData.Email) {
                 formData.Email = `${formData.Username}@resident.q-home.vn`.toLowerCase();
             }
         }
 
-        // 2. Check Contact Email Uniqueness (If provided)
         if (formData.contact_email) {
             const emailExists = allUsers.some(u => 
                 (u.contact_email || '').toLowerCase() === (formData.contact_email || '').toLowerCase() && 
-                (u.Username || '').toLowerCase() !== (formData.Username || '').toLowerCase() // Exclude self
+                (u.Username || '').toLowerCase() !== (formData.Username || '').toLowerCase()
             );
 
             if (emailExists) {
@@ -152,10 +165,8 @@ const UserModal: React.FC<{
                             disabled={isEdit} 
                             placeholder="Mã căn hộ hoặc ID nhân viên"
                         />
-                        {isEdit && <p className="text-xs text-gray-500 mt-1">ID không thể thay đổi.</p>}
                     </div>
                     
-                    {/* Replaced System Email with Contact Email */}
                     <div>
                         <label className="block text-sm font-medium text-gray-700 mb-1">Email liên hệ</label>
                         <input 
@@ -243,24 +254,25 @@ const UsersPage: React.FC<UsersPageProps> = ({ users = [], setUsers, units = [],
     // Filtering (Defensive Logic)
     const filteredUsers = useMemo(() => {
         return users.filter(user => {
-            // 1. Safety Check: If user object is malformed
             if (!user) return false;
+            
+            // Role Filter Logic (Supports groups)
+            if (roleFilter !== 'all') {
+                if (roleFilter === 'Staff_Group') {
+                    if (!['Accountant', 'Operator', 'Viewer'].includes(user.Role)) return false;
+                } else if (user.Role !== roleFilter) {
+                    return false;
+                }
+            }
 
-            // 2. Role Filter
-            if (roleFilter !== 'all' && user.Role !== roleFilter) return false;
-
-            // 3. Status Filter
             if (statusFilter !== 'all' && user.status !== statusFilter) return false;
-
-            // 4. Search Filter (Safe Mode + Contact Email)
+            
             const s = (searchTerm || '').trim().toLowerCase();
             if (!s) return true;
-
-            // Search by contact_email instead of system Email
+            
             const safeContactEmail = (user.contact_email || '').toLowerCase();
             const safeUsername = (user.Username || '').toLowerCase();
             const safeDisplayName = (user.DisplayName || '').toLowerCase();
-
             return safeContactEmail.includes(s) || safeUsername.includes(s) || safeDisplayName.includes(s);
         });
     }, [users, searchTerm, roleFilter, statusFilter]);
@@ -285,9 +297,7 @@ const UsersPage: React.FC<UsersPageProps> = ({ users = [], setUsers, units = [],
     };
 
     const handleSaveUser = (userToSave: ExtendedUser) => {
-        // MATCH BY USERNAME (Apartment Code/ID) - Immutable Key
         const exists = users.some(u => u.Username === userToSave.Username);
-        
         const updatedList = exists 
             ? users.map(u => u.Username === userToSave.Username ? userToSave : u) 
             : [...users, userToSave];
@@ -301,8 +311,6 @@ const UsersPage: React.FC<UsersPageProps> = ({ users = [], setUsers, units = [],
 
     const handleBulkDelete = () => {
         if (selectedUsers.size === 0) return;
-        
-        // Match by Username
         const safeToDelete = Array.from(selectedUsers).filter(username => {
             const u = users.find(user => user.Username === username);
             return u && u.Role !== 'Admin' && u.Username !== currentUser?.Username;
@@ -315,9 +323,7 @@ const UsersPage: React.FC<UsersPageProps> = ({ users = [], setUsers, units = [],
         if (safeToDelete.length === 0) return;
 
         if (confirm(`Xác nhận xóa ${safeToDelete.length} người dùng?`)) {
-            // Pass IDs (Usernames) to delete handler
             handleDeleteUsers(safeToDelete);
-            
             showToast(`Đã xóa ${safeToDelete.length} người dùng.`, 'success');
             setSelectedUsers(new Set());
         }
@@ -325,7 +331,6 @@ const UsersPage: React.FC<UsersPageProps> = ({ users = [], setUsers, units = [],
 
     const handleSyncUsers = () => {
         if (!isAdmin || isSyncLocked) return;
-
         const existingUsernames = new Set(users.map(u => (u.Username || '').toLowerCase()));
         const missingUnits = units.filter(unit => !existingUsernames.has(unit.UnitID.toLowerCase()));
 
@@ -337,9 +342,9 @@ const UsersPage: React.FC<UsersPageProps> = ({ users = [], setUsers, units = [],
 
         if (window.confirm(`Tìm thấy ${missingUnits.length} căn hộ chưa có tài khoản. Tạo tự động?`)) {
             const newResidents: UserPermission[] = missingUnits.map(unit => ({
-                Email: `${unit.UnitID.toLowerCase()}@resident.q-home.vn`, // Auth Email (Internal)
-                contact_email: '', // Default empty contact email
-                Username: unit.UnitID, // Primary Key matches Unit ID
+                Email: `${unit.UnitID.toLowerCase()}@resident.q-home.vn`, 
+                contact_email: '', 
+                Username: unit.UnitID, 
                 DisplayName: `Cư dân ${unit.UnitID}`, 
                 Role: 'Resident',
                 status: 'Active',
@@ -359,7 +364,6 @@ const UsersPage: React.FC<UsersPageProps> = ({ users = [], setUsers, units = [],
         if (!passwordModalState.user) return;
         const targetUsername = passwordModalState.user.Username;
         const updatedList = users.map(u => u.Username === targetUsername ? { ...u, password: newPassword, mustChangePassword: false } : u);
-        
         persistData(updatedList, `Đổi mật khẩu cho: ${targetUsername}`);
         showToast('Đổi mật khẩu thành công.', 'success');
         setPasswordModalState({ isOpen: false, user: null });
@@ -382,12 +386,39 @@ const UsersPage: React.FC<UsersPageProps> = ({ users = [], setUsers, units = [],
             {isUserModalOpen && <UserModal user={editingUser} onSave={handleSaveUser} onClose={() => setIsUserModalOpen(false)} allUsers={users} />}
             {passwordModalState.isOpen && passwordModalState.user && <PasswordModal user={passwordModalState.user} onSave={handlePasswordChange} onClose={() => setPasswordModalState({ isOpen: false, user: null })} />}
 
-            {/* Stat Cards */}
+            {/* Stat Cards với tính năng Click để Lọc */}
             <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
-                <StatCard label="Tổng User" value={stats.total} icon={<UserGroupIcon className="w-6 h-6 text-gray-600"/>} className="border-l-4 border-gray-500"/>
-                <StatCard label="Quản trị viên" value={stats.admin} icon={<ShieldCheckIcon className="w-6 h-6 text-red-600"/>} iconBgClass="bg-red-100" className="border-l-4 border-red-500"/>
-                <StatCard label="Nhân viên" value={stats.staff} icon={<UserIcon className="w-6 h-6 text-blue-600"/>} iconBgClass="bg-blue-100" className="border-l-4 border-blue-500"/>
-                <StatCard label="Cư dân" value={stats.residents} icon={<BuildingIcon className="w-6 h-6 text-green-600"/>} iconBgClass="bg-green-100" className="border-l-4 border-green-500"/>
+                <StatCard 
+                    label="Tổng User" 
+                    value={stats.total} 
+                    icon={<UserGroupIcon className="w-6 h-6 text-gray-600"/>} 
+                    className={`border-l-4 border-gray-500 cursor-pointer transition-all hover:scale-[1.02] ${roleFilter === 'all' ? 'ring-2 ring-gray-400' : ''}`}
+                    onClick={() => setRoleFilter('all')}
+                />
+                <StatCard 
+                    label="Quản trị viên" 
+                    value={stats.admin} 
+                    icon={<ShieldCheckIcon className="w-6 h-6 text-red-600"/>} 
+                    iconBgClass="bg-red-100" 
+                    className={`border-l-4 border-red-500 cursor-pointer transition-all hover:scale-[1.02] ${roleFilter === 'Admin' ? 'ring-2 ring-red-500' : ''}`}
+                    onClick={() => setRoleFilter('Admin')}
+                />
+                <StatCard 
+                    label="Nhân viên" 
+                    value={stats.staff} 
+                    icon={<UserIcon className="w-6 h-6 text-blue-600"/>} 
+                    iconBgClass="bg-blue-100" 
+                    className={`border-l-4 border-blue-500 cursor-pointer transition-all hover:scale-[1.02] ${roleFilter === 'Staff_Group' ? 'ring-2 ring-blue-500' : ''}`}
+                    onClick={() => setRoleFilter('Staff_Group')}
+                />
+                <StatCard 
+                    label="Cư dân" 
+                    value={stats.residents} 
+                    icon={<BuildingIcon className="w-6 h-6 text-green-600"/>} 
+                    iconBgClass="bg-green-100" 
+                    className={`border-l-4 border-green-500 cursor-pointer transition-all hover:scale-[1.02] ${roleFilter === 'Resident' ? 'ring-2 ring-green-500' : ''}`}
+                    onClick={() => setRoleFilter('Resident')}
+                />
             </div>
 
             {/* Toolbar */}
@@ -396,12 +427,14 @@ const UsersPage: React.FC<UsersPageProps> = ({ users = [], setUsers, units = [],
                     <SearchIcon className="absolute left-3 top-1/2 -translate-y-1/2 h-5 w-5 text-gray-400" />
                     <input type="text" placeholder="Tìm tên, username, email liên hệ..." value={searchTerm} onChange={e => setSearchTerm(e.target.value)} className="w-full pl-10 p-2.5 border border-gray-300 rounded-lg focus:ring-primary outline-none text-gray-900" />
                 </div>
-                <select value={roleFilter} onChange={e => setRoleFilter(e.target.value)} className="p-2.5 border border-gray-300 rounded-lg text-gray-900 focus:ring-primary outline-none">
+                <select value={roleFilter} onChange={e => setRoleFilter(e.target.value)} className="p-2.5 border border-gray-300 rounded-lg text-gray-900 focus:ring-primary outline-none font-bold">
                     <option value="all">Tất cả vai trò</option>
-                    <option value="Admin">Admin</option>
-                    <option value="Accountant">Accountant</option>
-                    <option value="Operator">Operator</option>
-                    <option value="Resident">Resident</option>
+                    <option value="Admin">Quản trị viên</option>
+                    <option value="Staff_Group">Tất cả nhân viên</option>
+                    <option value="Accountant">Kế toán</option>
+                    <option value="Operator">Vận hành</option>
+                    <option value="Viewer">Người xem</option>
+                    <option value="Resident">Cư dân</option>
                 </select>
                 <select value={statusFilter} onChange={e => setStatusFilter(e.target.value)} className="p-2.5 border border-gray-300 rounded-lg text-gray-900 focus:ring-primary outline-none">
                     <option value="all">Tất cả trạng thái</option>
@@ -410,16 +443,7 @@ const UsersPage: React.FC<UsersPageProps> = ({ users = [], setUsers, units = [],
                 </select>
                 {isAdmin && (
                     <div className="flex gap-2">
-                        <button 
-                            onClick={!isSyncLocked ? handleSyncUsers : undefined}
-                            onDoubleClick={isSyncLocked ? () => setIsSyncLocked(false) : undefined}
-                            className={`px-4 py-2.5 font-bold rounded-lg flex items-center gap-2 whitespace-nowrap transition-colors border shadow-sm ${
-                                isSyncLocked 
-                                ? 'bg-gray-100 text-gray-400 border-gray-200 cursor-default' 
-                                : 'border-blue-600 text-blue-600 hover:bg-blue-50'
-                            }`}
-                            title={isSyncLocked ? "Dữ liệu đã khớp. Nhấn đúp để mở khóa" : "Quét và tạo tài khoản cho căn hộ còn thiếu"}
-                        >
+                        <button onClick={!isSyncLocked ? handleSyncUsers : undefined} onDoubleClick={isSyncLocked ? () => setIsSyncLocked(false) : undefined} className={`px-4 py-2.5 font-bold rounded-lg flex items-center gap-2 whitespace-nowrap transition-colors border shadow-sm ${isSyncLocked ? 'bg-gray-100 text-gray-400 border-gray-200 cursor-default' : 'border-blue-600 text-blue-600 hover:bg-blue-50'}`} title={isSyncLocked ? "Dữ liệu đã khớp. Nhấn đúp để mở khóa" : "Quét và tạo tài khoản cho căn hộ còn thiếu"}>
                             {isSyncLocked ? <LockClosedIcon className="w-5 h-5" /> : <ArrowPathIcon className="w-5 h-5" />}
                             {isSyncLocked ? "Đã đồng bộ" : "Đồng bộ Cư dân"}
                         </button>
@@ -430,7 +454,6 @@ const UsersPage: React.FC<UsersPageProps> = ({ users = [], setUsers, units = [],
                 )}
             </div>
 
-            {/* Bulk Action Bar */}
             {selectedUsers.size > 0 && isAdmin && (
                 <div className="bg-red-50 p-3 rounded-lg flex items-center justify-between border border-red-200 animate-fade-in-down">
                     <span className="text-red-700 font-medium ml-2">Đã chọn {selectedUsers.size} người dùng</span>
@@ -440,7 +463,6 @@ const UsersPage: React.FC<UsersPageProps> = ({ users = [], setUsers, units = [],
                 </div>
             )}
 
-            {/* Table */}
             <div className="bg-white rounded-xl shadow-sm flex-1 flex flex-col overflow-hidden border border-gray-100">
                 <div className="overflow-y-auto">
                     <table className="min-w-full">
@@ -461,7 +483,6 @@ const UsersPage: React.FC<UsersPageProps> = ({ users = [], setUsers, units = [],
                             {filteredUsers.map(user => {
                                 const username = user.Username || 'Unknown';
                                 const displayName = user.DisplayName || '-';
-                                // SHOW CONTACT EMAIL (Safe Access)
                                 const emailToDisplay = user.contact_email; 
                                 const char = (displayName !== '-' ? displayName : username).charAt(0).toUpperCase();
 
@@ -478,11 +499,7 @@ const UsersPage: React.FC<UsersPageProps> = ({ users = [], setUsers, units = [],
                                             <div>
                                                 <div className="font-bold text-gray-900">{username}</div>
                                                 <div className="text-xs text-gray-500">
-                                                    {emailToDisplay ? (
-                                                        <span>{emailToDisplay}</span>
-                                                    ) : (
-                                                        <span className="text-gray-400 italic">Chưa cập nhật</span>
-                                                    )}
+                                                    {emailToDisplay || <span className="text-gray-400 italic">Chưa cập nhật</span>}
                                                 </div>
                                             </div>
                                         </div>
