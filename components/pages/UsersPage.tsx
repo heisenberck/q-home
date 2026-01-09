@@ -6,7 +6,8 @@ import StatCard from '../ui/StatCard';
 import { 
     KeyIcon, CheckCircleIcon, WarningIcon, PencilSquareIcon,
     SearchIcon, TrashIcon, ShieldCheckIcon, UserIcon, PlusIcon,
-    UserGroupIcon, ArrowPathIcon, BuildingIcon, LockClosedIcon
+    UserGroupIcon, ArrowPathIcon, BuildingIcon, LockClosedIcon,
+    CheckIcon
 } from '../ui/Icons';
 import { isProduction } from '../../utils/env';
 import { saveUsers } from '../../services';
@@ -91,7 +92,17 @@ const UserModal: React.FC<{
 
     const [selectedPermissions, setSelectedPermissions] = useState<Set<string>>(new Set(user?.permissions || []));
 
-    // Update state if user prop changes (important for edit mode)
+    // Effect: Khi chuyển sang Admin -> Tự động chọn tất cả quyền
+    useEffect(() => {
+        if (formData.Role === 'Admin') {
+            setSelectedPermissions(new Set(AVAILABLE_MODULES.map(m => m.id)));
+        } else if (!isEdit && formData.Role !== 'Admin' && selectedPermissions.size === AVAILABLE_MODULES.length) {
+            // Nếu tạo mới và đổi từ Admin sang role khác, clear bớt quyền (UX optional)
+            setSelectedPermissions(new Set());
+        }
+    }, [formData.Role, isEdit]);
+
+    // Update state if user prop changes (important for edit mode re-opening)
     useEffect(() => {
         if (user) {
             setFormData({
@@ -110,6 +121,9 @@ const UserModal: React.FC<{
     }, [user]);
 
     const handlePermissionToggle = (moduleId: string) => {
+        // Admin không được bỏ quyền (logic hệ thống: Admin luôn full quyền)
+        if (formData.Role === 'Admin') return;
+
         const next = new Set(selectedPermissions);
         if (next.has(moduleId)) next.delete(moduleId);
         else next.add(moduleId);
@@ -144,11 +158,18 @@ const UserModal: React.FC<{
             }
         }
 
-        onSave({ ...formData, permissions: Array.from(selectedPermissions) });
+        // Đảm bảo permissions luôn là mảng, kể cả khi rỗng
+        const finalPermissions = Array.from(selectedPermissions);
+
+        onSave({ 
+            ...formData, 
+            permissions: finalPermissions,
+            // Nếu là Admin, đảm bảo status logic hợp lệ (thường Admin không tự disable chính mình ở đây, nhưng logic backend xử lý)
+        });
     };
 
-    const isStaff = ['Accountant', 'Operator', 'Viewer'].includes(formData.Role);
-    const inputStyle = "w-full p-2.5 border border-gray-300 rounded-lg bg-white text-gray-900 focus:ring-2 focus:ring-primary outline-none";
+    const isStaff = ['Accountant', 'Operator', 'Viewer', 'Admin'].includes(formData.Role);
+    const inputStyle = "w-full p-2.5 border border-gray-300 rounded-lg bg-white text-gray-900 focus:ring-2 focus:ring-primary outline-none transition-all";
 
     return (
         <Modal title={isEdit ? `Cập nhật: ${user?.Username || 'Người dùng'}` : "Thêm người dùng mới"} onClose={onClose} size="lg">
@@ -174,27 +195,38 @@ const UserModal: React.FC<{
                             value={formData.contact_email || ''} 
                             onChange={e => setFormData({...formData, contact_email: e.target.value})} 
                             className={inputStyle} 
-                            placeholder="Nhập email cá nhân của cư dân..."
+                            placeholder="Nhập email cá nhân..."
                         />
                     </div>
 
                     <div>
-                        <label className="block text-sm font-medium text-gray-700 mb-1">Tên hiển thị (Optional)</label>
+                        <label className="block text-sm font-medium text-gray-700 mb-1">Tên hiển thị</label>
                         <input type="text" value={formData.DisplayName} onChange={e => setFormData({...formData, DisplayName: e.target.value})} className={inputStyle} placeholder="VD: Nguyễn Văn A" />
                     </div>
+                    
                     <div>
                         <label className="block text-sm font-medium text-gray-700 mb-1">Vai trò</label>
-                        <select value={formData.Role} onChange={e => setFormData({...formData, Role: e.target.value as Role})} className={inputStyle} disabled={isEdit && user?.Role === 'Admin'}>
-                            <option value="Admin">Admin</option>
-                            <option value="Accountant">Accountant</option>
-                            <option value="Operator">Operator</option>
-                            <option value="Viewer">Viewer</option>
-                            <option value="Resident">Resident</option>
+                        <select 
+                            value={formData.Role} 
+                            onChange={e => setFormData({...formData, Role: e.target.value as Role})} 
+                            className={inputStyle} 
+                            disabled={isEdit && user?.Role === 'Admin'} // Không cho hạ cấp Admin chính (logic an toàn)
+                        >
+                            <option value="Admin">Admin (Quản trị)</option>
+                            <option value="Accountant">Accountant (Kế toán)</option>
+                            <option value="Operator">Operator (Vận hành)</option>
+                            <option value="Viewer">Viewer (Xem)</option>
+                            <option value="Resident">Resident (Cư dân)</option>
                         </select>
                     </div>
+                    
                     <div>
                         <label className="block text-sm font-medium text-gray-700 mb-1">Trạng thái</label>
-                        <select value={formData.status} onChange={e => setFormData({...formData, status: e.target.value as any})} className={inputStyle}>
+                        <select 
+                            value={formData.status} 
+                            onChange={e => setFormData({...formData, status: e.target.value as any})} 
+                            className={`${inputStyle} ${formData.status === 'Active' ? 'text-green-700 font-semibold' : 'text-red-600 font-semibold'}`}
+                        >
                             <option value="Active">Hoạt động</option>
                             <option value="Disabled">Vô hiệu hóa</option>
                         </select>
@@ -202,13 +234,29 @@ const UserModal: React.FC<{
                 </div>
 
                 {isStaff && (
-                    <div className="bg-gray-50 p-4 rounded-xl border border-gray-200">
-                        <h4 className="font-bold text-gray-800 mb-3 flex items-center gap-2"><ShieldCheckIcon className="w-5 h-5 text-primary"/> Phân quyền Module</h4>
+                    <div className={`p-4 rounded-xl border ${formData.Role === 'Admin' ? 'bg-orange-50 border-orange-200' : 'bg-gray-50 border-gray-200'}`}>
+                        <div className="flex justify-between items-center mb-3">
+                            <h4 className={`font-bold flex items-center gap-2 ${formData.Role === 'Admin' ? 'text-orange-800' : 'text-gray-800'}`}>
+                                <ShieldCheckIcon className="w-5 h-5"/> Phân quyền Module
+                            </h4>
+                            {formData.Role === 'Admin' && <span className="text-[10px] bg-orange-200 text-orange-800 px-2 py-1 rounded-md font-bold uppercase">Full Access</span>}
+                        </div>
+                        
                         <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
                             {AVAILABLE_MODULES.map(mod => (
-                                <label key={mod.id} className="flex items-center space-x-3 cursor-pointer">
-                                    <input type="checkbox" checked={selectedPermissions.has(mod.id)} onChange={() => handlePermissionToggle(mod.id)} className="w-4 h-4 text-primary border-gray-300 rounded focus:ring-primary" />
-                                    <span className="text-sm text-gray-700">{mod.label}</span>
+                                <label key={mod.id} className={`flex items-center space-x-3 p-2 rounded-lg transition-colors ${selectedPermissions.has(mod.id) ? 'bg-white shadow-sm' : ''} ${formData.Role === 'Admin' ? 'opacity-75 cursor-not-allowed' : 'cursor-pointer hover:bg-white'}`}>
+                                    <div className={`w-5 h-5 rounded border flex items-center justify-center transition-colors ${selectedPermissions.has(mod.id) ? 'bg-primary border-primary' : 'bg-white border-gray-300'}`}>
+                                        {selectedPermissions.has(mod.id) && <CheckIcon className="w-3.5 h-3.5 text-white" />}
+                                    </div>
+                                    {/* Hidden checkbox for logic */}
+                                    <input 
+                                        type="checkbox" 
+                                        className="hidden"
+                                        checked={selectedPermissions.has(mod.id)} 
+                                        onChange={() => handlePermissionToggle(mod.id)} 
+                                        disabled={formData.Role === 'Admin'}
+                                    />
+                                    <span className="text-sm text-gray-700 font-medium">{mod.label}</span>
                                 </label>
                             ))}
                         </div>
@@ -217,7 +265,9 @@ const UserModal: React.FC<{
 
                 <div className="flex justify-end gap-3 pt-4 border-t">
                     <button type="button" onClick={onClose} className="px-5 py-2.5 bg-gray-100 text-gray-700 rounded-lg hover:bg-gray-200">Hủy bỏ</button>
-                    <button type="submit" className="px-5 py-2.5 bg-primary text-white font-bold rounded-lg hover:bg-primary-focus">{isEdit ? 'Lưu thay đổi' : 'Tạo người dùng'}</button>
+                    <button type="submit" className="px-5 py-2.5 bg-primary text-white font-bold rounded-lg hover:bg-primary-focus shadow-lg shadow-primary/30">
+                        {isEdit ? 'Lưu thay đổi' : 'Tạo người dùng'}
+                    </button>
                 </div>
             </form>
         </Modal>
@@ -280,6 +330,7 @@ const UsersPage: React.FC<UsersPageProps> = ({ users = [], setUsers, units = [],
     // --- Core Logic Handlers (Dual Env) ---
 
     const persistData = async (newUsers: UserPermission[], actionSummary: string) => {
+        // Cập nhật State Local ngay lập tức
         setUsers(newUsers, {
             module: 'System',
             action: 'UPDATE_USERS',
@@ -297,15 +348,18 @@ const UsersPage: React.FC<UsersPageProps> = ({ users = [], setUsers, units = [],
     };
 
     const handleSaveUser = (userToSave: ExtendedUser) => {
-        const exists = users.some(u => u.Username === userToSave.Username);
-        const updatedList = exists 
-            ? users.map(u => u.Username === userToSave.Username ? userToSave : u) 
-            : [...users, userToSave];
+        // Tìm và thay thế user trong danh sách hiện tại
+        const updatedList = users.map(u => u.Username === userToSave.Username ? userToSave : u);
         
-        const summary = exists ? `Cập nhật user: ${userToSave.Username}` : `Thêm user mới: ${userToSave.Username}`;
+        // Nếu không tìm thấy (tạo mới), thêm vào đầu danh sách
+        if (!users.some(u => u.Username === userToSave.Username)) {
+            updatedList.unshift(userToSave);
+        }
+        
+        const summary = `Cập nhật user: ${userToSave.Username} (${userToSave.Role})`;
         persistData(updatedList, summary);
         
-        showToast(exists ? 'Cập nhật thành công.' : 'Tạo mới thành công.', 'success');
+        showToast('Đã lưu thông tin người dùng.', 'success');
         setIsUserModalOpen(false);
     };
 
@@ -485,19 +539,22 @@ const UsersPage: React.FC<UsersPageProps> = ({ users = [], setUsers, units = [],
                                 const displayName = user.DisplayName || '-';
                                 const emailToDisplay = user.contact_email; 
                                 const char = (displayName !== '-' ? displayName : username).charAt(0).toUpperCase();
+                                
+                                const isAdminRole = user.Role === 'Admin';
+                                const isActive = user.status === 'Active';
 
                                 return (
-                                <tr key={username} className="hover:bg-gray-50 transition-colors">
+                                <tr key={username} className={`hover:bg-gray-50 transition-colors ${!isActive ? 'bg-gray-50/50' : ''}`}>
                                     <td className="px-6 py-4 text-center">
                                         <input type="checkbox" checked={selectedUsers.has(username)} onChange={() => toggleSelectUser(username)} className="w-4 h-4 rounded text-primary focus:ring-primary" disabled={user.Role === 'Admin'} />
                                     </td>
                                     <td className="px-6 py-4">
                                         <div className="flex items-center gap-3">
-                                            <div className="w-10 h-10 rounded-full bg-gray-100 flex items-center justify-center text-gray-500 uppercase font-bold">
+                                            <div className={`w-10 h-10 rounded-full flex items-center justify-center font-bold shadow-sm ${isActive ? 'bg-gray-100 text-gray-500' : 'bg-red-50 text-red-400 border border-red-100'}`}>
                                                 {char}
                                             </div>
                                             <div>
-                                                <div className="font-bold text-gray-900">{username}</div>
+                                                <div className={`font-bold ${isActive ? 'text-gray-900' : 'text-gray-500 line-through'}`}>{username}</div>
                                                 <div className="text-xs text-gray-500">
                                                     {emailToDisplay || <span className="text-gray-400 italic">Chưa cập nhật</span>}
                                                 </div>
@@ -509,31 +566,34 @@ const UsersPage: React.FC<UsersPageProps> = ({ users = [], setUsers, units = [],
                                     </td>
                                     <td className="px-6 py-4">
                                         <span className={`px-2.5 py-0.5 rounded-full text-xs font-bold border ${
-                                            user.Role === 'Admin' ? 'bg-red-50 text-red-700 border-red-200' : 
+                                            isAdminRole ? 'bg-red-50 text-red-700 border-red-200' : 
                                             user.Role === 'Resident' ? 'bg-green-50 text-green-700 border-green-200' :
                                             'bg-blue-50 text-blue-700 border-blue-200'
                                         }`}>{user.Role}</span>
                                     </td>
                                     <td className="px-6 py-4">
-                                        {user.status === 'Active' ? 
-                                            <span className="flex items-center gap-1.5 text-xs font-bold text-green-700 bg-green-50 px-2 py-0.5 rounded-full w-fit"><CheckCircleIcon className="w-3 h-3"/> Active</span> : 
-                                            <span className="flex items-center gap-1.5 text-xs font-bold text-gray-500 bg-gray-100 px-2 py-0.5 rounded-full w-fit"><WarningIcon className="w-3 h-3"/> Disabled</span>
+                                        {isActive ? 
+                                            <span className="flex items-center gap-1.5 text-xs font-bold text-green-700 bg-green-50 px-2 py-0.5 rounded-full w-fit border border-green-200"><CheckCircleIcon className="w-3 h-3"/> Active</span> : 
+                                            <span className="flex items-center gap-1.5 text-xs font-bold text-red-600 bg-red-50 px-2 py-0.5 rounded-full w-fit border border-red-200 shadow-sm"><WarningIcon className="w-3 h-3"/> Disabled</span>
                                         }
                                     </td>
                                     <td className="px-6 py-4">
                                         <div className="flex flex-wrap gap-1 max-w-[200px]">
-                                            {(user as ExtendedUser).permissions?.map(p => (
-                                                <span key={p} className="text-[10px] bg-gray-100 text-gray-600 px-1.5 py-0.5 rounded border border-gray-200">{AVAILABLE_MODULES.find(m=>m.id===p)?.label || p}</span>
-                                            ))}
-                                            {(!user.Role.includes('Admin') && !(user as ExtendedUser).permissions?.length) && <span className="text-xs text-gray-400 italic">Cơ bản</span>}
-                                            {user.Role === 'Admin' && <span className="text-xs text-red-500 font-bold">Toàn quyền</span>}
+                                            {isAdminRole ? (
+                                                <span className="text-xs text-red-500 font-bold bg-red-50 border border-red-100 px-2 py-0.5 rounded">Toàn quyền</span>
+                                            ) : (
+                                                (user as ExtendedUser).permissions?.map(p => (
+                                                    <span key={p} className="text-[10px] bg-white text-gray-600 px-1.5 py-0.5 rounded border border-gray-200 shadow-sm">{AVAILABLE_MODULES.find(m=>m.id===p)?.label || p}</span>
+                                                ))
+                                            )}
+                                            {(!isAdminRole && !(user as ExtendedUser).permissions?.length) && <span className="text-xs text-gray-400 italic">Chưa cấp quyền</span>}
                                         </div>
                                     </td>
                                     <td className="px-6 py-4 text-center">
                                         {isAdmin && (
                                             <div className="flex justify-center gap-2">
-                                                <button onClick={() => { setEditingUser(user); setIsUserModalOpen(true); }} disabled={user.Role === 'Admin' && user.Username !== currentUser?.Username} className="p-2 text-blue-600 hover:bg-blue-50 rounded-lg disabled:opacity-30"><PencilSquareIcon className="w-5 h-5" /></button>
-                                                <button onClick={() => setPasswordModalState({ isOpen: true, user })} disabled={user.Role === 'Admin' && user.Username !== currentUser?.Username} className="p-2 text-orange-600 hover:bg-orange-50 rounded-lg disabled:opacity-30"><KeyIcon className="w-5 h-5" /></button>
+                                                <button onClick={() => { setEditingUser(user); setIsUserModalOpen(true); }} disabled={user.Role === 'Admin' && user.Username !== currentUser?.Username} className="p-2 text-blue-600 hover:bg-blue-50 rounded-lg disabled:opacity-30 border border-transparent hover:border-blue-100"><PencilSquareIcon className="w-5 h-5" /></button>
+                                                <button onClick={() => setPasswordModalState({ isOpen: true, user })} disabled={user.Role === 'Admin' && user.Username !== currentUser?.Username} className="p-2 text-orange-600 hover:bg-orange-50 rounded-lg disabled:opacity-30 border border-transparent hover:border-orange-100"><KeyIcon className="w-5 h-5" /></button>
                                             </div>
                                         )}
                                     </td>
