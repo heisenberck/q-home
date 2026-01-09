@@ -1,3 +1,4 @@
+
 import React, { useState, useMemo, useEffect } from 'react';
 import type { UserPermission, Role, Unit } from '../../types';
 import { useAuth, useNotification } from '../../App';
@@ -90,40 +91,21 @@ const UserModal: React.FC<{
         permissions: user?.permissions || []
     });
 
-    const [selectedPermissions, setSelectedPermissions] = useState<Set<string>>(new Set(user?.permissions || []));
+    // Initialize permissions securely
+    const [selectedPermissions, setSelectedPermissions] = useState<Set<string>>(() => {
+        if (user && user.permissions) return new Set(user.permissions);
+        return new Set();
+    });
 
     // Effect: Khi chuyển sang Admin -> Tự động chọn tất cả quyền
     useEffect(() => {
         if (formData.Role === 'Admin') {
             setSelectedPermissions(new Set(AVAILABLE_MODULES.map(m => m.id)));
-        } else if (!isEdit && formData.Role !== 'Admin' && selectedPermissions.size === AVAILABLE_MODULES.length) {
-            // Nếu tạo mới và đổi từ Admin sang role khác, clear bớt quyền (UX optional)
-            setSelectedPermissions(new Set());
         }
-    }, [formData.Role, isEdit]);
-
-    // Update state if user prop changes (important for edit mode re-opening)
-    useEffect(() => {
-        if (user) {
-            setFormData({
-                Email: user.Email || '',
-                contact_email: user.contact_email || '',
-                Username: user.Username || '',
-                DisplayName: user.DisplayName || '',
-                Role: user.Role || 'Viewer',
-                status: user.status || 'Active',
-                password: user.password || '',
-                mustChangePassword: user.mustChangePassword ?? false,
-                permissions: user.permissions || []
-            });
-            setSelectedPermissions(new Set(user.permissions || []));
-        }
-    }, [user]);
+    }, [formData.Role]);
 
     const handlePermissionToggle = (moduleId: string) => {
-        // Admin không được bỏ quyền (logic hệ thống: Admin luôn full quyền)
-        if (formData.Role === 'Admin') return;
-
+        if (formData.Role === 'Admin') return; // Admin luôn full quyền
         const next = new Set(selectedPermissions);
         if (next.has(moduleId)) next.delete(moduleId);
         else next.add(moduleId);
@@ -138,15 +120,18 @@ const UserModal: React.FC<{
             return; 
         }
         
+        // Kiểm tra trùng ID (Chỉ check khi tạo mới)
         if (!isEdit) {
-            if (allUsers.some(u => (u.Username || '').toLowerCase() === (formData.Username || '').toLowerCase())) {
-                showToast('Tên đăng nhập (Mã căn) đã tồn tại.', 'error'); return;
+            const isDuplicateId = allUsers.some(u => (u.Username || '').toLowerCase() === (formData.Username || '').toLowerCase());
+            if (isDuplicateId) {
+                showToast('Tên đăng nhập đã tồn tại.', 'error'); return;
             }
             if (!formData.Email) {
                 formData.Email = `${formData.Username}@resident.q-home.vn`.toLowerCase();
             }
         }
 
+        // Kiểm tra trùng Email liên hệ (Trừ bản thân)
         if (formData.contact_email) {
             const emailExists = allUsers.some(u => 
                 (u.contact_email || '').toLowerCase() === (formData.contact_email || '').toLowerCase() && 
@@ -158,13 +143,11 @@ const UserModal: React.FC<{
             }
         }
 
-        // Đảm bảo permissions luôn là mảng, kể cả khi rỗng
         const finalPermissions = Array.from(selectedPermissions);
 
         onSave({ 
             ...formData, 
             permissions: finalPermissions,
-            // Nếu là Admin, đảm bảo status logic hợp lệ (thường Admin không tự disable chính mình ở đây, nhưng logic backend xử lý)
         });
     };
 
@@ -210,7 +193,7 @@ const UserModal: React.FC<{
                             value={formData.Role} 
                             onChange={e => setFormData({...formData, Role: e.target.value as Role})} 
                             className={inputStyle} 
-                            disabled={isEdit && user?.Role === 'Admin'} // Không cho hạ cấp Admin chính (logic an toàn)
+                            disabled={isEdit && user?.Role === 'Admin'} 
                         >
                             <option value="Admin">Admin (Quản trị)</option>
                             <option value="Accountant">Accountant (Kế toán)</option>
@@ -248,7 +231,6 @@ const UserModal: React.FC<{
                                     <div className={`w-5 h-5 rounded border flex items-center justify-center transition-colors ${selectedPermissions.has(mod.id) ? 'bg-primary border-primary' : 'bg-white border-gray-300'}`}>
                                         {selectedPermissions.has(mod.id) && <CheckIcon className="w-3.5 h-3.5 text-white" />}
                                     </div>
-                                    {/* Hidden checkbox for logic */}
                                     <input 
                                         type="checkbox" 
                                         className="hidden"
@@ -293,7 +275,7 @@ const UsersPage: React.FC<UsersPageProps> = ({ users = [], setUsers, units = [],
     const [editingUser, setEditingUser] = useState<ExtendedUser | null>(null);
     const [passwordModalState, setPasswordModalState] = useState<{ isOpen: boolean; user: UserPermission | null }>({ isOpen: false, user: null });
 
-    // Stats Calculation (Safe checks)
+    // Stats Calculation
     const stats = useMemo(() => ({
         total: users.length,
         admin: users.filter(u => u?.Role === 'Admin').length,
@@ -301,12 +283,11 @@ const UsersPage: React.FC<UsersPageProps> = ({ users = [], setUsers, units = [],
         residents: users.filter(u => u?.Role === 'Resident').length
     }), [users]);
 
-    // Filtering (Defensive Logic)
+    // Filtering
     const filteredUsers = useMemo(() => {
         return users.filter(user => {
             if (!user) return false;
             
-            // Role Filter Logic (Supports groups)
             if (roleFilter !== 'all') {
                 if (roleFilter === 'Staff_Group') {
                     if (!['Accountant', 'Operator', 'Viewer'].includes(user.Role)) return false;
@@ -327,10 +308,9 @@ const UsersPage: React.FC<UsersPageProps> = ({ users = [], setUsers, units = [],
         });
     }, [users, searchTerm, roleFilter, statusFilter]);
 
-    // --- Core Logic Handlers (Dual Env) ---
+    // --- Logic ---
 
     const persistData = async (newUsers: UserPermission[], actionSummary: string) => {
-        // Cập nhật State Local ngay lập tức
         setUsers(newUsers, {
             module: 'System',
             action: 'UPDATE_USERS',
@@ -340,6 +320,7 @@ const UsersPage: React.FC<UsersPageProps> = ({ users = [], setUsers, units = [],
 
         if (IS_PROD) {
             try {
+                // Ensure permissions are saved to backend
                 await saveUsers(newUsers);
             } catch (error) {
                 showToast('Lỗi lưu dữ liệu vào hệ thống.', 'error');
@@ -348,17 +329,27 @@ const UsersPage: React.FC<UsersPageProps> = ({ users = [], setUsers, units = [],
     };
 
     const handleSaveUser = (userToSave: ExtendedUser) => {
-        // Tìm và thay thế user trong danh sách hiện tại
-        const updatedList = users.map(u => u.Username === userToSave.Username ? userToSave : u);
-        
-        // Nếu không tìm thấy (tạo mới), thêm vào đầu danh sách
-        if (!users.some(u => u.Username === userToSave.Username)) {
-            updatedList.unshift(userToSave);
+        // IMPROVED: Tìm user chính xác hơn (chấp nhận cả chữ hoa/thường) hoặc fallback sang Email
+        const existingIndex = users.findIndex(u => 
+            (u.Username && u.Username.toLowerCase() === (userToSave.Username || '').toLowerCase()) ||
+            u.Email.toLowerCase() === userToSave.Email.toLowerCase()
+        );
+
+        let updatedList: UserPermission[];
+        let actionMsg = '';
+
+        if (existingIndex > -1) {
+            // Cập nhật existing
+            updatedList = [...users];
+            updatedList[existingIndex] = userToSave;
+            actionMsg = `Cập nhật user: ${userToSave.Username}`;
+        } else {
+            // Tạo mới -> Đưa lên đầu danh sách
+            updatedList = [userToSave, ...users];
+            actionMsg = `Thêm user mới: ${userToSave.Username}`;
         }
         
-        const summary = `Cập nhật user: ${userToSave.Username} (${userToSave.Role})`;
-        persistData(updatedList, summary);
-        
+        persistData(updatedList, actionMsg);
         showToast('Đã lưu thông tin người dùng.', 'success');
         setIsUserModalOpen(false);
     };
