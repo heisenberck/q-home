@@ -26,12 +26,12 @@ export const getPreviousPeriod = (p: string): string => {
 export const parseUnitCode = (code: string) => {
     const s = String(code).trim();
     
-    // Xử lý Kios (bắt đầu bằng K hoặc Kios)
-    // Trả về floor 99 để Kios luôn nằm sau các căn hộ tầng thường
-    // Regex \d+ sẽ lấy số đầu tiên tìm thấy (VD: "Kios 1" -> 1, "K10" -> 10)
+    // Xử lý Kios (bắt đầu bằng K hoặc Kios, không phân biệt hoa thường)
+    // Regex \d+ sẽ lấy cụm số đầu tiên. VD: "Kios 1" -> 1, "Kios 09" -> 9, "K10" -> 10
     if (s.toLowerCase().startsWith('k')) {
         const matches = s.match(/\d+/);
         const apt = matches ? parseInt(matches[0], 10) : 0;
+        // Floor 99 để Kios luôn nằm cuối danh sách (sau các tầng căn hộ)
         return { floor: 99, apt: apt };
     }
 

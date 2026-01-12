@@ -408,25 +408,55 @@ const WaterPage: React.FC<WaterPageProps> = ({ waterReadings: globalReadings, se
             
             const prevPeriod = getPreviousPeriod(period);
             const prevReadingsMap = new Map<string, WaterReading>(localReadings.filter(r => r.Period === prevPeriod).map(r => [r.UnitID, r]));
-            const allUnitIds = new Set(allUnits.map(u => u.UnitID));
+            
+            // --- NEW: Smart UnitID Lookup Map for Kios Support ---
+            const unitIdMap = new Map<string, string>();
+            allUnits.forEach(u => {
+                const s = u.UnitID.toLowerCase().trim();
+                // Kios normalization: "Kios 1" -> "k1", "K01" -> "k1"
+                if (s.startsWith('k')) {
+                    const num = parseInt(s.replace(/\D/g, '') || '0', 10);
+                    unitIdMap.set(`k${num}`, u.UnitID);
+                } else {
+                    unitIdMap.set(s, u.UnitID);
+                }
+            });
+
             const newReadings: WaterReading[] = [];
             let successCount = 0, errorCount = 0;
             
             for (const row of parsedData) {
-                const unitId = String(row.unitId).trim();
+                const rawId = String(row.unitId).trim();
+                const rawIdLower = rawId.toLowerCase();
+                
+                // Try direct match first, then smart match
+                let targetUnitId = unitIdMap.get(rawIdLower);
+                if (!targetUnitId && rawIdLower.startsWith('k')) {
+                    // Try to extract number for Kios mismatch (e.g. file has "Kios 01", system has "Kios 1")
+                    const num = parseInt(rawIdLower.replace(/\D/g, '') || '0', 10);
+                    targetUnitId = unitIdMap.get(`k${num}`);
+                }
+
+                if (!targetUnitId) { 
+                    errorCount++; 
+                    continue; 
+                }
+
                 const newIndex = parseInt(String(row.reading), 10);
-                if (!allUnitIds.has(unitId) || isNaN(newIndex) || newIndex < 0) { errorCount++; continue; }
-                const prevReading = prevReadingsMap.get(unitId);
+                if (isNaN(newIndex) || newIndex < 0) { errorCount++; continue; }
+                
+                const prevReading = prevReadingsMap.get(targetUnitId);
                 const prevIndex = prevReading?.CurrIndex ?? 0;
+                
                 if (newIndex < prevIndex) { errorCount++; continue; }
+                
                 const consumption = newIndex - prevIndex;
-                newReadings.push({ UnitID: unitId, Period: period, PrevIndex: prevIndex, CurrIndex: newIndex, Rollover: false, consumption: Math.max(0, consumption) });
+                newReadings.push({ UnitID: targetUnitId, Period: period, PrevIndex: prevIndex, CurrIndex: newIndex, Rollover: false, consumption: Math.max(0, consumption) });
                 successCount++;
             }
             if (successCount > 0) {
                 await saveWaterReadings(newReadings);
                 
-                // Refresh local data from server or just merge optimistic? Fetch is safer for batch.
                 const freshData = await fetchRecentWaterReadings([period, prevPeriod]);
                 setLocalReadings(freshData);
 
