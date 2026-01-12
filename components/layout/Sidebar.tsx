@@ -64,18 +64,11 @@ const menuGroups: (MenuItem | MenuGroup)[] = [
     }
 ];
 
-// Local extension for permissions
-interface ExtendedUser extends UserPermission {
-    permissions?: string[];
-}
-
 const Sidebar: React.FC<SidebarProps> = ({ activePage, setActivePage, role }) => {
   const { invoiceSettings } = useSettings();
   const { user } = useAuth();
   const [isCollapsed, setIsCollapsed] = useState(false);
   const [expandedGroups, setExpandedGroups] = useState<Set<string>>(new Set(['residents_group', 'finance_group', 'comm_group']));
-
-  const extendedUser = user as ExtendedUser;
 
   // Filter Menu based on Permissions
   const filteredMenuGroups = useMemo(() => {
@@ -83,7 +76,7 @@ const Sidebar: React.FC<SidebarProps> = ({ activePage, setActivePage, role }) =>
       if (role === 'Admin') return menuGroups;
 
       // 2. Logic for Staff (Accountant, Operator, Viewer)
-      const userPermissions = new Set(extendedUser.permissions || []);
+      const userPermissions = new Set(user?.permissions || []);
 
       return menuGroups.map(group => {
           if ('items' in group) {
@@ -112,7 +105,7 @@ const Sidebar: React.FC<SidebarProps> = ({ activePage, setActivePage, role }) =>
               return null;
           }
       }).filter(Boolean) as (MenuItem | MenuGroup)[]; // Remove nulls
-  }, [role, extendedUser.permissions]);
+  }, [role, user?.permissions]);
 
   const toggleGroup = (groupId: string) => {
       setExpandedGroups(prev => {

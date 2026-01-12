@@ -269,6 +269,7 @@ export interface UserPermission {
     DisplayName?: string;
     avatarUrl?: string;
     contact_email?: string;
+    permissions?: string[]; // Added permissions field
 }
 
 export interface InvoiceSettings {

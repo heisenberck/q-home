@@ -102,6 +102,29 @@ const App: React.FC = () => {
     const [localUsers, setLocalUsers] = useState<UserPermission[]>([]);
     useEffect(() => { if(fetchedUsers) setLocalUsers(fetchedUsers); }, [fetchedUsers]);
 
+    // --- FIX: Đồng bộ quyền User từ Server về Session hiện tại ---
+    useEffect(() => {
+        if (!user || localUsers.length === 0) return;
+
+        const freshUser = localUsers.find(u => u.Email === user.Email);
+        if (freshUser) {
+            // So sánh quyền và vai trò
+            const currentPerms = JSON.stringify(user.permissions || []);
+            const freshPerms = JSON.stringify(freshUser.permissions || []);
+            const currentRole = user.Role;
+            const freshRole = freshUser.Role;
+
+            if (currentPerms !== freshPerms || currentRole !== freshRole) {
+                console.log("Syncing user permissions from server...");
+                const mergedUser = { ...user, ...freshUser };
+                setUser(mergedUser);
+                if (localStorage.getItem('rememberedUserObject')) {
+                    localStorage.setItem('rememberedUserObject', JSON.stringify(mergedUser));
+                }
+            }
+        }
+    }, [localUsers, user?.Email]); // Chỉ chạy khi localUsers thay đổi
+
     useEffect(() => {
         const handleResize = () => setIsMobile(window.innerWidth < 768);
         window.addEventListener('resize', handleResize);
