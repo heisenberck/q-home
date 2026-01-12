@@ -1,5 +1,4 @@
 
-
 import { UnitType, ParkingTariffTier, VehicleTier, InvoiceSettings } from '../types';
 import type { ChargeRaw, AllData, Adjustment, Unit } from '../types';
 
@@ -26,7 +25,17 @@ export const getPreviousPeriod = (p: string): string => {
 
 export const parseUnitCode = (code: string) => {
     const s = String(code).trim();
-    if (s.startsWith('K')) return { floor: 99, apt: parseInt(s.substring(1), 10) || 0 };
+    
+    // Xử lý Kios (bắt đầu bằng K hoặc Kios)
+    // Trả về floor 99 để Kios luôn nằm sau các căn hộ tầng thường
+    // Regex \d+ sẽ lấy số đầu tiên tìm thấy (VD: "Kios 1" -> 1, "K10" -> 10)
+    if (s.toLowerCase().startsWith('k')) {
+        const matches = s.match(/\d+/);
+        const apt = matches ? parseInt(matches[0], 10) : 0;
+        return { floor: 99, apt: apt };
+    }
+
+    // Xử lý Căn hộ (VD: 202, 1204)
     if (!/^\d{3,4}$/.test(s)) return null;
     let floor, apt;
     if (s.length === 3) {
