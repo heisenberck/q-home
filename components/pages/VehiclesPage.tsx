@@ -1,7 +1,7 @@
 
 import React, { useState, useMemo, useEffect } from 'react';
 import type { Vehicle, Unit, Owner, Role, ActivityLog, VehicleTier, VehicleDocument } from '../../types';
-import { useNotification, useAuth } from '../../App';
+import { useNotification, useAuth, useDataRefresh } from '../../App';
 import Modal from '../ui/Modal';
 import { 
     CarIcon, SearchIcon, PencilSquareIcon, WarningIcon, UploadIcon, 
@@ -539,6 +539,7 @@ const VehicleDetailPanel: React.FC<{
 const VehiclesPage: React.FC<VehiclesPageProps> = ({ vehicles, units, owners, activityLogs, onSetVehicles, role }) => {
     const { showToast } = useNotification();
     const { user } = useAuth();
+    const { refreshData } = useDataRefresh();
     const canEdit = ['Admin', 'Accountant', 'Operator'].includes(role);
 
     const [searchTerm, setSearchTerm] = useState('');
@@ -626,6 +627,7 @@ const VehiclesPage: React.FC<VehiclesPageProps> = ({ vehicles, units, owners, ac
         try {
             if (isProduction()) {
                 await saveVehicles([updatedVehicle], { email: user?.Email || 'system', role: user?.Role || 'Admin' }, reason);
+                refreshData(true); // Force data refresh from server
             }
             
             const typeLabel = updatedVehicle.Type.includes('car') ? 'Ô tô' : 'Xe máy';
@@ -658,6 +660,7 @@ const VehiclesPage: React.FC<VehiclesPageProps> = ({ vehicles, units, owners, ac
             const deactiveVehicle = { ...vehicle, isActive: false, updatedAt: new Date().toISOString() };
             if (isProduction()) {
                 await saveVehicles([deactiveVehicle], { email: user?.Email || 'system', role: user?.Role || 'Admin' }, `Xóa xe: ${reason}`);
+                refreshData(true); // Force refresh
             }
             
             const typeLabel = vehicle.Type.includes('car') ? 'Ô tô' : 'Xe máy';
@@ -683,6 +686,7 @@ const VehiclesPage: React.FC<VehiclesPageProps> = ({ vehicles, units, owners, ac
             const deactiveUpdates = targetVehicles.map(v => ({ ...v, isActive: false, updatedAt: new Date().toISOString() }));
             if (isProduction()) {
                 await saveVehicles(deactiveUpdates, { email: user?.Email || 'system', role: user?.Role || 'Admin' }, 'Xóa hàng loạt xe trùng lặp');
+                refreshData(true);
             }
             onSetVehicles(prev => prev.map(v => idsToDelete.includes(v.VehicleId) ? { ...v, isActive: false, updatedAt: new Date().toISOString() } : v), {
                 module: 'Vehicles',
