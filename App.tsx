@@ -40,7 +40,7 @@ import AdminPortalBillingPage from './components/pages/admin-portal/AdminPortalB
 import AdminPortalVASPage from './components/pages/admin-portal/AdminPortalVASPage';
 import AdminPortalExpensesPage from './components/pages/admin-portal/AdminPortalExpensesPage';
 import Toast, { ToastMessage, ToastType } from './components/ui/Toast';
-import { deleteUsers, updateResidentData, importResidentsBatch, updateFeeSettings, fetchLatestLogs, updateUserProfile, saveWaterReadings, logActivity } from './services';
+import { deleteUsers, updateResidentData, importResidentsBatch, updateFeeSettings, fetchLatestLogs, updateUserProfile, saveWaterReadings, logActivity, saveTariffs } from './services';
 import ChangePasswordModal from './components/pages/ChangePasswordModal';
 import NotificationListener from './components/common/NotificationListener';
 import Spinner from './components/ui/Spinner';
@@ -181,6 +181,14 @@ const App: React.FC = () => {
         refreshLogs(); 
     };
 
+    const handleSaveTariffs = async (newTariffs: TariffCollection, logPayload?: any) => {
+        await saveTariffs(newTariffs);
+        if (logPayload) {
+            await logActivity(logPayload.action, logPayload.module, logPayload.summary);
+        }
+        refreshSystemData(true);
+    }
+
     const handleMarkNewsAsRead = useCallback((newsId: string) => {
         setReadNewsIds(prev => {
             const next = new Set(prev); next.add(newsId);
@@ -203,7 +211,7 @@ const App: React.FC = () => {
             case 'residents': return <ResidentsPage units={units} owners={owners} vehicles={vehicles} activityLogs={activityLogs} onSaveResident={handleSaveResident} onImportData={importResidentsBatch} onDeleteResidents={()=>{}} role={user!.Role} currentUser={user!} onNavigate={(p) => setActivePage(p as AdminPage)} />;
             case 'vehicles': return <VehiclesPage vehicles={vehicles} units={units} owners={owners} activityLogs={activityLogs} onSetVehicles={()=>{}} role={user!.Role} />;
             case 'water': return <WaterPage waterReadings={waterReadings} setWaterReadings={()=>{}} allUnits={units} role={user!.Role} tariffs={tariffs} lockedPeriods={lockedWaterPeriods} refreshData={refreshSystemData} />;
-            case 'pricing': return <PricingPage tariffs={tariffs} setTariffs={()=>{}} role={user!.Role} />;
+            case 'pricing': return <PricingPage tariffs={tariffs} setTariffs={handleSaveTariffs} role={user!.Role} />;
             case 'users': return <UsersPage users={localUsers} setUsers={setLocalUsers} units={units} role={user!.Role} />;
             case 'settings': return <SettingsPage invoiceSettings={invoiceSettings || DEFAULT_SETTINGS} setInvoiceSettings={(s) => updateFeeSettings(s)} role={user!.Role} />;
             case 'activityLog': return <ActivityLogPage logs={activityLogs} onUndo={()=>{}} role={user!.Role} />;
@@ -212,6 +220,7 @@ const App: React.FC = () => {
             case 'vas': return <ValueAddedServicesPage />;
             case 'expenses': return <ExpenseManagementPage />;
             case 'serviceRegistration': return <ServiceRegistrationPage role={user!.Role} />;
+            case 'backup': return <BackupRestorePage allData={{ units, owners, vehicles, waterReadings, charges, adjustments, users: localUsers, tariffs }} onRestore={(d) => refreshSystemData(true)} role={user!.Role} />;
             default: return <OverviewPage {...commonProps} feedback={[]} onNavigate={(p) => setActivePage(p as AdminPage)} />;
         }
     };
