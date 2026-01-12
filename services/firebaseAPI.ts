@@ -410,3 +410,14 @@ export const fetchUserForLogin = async (identifier: string): Promise<UserPermiss
         return null;
     }
 };
+
+export const saveWaterReadings = async (readings: WaterReading[]) => {
+    const batch = writeBatch(db);
+    readings.forEach(r => {
+        // ID composite để đảm bảo 1 căn chỉ có 1 bản ghi/tháng
+        const id = `${r.Period}_${r.UnitID}`;
+        const ref = doc(db, 'waterReadings', id);
+        batch.set(ref, r);
+    });
+    return batch.commit();
+};

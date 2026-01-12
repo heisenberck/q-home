@@ -14,7 +14,7 @@ import {
 } from '../ui/Icons';
 import { parseUnitCode, getPreviousPeriod, sortUnitsComparator, formatCurrency } from '../../utils/helpers';
 import { processImportFile } from '../../utils/importHelpers';
-import { setLockStatus } from '../../services';
+import { setLockStatus, saveWaterReadings } from '../../services';
 
 declare const XLSX: any;
 
@@ -302,19 +302,25 @@ const WaterPage: React.FC<WaterPageProps> = ({ waterReadings, setWaterReadings, 
         return [{ value: 'all', label: 'Tất cả các tầng' }, ...floorNumbers.map(f => ({ value: f, label: `Tầng ${f}` })), { value: 'KIOS', label: 'Kios' }];
     }, [allUnits]);
 
-    const handleSave = (unitId: string, newIndexStr: string) => {
+    const handleSave = async (unitId: string, newIndexStr: string) => {
         const newIndex = parseInt(newIndexStr, 10);
         const errors = { ...validationErrors };
+        
+        // --- CASE 1: Deletion (Empty Input) ---
         if (newIndexStr === '' || isNaN(newIndex) || newIndex < 0) {
             delete errors[unitId];
             setValidationErrors(errors);
+            // Optimistically update UI via prop (if mocked) or wait for refresh
             setWaterReadings(prev => prev.filter(r => !(r.UnitID === unitId && r.Period === period)), { module: 'Water', action: 'DELETE_WATER_READING', summary: `Xóa số nước cho ${unitId} kỳ ${period}`, ids: [unitId], });
             showToast(`Đã xóa chỉ số cho căn hộ ${unitId}.`, 'info');
             return;
         }
+
+        // --- CASE 2: Validation ---
         const prevReadingPeriod = getPreviousPeriod(period);
         const prevReading = waterReadings.find(r => r.Period === prevReadingPeriod && r.UnitID === unitId);
         const prevIndex = prevReading?.CurrIndex ?? 0;
+        
         if (newIndex < prevIndex) {
             errors[unitId] = "Chỉ số mới phải lớn hơn hoặc bằng chỉ số cũ.";
             setValidationErrors(errors);
@@ -322,11 +328,25 @@ const WaterPage: React.FC<WaterPageProps> = ({ waterReadings, setWaterReadings, 
         }
         delete errors[unitId];
         setValidationErrors(errors);
+
+        // --- CASE 3: Save Data ---
         const consumption = prevReading ? (newIndex - prevIndex) : 0;
         const newReading: WaterReading = { UnitID: unitId, Period: period, PrevIndex: prevIndex, CurrIndex: newIndex, Rollover: false, consumption: Math.max(0, consumption) };
-        const updater = (prev: WaterReading[]) => [...prev.filter(r => !(r.UnitID === unitId && r.Period === period)), newReading];
-        setWaterReadings(updater, { module: 'Water', action: 'UPDATE_WATER_READING', summary: `Cập nhật số nước cho ${unitId} kỳ ${period}: ${newIndex}`, ids: [unitId], });
-        showToast(`Đã lưu chỉ số mới cho căn hộ ${unitId}.`, 'success');
+        
+        try {
+            // Call API directly to ensure data is persisted
+            await saveWaterReadings([newReading]);
+            
+            // Force refresh from server to update all views
+            if (refreshData) {
+                refreshData(true);
+            }
+            
+            showToast(`Đã lưu chỉ số mới cho căn hộ ${unitId}.`, 'success');
+        } catch (error) {
+            console.error("Save water reading error:", error);
+            showToast('Lỗi khi lưu dữ liệu. Vui lòng thử lại.', 'error');
+        }
     };
     
     const handleFileChange = async (event: React.ChangeEvent<HTMLInputElement>) => {
@@ -352,11 +372,8 @@ const WaterPage: React.FC<WaterPageProps> = ({ waterReadings, setWaterReadings, 
                 successCount++;
             }
             if (successCount > 0) {
-                const updater = (prev: WaterReading[]) => {
-                    const newReadingsMap = new Map(newReadings.map(r => [r.UnitID, r]));
-                    return [...prev.filter(r => r.Period !== period || !newReadingsMap.has(r.UnitID)), ...Array.from(newReadingsMap.values())];
-                };
-                setWaterReadings(updater, { module: 'Water', action: 'IMPORT_WATER_READINGS', summary: `Nhập ${successCount} chỉ số nước từ file cho kỳ ${period}`, count: successCount });
+                await saveWaterReadings(newReadings);
+                if(refreshData) refreshData(true);
                 showToast(`Nhập thành công ${successCount} chỉ số. ${errorCount > 0 ? `${errorCount} dòng lỗi.` : ''}`, 'success');
             } else { showToast(`Không có chỉ số hợp lệ nào được nhập. ${errorCount} dòng lỗi.`, 'warn'); }
         } catch (error: any) { showToast(`Lỗi khi xử lý file: ${error.message}`, 'error'); } 
