@@ -1,5 +1,5 @@
 
-import React, { useState, useRef, useEffect } from 'react';
+import React, { useState, useRef, useEffect, useMemo } from 'react';
 import { 
     HomeIcon, UsersIcon, UserCircleIcon, 
     ChevronLeftIcon, CarIcon, BanknotesIcon, PieChartIcon,
@@ -13,11 +13,11 @@ import NotificationBell from '../common/NotificationBell';
 export type AdminPortalPage = 'adminPortalHome' | 'adminPortalResidents' | 'adminPortalVehicles' | 'adminPortalBilling' | 'adminPortalMore' | 'adminPortalVAS' | 'adminPortalExpenses';
 
 const navItems = [
-  { id: 'adminPortalHome' as AdminPortalPage, label: 'Home', icon: <HomeIcon /> },
-  { id: 'adminPortalResidents' as AdminPortalPage, label: 'Cư dân', icon: <UsersIcon /> },
-  { id: 'adminPortalVehicles' as AdminPortalPage, label: 'Phương tiện', icon: <MotorbikeIcon /> },
-  { id: 'adminPortalBilling' as AdminPortalPage, label: 'Phí', icon: <BanknotesIcon /> },
-  { id: 'adminPortalMore' as AdminPortalPage, label: 'Thêm', icon: <MenuIcon /> },
+  { id: 'adminPortalHome' as AdminPortalPage, label: 'Home', icon: <HomeIcon />, perm: 'overview' },
+  { id: 'adminPortalResidents' as AdminPortalPage, label: 'Cư dân', icon: <UsersIcon />, perm: 'residents' },
+  { id: 'adminPortalVehicles' as AdminPortalPage, label: 'Phương tiện', icon: <MotorbikeIcon />, perm: 'vehicles' },
+  { id: 'adminPortalBilling' as AdminPortalPage, label: 'Phí', icon: <BanknotesIcon />, perm: 'billing' },
+  { id: 'adminPortalMore' as AdminPortalPage, label: 'Thêm', icon: <MenuIcon />, perm: 'all' }, // 'all' means always visible, content filtered internally
 ];
 
 const pageTitles: Record<AdminPortalPage, string> = {
@@ -51,6 +51,19 @@ const AdminMobileLayout: React.FC<AdminMobileLayoutProps> = ({ children, activeP
     document.addEventListener("mousedown", handleClickOutside);
     return () => document.removeEventListener("mousedown", handleClickOutside);
   }, []);
+
+  // Filter Nav Items based on Permissions
+  const filteredNavItems = useMemo(() => {
+      // Admin sees everything
+      if (user.Role === 'Admin') return navItems;
+
+      const userPerms = new Set(user.permissions || []);
+      return navItems.filter(item => {
+          // Home and More are always visible (Dashboard content inside Home might vary, More content is filtered in App.tsx)
+          if (item.perm === 'overview' || item.perm === 'all') return true;
+          return userPerms.has(item.perm);
+      });
+  }, [user]);
     
   return (
     <div className="flex flex-col h-screen bg-slate-50 overflow-hidden">
@@ -90,7 +103,7 @@ const AdminMobileLayout: React.FC<AdminMobileLayoutProps> = ({ children, activeP
                     {isProfileOpen && (
                         <div className="absolute right-0 mt-3 w-56 bg-white rounded-2xl shadow-2xl border border-gray-100 z-50 py-2 animate-fade-in-down ring-1 ring-black/5 text-gray-800">
                             <div className="px-4 py-2 border-b border-gray-50 mb-1">
-                                <p className="text-[10px] font-bold text-gray-400 uppercase tracking-widest">Administrator</p>
+                                <p className="text-[10px] font-bold text-gray-400 uppercase tracking-widest">{user.Role}</p>
                                 <p className="text-sm font-black text-gray-800 truncate">{user.DisplayName || user.Username}</p>
                             </div>
                             <button className="w-full flex items-center gap-3 px-4 py-3 text-sm font-bold text-gray-600 hover:bg-gray-50 transition-colors">
@@ -115,8 +128,8 @@ const AdminMobileLayout: React.FC<AdminMobileLayoutProps> = ({ children, activeP
       </main>
 
       <nav className="fixed bottom-0 left-0 right-0 bg-white border-t border-gray-200 shadow-[0_-4px_20px_rgba(0,0,0,0.08)] z-40 pb-safe">
-        <div className="grid grid-cols-5 max-w-md mx-auto">
-          {navItems.map(item => {
+        <div className={`grid max-w-md mx-auto ${filteredNavItems.length === 5 ? 'grid-cols-5' : filteredNavItems.length === 4 ? 'grid-cols-4' : 'grid-cols-3'}`}>
+          {filteredNavItems.map(item => {
             const isActive = activePage === item.id || (item.id === 'adminPortalMore' && isSubPage);
             return (
               <button

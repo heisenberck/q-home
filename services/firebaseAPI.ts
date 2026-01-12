@@ -367,6 +367,35 @@ export const updateResidentAvatar = async (ownerId: string, avatarUrl: string) =
     return updateDoc(doc(db, 'owners', ownerId), { avatarUrl, updatedAt: new Date().toISOString() });
 };
 
+export const saveVehicles = async (
+    vehicles: Vehicle[],
+    actor?: { email: string, role: Role },
+    reason?: string
+) => {
+    const batch = writeBatch(db);
+    
+    vehicles.forEach(v => {
+        const ref = doc(db, 'vehicles', v.VehicleId);
+        batch.set(ref, v, { merge: true });
+    });
+
+    if (actor && reason) {
+        const logRef = doc(collection(db, 'activity_logs'));
+        const summary = `Cập nhật ${vehicles.length} phương tiện: ${vehicles.map(v => v.PlateNumber).join(', ')}. Lý do: ${reason}`;
+        
+        batch.set(logRef, {
+            actionType: 'UPDATE',
+            module: 'Vehicles',
+            description: summary,
+            timestamp: serverTimestamp(),
+            performedBy: { name: actor.role, email: actor.email },
+            ids: vehicles.map(v => v.VehicleId)
+        });
+    }
+
+    return batch.commit();
+};
+
 export const fetchUserForLogin = async (identifier: string): Promise<UserPermission | null> => {
     try {
         const usersRef = collection(db, 'users');

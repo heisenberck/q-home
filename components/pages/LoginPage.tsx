@@ -1,3 +1,4 @@
+
 import React, { useState, useEffect, useMemo } from 'react';
 import { UserPermission, Owner, Unit } from '../../types';
 import { EyeIcon, EyeSlashIcon, UserIcon, LockClosedIcon } from '../ui/Icons';
@@ -50,10 +51,8 @@ const ForgotPasswordModal: React.FC<{ onClose: () => void; users: UserPermission
         const { appsScriptUrl } = invoiceSettings;
         if (!appsScriptUrl) { showToast('Chưa cấu hình máy chủ Email.', 'error'); setIsLoading(false); return; }
         
-        let user = MOCK_USER_PERMISSIONS.find(u => u.Email.toLowerCase() === email.trim().toLowerCase());
-        if (!user && isProduction()) {
-            user = await fetchUserForLogin(email) as any;
-        }
+        // Priority: Dynamic Data -> Static Data
+        let user = await fetchUserForLogin(email) || MOCK_USER_PERMISSIONS.find(u => u.Email.toLowerCase() === email.trim().toLowerCase());
 
         if (!user) { showToast('Email không tồn tại trong hệ thống.', 'error'); setIsLoading(false); return; }
         const resetLink = `${window.location.origin}${window.location.pathname}?action=reset_default&email=${encodeURIComponent(email)}`;
@@ -109,20 +108,20 @@ const LoginPage: React.FC<LoginPageProps> = ({ users, onLogin, allOwners, allUni
         const cleanIdentifier = identifier.trim().toLowerCase();
         let userFound = null;
         
-        // 1. Tìm User
-        const localUser = MOCK_USER_PERMISSIONS.find(u => 
-            u.Email.toLowerCase() === cleanIdentifier || 
-            (u.Username && u.Username.toLowerCase() === cleanIdentifier)
-        );
-
-        if (localUser) {
-            userFound = localUser;
-        } else if (isProduction()) {
-            try {
-                userFound = await fetchUserForLogin(cleanIdentifier);
-            } catch (err) {
-                console.error("Login Search Error:", err);
+        try {
+            // Priority: Dynamic Data (from API/Mock DB) -> Static Constants
+            // This ensures updated permissions in localStorage are respected
+            userFound = await fetchUserForLogin(cleanIdentifier);
+            
+            if (!userFound) {
+                // Fallback to static constant only if not found in DB (initial seed)
+                userFound = MOCK_USER_PERMISSIONS.find(u => 
+                    u.Email.toLowerCase() === cleanIdentifier || 
+                    (u.Username && u.Username.toLowerCase() === cleanIdentifier)
+                ) || null;
             }
+        } catch (err) {
+            console.error("Login Search Error:", err);
         }
 
         if (!userFound) {
@@ -145,7 +144,7 @@ const LoginPage: React.FC<LoginPageProps> = ({ users, onLogin, allOwners, allUni
             return;
         }
 
-        // 2. Kích hoạt Firebase Auth Session - BẮT BUỘC ĐỂ CÓ QUYỀN GHI
+        // 2. Kích hoạt Firebase Auth Session - BẮT BUỘC ĐỂ CÓ QUYỀN GHI (Prod Only)
         if (isProduction()) {
             try {
                 // Đảm bảo await hoàn thành để có token hợp lệ
@@ -224,7 +223,7 @@ const LoginPage: React.FC<LoginPageProps> = ({ users, onLogin, allOwners, allUni
                     </form>
                 </div>
             </div>
-            {isForgotPassModalOpen && <ForgotPasswordModal onClose={() => setIsForgotPassModalOpen(false)} users={MOCK_USER_PERMISSIONS} />}
+            {isForgotPassModalOpen && <ForgotPasswordModal onClose={() => setIsForgotPassModalOpen(false)} users={users} />}
         </div>
     );
 };

@@ -233,6 +233,11 @@ const App: React.FC = () => {
 
     const renderAdminMobilePage = () => {
         const props = { units, vehicles, charges: localCharges, monthlyStats, news, owners, miscRevenues, expenses };
+        const isAdmin = user!.Role === 'Admin';
+        const userPerms = new Set(user!.permissions || []);
+
+        const hasPerm = (perm: string) => isAdmin || userPerms.has(perm);
+
         switch (activePage as AdminPortalPage) {
             case 'adminPortalHome': return <AdminPortalHomePage {...props} onNavigate={(p) => setActivePage(p as AdminPortalPage)} />;
             case 'adminPortalBilling': return <AdminPortalBillingPage charges={localCharges} units={units} owners={owners} />;
@@ -242,8 +247,15 @@ const App: React.FC = () => {
             case 'adminPortalExpenses': return <AdminPortalExpensesPage expenses={expenses} />;
             case 'adminPortalMore': return (
                 <div className="p-4 space-y-4">
-                    <button onClick={() => setActivePage('newsManagement' as any)} className="w-full p-4 bg-white rounded-xl shadow-sm border flex justify-between items-center font-bold text-gray-800">Quản lý Tin tức <span>→</span></button>
-                    <button onClick={() => setActivePage('feedbackManagement' as any)} className="w-full p-4 bg-white rounded-xl shadow-sm border flex justify-between items-center font-bold text-gray-800">Phản hồi Cư dân <span>→</span></button>
+                    {/* Render Buttons conditionally based on permissions */}
+                    {hasPerm('newsManagement') && (
+                        <button onClick={() => setActivePage('newsManagement' as any)} className="w-full p-4 bg-white rounded-xl shadow-sm border flex justify-between items-center font-bold text-gray-800">Quản lý Tin tức <span>→</span></button>
+                    )}
+                    {hasPerm('feedbackManagement') && (
+                        <button onClick={() => setActivePage('feedbackManagement' as any)} className="w-full p-4 bg-white rounded-xl shadow-sm border flex justify-between items-center font-bold text-gray-800">Phản hồi Cư dân <span>→</span></button>
+                    )}
+                    
+                    {/* Always allow logout */}
                     <button onClick={() => handleLogout()} className="w-full p-4 bg-red-50 text-red-600 rounded-xl shadow-sm border flex justify-between items-center font-black">Đăng xuất <span>⏻</span></button>
                 </div>
             );

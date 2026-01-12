@@ -335,6 +335,15 @@ export const deleteUsers = async (emails: string[]) => {
     return Promise.resolve();
 };
 
+export const fetchUserForLogin = async (identifier: string): Promise<UserPermission | null> => {
+    const norm = identifier.trim().toLowerCase();
+    const found = users.find(u => 
+        u.Email.toLowerCase() === norm || 
+        (u.Username && u.Username.toLowerCase() === norm)
+    );
+    return Promise.resolve(found || null);
+};
+
 export const saveTariffs = async (newTariffs: TariffCollection) => {
     tariffs = newTariffs;
     saveToStorage('tariffs', tariffs);
