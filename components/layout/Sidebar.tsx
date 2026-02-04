@@ -4,15 +4,14 @@ import {
     PieChartIcon, CalculatorIcon, UsersIcon, WaterIcon, ReceiptIcon, 
     CarIcon, MegaphoneIcon, ChatBubbleLeftEllipsisIcon,
     ChevronLeftIcon, ChevronRightIcon, ChevronDownIcon, ChevronUpIcon,
-    ArrowPathIcon, BanknotesIcon, WalletIcon, TrendingDownIcon,
+    ArrowPathIcon, BanknotesIcon, TrendingDownIcon,
     ClipboardCheckIcon
 } from '../ui/Icons';
-import type { Role, UserPermission } from '../../types';
+import type { Role } from '../../types';
 import { useSettings, useAuth } from '../../App';
-import { isProduction } from '../../utils/env';
 import InstallPWA from '../common/InstallPWA';
 
-type Page = 'overview' | 'billing' | 'residents' | 'vehicles' | 'water' | 'pricing' | 'users' | 'settings' | 'backup' | 'activityLog' | 'newsManagement' | 'feedbackManagement' | 'vas' | 'expenses' | 'serviceRegistration';
+type Page = 'overview' | 'billing' | 'residents' | 'vehicles' | 'water' | 'pricing' | 'users' | 'settings' | 'backup' | 'activityLog' | 'newsManagement' | 'feedbackManagement' | 'vas' | 'expenses';
 
 interface SidebarProps {
   activePage: Page;
@@ -58,7 +57,6 @@ const menuGroups: (MenuItem | MenuGroup)[] = [
         label: 'Thông báo & Đăng ký',
         items: [
             { id: 'newsManagement', label: 'Quản lý Tin tức', icon: <MegaphoneIcon /> },
-            { id: 'serviceRegistration', label: 'Quản lý Đăng ký', icon: <ClipboardCheckIcon /> },
             { id: 'feedbackManagement', label: 'Quản lý Phản hồi', icon: <ChatBubbleLeftEllipsisIcon /> },
         ]
     }
@@ -70,31 +68,20 @@ const Sidebar: React.FC<SidebarProps> = ({ activePage, setActivePage, role }) =>
   const [isCollapsed, setIsCollapsed] = useState(false);
   const [expandedGroups, setExpandedGroups] = useState<Set<string>>(new Set(['residents_group', 'finance_group', 'comm_group']));
 
-  // Filter Menu based on Permissions
   const filteredMenuGroups = useMemo(() => {
-      // 1. Admin sees everything
       if (role === 'Admin') return menuGroups;
 
-      // 2. Logic for Staff (Accountant, Operator, Viewer)
       const userPermissions = new Set(user?.permissions || []);
 
       return menuGroups.map(group => {
           if ('items' in group) {
-              // It's a Group -> Filter items
               const visibleItems = group.items.filter(item => {
                   let permissionKey = item.id;
-                  if (item.id === 'pricing') permissionKey = 'billing';
-                  if (item.id === 'vas') permissionKey = 'billing';
-                  if (item.id === 'expenses') permissionKey = 'billing';
-                  if (item.id === 'serviceRegistration') permissionKey = 'feedbackManagement'; 
+                  if (item.id === 'pricing' || item.id === 'vas' || item.id === 'expenses') permissionKey = 'billing';
                   return userPermissions.has(permissionKey);
               });
-              if (visibleItems.length > 0) {
-                  return { ...group, items: visibleItems };
-              }
-              return null;
+              return visibleItems.length > 0 ? { ...group, items: visibleItems } : null;
           } else {
-              // It's a Single Item (Overview) -> Filter based on 'overview' permission
               if (group.id === 'overview') {
                   return userPermissions.has('overview') ? group : null;
               }
@@ -112,45 +99,18 @@ const Sidebar: React.FC<SidebarProps> = ({ activePage, setActivePage, role }) =>
       });
   };
 
-  const handleGroupClick = (groupId: string) => {
-      if (isCollapsed) {
-          setIsCollapsed(false);
-          setExpandedGroups(new Set([groupId]));
-      } else {
-          toggleGroup(groupId);
-      }
-  };
-
-  const handleGlobalRefresh = () => {
-      window.dispatchEvent(new CustomEvent('REFRESH_RESIDENTS'));
-  };
-
   return (
     <aside className={`${isCollapsed ? 'w-20' : 'w-64'} bg-white flex-shrink-0 flex flex-col border-r border-gray-200 h-full transition-all duration-300 ease-in-out`}>
       <div className="p-4 border-b border-gray-200 flex items-center justify-between h-[88px]">
         {!isCollapsed && (
             <div className="flex items-center gap-3 overflow-hidden">
                 <div className="bg-primary text-white p-2 rounded-lg shadow-sm flex-shrink-0">
-                    <svg xmlns="http://www.w3.org/2000/svg" className="h-6 w-6" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth="2.5">
-                        <path strokeLinecap="round" strokeLinejoin="round" d="M3 9l9-7 9 7v11a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"></path>
-                        <polyline points="9 22 9 12 15 12 15 22"></polyline>
-                    </svg>
+                    <svg xmlns="http://www.w3.org/2000/svg" className="h-6 w-6" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth="2.5"><path strokeLinecap="round" strokeLinejoin="round" d="M3 9l9-7 9 7v11a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"></path><polyline points="9 22 9 12 15 12 15 22"></polyline></svg>
                 </div>
-                <div className="flex flex-col justify-center min-w-0">
-                    <span className="text-lg font-black text-gray-800 tracking-tight truncate">Q-Home</span>
-                    <span className="text-xs font-bold text-gray-500 uppercase truncate max-w-[120px]">
-                        {invoiceSettings.buildingName || 'Manager'}
-                    </span>
-                </div>
+                <div className="flex flex-col justify-center min-w-0"><span className="text-lg font-black text-gray-800 tracking-tight truncate">Q-Home</span><span className="text-xs font-bold text-gray-500 uppercase truncate max-w-[120px]">{invoiceSettings.buildingName || 'Manager'}</span></div>
             </div>
         )}
-        {isCollapsed && (
-             <div className="w-full flex justify-center">
-                <div className="bg-primary text-white p-2 rounded-lg shadow-sm">
-                    <span className="font-bold text-lg">Q</span>
-                </div>
-             </div>
-        )}
+        {isCollapsed && <div className="w-full flex justify-center"><div className="bg-primary text-white p-2 rounded-lg shadow-sm"><span className="font-bold text-lg">Q</span></div></div>}
       </div>
       
       <nav className="flex-1 p-2 space-y-2 overflow-y-auto overflow-x-hidden">
@@ -158,96 +118,31 @@ const Sidebar: React.FC<SidebarProps> = ({ activePage, setActivePage, role }) =>
             if ('items' in item) {
                 const isExpanded = expandedGroups.has(item.id);
                 const hasActiveChild = item.items.some(child => child.id === activePage);
-                
                 return (
                     <div key={item.id} className="mb-1">
-                        <button
-                            onClick={() => handleGroupClick(item.id)}
-                            className={`w-full flex items-center justify-between px-3 py-2.5 text-sm font-semibold rounded-lg transition-colors duration-200
-                                ${hasActiveChild ? 'bg-gray-50 text-primary' : 'text-gray-600 hover:bg-gray-100'}
-                                ${isCollapsed ? 'justify-center' : ''}
-                            `}
-                            title={isCollapsed ? item.label : undefined}
-                        >
-                            <div className="flex items-center">
-                                {isCollapsed ? (
-                                    <div className="relative group">
-                                        {item.items[0].icon} 
-                                        <div className="absolute -bottom-1 -right-1 w-2 h-2 bg-gray-400 rounded-full border border-white"></div>
-                                    </div>
-                                ) : (
-                                    <span className="uppercase text-xs font-bold text-gray-400 tracking-wider">{item.label}</span>
-                                )}
-                            </div>
-                            {!isCollapsed && (
-                                <span className="text-gray-400">
-                                    {isExpanded ? <ChevronUpIcon className="w-4 h-4"/> : <ChevronDownIcon className="w-4 h-4"/>}
-                                </span>
-                            )}
+                        <button onClick={() => !isCollapsed && toggleGroup(item.id)} className={`w-full flex items-center justify-between px-3 py-2.5 text-sm font-semibold rounded-lg transition-colors ${hasActiveChild ? 'bg-gray-50 text-primary' : 'text-gray-600 hover:bg-gray-100'} ${isCollapsed ? 'justify-center' : ''}`} title={isCollapsed ? item.label : undefined}>
+                            <div className="flex items-center">{isCollapsed ? <div className="relative group">{item.items[0].icon}<div className="absolute -bottom-1 -right-1 w-2 h-2 bg-gray-400 rounded-full border border-white"></div></div> : <span className="uppercase text-xs font-bold text-gray-400 tracking-wider">{item.label}</span>}</div>
+                            {!isCollapsed && <span className="text-gray-400">{isExpanded ? <ChevronUpIcon className="w-4 h-4"/> : <ChevronDownIcon className="w-4 h-4"/>}</span>}
                         </button>
-                        
-                        {(!isCollapsed && isExpanded) && (
-                            <div className="mt-1 space-y-1 ml-1">
-                                {item.items.map(subItem => {
-                                    const isActive = activePage === subItem.id;
-                                    return (
-                                        <a
-                                            key={subItem.id}
-                                            href="#"
-                                            onClick={(e) => { e.preventDefault(); setActivePage(subItem.id); }}
-                                            className={`flex items-center px-4 py-2 text-sm font-medium rounded-lg transition-colors duration-200
-                                                ${isActive ? 'bg-primary/10 text-primary' : 'text-gray-600 hover:bg-gray-100 hover:text-gray-900'}
-                                            `}
-                                        >
-                                            <span className={`mr-3 ${isActive ? 'text-primary' : 'text-gray-400 group-hover:text-gray-500'}`}>
-                                                {subItem.icon}
-                                            </span>
-                                            {subItem.label}
-                                        </a>
-                                    );
-                                })}
-                            </div>
+                        {!isCollapsed && isExpanded && (
+                            <div className="mt-1 space-y-1 ml-1">{item.items.map(subItem => {
+                                const isActive = activePage === subItem.id;
+                                return (<a key={subItem.id} href="#" onClick={(e) => { e.preventDefault(); setActivePage(subItem.id); }} className={`flex items-center px-4 py-2 text-sm font-medium rounded-lg transition-colors ${isActive ? 'bg-primary/10 text-primary' : 'text-gray-600 hover:bg-gray-100 hover:text-gray-900'}`}><span className={`mr-3 ${isActive ? 'text-primary' : 'text-gray-400 group-hover:text-gray-500'}`}>{subItem.icon}</span>{subItem.label}</a>);
+                            })}</div>
                         )}
                     </div>
                 );
             } else {
                 const isActive = activePage === item.id;
-                return (
-                    <a
-                        key={item.id}
-                        href="#"
-                        onClick={(e) => { e.preventDefault(); setActivePage(item.id); }}
-                        className={`flex items-center pl-5 pr-3 py-3 text-sm font-semibold rounded-lg transition-colors duration-200 mb-2
-                            ${isActive ? 'bg-primary text-white shadow-md' : 'text-gray-600 hover:bg-gray-100'}
-                            ${isCollapsed ? 'justify-center' : ''}
-                        `}
-                        title={isCollapsed ? item.label : undefined}
-                    >
-                        <span className={isCollapsed ? '' : 'mr-3'}>{item.icon}</span>
-                        {!isCollapsed && item.label}
-                    </a>
-                );
+                return (<a key={item.id} href="#" onClick={(e) => { e.preventDefault(); setActivePage(item.id); }} className={`flex items-center pl-5 pr-3 py-3 text-sm font-semibold rounded-lg transition-colors mb-2 ${isActive ? 'bg-primary text-white shadow-md' : 'text-gray-600 hover:bg-gray-100'} ${isCollapsed ? 'justify-center' : ''}`} title={isCollapsed ? item.label : undefined}><span className={isCollapsed ? '' : 'mr-3'}>{item.icon}</span>{!isCollapsed && item.label}</a>);
             }
         })}
       </nav>
 
       <div className="p-4 border-t border-gray-200 flex flex-col gap-2">
-        {!isCollapsed && (
-            <button 
-                onClick={handleGlobalRefresh}
-                className="w-full flex items-center justify-center gap-2 px-3 py-2 bg-emerald-50 text-emerald-700 border border-emerald-200 rounded-lg hover:bg-emerald-100 transition-all font-bold text-xs active:scale-95"
-            >
-                <ArrowPathIcon className="w-4 h-4" />
-                Làm mới dữ liệu
-            </button>
-        )}
+        {!isCollapsed && <button onClick={() => window.dispatchEvent(new CustomEvent('REFRESH_RESIDENTS'))} className="w-full flex items-center justify-center gap-2 px-3 py-2 bg-emerald-50 text-emerald-700 border border-emerald-200 rounded-lg hover:bg-emerald-100 transition-all font-bold text-xs active:scale-95"><ArrowPathIcon className="w-4 h-4" /> Làm mới dữ liệu</button>}
         {!isCollapsed && <InstallPWA />}
-        <button 
-            onClick={() => setIsCollapsed(!isCollapsed)} 
-            className="w-full flex items-center justify-center p-2 rounded-lg hover:bg-gray-100 text-gray-500 transition-colors"
-        >
-            {isCollapsed ? <ChevronRightIcon className="w-5 h-5"/> : <ChevronLeftIcon className="w-5 h-5"/>}
-        </button>
+        <button onClick={() => setIsCollapsed(!isCollapsed)} className="w-full flex items-center justify-center p-2 rounded-lg hover:bg-gray-100 text-gray-500 transition-colors">{isCollapsed ? <ChevronRightIcon className="w-5 h-5"/> : <ChevronLeftIcon className="w-5 h-5"/>}</button>
       </div>
     </aside>
   );
