@@ -82,29 +82,25 @@ const Sidebar: React.FC<SidebarProps> = ({ activePage, setActivePage, role }) =>
           if ('items' in group) {
               // It's a Group -> Filter items
               const visibleItems = group.items.filter(item => {
-                  // Map specific page IDs to permission keys if necessary
                   let permissionKey = item.id;
-                  
-                  // "pricing" page is controlled by "billing" permission
                   if (item.id === 'pricing') permissionKey = 'billing';
                   if (item.id === 'vas') permissionKey = 'billing';
                   if (item.id === 'expenses') permissionKey = 'billing';
-                  if (item.id === 'serviceRegistration') permissionKey = 'feedbackManagement'; // Shared perm
-
+                  if (item.id === 'serviceRegistration') permissionKey = 'feedbackManagement'; 
                   return userPermissions.has(permissionKey);
               });
-
-              // Only return group if it has visible items
               if (visibleItems.length > 0) {
                   return { ...group, items: visibleItems };
               }
               return null;
           } else {
-              // It's a Single Item (Overview) -> Always show Overview
-              if (group.id === 'overview') return group;
+              // It's a Single Item (Overview) -> Filter based on 'overview' permission
+              if (group.id === 'overview') {
+                  return userPermissions.has('overview') ? group : null;
+              }
               return null;
           }
-      }).filter(Boolean) as (MenuItem | MenuGroup)[]; // Remove nulls
+      }).filter(Boolean) as (MenuItem | MenuGroup)[];
   }, [role, user?.permissions]);
 
   const toggleGroup = (groupId: string) => {
@@ -131,7 +127,6 @@ const Sidebar: React.FC<SidebarProps> = ({ activePage, setActivePage, role }) =>
 
   return (
     <aside className={`${isCollapsed ? 'w-20' : 'w-64'} bg-white flex-shrink-0 flex flex-col border-r border-gray-200 h-full transition-all duration-300 ease-in-out`}>
-      {/* Header */}
       <div className="p-4 border-b border-gray-200 flex items-center justify-between h-[88px]">
         {!isCollapsed && (
             <div className="flex items-center gap-3 overflow-hidden">
@@ -158,11 +153,9 @@ const Sidebar: React.FC<SidebarProps> = ({ activePage, setActivePage, role }) =>
         )}
       </div>
       
-      {/* Navigation */}
       <nav className="flex-1 p-2 space-y-2 overflow-y-auto overflow-x-hidden">
         {filteredMenuGroups.map((item) => {
             if ('items' in item) {
-                // Group
                 const isExpanded = expandedGroups.has(item.id);
                 const hasActiveChild = item.items.some(child => child.id === activePage);
                 
@@ -193,7 +186,6 @@ const Sidebar: React.FC<SidebarProps> = ({ activePage, setActivePage, role }) =>
                             )}
                         </button>
                         
-                        {/* Sub-menu */}
                         {(!isCollapsed && isExpanded) && (
                             <div className="mt-1 space-y-1 ml-1">
                                 {item.items.map(subItem => {
@@ -219,7 +211,6 @@ const Sidebar: React.FC<SidebarProps> = ({ activePage, setActivePage, role }) =>
                     </div>
                 );
             } else {
-                // Single Item (Dashboard)
                 const isActive = activePage === item.id;
                 return (
                     <a
@@ -240,7 +231,6 @@ const Sidebar: React.FC<SidebarProps> = ({ activePage, setActivePage, role }) =>
         })}
       </nav>
 
-      {/* Footer Toggle */}
       <div className="p-4 border-t border-gray-200 flex flex-col gap-2">
         {!isCollapsed && (
             <button 
@@ -251,10 +241,7 @@ const Sidebar: React.FC<SidebarProps> = ({ activePage, setActivePage, role }) =>
                 Làm mới dữ liệu
             </button>
         )}
-        
-        {/* PWA Install Button */}
         {!isCollapsed && <InstallPWA />}
-        
         <button 
             onClick={() => setIsCollapsed(!isCollapsed)} 
             className="w-full flex items-center justify-center p-2 rounded-lg hover:bg-gray-100 text-gray-500 transition-colors"

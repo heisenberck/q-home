@@ -69,6 +69,24 @@ const ADMIN_PAGE_TITLES: Record<AdminPage, string> = {
     expenses: 'Quản lý Chi phí Vận hành'
 };
 
+// Mapping module IDs to page IDs for redirection
+const MODULE_TO_PAGE_MAP: Record<string, AdminPage> = {
+    overview: 'overview',
+    residents: 'residents',
+    vehicles: 'vehicles',
+    water: 'water',
+    billing: 'billing',
+    newsManagement: 'newsManagement',
+    feedbackManagement: 'feedbackManagement'
+};
+
+const MODULE_TO_PORTAL_MAP: Record<string, AdminPortalPage> = {
+    overview: 'adminPortalHome',
+    residents: 'adminPortalResidents',
+    vehicles: 'adminPortalVehicles',
+    billing: 'adminPortalBilling'
+};
+
 // --- Contexts ---
 interface AuthContextType {
     user: UserPermission | null;
@@ -142,7 +160,6 @@ const App: React.FC = () => {
     const [activityLogs, setActivityLogs] = useState<ActivityLog[]>([]);
     const [unreadResidentNotifications, setUnreadResidentNotifications] = useState<ResidentNotification[]>([]);
     
-    // Track Read News IDs in local state and storage
     const [readNewsIds, setReadNewsIds] = useState<Set<string>>(new Set());
 
     useEffect(() => {
@@ -155,7 +172,6 @@ const App: React.FC = () => {
     }, []);
 
     useEffect(() => {
-        // Load Read News
         const saved = localStorage.getItem('seen_news_ids_v2');
         if (saved) {
             try {
@@ -170,18 +186,39 @@ const App: React.FC = () => {
             try {
                 const parsed = JSON.parse(rememberedUserStr);
                 setUser(parsed);
-                if (parsed.Role === 'Resident') {
-                    setActivePage('portalHome');
-                } else if (window.innerWidth < 768) {
-                    setActivePage('adminPortalHome');
-                } else {
-                    setActivePage('overview');
-                }
+                redirectUser(parsed);
             } catch (e) {
                 localStorage.removeItem('rememberedUserObject');
             }
         }
     }, []);
+
+    const redirectUser = (u: UserPermission) => {
+        if (u.Role === 'Resident') {
+            setActivePage('portalHome');
+        } else {
+            const perms = u.permissions || [];
+            const isAdmin = u.Role === 'Admin';
+            const hasOverview = isAdmin || perms.includes('overview');
+            const mobile = window.innerWidth < 768;
+
+            if (mobile) {
+                if (hasOverview) {
+                    setActivePage('adminPortalHome');
+                } else {
+                    const firstPerm = perms.find(p => MODULE_TO_PORTAL_MAP[p]);
+                    setActivePage(firstPerm ? MODULE_TO_PORTAL_MAP[firstPerm] : 'adminPortalMore');
+                }
+            } else {
+                if (hasOverview) {
+                    setActivePage('overview');
+                } else {
+                    const firstPerm = perms.find(p => MODULE_TO_PAGE_MAP[p]);
+                    setActivePage(firstPerm ? MODULE_TO_PAGE_MAP[firstPerm] : 'users');
+                }
+            }
+        }
+    };
 
     const { 
         units = [], owners = [], vehicles = [], waterReadings = [], charges = [], adjustments = [], users: fetchedUsers = [], news = [],
@@ -240,15 +277,7 @@ const App: React.FC = () => {
         } else {
             localStorage.removeItem('rememberedUserObject');
         }
-        
-        if (loggedInUser.Role === 'Resident') {
-            setActivePage('portalHome');
-        } else if (window.innerWidth < 768) {
-            setActivePage('adminPortalHome');
-        } else {
-            setActivePage('overview');
-        }
-
+        redirectUser(loggedInUser);
         if (loggedInUser.mustChangePassword) {
             setIsChangePasswordModalOpen(true);
         }
@@ -308,7 +337,6 @@ const App: React.FC = () => {
     }, []);
 
     const notifications = useMemo(() => {
-        // Unread news count: Archived news are ignored
         const unreadCount = localNews.filter(n => !n.isArchived && !readNewsIds.has(n.id)).length;
         return { 
             unreadNews: unreadCount,
@@ -359,8 +387,8 @@ const App: React.FC = () => {
             case 'adminPortalVehicles': return <AdminPortalVehiclesPage vehicles={localVehicles} units={localUnits} owners={localOwners} />;
             case 'adminPortalMore': return (
                 <div className="p-4 space-y-4">
-                    <button onClick={() => setActivePage('newsManagement')} className="w-full p-4 bg-white rounded-xl shadow-sm border flex justify-between items-center font-bold text-gray-800">Quản lý Tin tức <span>→</span></button>
-                    <button onClick={() => setActivePage('feedbackManagement')} className="w-full p-4 bg-white rounded-xl shadow-sm border flex justify-between items-center font-bold text-gray-800">Phản hồi Cư dân <span>→</span></button>
+                    <button onClick={() => setActivePage('newsManagement' as any)} className="w-full p-4 bg-white rounded-xl shadow-sm border flex justify-between items-center font-bold text-gray-800">Quản lý Tin tức <span>→</span></button>
+                    <button onClick={() => setActivePage('feedbackManagement' as any)} className="w-full p-4 bg-white rounded-xl shadow-sm border flex justify-between items-center font-bold text-gray-800">Phản hồi Cư dân <span>→</span></button>
                     <button onClick={() => handleLogout()} className="w-full p-4 bg-red-50 text-red-600 rounded-xl shadow-sm border flex justify-between items-center font-black">Đăng xuất <span>⏻</span></button>
                 </div>
             );

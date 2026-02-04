@@ -17,7 +17,7 @@ const navItems = [
   { id: 'adminPortalResidents' as AdminPortalPage, label: 'Cư dân', icon: <UsersIcon />, perm: 'residents' },
   { id: 'adminPortalVehicles' as AdminPortalPage, label: 'Phương tiện', icon: <MotorbikeIcon />, perm: 'vehicles' },
   { id: 'adminPortalBilling' as AdminPortalPage, label: 'Phí', icon: <BanknotesIcon />, perm: 'billing' },
-  { id: 'adminPortalMore' as AdminPortalPage, label: 'Thêm', icon: <MenuIcon />, perm: 'all' }, // 'all' means always visible, content filtered internally
+  { id: 'adminPortalMore' as AdminPortalPage, label: 'Thêm', icon: <MenuIcon />, perm: 'all' }, 
 ];
 
 const pageTitles: Record<AdminPortalPage, string> = {
@@ -52,15 +52,12 @@ const AdminMobileLayout: React.FC<AdminMobileLayoutProps> = ({ children, activeP
     return () => document.removeEventListener("mousedown", handleClickOutside);
   }, []);
 
-  // Filter Nav Items based on Permissions
   const filteredNavItems = useMemo(() => {
-      // Admin sees everything
       if (user.Role === 'Admin') return navItems;
 
       const userPerms = new Set(user.permissions || []);
       return navItems.filter(item => {
-          // Home and More are always visible (Dashboard content inside Home might vary, More content is filtered in App.tsx)
-          if (item.perm === 'overview' || item.perm === 'all') return true;
+          if (item.perm === 'all') return true;
           return userPerms.has(item.perm);
       });
   }, [user]);

@@ -21,6 +21,7 @@ interface UsersPageProps {
 }
 
 const AVAILABLE_MODULES = [
+    { id: 'overview', label: 'Trang tổng quan' }, // Added overview module
     { id: 'residents', label: 'Quản lý Cư dân' },
     { id: 'vehicles', label: 'Quản lý Phương tiện' },
     { id: 'water', label: 'Quản lý Nước' },
@@ -107,7 +108,6 @@ const UserModal: React.FC<{
     }, [user]);
 
     const handlePermissionToggle = (moduleId: string) => {
-        // Admin không được bỏ quyền (logic hiển thị disabled ở UI, nhưng logic state vẫn cho phép set để đảm bảo tính nhất quán)
         const next = new Set(selectedPermissions);
         if (next.has(moduleId)) next.delete(moduleId);
         else next.add(moduleId);
@@ -122,7 +122,6 @@ const UserModal: React.FC<{
             return; 
         }
         
-        // Kiểm tra trùng Email (Khóa chính) thay vì Username
         if (!isEdit) {
             if (allUsers.some(u => u.Email.toLowerCase() === formData.Email.toLowerCase())) {
                 showToast('Email đã tồn tại.', 'error'); return;
@@ -307,7 +306,6 @@ const UsersPage: React.FC<UsersPageProps> = ({ users = [], setUsers, units = [],
     // --- Core Logic Handlers (Dual Env) ---
 
     const persistData = async (newUsers: UserPermission[], actionSummary: string) => {
-        // Cập nhật State Local ngay lập tức
         setUsers(newUsers, {
             module: 'System',
             action: 'UPDATE_USERS',
@@ -324,13 +322,12 @@ const UsersPage: React.FC<UsersPageProps> = ({ users = [], setUsers, units = [],
         }
     };
 
-    // FIXED: Logic cập nhật dựa trên EMAIL (Khóa chính) thay vì Username
     const handleSaveUser = (userToSave: UserPermission) => {
         const exists = users.some(u => u.Email === userToSave.Email);
         
         const updatedList = exists 
             ? users.map(u => u.Email === userToSave.Email ? userToSave : u)
-            : [userToSave, ...users]; // Add new user to top
+            : [userToSave, ...users]; 
         
         const summary = exists ? `Cập nhật user: ${userToSave.Email} (${userToSave.Role})` : `Thêm user mới: ${userToSave.Email}`;
         persistData(updatedList, summary);
@@ -339,11 +336,9 @@ const UsersPage: React.FC<UsersPageProps> = ({ users = [], setUsers, units = [],
         setIsUserModalOpen(false);
     };
 
-    // FIXED: Bulk Delete dựa trên EMAIL
     const handleBulkDelete = () => {
         if (selectedUsers.size === 0) return;
         
-        // Filter by EMAIL
         const safeToDelete = Array.from(selectedUsers).filter(email => {
             const u = users.find(user => user.Email === email);
             return u && u.Role !== 'Admin' && u.Email !== currentUser?.Email;
@@ -356,11 +351,8 @@ const UsersPage: React.FC<UsersPageProps> = ({ users = [], setUsers, units = [],
         if (safeToDelete.length === 0) return;
 
         if (confirm(`Xác nhận xóa ${safeToDelete.length} người dùng?`)) {
-            // Remove from local state
             const updatedList = users.filter(u => !safeToDelete.includes(u.Email));
             persistData(updatedList, `Xóa ${safeToDelete.length} người dùng`);
-            
-            // Call auth cleanup if needed
             handleDeleteUsers(safeToDelete);
             
             showToast(`Đã xóa ${safeToDelete.length} người dùng.`, 'success');
@@ -399,7 +391,6 @@ const UsersPage: React.FC<UsersPageProps> = ({ users = [], setUsers, units = [],
         }
     };
 
-    // FIXED: Password change uses EMAIL
     const handlePasswordChange = (newPassword: string) => {
         if (!passwordModalState.user) return;
         const targetEmail = passwordModalState.user.Email;
@@ -427,7 +418,6 @@ const UsersPage: React.FC<UsersPageProps> = ({ users = [], setUsers, units = [],
             {isUserModalOpen && <UserModal user={editingUser} onSave={handleSaveUser} onClose={() => setIsUserModalOpen(false)} allUsers={users} />}
             {passwordModalState.isOpen && passwordModalState.user && <PasswordModal user={passwordModalState.user} onSave={handlePasswordChange} onClose={() => setPasswordModalState({ isOpen: false, user: null })} />}
 
-            {/* Stat Cards */}
             <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
                 <StatCard 
                     label="Tổng User" 
@@ -462,7 +452,6 @@ const UsersPage: React.FC<UsersPageProps> = ({ users = [], setUsers, units = [],
                 />
             </div>
 
-            {/* Toolbar */}
             <div className="bg-white p-4 rounded-xl shadow-sm border border-gray-100 flex flex-col md:flex-row items-center gap-4">
                 <div className="relative flex-grow w-full md:w-auto">
                     <SearchIcon className="absolute left-3 top-1/2 -translate-y-1/2 h-5 w-5 text-gray-400" />
@@ -484,7 +473,7 @@ const UsersPage: React.FC<UsersPageProps> = ({ users = [], setUsers, units = [],
                 </select>
                 {isAdmin && (
                     <div className="flex gap-2">
-                        <button onClick={!isSyncLocked ? handleSyncUsers : undefined} onDoubleClick={isSyncLocked ? () => setIsSyncLocked(false) : undefined} className={`px-4 py-2.5 font-bold rounded-lg flex items-center gap-2 whitespace-nowrap transition-colors border shadow-sm ${isSyncLocked ? 'bg-gray-100 text-gray-400 border-gray-200 cursor-default' : 'border-blue-600 text-blue-600 hover:bg-blue-50'}`} title={isSyncLocked ? "Dữ liệu đã khớp. Nhấn đúp để mở khóa" : "Quét và tạo tài khoản cho căn hộ còn thiếu"}>
+                        <button onClick={!isSyncLocked ? handleSyncUsers : undefined} onDoubleClick={isSyncLocked ? () => setIsSyncLocked(false) : undefined} className={`px-4 py-2.5 font-bold rounded-lg flex items-center gap-2 whitespace-nowrap transition-colors border shadow-sm ${isSyncLocked ? 'bg-gray-100 text-gray-400 border-gray-200 cursor-not-allowed' : 'border-blue-600 text-blue-600 hover:bg-blue-50'}`} title={isSyncLocked ? "Dữ liệu đã khớp. Nhấn đúp để mở khóa" : "Quét và tạo tài khoản cho căn hộ còn thiếu"}>
                             {isSyncLocked ? <LockClosedIcon className="w-5 h-5" /> : <ArrowPathIcon className="w-5 h-5" />}
                             {isSyncLocked ? "Đã đồng bộ" : "Đồng bộ Cư dân"}
                         </button>
