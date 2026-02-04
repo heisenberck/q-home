@@ -40,7 +40,6 @@ const MonthPickerPopover: React.FC<{
 
     const now = new Date();
     const currentSystemYear = now.getFullYear();
-    const currentSystemMonth = now.getMonth();
 
     const months = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
 
@@ -179,24 +178,17 @@ const WaterPage: React.FC<WaterPageProps> = ({ waterReadings: globalReadings, se
     const canEdit = ['Admin', 'Operator', 'Accountant'].includes(role);
     const [period, setPeriod] = useState(new Date().toISOString().slice(0, 7));
     
-    // Use local state to manage readings for the selected period
-    // This allows fetching arbitrary periods without relying on the global hook which might only have current month
     const [localReadings, setLocalReadings] = useState<WaterReading[]>([]);
     const [isFetching, setIsFetching] = useState(false);
 
-    // Fetch data whenever the period changes
     useEffect(() => {
         let isMounted = true;
         const loadPeriodData = async () => {
             setIsFetching(true);
             try {
                 const prevPeriod = getPreviousPeriod(period);
-                // Fetch current selected period and previous period (for consumption calc)
                 const data = await fetchRecentWaterReadings([period, prevPeriod]);
-                
-                if (isMounted) {
-                    setLocalReadings(data);
-                }
+                if (isMounted) setLocalReadings(data);
             } catch (error) {
                 console.error("Failed to fetch water readings:", error);
                 showToast("Lỗi tải dữ liệu nước.", "error");
@@ -204,34 +196,25 @@ const WaterPage: React.FC<WaterPageProps> = ({ waterReadings: globalReadings, se
                 if (isMounted) setIsFetching(false);
             }
         };
-
         loadPeriodData();
         return () => { isMounted = false; };
-    }, [period, showToast]);
+    }, [period]);
 
-    // Use localReadings as the primary data source for the view
     const displayReadings = localReadings;
-
     const [searchTerm, setSearchTerm] = useState('');
     const [floorFilter, setFloorFilter] = useState('all');
     const [kpiFilter, setKpiFilter] = useState<'residential' | 'business' | 'unrecorded' | null>(null);
-    
     const [validationErrors, setValidationErrors] = useState<Record<string, string>>({});
     const inputRefs = useRef<Record<string, HTMLInputElement>>({});
     const [isMonthPickerOpen, setIsMonthPickerOpen] = useState(false);
-    
     const [isLocking, setIsLocking] = useState(false);
     const [isImportModalOpen, setIsImportModalOpen] = useState(false);
     const fileInputRef = useRef<HTMLInputElement>(null);
-    
     const [selectedUnitId, setSelectedUnitId] = useState<string | null>(null);
     const [fullListModalData, setFullListModalData] = useState<{title: string; data: any[]; type: 'highest' | 'increase'} | null>(null);
-
     const [localLockedState, setLocalLockedState] = useState<boolean | null>(null);
 
-    useEffect(() => {
-        setLocalLockedState(null);
-    }, [period]);
+    useEffect(() => { setLocalLockedState(null); }, [period]);
 
     const isLocked = useMemo(() => {
         if (localLockedState !== null) return localLockedState;
@@ -260,16 +243,10 @@ const WaterPage: React.FC<WaterPageProps> = ({ waterReadings: globalReadings, se
         let currentPeriodDate = new Date(period + '-02');
         for (let i = 0; i < 6; i++) {
             const p = currentPeriodDate.toISOString().slice(0, 7);
-            
-            // Try local first, then global fallback for history
             let consumption = 0;
             const inLocal = displayReadings.filter(r => r.Period === p);
-            if (inLocal.length > 0) {
-                 consumption = inLocal.reduce((total, reading) => total + (reading.consumption ?? 0), 0);
-            } else {
-                 consumption = globalReadings.filter(r => r.Period === p).reduce((total, reading) => total + (reading.consumption ?? 0), 0);
-            }
-
+            if (inLocal.length > 0) consumption = inLocal.reduce((total, reading) => total + (reading.consumption ?? 0), 0);
+            else consumption = globalReadings.filter(r => r.Period === p).reduce((total, reading) => total + (reading.consumption ?? 0), 0);
             data.push({ name: `${String(currentPeriodDate.getMonth() + 1).padStart(2, '0')}/${currentPeriodDate.getFullYear().toString().slice(2)}`, 'Tiêu thụ': consumption });
             currentPeriodDate.setMonth(currentPeriodDate.getMonth() - 1);
         }
@@ -296,11 +273,9 @@ const WaterPage: React.FC<WaterPageProps> = ({ waterReadings: globalReadings, se
     const individualUnitAnalytics = useMemo(() => {
         if (!selectedUnitId) return null;
         const allAvailable = [...displayReadings, ...globalReadings];
-        // Deduplicate based on Period+UnitID
         const uniqueMap = new Map();
         allAvailable.forEach(item => uniqueMap.set(`${item.Period}_${item.UnitID}`, item));
         const uniqueReadings = Array.from(uniqueMap.values());
-
         const readingsForUnit = uniqueReadings.filter(r => r.UnitID === selectedUnitId && r.consumption > 0).sort((a, b) => b.Period.localeCompare(a.Period)).slice(0, 12);
         if (readingsForUnit.length === 0) return { highest: null, lowest: null, average: 0 };
         const highest = readingsForUnit.reduce((max, current) => current.consumption > max.consumption ? current : max, readingsForUnit[0]);
@@ -349,24 +324,16 @@ const WaterPage: React.FC<WaterPageProps> = ({ waterReadings: globalReadings, se
     const handleSave = async (unitId: string, newIndexStr: string) => {
         const newIndex = parseInt(newIndexStr, 10);
         const errors = { ...validationErrors };
-        
-        // --- CASE 1: Deletion (Empty Input) ---
         if (newIndexStr === '' || isNaN(newIndex) || newIndex < 0) {
             delete errors[unitId];
             setValidationErrors(errors);
-            
-            // Remove from local state locally to reflect deletion
-            setLocalReadings(prev => prev.filter(r => !(r.UnitID === unitId && r.Period === period)));
+            setWaterReadings(prev => prev.filter(r => !(r.UnitID === unitId && r.Period === period)), { module: 'Water', action: 'DELETE_WATER_READING', summary: `Xóa số nước cho ${unitId} kỳ ${period}`, ids: [unitId], });
             showToast(`Đã xóa chỉ số cho căn hộ ${unitId}.`, 'info');
             return;
         }
-
-        // --- CASE 2: Validation ---
         const prevReadingPeriod = getPreviousPeriod(period);
-        // Find previous reading in localReadings
         const prevReading = localReadings.find(r => r.Period === prevReadingPeriod && r.UnitID === unitId);
         const prevIndex = prevReading?.CurrIndex ?? 0;
-        
         if (newIndex < prevIndex) {
             errors[unitId] = "Chỉ số mới phải lớn hơn hoặc bằng chỉ số cũ.";
             setValidationErrors(errors);
@@ -374,28 +341,16 @@ const WaterPage: React.FC<WaterPageProps> = ({ waterReadings: globalReadings, se
         }
         delete errors[unitId];
         setValidationErrors(errors);
-
-        // --- CASE 3: Save Data ---
-        const consumption = (newIndex - prevIndex);
+        const consumption = newIndex - prevIndex;
         const newReading: WaterReading = { UnitID: unitId, Period: period, PrevIndex: prevIndex, CurrIndex: newIndex, Rollover: false, consumption: Math.max(0, consumption) };
         
         try {
             await saveWaterReadings([newReading]);
-            
-            // Optimistic Update Local State
-            setLocalReadings(prev => {
-                const others = prev.filter(r => !(r.UnitID === unitId && r.Period === period));
-                return [...others, newReading];
-            });
-            
-            if (refreshData) {
-                refreshData(true);
-            }
-            
+            setLocalReadings(prev => [...prev.filter(r => !(r.UnitID === unitId && r.Period === period)), newReading]);
+            if (refreshData) refreshData(true);
             showToast(`Đã lưu chỉ số mới cho căn hộ ${unitId}.`, 'success');
         } catch (error) {
-            console.error("Save water reading error:", error);
-            showToast('Lỗi khi lưu dữ liệu. Vui lòng thử lại.', 'error');
+            showToast('Lỗi khi lưu dữ liệu.', 'error');
         }
     };
     
@@ -405,64 +360,38 @@ const WaterPage: React.FC<WaterPageProps> = ({ waterReadings: globalReadings, se
         try {
             const parsedData = await processImportFile(file, { unitId: ['căn hộ', 'unit'], reading: ['chỉ số', 'reading', 'số nước', 'mới'] });
             if (parsedData.length === 0) { showToast('Không tìm thấy dữ liệu hợp lệ trong file.', 'warn'); return; }
-            
             const prevPeriod = getPreviousPeriod(period);
             const prevReadingsMap = new Map<string, WaterReading>(localReadings.filter(r => r.Period === prevPeriod).map(r => [r.UnitID, r]));
-            
-            // --- NEW: Smart UnitID Lookup Map for Kios Support ---
             const unitIdMap = new Map<string, string>();
             allUnits.forEach(u => {
                 const s = u.UnitID.toLowerCase().trim();
-                // Kios normalization: "Kios 1" -> "k1", "K01" -> "k1"
-                if (s.startsWith('k')) {
-                    const num = parseInt(s.replace(/\D/g, '') || '0', 10);
-                    unitIdMap.set(`k${num}`, u.UnitID);
-                } else {
-                    unitIdMap.set(s, u.UnitID);
-                }
+                if (s.startsWith('k')) { const num = parseInt(s.replace(/\D/g, '') || '0', 10); unitIdMap.set(`k${num}`, u.UnitID); }
+                else unitIdMap.set(s, u.UnitID);
             });
-
             const newReadings: WaterReading[] = [];
-            let successCount = 0, errorCount = 0;
-            
+            let successCount = 0; const errors: string[] = [];
             for (const row of parsedData) {
-                const rawId = String(row.unitId).trim();
-                const rawIdLower = rawId.toLowerCase();
-                
-                // Try direct match first, then smart match
-                let targetUnitId = unitIdMap.get(rawIdLower);
-                if (!targetUnitId && rawIdLower.startsWith('k')) {
-                    // Try to extract number for Kios mismatch (e.g. file has "Kios 01", system has "Kios 1")
-                    const num = parseInt(rawIdLower.replace(/\D/g, '') || '0', 10);
-                    targetUnitId = unitIdMap.get(`k${num}`);
-                }
-
-                if (!targetUnitId) { 
-                    errorCount++; 
-                    continue; 
-                }
-
-                const newIndex = parseInt(String(row.reading), 10);
-                if (isNaN(newIndex) || newIndex < 0) { errorCount++; continue; }
-                
+                const rawId = String(row.unitId).trim().toLowerCase();
+                let targetUnitId = unitIdMap.get(rawId);
+                if (!targetUnitId && rawId.startsWith('k')) { const num = parseInt(rawId.replace(/\D/g, '') || '0', 10); targetUnitId = unitIdMap.get(`k${num}`); }
+                if (!targetUnitId) { errors.push(`Không tìm thấy căn hộ: ${row.unitId}`); continue; }
+                const readingStr = String(row.reading).trim();
+                const newIndex = parseInt(readingStr.replace(/\D/g, ''), 10);
+                if (isNaN(newIndex) || newIndex < 0) { errors.push(`${targetUnitId}: Chỉ số không hợp lệ`); continue; }
                 const prevReading = prevReadingsMap.get(targetUnitId);
                 const prevIndex = prevReading?.CurrIndex ?? 0;
-                
-                if (newIndex < prevIndex) { errorCount++; continue; }
-                
+                if (newIndex < prevIndex) { errors.push(`${targetUnitId}: Chỉ số mới nhỏ hơn cũ`); continue; }
                 const consumption = newIndex - prevIndex;
                 newReadings.push({ UnitID: targetUnitId, Period: period, PrevIndex: prevIndex, CurrIndex: newIndex, Rollover: false, consumption: Math.max(0, consumption) });
                 successCount++;
             }
             if (successCount > 0) {
                 await saveWaterReadings(newReadings);
-                
                 const freshData = await fetchRecentWaterReadings([period, prevPeriod]);
                 setLocalReadings(freshData);
-
                 if(refreshData) refreshData(true);
-                showToast(`Nhập thành công ${successCount} chỉ số. ${errorCount > 0 ? `${errorCount} dòng lỗi.` : ''}`, 'success');
-            } else { showToast(`Không có chỉ số hợp lệ nào được nhập. ${errorCount} dòng lỗi.`, 'warn'); }
+                showToast(`Nhập thành công ${successCount} chỉ số.${errors.length > 0 ? ` Có ${errors.length} lỗi.` : ''}`, 'success');
+            } else { showToast(`Không có chỉ số hợp lệ nào.`, 'error'); }
         } catch (error: any) { showToast(`Lỗi khi xử lý file: ${error.message}`, 'error'); } 
         finally { if (fileInputRef.current) fileInputRef.current.value = ""; }
     };
@@ -514,11 +443,8 @@ const WaterPage: React.FC<WaterPageProps> = ({ waterReadings: globalReadings, se
             const data = await fetchRecentWaterReadings([period, prev]);
             setLocalReadings(data);
             showToast("Đã cập nhật dữ liệu mới nhất.", "success");
-        } catch(e) {
-            showToast("Lỗi khi tải dữ liệu.", "error");
-        } finally {
-            setIsFetching(false);
-        }
+        } catch(e) { showToast("Lỗi khi tải dữ liệu.", "error"); } 
+        finally { setIsFetching(false); }
     };
 
     const handleImportClick = () => fileInputRef.current?.click();
@@ -546,25 +472,10 @@ const WaterPage: React.FC<WaterPageProps> = ({ waterReadings: globalReadings, se
                          <div className="flex items-center gap-2">
                             <button onClick={handleManualRefresh} className="h-10 px-3 rounded-lg bg-gray-100 hover:bg-gray-200 border border-transparent" title="Làm mới dữ liệu"><ArrowPathIcon className={`w-5 h-5 ${isFetching ? 'animate-spin' : ''}`} /></button>
                             {isLocked ? (
-                                <button 
-                                    onDoubleClick={handleUnlock} 
-                                    disabled={!canEdit || isLocking} 
-                                    className="h-10 px-4 font-semibold rounded-lg flex items-center gap-2 bg-gray-400 text-white border border-gray-400 disabled:opacity-50 hover:bg-gray-500 cursor-pointer select-none shadow-sm transition-colors"
-                                    title="Dữ liệu đã chốt. Nhấn đúp để mở khóa."
-                                >
-                                    <LockClosedIcon className="w-5 h-5" /> Đã chốt
-                                </button>
+                                <button onDoubleClick={handleUnlock} disabled={!canEdit || isLocking} className="h-10 px-4 font-semibold rounded-lg flex items-center gap-2 bg-gray-400 text-white border border-gray-400 disabled:opacity-50 hover:bg-gray-500 cursor-pointer select-none shadow-sm transition-colors" title="Dữ liệu đã chốt. Nhấn đúp để mở khóa."><LockClosedIcon className="w-5 h-5" /> Đã chốt</button>
                             ) : (
-                                <button 
-                                    onClick={handleLock} 
-                                    disabled={!canEdit || isLocking} 
-                                    className="h-10 px-4 font-semibold rounded-lg flex items-center gap-2 bg-primary text-white hover:bg-primary-focus shadow-sm disabled:opacity-50 transition-colors"
-                                    title="Chốt số liệu kỳ này"
-                                >
-                                    <SaveIcon className="w-5 h-5" /> Chốt sổ
-                                </button>
+                                <button onClick={handleLock} disabled={!canEdit || isLocking} className="h-10 px-4 font-semibold rounded-lg flex items-center gap-2 bg-primary text-white hover:bg-primary-focus shadow-sm disabled:opacity-50 transition-colors" title="Chốt số liệu kỳ này"><SaveIcon className="w-5 h-5" /> Chốt sổ</button>
                             )}
-                            
                             <button onClick={() => setIsImportModalOpen(true)} disabled={!canEdit || isLocked} className="h-10 px-4 font-semibold rounded-lg flex items-center gap-2 border border-primary text-primary hover:bg-primary/10 bg-white disabled:opacity-50"><UploadIcon /> Import</button>
                         </div>
                     </div>
@@ -573,19 +484,7 @@ const WaterPage: React.FC<WaterPageProps> = ({ waterReadings: globalReadings, se
                 <div className="bg-white rounded-xl shadow-sm flex-1 flex flex-col overflow-hidden"><div className="overflow-y-auto pr-2"><table className="min-w-full"><thead className="bg-gray-50 sticky top-0 z-10"><tr><th className="px-4 py-3 text-left text-xs font-bold text-gray-700 uppercase tracking-wider">Căn hộ</th><th className="px-4 py-3 text-right text-xs font-bold text-gray-700 uppercase tracking-wider">Chỉ số cũ</th><th className="px-4 py-3 text-right text-xs font-bold text-gray-700 uppercase tracking-wider">Chỉ số mới</th><th className="px-4 py-3 text-right text-xs font-bold text-gray-700 uppercase tracking-wider">Tiêu thụ (m³)</th><th className="px-4 py-3 text-center text-xs font-bold text-gray-700 uppercase tracking-wider">Lịch sử</th></tr></thead><tbody className="divide-y divide-gray-100">{filteredWaterData.map(d => (<tr key={d.unitId} className={`transition-colors text-sm ${selectedUnitId === d.unitId ? 'bg-blue-50' : 'hover:bg-gray-50'}`}>
                     <td className="font-semibold px-4 py-3 text-gray-900">{d.unitId}</td>
                     <td className="px-4 py-3 text-right text-gray-500">{d.prevIndex?.toLocaleString('vi-VN') ?? 'N/A'}</td>
-                    <td className="px-4 py-3 text-right">
-                        <input 
-                            ref={el => { if (el) inputRefs.current[d.unitId] = el; }} 
-                            type="number" 
-                            defaultValue={d.currIndex ?? ''} 
-                            key={`${d.unitId}-${d.currIndex}`}
-                            onBlur={e => handleSave(d.unitId, e.target.value)} 
-                            onKeyDown={e => { if (e.key === 'Enter') (e.target as HTMLInputElement).blur(); }} 
-                            disabled={!canEdit || isLocked || isFetching} 
-                            className={`w-32 text-right p-2 border rounded-md bg-gray-50 focus:bg-white text-gray-900 focus:ring-2 focus:ring-primary ${validationErrors[d.unitId] ? 'border-red-500' : 'border-gray-300'} disabled:bg-transparent disabled:border-transparent`}
-                        />
-                        {validationErrors[d.unitId] && <p className="text-red-500 text-xs text-right mt-1">{validationErrors[d.unitId]}</p>}
-                    </td>
+                    <td className="px-4 py-3 text-right"><input ref={el => { if (el) inputRefs.current[d.unitId] = el; }} type="number" defaultValue={d.currIndex ?? ''} key={`${d.unitId}-${d.currIndex}`} onBlur={e => handleSave(d.unitId, e.target.value)} onKeyDown={e => { if (e.key === 'Enter') (e.target as HTMLInputElement).blur(); }} disabled={!canEdit || isLocked || isFetching} className={`w-32 text-right p-2 border rounded-md bg-gray-50 focus:bg-white text-gray-900 focus:ring-2 focus:ring-primary ${validationErrors[d.unitId] ? 'border-red-500' : 'border-gray-300'} disabled:bg-transparent disabled:border-transparent`}/>{validationErrors[d.unitId] && <p className="text-red-500 text-xs text-right mt-1">{validationErrors[d.unitId]}</p>}</td>
                     <td className={`font-bold px-4 py-3 text-right ${d.consumption && d.consumption > 30 ? 'text-red-600' : (d.consumption && d.consumption > 20 ? 'text-yellow-600' : 'text-green-600')}`}>{d.consumption !== null ? `${d.consumption.toLocaleString('vi-VN')} m³` : 'Chưa có'}</td>
                     <td className="px-4 py-3 text-center"><button onClick={() => setSelectedUnitId(d.unitId)} className="p-2 rounded-full hover:bg-gray-200"><EyeIcon className="w-5 h-5 text-blue-600"/></button></td>
                 </tr>))}</tbody></table></div></div>

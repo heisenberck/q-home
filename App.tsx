@@ -98,24 +98,16 @@ const App: React.FC = () => {
     const [localCharges, setLocalCharges] = useState<ChargeRaw[]>([]);
     useEffect(() => { if(charges) setLocalCharges(charges); }, [charges]);
 
-    // Local Users state to allow instant UI updates in the Users management page
     const [localUsers, setLocalUsers] = useState<UserPermission[]>([]);
     useEffect(() => { if(fetchedUsers) setLocalUsers(fetchedUsers); }, [fetchedUsers]);
 
-    // --- FIX: Đồng bộ quyền User từ Server về Session hiện tại ---
     useEffect(() => {
         if (!user || localUsers.length === 0) return;
-
         const freshUser = localUsers.find(u => u.Email === user.Email);
         if (freshUser) {
-            // So sánh quyền và vai trò
             const currentPerms = JSON.stringify(user.permissions || []);
             const freshPerms = JSON.stringify(freshUser.permissions || []);
-            const currentRole = user.Role;
-            const freshRole = freshUser.Role;
-
-            if (currentPerms !== freshPerms || currentRole !== freshRole) {
-                console.log("Syncing user permissions from server...");
+            if (currentPerms !== freshPerms || user.Role !== freshUser.Role) {
                 const mergedUser = { ...user, ...freshUser };
                 setUser(mergedUser);
                 if (localStorage.getItem('rememberedUserObject')) {
@@ -123,7 +115,7 @@ const App: React.FC = () => {
                 }
             }
         }
-    }, [localUsers, user?.Email]); // Chỉ chạy khi localUsers thay đổi
+    }, [localUsers, user?.Email]);
 
     useEffect(() => {
         const handleResize = () => setIsMobile(window.innerWidth < 768);
@@ -183,11 +175,28 @@ const App: React.FC = () => {
 
     const handleSaveTariffs = async (newTariffs: TariffCollection, logPayload?: any) => {
         await saveTariffs(newTariffs);
+        if (logPayload) await logActivity(logPayload.action, logPayload.module, logPayload.summary);
+        refreshSystemData(true);
+    }
+
+    const handleSaveWaterReadingsProp = async (updater: React.SetStateAction<WaterReading[]>, logPayload?: any) => {
+        // Logic for handling water reading updates from the WaterPage component
+        // Since useSmartSystemData is the source, we call the service directly
+        if (typeof updater === 'function') {
+            const nextReadings = updater(waterReadings);
+            // Identify changes (usually only one reading is updated at a time in manual mode)
+            // But we can just save all or filter the differences. 
+            // For now, save waterReadings via service
+            await saveWaterReadings(nextReadings);
+        } else {
+            await saveWaterReadings(updater);
+        }
+        
         if (logPayload) {
             await logActivity(logPayload.action, logPayload.module, logPayload.summary);
         }
         refreshSystemData(true);
-    }
+    };
 
     const handleMarkNewsAsRead = useCallback((newsId: string) => {
         setReadNewsIds(prev => {
@@ -210,7 +219,7 @@ const App: React.FC = () => {
             case 'billing': return <BillingPage charges={localCharges} setCharges={setLocalCharges} allData={{ units, owners, vehicles, waterReadings, tariffs, adjustments, activityLogs, monthlyStats, lockedWaterPeriods }} onUpdateAdjustments={() => {}} role={user!.Role} invoiceSettings={invoiceSettings || DEFAULT_SETTINGS} onRefresh={() => refreshSystemData(true)} />;
             case 'residents': return <ResidentsPage units={units} owners={owners} vehicles={vehicles} activityLogs={activityLogs} onSaveResident={handleSaveResident} onImportData={importResidentsBatch} onDeleteResidents={()=>{}} role={user!.Role} currentUser={user!} onNavigate={(p) => setActivePage(p as AdminPage)} />;
             case 'vehicles': return <VehiclesPage vehicles={vehicles} units={units} owners={owners} activityLogs={activityLogs} onSetVehicles={()=>{}} role={user!.Role} />;
-            case 'water': return <WaterPage waterReadings={waterReadings} setWaterReadings={()=>{}} allUnits={units} role={user!.Role} tariffs={tariffs} lockedPeriods={lockedWaterPeriods} refreshData={refreshSystemData} />;
+            case 'water': return <WaterPage waterReadings={waterReadings} setWaterReadings={handleSaveWaterReadingsProp} allUnits={units} role={user!.Role} tariffs={tariffs} lockedPeriods={lockedWaterPeriods} refreshData={refreshSystemData} />;
             case 'pricing': return <PricingPage tariffs={tariffs} setTariffs={handleSaveTariffs} role={user!.Role} />;
             case 'users': return <UsersPage users={localUsers} setUsers={setLocalUsers} units={units} role={user!.Role} />;
             case 'settings': return <SettingsPage invoiceSettings={invoiceSettings || DEFAULT_SETTINGS} setInvoiceSettings={(s) => updateFeeSettings(s)} role={user!.Role} />;
@@ -244,9 +253,7 @@ const App: React.FC = () => {
         const props = { units, vehicles, charges: localCharges, monthlyStats, news, owners, miscRevenues, expenses };
         const isAdmin = user!.Role === 'Admin';
         const userPerms = new Set(user!.permissions || []);
-
         const hasPerm = (perm: string) => isAdmin || userPerms.has(perm);
-
         switch (activePage as AdminPortalPage) {
             case 'adminPortalHome': return <AdminPortalHomePage {...props} onNavigate={(p) => setActivePage(p as AdminPortalPage)} />;
             case 'adminPortalBilling': return <AdminPortalBillingPage charges={localCharges} units={units} owners={owners} />;
@@ -256,15 +263,8 @@ const App: React.FC = () => {
             case 'adminPortalExpenses': return <AdminPortalExpensesPage expenses={expenses} />;
             case 'adminPortalMore': return (
                 <div className="p-4 space-y-4">
-                    {/* Render Buttons conditionally based on permissions */}
-                    {hasPerm('newsManagement') && (
-                        <button onClick={() => setActivePage('newsManagement' as any)} className="w-full p-4 bg-white rounded-xl shadow-sm border flex justify-between items-center font-bold text-gray-800">Quản lý Tin tức <span>→</span></button>
-                    )}
-                    {hasPerm('feedbackManagement') && (
-                        <button onClick={() => setActivePage('feedbackManagement' as any)} className="w-full p-4 bg-white rounded-xl shadow-sm border flex justify-between items-center font-bold text-gray-800">Phản hồi Cư dân <span>→</span></button>
-                    )}
-                    
-                    {/* Always allow logout */}
+                    {hasPerm('newsManagement') && <button onClick={() => setActivePage('newsManagement' as any)} className="w-full p-4 bg-white rounded-xl shadow-sm border flex justify-between items-center font-bold text-gray-800">Quản lý Tin tức <span>→</span></button>}
+                    {hasPerm('feedbackManagement') && <button onClick={() => setActivePage('feedbackManagement' as any)} className="w-full p-4 bg-white rounded-xl shadow-sm border flex justify-between items-center font-bold text-gray-800">Phản hồi Cư dân <span>→</span></button>}
                     <button onClick={() => handleLogout()} className="w-full p-4 bg-red-50 text-red-600 rounded-xl shadow-sm border flex justify-between items-center font-black">Đăng xuất <span>⏻</span></button>
                 </div>
             );
